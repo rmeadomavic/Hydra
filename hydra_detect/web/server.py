@@ -1,19 +1,17 @@
-"""FastAPI web server — MJPEG stream, operator dashboard, and REST API."""
+"""FastAPI web server — MJPEG stream, operator dashboard, runtime config, and REST API."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import threading
-import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import cv2
 import numpy as np
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 logger = logging.getLogger(__name__)
@@ -36,8 +34,35 @@ class StreamState:
             "total_detections": 0,
             "detector": "n/a",
             "mavlink": False,
+            "gps_fix": 0,
+            "position": None,
         }
         self._lock = threading.Lock()
+
+        # Runtime config callbacks (set by pipeline)
+        self._on_prompts_change: Optional[Callable] = None
+        self._on_threshold_change: Optional[Callable] = None
+        self._on_loiter_command: Optional[Callable] = None
+        self._on_target_lock: Optional[Callable] = None
+        self._on_target_unlock: Optional[Callable] = None
+        self._on_strike_command: Optional[Callable] = None
+        self._get_recent_detections: Optional[Callable] = None
+        self._get_active_tracks: Optional[Callable] = None
+
+        # Current runtime config (readable by web UI)
+        self.runtime_config: Dict[str, Any] = {
+            "prompts": [],
+            "threshold": 0.25,
+            "auto_loiter": False,
+        }
+
+        # Target lock state (readable by web UI)
+        self.target_lock: Dict[str, Any] = {
+            "locked": False,
+            "track_id": None,
+            "mode": None,  # "track" or "strike"
+            "label": None,
+        }
 
     def update_frame(self, frame: np.ndarray) -> None:
         with self._lock:
@@ -54,6 +79,26 @@ class StreamState:
     def get_stats(self) -> Dict[str, Any]:
         with self._lock:
             return dict(self.stats)
+
+    def set_callbacks(
+        self,
+        on_prompts_change: Optional[Callable] = None,
+        on_threshold_change: Optional[Callable] = None,
+        on_loiter_command: Optional[Callable] = None,
+        on_target_lock: Optional[Callable] = None,
+        on_target_unlock: Optional[Callable] = None,
+        on_strike_command: Optional[Callable] = None,
+        get_recent_detections: Optional[Callable] = None,
+        get_active_tracks: Optional[Callable] = None,
+    ) -> None:
+        self._on_prompts_change = on_prompts_change
+        self._on_threshold_change = on_threshold_change
+        self._on_loiter_command = on_loiter_command
+        self._on_target_lock = on_target_lock
+        self._on_target_unlock = on_target_unlock
+        self._on_strike_command = on_strike_command
+        self._get_recent_detections = get_recent_detections
+        self._get_active_tracks = get_active_tracks
 
 
 # Global state instance — set by the pipeline before starting the server
@@ -72,6 +117,134 @@ async def index(request: Request):
 async def api_stats():
     """Return current pipeline statistics as JSON."""
     return stream_state.get_stats()
+
+
+@app.get("/api/config")
+async def api_get_config():
+    """Return current runtime configuration."""
+    return stream_state.runtime_config
+
+
+@app.post("/api/config/prompts")
+async def api_set_prompts(request: Request):
+    """Update detection prompts at runtime (NanoOWL)."""
+    body = await request.json()
+    prompts = body.get("prompts", [])
+    if not prompts or not isinstance(prompts, list):
+        return JSONResponse({"error": "prompts must be a non-empty list"}, status_code=400)
+
+    if stream_state._on_prompts_change:
+        stream_state._on_prompts_change(prompts)
+        stream_state.runtime_config["prompts"] = prompts
+        logger.info("Prompts updated via web UI: %s", prompts)
+        return {"status": "ok", "prompts": prompts}
+    return JSONResponse({"error": "prompt change not supported for current detector"}, status_code=400)
+
+
+@app.post("/api/config/threshold")
+async def api_set_threshold(request: Request):
+    """Update detection confidence threshold at runtime."""
+    body = await request.json()
+    threshold = body.get("threshold")
+    if threshold is None or not (0.0 <= float(threshold) <= 1.0):
+        return JSONResponse({"error": "threshold must be 0.0-1.0"}, status_code=400)
+
+    threshold = float(threshold)
+    if stream_state._on_threshold_change:
+        stream_state._on_threshold_change(threshold)
+        stream_state.runtime_config["threshold"] = threshold
+        logger.info("Threshold updated via web UI: %.2f", threshold)
+        return {"status": "ok", "threshold": threshold}
+    return JSONResponse({"error": "threshold change not available"}, status_code=400)
+
+
+@app.post("/api/vehicle/loiter")
+async def api_command_loiter():
+    """Command vehicle to LOITER/HOLD at current position."""
+    if stream_state._on_loiter_command:
+        stream_state._on_loiter_command()
+        return {"status": "ok", "command": "loiter"}
+    return JSONResponse({"error": "MAVLink not connected"}, status_code=503)
+
+
+@app.get("/api/tracks")
+async def api_active_tracks():
+    """Return currently active tracked objects (for target selection)."""
+    if stream_state._get_active_tracks:
+        return stream_state._get_active_tracks()
+    return []
+
+
+@app.get("/api/target")
+async def api_target_status():
+    """Return current target lock state."""
+    return stream_state.target_lock
+
+
+@app.post("/api/target/lock")
+async def api_target_lock(request: Request):
+    """Lock onto a tracked object for keep-in-frame tracking.
+
+    Body: {"track_id": 5}
+    """
+    body = await request.json()
+    track_id = body.get("track_id")
+    if track_id is None:
+        return JSONResponse({"error": "track_id required"}, status_code=400)
+
+    if stream_state._on_target_lock:
+        result = stream_state._on_target_lock(int(track_id), mode="track")
+        if result:
+            return {"status": "ok", "track_id": track_id, "mode": "track"}
+        return JSONResponse({"error": "track_id not found in active tracks"}, status_code=404)
+    return JSONResponse({"error": "target lock not available"}, status_code=503)
+
+
+@app.post("/api/target/unlock")
+async def api_target_unlock():
+    """Release target lock."""
+    if stream_state._on_target_unlock:
+        stream_state._on_target_unlock()
+        return {"status": "ok"}
+    return JSONResponse({"error": "target lock not available"}, status_code=503)
+
+
+@app.post("/api/target/strike")
+async def api_strike_command(request: Request):
+    """Command vehicle to navigate toward the locked target.
+
+    Body: {"track_id": 5, "confirm": true}
+    The confirm field MUST be true — this is a safety check.
+    """
+    body = await request.json()
+    track_id = body.get("track_id")
+    confirm = body.get("confirm", False)
+
+    if not confirm:
+        return JSONResponse(
+            {"error": "Strike requires explicit confirmation. Set confirm=true."},
+            status_code=400,
+        )
+    if track_id is None:
+        return JSONResponse({"error": "track_id required"}, status_code=400)
+
+    if stream_state._on_strike_command:
+        result = stream_state._on_strike_command(int(track_id))
+        if result:
+            return {"status": "ok", "track_id": track_id, "mode": "strike"}
+        return JSONResponse(
+            {"error": "Strike failed — no GPS fix or track not found"},
+            status_code=503,
+        )
+    return JSONResponse({"error": "strike not available"}, status_code=503)
+
+
+@app.get("/api/detections")
+async def api_recent_detections():
+    """Return recent detection log entries."""
+    if stream_state._get_recent_detections:
+        return stream_state._get_recent_detections()
+    return []
 
 
 @app.get("/stream.mjpeg")
