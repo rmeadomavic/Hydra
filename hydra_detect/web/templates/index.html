@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hydra Detect v2.0</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #0a0e17;
+            color: #c8d6e5;
+        }
+        .header {
+            background: #131a2b;
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #1e2a3a;
+        }
+        .header h1 {
+            font-size: 1.3rem;
+            color: #00d4ff;
+            font-weight: 600;
+        }
+        .header .status {
+            font-size: 0.85rem;
+            padding: 4px 12px;
+            border-radius: 12px;
+            background: #1a3a2a;
+            color: #4ade80;
+        }
+        .header .status.offline {
+            background: #3a1a1a;
+            color: #f87171;
+        }
+        .main {
+            display: flex;
+            height: calc(100vh - 52px);
+        }
+        .video-panel {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            position: relative;
+        }
+        .video-panel img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        .sidebar {
+            width: 280px;
+            background: #131a2b;
+            border-left: 1px solid #1e2a3a;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        .sidebar h2 {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #6b7fa3;
+            margin-bottom: 12px;
+        }
+        .stat-card {
+            background: #1a2335;
+            border-radius: 8px;
+            padding: 14px;
+            margin-bottom: 10px;
+        }
+        .stat-card .label {
+            font-size: 0.75rem;
+            color: #6b7fa3;
+            text-transform: uppercase;
+        }
+        .stat-card .value {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: #e2e8f0;
+            margin-top: 2px;
+        }
+        .stat-card .value.highlight {
+            color: #00d4ff;
+        }
+        .stat-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .mavlink-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .mavlink-badge.connected { background: #1a3a2a; color: #4ade80; }
+        .mavlink-badge.disconnected { background: #3a1a1a; color: #f87171; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>HYDRA DETECT v2.0</h1>
+        <span class="status" id="conn-status">LIVE</span>
+    </div>
+    <div class="main">
+        <div class="video-panel">
+            <img id="stream" src="/stream.mjpeg" alt="Video Stream">
+        </div>
+        <div class="sidebar">
+            <h2>Pipeline Stats</h2>
+            <div class="stat-card">
+                <div class="label">FPS</div>
+                <div class="value highlight" id="fps">--</div>
+            </div>
+            <div class="stat-row">
+                <div class="stat-card">
+                    <div class="label">Inference</div>
+                    <div class="value" id="inference">-- ms</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Tracks</div>
+                    <div class="value" id="tracks">--</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Total Detections</div>
+                <div class="value" id="total-det">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Detector Engine</div>
+                <div class="value" id="detector" style="font-size:1rem;">--</div>
+            </div>
+            <h2 style="margin-top:20px;">Vehicle Link</h2>
+            <div class="stat-card">
+                <div class="label">MAVLink</div>
+                <div id="mavlink-status">
+                    <span class="mavlink-badge disconnected">DISCONNECTED</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        async function updateStats() {
+            try {
+                const resp = await fetch('/api/stats');
+                const s = await resp.json();
+                document.getElementById('fps').textContent = s.fps.toFixed(1);
+                document.getElementById('inference').textContent = s.inference_ms.toFixed(1) + ' ms';
+                document.getElementById('tracks').textContent = s.active_tracks;
+                document.getElementById('total-det').textContent = s.total_detections;
+                document.getElementById('detector').textContent = s.detector.toUpperCase();
+                const badge = document.getElementById('mavlink-status');
+                if (s.mavlink) {
+                    badge.innerHTML = '<span class="mavlink-badge connected">CONNECTED</span>';
+                } else {
+                    badge.innerHTML = '<span class="mavlink-badge disconnected">DISCONNECTED</span>';
+                }
+                document.getElementById('conn-status').className = 'status';
+                document.getElementById('conn-status').textContent = 'LIVE';
+            } catch {
+                document.getElementById('conn-status').className = 'status offline';
+                document.getElementById('conn-status').textContent = 'OFFLINE';
+            }
+        }
+        setInterval(updateStats, 1000);
+        updateStats();
+    </script>
+</body>
+</html>

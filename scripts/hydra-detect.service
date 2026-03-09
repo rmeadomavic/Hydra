@@ -1,0 +1,20 @@
+[Unit]
+Description=Hydra Detect v2.0 — Aerial Detection & Tracking
+After=network.target
+
+[Service]
+Type=simple
+User=hydra
+WorkingDirectory=/opt/hydra-detect
+ExecStart=/opt/hydra-detect/venv/bin/python -m hydra_detect --config /opt/hydra-detect/config.ini
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Resource limits
+MemoryMax=2G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
