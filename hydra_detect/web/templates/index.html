@@ -42,64 +42,144 @@
         .video-panel {
             flex: 1;
             display: flex;
-            align-items: center;
-            justify-content: center;
+            flex-direction: column;
             background: #000;
-            position: relative;
         }
         .video-panel img {
+            flex: 1;
             max-width: 100%;
-            max-height: 100%;
             object-fit: contain;
         }
         .sidebar {
-            width: 280px;
+            width: 320px;
             background: #131a2b;
             border-left: 1px solid #1e2a3a;
-            padding: 20px;
+            padding: 16px;
             overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
         }
         .sidebar h2 {
-            font-size: 0.9rem;
+            font-size: 0.8rem;
             text-transform: uppercase;
             letter-spacing: 0.05em;
             color: #6b7fa3;
-            margin-bottom: 12px;
+            margin-bottom: 8px;
         }
         .stat-card {
             background: #1a2335;
             border-radius: 8px;
-            padding: 14px;
-            margin-bottom: 10px;
+            padding: 12px;
         }
         .stat-card .label {
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             color: #6b7fa3;
             text-transform: uppercase;
         }
         .stat-card .value {
-            font-size: 1.6rem;
+            font-size: 1.4rem;
             font-weight: 700;
             color: #e2e8f0;
             margin-top: 2px;
         }
-        .stat-card .value.highlight {
-            color: #00d4ff;
-        }
+        .stat-card .value.highlight { color: #00d4ff; }
         .stat-row {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 10px;
+            gap: 8px;
         }
-        .mavlink-badge {
+        .badge {
             display: inline-block;
             padding: 3px 10px;
             border-radius: 10px;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             font-weight: 600;
         }
-        .mavlink-badge.connected { background: #1a3a2a; color: #4ade80; }
-        .mavlink-badge.disconnected { background: #3a1a1a; color: #f87171; }
+        .badge.on { background: #1a3a2a; color: #4ade80; }
+        .badge.off { background: #3a1a1a; color: #f87171; }
+
+        /* Controls */
+        .control-group { margin-bottom: 4px; }
+        .control-group label {
+            display: block;
+            font-size: 0.75rem;
+            color: #6b7fa3;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+        textarea, input[type="text"] {
+            width: 100%;
+            background: #1a2335;
+            border: 1px solid #2a3a50;
+            color: #e2e8f0;
+            border-radius: 6px;
+            padding: 8px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            resize: vertical;
+        }
+        textarea:focus, input:focus {
+            outline: none;
+            border-color: #00d4ff;
+        }
+        input[type="range"] {
+            width: 100%;
+            accent-color: #00d4ff;
+        }
+        .range-value {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #00d4ff;
+        }
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-primary {
+            background: #00d4ff;
+            color: #0a0e17;
+        }
+        .btn-primary:hover { background: #00b8e6; }
+        .btn-warning {
+            background: #f59e0b;
+            color: #0a0e17;
+        }
+        .btn-warning:hover { background: #d97706; }
+        .btn-sm { padding: 6px 12px; font-size: 0.75rem; }
+
+        /* Detection log */
+        .det-log {
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 0.75rem;
+            font-family: monospace;
+            background: #0d1117;
+            border-radius: 6px;
+            padding: 8px;
+        }
+        .det-entry {
+            padding: 3px 0;
+            border-bottom: 1px solid #1e2a3a;
+        }
+        .det-entry .det-label {
+            color: #00d4ff;
+            font-weight: 600;
+        }
+        .det-entry .det-conf {
+            color: #4ade80;
+        }
+        .det-entry .det-time {
+            color: #6b7fa3;
+        }
+        .det-entry .det-pos {
+            color: #f59e0b;
+        }
     </style>
 </head>
 <body>
@@ -112,39 +192,90 @@
             <img id="stream" src="/stream.mjpeg" alt="Video Stream">
         </div>
         <div class="sidebar">
-            <h2>Pipeline Stats</h2>
-            <div class="stat-card">
-                <div class="label">FPS</div>
-                <div class="value highlight" id="fps">--</div>
-            </div>
-            <div class="stat-row">
+            <!-- Pipeline Stats -->
+            <div>
+                <h2>Pipeline</h2>
                 <div class="stat-card">
-                    <div class="label">Inference</div>
-                    <div class="value" id="inference">-- ms</div>
+                    <div class="label">FPS</div>
+                    <div class="value highlight" id="fps">--</div>
                 </div>
+                <div class="stat-row" style="margin-top:8px;">
+                    <div class="stat-card">
+                        <div class="label">Inference</div>
+                        <div class="value" id="inference">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Tracks</div>
+                        <div class="value" id="tracks">--</div>
+                    </div>
+                </div>
+                <div class="stat-row" style="margin-top:8px;">
+                    <div class="stat-card">
+                        <div class="label">Detections</div>
+                        <div class="value" id="total-det">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Engine</div>
+                        <div class="value" id="detector" style="font-size:0.9rem;">--</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Vehicle Link -->
+            <div>
+                <h2>Vehicle Link</h2>
                 <div class="stat-card">
-                    <div class="label">Tracks</div>
-                    <div class="value" id="tracks">--</div>
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <div class="label">MAVLink</div>
+                            <span class="badge off" id="mav-badge">DISCONNECTED</span>
+                        </div>
+                        <div>
+                            <div class="label">GPS Fix</div>
+                            <span id="gps-fix" style="font-weight:700;">--</span>
+                        </div>
+                    </div>
+                    <div id="gps-pos" style="font-family:monospace; font-size:0.75rem; color:#f59e0b; margin-top:6px;"></div>
+                </div>
+                <button class="btn-warning btn-sm" style="margin-top:8px; width:100%;" onclick="commandLoiter()">
+                    COMMAND LOITER / HOLD
+                </button>
+            </div>
+
+            <!-- Detection Config -->
+            <div>
+                <h2>Detection Config</h2>
+                <div class="stat-card">
+                    <div class="control-group">
+                        <label>Prompts (comma-separated)</label>
+                        <textarea id="prompts-input" rows="2" placeholder="a person, a rifle, a boat"></textarea>
+                    </div>
+                    <button class="btn-primary btn-sm" style="margin-top:6px;" onclick="updatePrompts()">
+                        Update Prompts
+                    </button>
+                    <div class="control-group" style="margin-top:12px;">
+                        <label>Confidence Threshold: <span class="range-value" id="thresh-val">0.25</span></label>
+                        <input type="range" id="thresh-slider" min="0.05" max="0.95" step="0.05" value="0.25"
+                               oninput="document.getElementById('thresh-val').textContent=this.value">
+                    </div>
+                    <button class="btn-primary btn-sm" style="margin-top:6px;" onclick="updateThreshold()">
+                        Apply Threshold
+                    </button>
                 </div>
             </div>
-            <div class="stat-card">
-                <div class="label">Total Detections</div>
-                <div class="value" id="total-det">--</div>
-            </div>
-            <div class="stat-card">
-                <div class="label">Detector Engine</div>
-                <div class="value" id="detector" style="font-size:1rem;">--</div>
-            </div>
-            <h2 style="margin-top:20px;">Vehicle Link</h2>
-            <div class="stat-card">
-                <div class="label">MAVLink</div>
-                <div id="mavlink-status">
-                    <span class="mavlink-badge disconnected">DISCONNECTED</span>
+
+            <!-- Detection Log -->
+            <div>
+                <h2>Detection Log</h2>
+                <div class="det-log" id="det-log">
+                    <div style="color:#6b7fa3;">Waiting for detections...</div>
                 </div>
             </div>
         </div>
     </div>
+
     <script>
+        // Fetch and display pipeline stats
         async function updateStats() {
             try {
                 const resp = await fetch('/api/stats');
@@ -153,13 +284,20 @@
                 document.getElementById('inference').textContent = s.inference_ms.toFixed(1) + ' ms';
                 document.getElementById('tracks').textContent = s.active_tracks;
                 document.getElementById('total-det').textContent = s.total_detections;
-                document.getElementById('detector').textContent = s.detector.toUpperCase();
-                const badge = document.getElementById('mavlink-status');
+                document.getElementById('detector').textContent = (s.detector || 'n/a').toUpperCase();
+
+                const mavBadge = document.getElementById('mav-badge');
                 if (s.mavlink) {
-                    badge.innerHTML = '<span class="mavlink-badge connected">CONNECTED</span>';
+                    mavBadge.className = 'badge on';
+                    mavBadge.textContent = 'CONNECTED';
                 } else {
-                    badge.innerHTML = '<span class="mavlink-badge disconnected">DISCONNECTED</span>';
+                    mavBadge.className = 'badge off';
+                    mavBadge.textContent = 'DISCONNECTED';
                 }
+
+                document.getElementById('gps-fix').textContent = s.gps_fix !== undefined ? s.gps_fix + 'D' : '--';
+                document.getElementById('gps-pos').textContent = s.position || '';
+
                 document.getElementById('conn-status').className = 'status';
                 document.getElementById('conn-status').textContent = 'LIVE';
             } catch {
@@ -167,8 +305,106 @@
                 document.getElementById('conn-status').textContent = 'OFFLINE';
             }
         }
+
+        // Load initial config
+        async function loadConfig() {
+            try {
+                const resp = await fetch('/api/config');
+                const cfg = await resp.json();
+                if (cfg.prompts && cfg.prompts.length > 0) {
+                    document.getElementById('prompts-input').value = cfg.prompts.join(', ');
+                }
+                if (cfg.threshold !== undefined) {
+                    document.getElementById('thresh-slider').value = cfg.threshold;
+                    document.getElementById('thresh-val').textContent = cfg.threshold;
+                }
+            } catch (e) {
+                console.warn('Failed to load config:', e);
+            }
+        }
+
+        // Fetch recent detections
+        async function updateDetections() {
+            try {
+                const resp = await fetch('/api/detections');
+                const dets = await resp.json();
+                if (!dets || dets.length === 0) return;
+
+                const log = document.getElementById('det-log');
+                log.innerHTML = '';
+                // Show newest first
+                for (let i = dets.length - 1; i >= 0; i--) {
+                    const d = dets[i];
+                    const time = d.timestamp ? d.timestamp.split('T')[1].split('.')[0] : '';
+                    const pos = (d.lat !== null && d.lon !== null)
+                        ? ` ${d.lat.toFixed(5)},${d.lon.toFixed(5)}`
+                        : '';
+                    const div = document.createElement('div');
+                    div.className = 'det-entry';
+                    div.innerHTML = `<span class="det-time">${time}</span> `
+                        + `<span class="det-label">${d.label}</span> `
+                        + `<span class="det-conf">${(d.confidence * 100).toFixed(0)}%</span>`
+                        + (pos ? ` <span class="det-pos">${pos}</span>` : '');
+                    log.appendChild(div);
+                }
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        // Runtime config updates
+        async function updatePrompts() {
+            const raw = document.getElementById('prompts-input').value;
+            const prompts = raw.split(',').map(s => s.trim()).filter(s => s);
+            if (prompts.length === 0) return;
+            try {
+                const resp = await fetch('/api/config/prompts', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({prompts})
+                });
+                const result = await resp.json();
+                if (result.status === 'ok') {
+                    console.log('Prompts updated:', result.prompts);
+                }
+            } catch (e) {
+                console.error('Failed to update prompts:', e);
+            }
+        }
+
+        async function updateThreshold() {
+            const threshold = parseFloat(document.getElementById('thresh-slider').value);
+            try {
+                const resp = await fetch('/api/config/threshold', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({threshold})
+                });
+                const result = await resp.json();
+                if (result.status === 'ok') {
+                    console.log('Threshold updated:', result.threshold);
+                }
+            } catch (e) {
+                console.error('Failed to update threshold:', e);
+            }
+        }
+
+        async function commandLoiter() {
+            if (!confirm('Command vehicle to LOITER/HOLD at current position?')) return;
+            try {
+                const resp = await fetch('/api/vehicle/loiter', {method: 'POST'});
+                const result = await resp.json();
+                console.log('Loiter command:', result);
+            } catch (e) {
+                console.error('Failed to send loiter command:', e);
+            }
+        }
+
+        // Polling intervals
         setInterval(updateStats, 1000);
+        setInterval(updateDetections, 2000);
         updateStats();
+        loadConfig();
     </script>
 </body>
 </html>

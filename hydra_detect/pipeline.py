@@ -55,7 +55,7 @@ class Pipeline:
     """Top-level orchestrator that ties all modules together."""
 
     def __init__(self, config_path: str = "config.ini"):
-        self._cfg = configparser.ConfigParser()
+        self._cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
         self._cfg.read(config_path)
 
         # Camera
@@ -81,14 +81,18 @@ class Pipeline:
         if self._cfg.getboolean("mavlink", "enabled", fallback=False):
             self._mavlink = MAVLinkIO(
                 connection_string=self._cfg.get(
-                    "mavlink", "connection_string", fallback="udpin:0.0.0.0:14550"
+                    "mavlink", "connection_string", fallback="/dev/ttyACM0"
                 ),
+                baud=self._cfg.getint("mavlink", "baud", fallback=115200),
+                source_system=self._cfg.getint("mavlink", "source_system", fallback=1),
                 alert_statustext=self._cfg.getboolean(
                     "mavlink", "alert_statustext", fallback=True
                 ),
                 alert_interval_sec=self._cfg.getfloat(
                     "mavlink", "alert_interval_sec", fallback=5.0
                 ),
+                severity=self._cfg.getint("mavlink", "severity", fallback=2),
+                min_gps_fix=self._cfg.getint("mavlink", "min_gps_fix", fallback=3),
                 auto_loiter=self._cfg.getboolean(
                     "mavlink", "auto_loiter_on_detect", fallback=False
                 ),
@@ -99,10 +103,13 @@ class Pipeline:
 
         # Logger
         self._det_logger = DetectionLogger(
-            log_dir=self._cfg.get("logging", "log_dir", fallback="logs"),
-            log_format=self._cfg.get("logging", "log_format", fallback="csv"),
+            log_dir=self._cfg.get("logging", "log_dir", fallback="/data/logs"),
+            log_format=self._cfg.get("logging", "log_format", fallback="jsonl"),
+            save_images=self._cfg.getboolean("logging", "save_images", fallback=True),
+            image_dir=self._cfg.get("logging", "image_dir", fallback="/data/images"),
+            image_quality=self._cfg.getint("logging", "image_quality", fallback=90),
             save_crops=self._cfg.getboolean("logging", "save_crops", fallback=False),
-            crop_dir=self._cfg.get("logging", "crop_dir", fallback="crops"),
+            crop_dir=self._cfg.get("logging", "crop_dir", fallback="/data/crops"),
         )
 
         # Web UI
@@ -145,6 +152,35 @@ class Pipeline:
         self._det_logger.start()
 
         if self._web_enabled:
+            # Set initial runtime config for web UI
+            if engine_name == "nanoowl":
+                prompts = [
+                    p.strip()
+                    for p in self._cfg.get(
+                        "detector", "nanoowl_prompts", fallback="person"
+                    ).split(",")
+                ]
+                threshold = self._cfg.getfloat("detector", "nanoowl_threshold", fallback=0.3)
+            else:
+                prompts = []
+                threshold = self._cfg.getfloat("detector", "yolo_confidence", fallback=0.45)
+
+            stream_state.runtime_config.update({
+                "prompts": prompts,
+                "threshold": threshold,
+                "auto_loiter": self._cfg.getboolean(
+                    "mavlink", "auto_loiter_on_detect", fallback=False
+                ),
+            })
+
+            # Wire runtime config callbacks
+            stream_state.set_callbacks(
+                on_prompts_change=self._handle_prompts_change,
+                on_threshold_change=self._handle_threshold_change,
+                on_loiter_command=self._handle_loiter_command,
+                get_recent_detections=self._det_logger.get_recent,
+            )
+
             stream_state.update_stats(
                 detector=engine_name,
                 mavlink=self._mavlink is not None and self._mavlink.connected,
@@ -156,7 +192,7 @@ class Pipeline:
 
     # ------------------------------------------------------------------
     def _run_loop(self) -> None:
-        """Core detect → track → alert → render loop."""
+        """Core detect -> track -> alert -> render loop."""
         fps_counter = _FPSCounter()
 
         while self._running:
@@ -172,14 +208,22 @@ class Pipeline:
             track_result = self._tracker.update(det_result)
             self._total_detections += len(track_result)
 
-            # MAVLink alerts
-            if self._mavlink is not None and len(track_result) > 0:
-                labels = Counter(t.label for t in track_result)
-                most_common_label, count = labels.most_common(1)[0]
-                self._mavlink.alert_detection(most_common_label, count)
+            # Get GPS state for logging and alerts
+            gps = None
+            if self._mavlink is not None:
+                gps = self._mavlink.get_gps()
 
-            # Log
-            self._det_logger.log(track_result, frame)
+            # MAVLink alerts (per-label throttled)
+            if self._mavlink is not None and len(track_result) > 0:
+                for track in track_result:
+                    self._mavlink.alert_detection(track.label, track.confidence)
+
+                # Auto-loiter on detection
+                if self._mavlink._auto_loiter:
+                    self._mavlink.command_loiter()
+
+            # Log with GPS data
+            self._det_logger.log(track_result, frame, gps=gps)
 
             # Render overlay
             fps = fps_counter.tick()
@@ -192,15 +236,51 @@ class Pipeline:
             # Push to web stream
             if self._web_enabled:
                 stream_state.update_frame(annotated)
-                stream_state.update_stats(
-                    fps=fps,
-                    inference_ms=det_result.inference_ms,
-                    active_tracks=len(track_result),
-                    total_detections=self._total_detections,
-                    mavlink=self._mavlink is not None and self._mavlink.connected,
-                )
+                stats_update = {
+                    "fps": fps,
+                    "inference_ms": det_result.inference_ms,
+                    "active_tracks": len(track_result),
+                    "total_detections": self._total_detections,
+                    "mavlink": self._mavlink is not None and self._mavlink.connected,
+                }
+                if self._mavlink is not None:
+                    gps_data = self._mavlink.get_gps()
+                    stats_update["gps_fix"] = gps_data.get("fix", 0)
+                    stats_update["position"] = self._mavlink.get_position_string()
+                stream_state.update_stats(**stats_update)
 
         self._shutdown()
+
+    # ------------------------------------------------------------------
+    # Runtime config handlers (called from web UI)
+    # ------------------------------------------------------------------
+    def _handle_prompts_change(self, prompts: list[str]) -> None:
+        """Update NanoOWL prompts at runtime."""
+        if isinstance(self._detector, NanoOWLDetector):
+            self._detector._prompts = prompts
+            logger.info("NanoOWL prompts updated: %s", prompts)
+
+    def _handle_threshold_change(self, threshold: float) -> None:
+        """Update detector confidence threshold at runtime."""
+        if isinstance(self._detector, NanoOWLDetector):
+            self._detector._threshold = threshold
+        elif isinstance(self._detector, YOLODetector):
+            self._detector._confidence = threshold
+        logger.info("Detection threshold updated: %.2f", threshold)
+
+    def _handle_loiter_command(self) -> None:
+        """Manual loiter command from web UI."""
+        if self._mavlink is not None:
+            # Force loiter regardless of auto_loiter setting
+            try:
+                mode_map = self._mavlink._mav.mode_mapping()
+                for mode_name in ("LOITER", "HOLD"):
+                    if mode_name in mode_map:
+                        self._mavlink._mav.set_mode_apm(mode_map[mode_name])
+                        logger.info("Manual LOITER command from web UI.")
+                        return
+            except Exception as exc:
+                logger.warning("Manual LOITER failed: %s", exc)
 
     # ------------------------------------------------------------------
     def _shutdown(self) -> None:

@@ -1,27 +1,18 @@
-# Hydra Detect v2.0 — Multi-stage Dockerfile
-# For Jetson: use nvcr.io/nvidia/l4t-pytorch as base instead
+# Hydra Detect v2.0 — Dockerfile for Jetson Orin Nano
+# Base: NanoOWL container with TensorRT-optimised OWL-ViT
+FROM nanoowl:r36.4.3
 
-FROM python:3.11-slim AS base
-
-ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender1 \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
+# Install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Copy application
+COPY hydra_detect/ ./hydra_detect/
+COPY config.ini .
 
 EXPOSE 8080
 
-# Default: run with config.ini
-CMD ["python", "-m", "hydra_detect", "--config", "config.ini"]
+CMD ["python3", "-m", "hydra_detect", "--config", "config.ini"]
