@@ -1,51 +1,54 @@
 # Hydra Detect v2.0
 
-Modular aerial detection and tracking system for drone/UAV platforms. Combines real-time object detection with multi-object tracking, MAVLink vehicle integration, and a live web dashboard.
-
-## Architecture
+Real-time object detection and tracking system built for unmanned vehicles — drones, boats, rovers, or anything running [ArduPilot](https://ardupilot.org/). Runs on NVIDIA Jetson or any Linux box with a camera and a MAVLink radio.
 
 ```
-Camera → Detector (YOLO / NanoOWL) → ByteTrack Tracker → MAVLink Alerts
-                                                        → Detection Logger
-                                                        → Web UI (MJPEG)
+Camera ─> Detector (YOLO / NanoOWL) ─> ByteTrack ─> MAVLink Alerts
+                                                   ─> Target Lock / Strike
+                                                   ─> Web Dashboard (MJPEG)
+                                                   ─> Detection Logger
 ```
 
-### Modules
+## What It Does
 
-| Module | File | Description |
-|--------|------|-------------|
-| Camera | `hydra_detect/camera.py` | Thread-safe capture with auto-reconnect (USB, RTSP, file) |
-| Detectors | `hydra_detect/detectors/` | Swappable back-ends — YOLOv8 and NanoOWL/OWL-ViT |
-| Tracker | `hydra_detect/tracker.py` | ByteTrack multi-object tracking via supervision |
-| MAVLink | `hydra_detect/mavlink_io.py` | Connection, STATUSTEXT alerts, LOITER/ROI commands |
-| Logger | `hydra_detect/detection_logger.py` | CSV/JSON logging with optional image crops |
-| Overlay | `hydra_detect/overlay.py` | Bounding box + HUD renderer |
-| Web UI | `hydra_detect/web/` | FastAPI dashboard with MJPEG stream |
-| Pipeline | `hydra_detect/pipeline.py` | Main orchestrator tying everything together |
+- **Detect** objects in real-time using YOLOv8 or NanoOWL (open-vocabulary, just type what you want to find)
+- **Track** objects across frames with persistent IDs (ByteTrack)
+- **Alert** your GCS (Mission Planner / QGroundControl) via MAVLink STATUSTEXT with GPS coordinates
+- **Keep in Frame** — lock a tracked target; the vehicle yaws to keep it centered in the camera
+- **Strike** — command the vehicle to navigate toward a target's estimated position (GUIDED mode)
+- **Log** every detection with timestamps, GPS, confidence scores, and optional image snapshots
+- **Stream** live annotated video to any browser over MJPEG
 
 ## Quick Start
 
 ```bash
-# Install dependencies
+# Clone and install
+git clone https://github.com/your-org/Hydra.git
+cd Hydra
 pip install -r requirements.txt
 
-# Edit config
+# Edit config for your setup
 vim config.ini
 
 # Run
 python -m hydra_detect --config config.ini
 ```
 
-Open `http://localhost:8080` for the operator dashboard.
+Open **http://localhost:8080** in a browser for the operator dashboard.
 
-## Docker
+### Docker (Jetson)
 
 ```bash
 docker build -t hydra-detect .
-docker run --rm --device /dev/video0 -p 8080:8080 hydra-detect
+docker run --rm --runtime nvidia \
+  --device /dev/video0 \
+  --device /dev/ttyACM0 \
+  -v /data:/data \
+  -p 8080:8080 \
+  hydra-detect
 ```
 
-## systemd Service
+### systemd Service
 
 ```bash
 sudo cp scripts/hydra-detect.service /etc/systemd/system/
@@ -53,13 +56,165 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now hydra-detect
 ```
 
+## Web Dashboard
+
+The dashboard runs on port 8080 and gives you:
+
+| Section | What It Shows |
+|---------|--------------|
+| **Video Stream** | Live MJPEG feed with bounding boxes, track IDs, and target lock overlays |
+| **Pipeline Stats** | FPS, inference time, active tracks, total detections, detector engine |
+| **Vehicle Link** | MAVLink connection status, GPS fix, position (MGRS or lat/lon) |
+| **Target Control** | Active track list, Keep in Frame / Strike / Release buttons |
+| **Detection Config** | Live-editable prompts (NanoOWL) and confidence threshold |
+| **Detection Log** | Scrolling feed of recent detections with timestamps and coordinates |
+
+### Vehicle Commands
+
+**LOITER / HOLD** — Immediately commands the vehicle to hold position. Uses `LOITER` mode for drones, `HOLD` for rovers/boats.
+
+**KEEP IN FRAME** — Select a tracked object, click Keep in Frame. The pipeline sends `CONDITION_YAW` corrections each frame to keep the target centered in the camera. Works on any ArduPilot vehicle type.
+
+**STRIKE** — Select a target, click Strike, confirm in the popup. The system:
+1. Estimates the target's GPS position from vehicle heading + camera offset
+2. Switches the vehicle to `GUIDED` mode
+3. Sends a waypoint via `SET_POSITION_TARGET_GLOBAL_INT`
+4. Continues yaw tracking during approach
+5. Sends STATUSTEXT alerts to your GCS
+
+The operator always retains override via Mission Planner or any GCS.
+
 ## Configuration
 
-All settings live in `config.ini`. Key sections:
+All settings are in `config.ini`. Here's what each section controls:
 
-- **[camera]** — source (device index, RTSP URL, or file), resolution, FPS
-- **[detector]** — engine (`yolo` or `nanoowl`), model paths, thresholds
-- **[tracker]** — ByteTrack parameters
-- **[mavlink]** — connection string, alert settings, vehicle commands
-- **[web]** — dashboard host/port, MJPEG quality
-- **[logging]** — log directory, format (CSV/JSON), crop saving
+### [camera]
+| Key | Default | Description |
+|-----|---------|-------------|
+| `source` | `0` | Camera source — device index (`0`), RTSP URL, GStreamer pipeline, or file path |
+| `width` | `640` | Capture width in pixels |
+| `height` | `480` | Capture height in pixels |
+| `fps` | `30` | Target frame rate |
+| `hfov_deg` | `60.0` | Horizontal field of view in degrees (used for target bearing estimation) |
+
+### [detector]
+| Key | Default | Description |
+|-----|---------|-------------|
+| `engine` | `nanoowl` | Detection engine: `nanoowl` (open-vocabulary) or `yolo` |
+| `nanoowl_model` | `google/owlvit-base-patch32` | OWL-ViT model name |
+| `nanoowl_prompts` | `a person, a rifle, a white bus` | Comma-separated text prompts (what to detect) |
+| `nanoowl_threshold` | `0.25` | Detection confidence threshold |
+| `yolo_model` | `yolov8n.pt` | YOLO model file |
+| `yolo_confidence` | `0.45` | YOLO confidence threshold |
+| `yolo_classes` | *(all)* | Comma-separated COCO class IDs to filter (empty = all) |
+
+### [tracker]
+| Key | Default | Description |
+|-----|---------|-------------|
+| `track_thresh` | `0.5` | Minimum confidence to initiate a track |
+| `track_buffer` | `30` | Frames to keep a lost track alive |
+| `match_thresh` | `0.8` | IoU threshold for matching detections to tracks |
+
+### [mavlink]
+| Key | Default | Description |
+|-----|---------|-------------|
+| `enabled` | `true` | Enable MAVLink connection |
+| `connection_string` | `/dev/ttyACM0` | Serial device or `udp:127.0.0.1:14550` |
+| `baud` | `115200` | Serial baud rate |
+| `source_system` | `1` | MAVLink system ID |
+| `min_gps_fix` | `3` | Minimum GPS fix type (3 = 3D fix) |
+| `alert_statustext` | `true` | Send detection alerts as STATUSTEXT |
+| `alert_interval_sec` | `5.0` | Minimum seconds between alerts for the same label |
+| `severity` | `2` | MAVLink severity level (0=Emergency, 7=Debug) |
+| `auto_loiter_on_detect` | `false` | Auto-switch to LOITER on detection |
+| `guided_roi_on_detect` | `false` | Auto-set gimbal ROI on detection |
+| `strike_distance_m` | `20.0` | How far ahead (metres) to project the strike waypoint |
+
+### [web]
+| Key | Default | Description |
+|-----|---------|-------------|
+| `enabled` | `true` | Enable web dashboard |
+| `host` | `0.0.0.0` | Bind address |
+| `port` | `8080` | HTTP port |
+| `mjpeg_quality` | `70` | JPEG quality for the video stream (1-100) |
+
+### [logging]
+| Key | Default | Description |
+|-----|---------|-------------|
+| `log_dir` | `/data/logs` | Directory for detection log files |
+| `log_format` | `jsonl` | Log format: `csv` or `jsonl` |
+| `save_images` | `true` | Save full-frame JPEG snapshots on detection |
+| `image_dir` | `/data/images` | Directory for snapshot images |
+| `image_quality` | `90` | JPEG quality for snapshots |
+| `save_crops` | `false` | Save cropped object images |
+| `crop_dir` | `/data/crops` | Directory for crop images |
+
+## Project Structure
+
+```
+Hydra/
+  config.ini                          # All settings
+  requirements.txt                    # Python dependencies
+  Dockerfile                          # Jetson container build
+  scripts/hydra-detect.service        # systemd unit file
+
+  hydra_detect/
+    __init__.py
+    __main__.py                       # Entry point (python -m hydra_detect)
+    pipeline.py                       # Main orchestrator — ties everything together
+    camera.py                         # Thread-safe capture with auto-reconnect
+    tracker.py                        # ByteTrack multi-object tracker
+    overlay.py                        # Bounding box + HUD + target lock renderer
+    mavlink_io.py                     # MAVLink connection, alerts, vehicle commands
+    detection_logger.py               # CSV/JSONL logging with image snapshots
+
+    detectors/
+      __init__.py
+      base.py                         # Abstract detector interface
+      yolo_detector.py                # YOLOv8/v11 via ultralytics
+      nanoowl_detector.py             # NanoOWL / OWL-ViT open-vocabulary
+
+    web/
+      __init__.py
+      server.py                       # FastAPI server — REST API + MJPEG stream
+      templates/
+        index.html                    # Operator dashboard (single-page app)
+```
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Operator dashboard |
+| `GET` | `/stream.mjpeg` | Live MJPEG video stream |
+| `GET` | `/api/stats` | Pipeline statistics (FPS, tracks, GPS, etc.) |
+| `GET` | `/api/config` | Current runtime configuration |
+| `POST` | `/api/config/prompts` | Update NanoOWL detection prompts |
+| `POST` | `/api/config/threshold` | Update confidence threshold |
+| `GET` | `/api/detections` | Recent detection log entries |
+| `GET` | `/api/tracks` | Currently active tracked objects |
+| `GET` | `/api/target` | Current target lock state |
+| `POST` | `/api/target/lock` | Lock a track for keep-in-frame (`{"track_id": 5}`) |
+| `POST` | `/api/target/unlock` | Release target lock |
+| `POST` | `/api/target/strike` | Strike command (`{"track_id": 5, "confirm": true}`) |
+| `POST` | `/api/vehicle/loiter` | Command LOITER / HOLD |
+
+## Platform Notes
+
+**Drone (ArduCopter)** — Uses `LOITER` mode for hold, `CONDITION_YAW` for tracking, `GUIDED` for strike. Best with a gimbal for ROI targeting.
+
+**Boat (ArduRover in boat mode)** — Uses `HOLD` mode, yaw commands steer the rudder, `GUIDED` drives toward the target. Set `strike_distance_m` appropriately for water speed.
+
+**Rover (ArduRover)** — Same as boat. Yaw commands turn the vehicle. Ensure clear path before strike.
+
+**Any ArduPilot vehicle** — If it supports `GUIDED` mode and `CONDITION_YAW`, it works. The system auto-detects whether to use `LOITER` or `HOLD` from the vehicle's mode mapping.
+
+## Dependencies
+
+- Python 3.10+
+- OpenCV (headless)
+- [ultralytics](https://github.com/ultralytics/ultralytics) (YOLO) or [NanoOWL](https://github.com/NVIDIA-AI-IOT/nanoowl) (Jetson)
+- [supervision](https://github.com/roboflow/supervision) (ByteTrack)
+- [pymavlink](https://github.com/ArduPilot/pymavlink) + pyserial
+- FastAPI + uvicorn
+- Optional: `mgrs` for military grid coordinates
