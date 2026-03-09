@@ -120,6 +120,11 @@ class Pipeline:
         self._running = False
         self._total_detections = 0
 
+        # Target lock state
+        self._locked_track_id: Optional[int] = None
+        self._lock_mode: Optional[str] = None  # "track" or "strike"
+        self._last_track_result = None  # Most recent TrackingResult for web API
+
     # ------------------------------------------------------------------
     def start(self) -> None:
         """Initialise all subsystems and run the main loop."""
@@ -178,7 +183,11 @@ class Pipeline:
                 on_prompts_change=self._handle_prompts_change,
                 on_threshold_change=self._handle_threshold_change,
                 on_loiter_command=self._handle_loiter_command,
+                on_target_lock=self._handle_target_lock,
+                on_target_unlock=self._handle_target_unlock,
+                on_strike_command=self._handle_strike_command,
                 get_recent_detections=self._det_logger.get_recent,
+                get_active_tracks=self._get_active_tracks,
             )
 
             stream_state.update_stats(
@@ -206,6 +215,7 @@ class Pipeline:
 
             # Track
             track_result = self._tracker.update(det_result)
+            self._last_track_result = track_result
             self._total_detections += len(track_result)
 
             # Get GPS state for logging and alerts
@@ -222,6 +232,32 @@ class Pipeline:
                 if self._mavlink._auto_loiter:
                     self._mavlink.command_loiter()
 
+            # Keep-in-frame: adjust yaw to center locked target
+            if self._locked_track_id is not None and self._mavlink is not None:
+                locked_track = None
+                for t in track_result:
+                    if t.track_id == self._locked_track_id:
+                        locked_track = t
+                        break
+
+                if locked_track is not None:
+                    # Compute normalised horizontal error from frame center
+                    frame_w = frame.shape[1]
+                    cx = (locked_track.x1 + locked_track.x2) / 2.0
+                    error_x = (cx - frame_w / 2.0) / (frame_w / 2.0)  # -1..+1
+
+                    if self._lock_mode == "track":
+                        self._mavlink.adjust_yaw(error_x)
+                    # Strike mode: yaw + continue GUIDED approach
+                    elif self._lock_mode == "strike":
+                        self._mavlink.adjust_yaw(error_x, yaw_rate_max=15.0)
+                else:
+                    # Target lost — auto-unlock after losing track
+                    logger.warning(
+                        "Locked target #%d lost from tracker.", self._locked_track_id
+                    )
+                    # Don't auto-unlock — operator may want to re-acquire
+
             # Log with GPS data
             self._det_logger.log(track_result, frame, gps=gps)
 
@@ -231,6 +267,8 @@ class Pipeline:
                 frame, track_result,
                 inference_ms=det_result.inference_ms,
                 fps=fps,
+                locked_track_id=self._locked_track_id,
+                lock_mode=self._lock_mode,
             )
 
             # Push to web stream
@@ -248,6 +286,27 @@ class Pipeline:
                     stats_update["gps_fix"] = gps_data.get("fix", 0)
                     stats_update["position"] = self._mavlink.get_position_string()
                 stream_state.update_stats(**stats_update)
+
+                # Update target lock state for web UI
+                if self._locked_track_id is not None:
+                    locked_label = None
+                    for t in track_result:
+                        if t.track_id == self._locked_track_id:
+                            locked_label = t.label
+                            break
+                    stream_state.target_lock = {
+                        "locked": True,
+                        "track_id": self._locked_track_id,
+                        "mode": self._lock_mode,
+                        "label": locked_label,
+                    }
+                else:
+                    stream_state.target_lock = {
+                        "locked": False,
+                        "track_id": None,
+                        "mode": None,
+                        "label": None,
+                    }
 
         self._shutdown()
 
@@ -271,7 +330,6 @@ class Pipeline:
     def _handle_loiter_command(self) -> None:
         """Manual loiter command from web UI."""
         if self._mavlink is not None:
-            # Force loiter regardless of auto_loiter setting
             try:
                 mode_map = self._mavlink._mav.mode_mapping()
                 for mode_name in ("LOITER", "HOLD"):
@@ -281,6 +339,102 @@ class Pipeline:
                         return
             except Exception as exc:
                 logger.warning("Manual LOITER failed: %s", exc)
+
+    def _handle_target_lock(self, track_id: int, mode: str = "track") -> bool:
+        """Lock onto a tracked object for keep-in-frame or strike."""
+        if self._last_track_result is None:
+            return False
+        # Verify track_id exists in current tracks
+        for t in self._last_track_result:
+            if t.track_id == track_id:
+                self._locked_track_id = track_id
+                self._lock_mode = mode
+                logger.info(
+                    "Target LOCKED: #%d (%s) mode=%s", track_id, t.label, mode
+                )
+                if self._mavlink is not None:
+                    self._mavlink.send_statustext(
+                        f"TGT LOCK: #{track_id} {t.label} [{mode.upper()}]"
+                    )
+                return True
+        logger.warning("Target lock failed: track #%d not found.", track_id)
+        return False
+
+    def _handle_target_unlock(self) -> None:
+        """Release target lock."""
+        if self._locked_track_id is not None:
+            logger.info("Target UNLOCKED: #%d", self._locked_track_id)
+            if self._mavlink is not None:
+                self._mavlink.send_statustext("TGT LOCK RELEASED")
+                self._mavlink.clear_roi()
+        self._locked_track_id = None
+        self._lock_mode = None
+
+    def _handle_strike_command(self, track_id: int) -> bool:
+        """Command vehicle to navigate toward a tracked target.
+
+        Estimates target GPS from camera offset, switches to GUIDED,
+        and sets lock_mode to 'strike' for continued yaw tracking.
+        """
+        if self._mavlink is None or self._last_track_result is None:
+            return False
+
+        # Find the track
+        target_track = None
+        for t in self._last_track_result:
+            if t.track_id == track_id:
+                target_track = t
+                break
+        if target_track is None:
+            logger.warning("Strike failed: track #%d not found.", track_id)
+            return False
+
+        # Compute target bearing from frame position
+        if self._camera._frame is not None:
+            frame_w = self._camera._width
+        else:
+            frame_w = 640
+        cx = (target_track.x1 + target_track.x2) / 2.0
+        error_x = (cx - frame_w / 2.0) / (frame_w / 2.0)
+
+        # Estimate target GPS position
+        approach_dist = self._cfg.getfloat("mavlink", "strike_distance_m", fallback=20.0)
+        camera_hfov = self._cfg.getfloat("camera", "hfov_deg", fallback=60.0)
+        target_pos = self._mavlink.estimate_target_position(
+            error_x, approach_dist, camera_hfov
+        )
+        if target_pos is None:
+            logger.warning("Strike failed: no GPS fix or heading.")
+            return False
+
+        target_lat, target_lon = target_pos
+
+        # Lock target and set mode
+        self._locked_track_id = track_id
+        self._lock_mode = "strike"
+
+        # Command GUIDED to estimated position
+        success = self._mavlink.command_guided_to(target_lat, target_lon)
+        if success:
+            logger.info(
+                "STRIKE initiated: #%d (%s) -> %.6f, %.6f",
+                track_id, target_track.label, target_lat, target_lon,
+            )
+        return success
+
+    def _get_active_tracks(self) -> list[dict]:
+        """Return current tracked objects as dicts for the web API."""
+        if self._last_track_result is None:
+            return []
+        return [
+            {
+                "track_id": t.track_id,
+                "label": t.label,
+                "confidence": round(t.confidence, 3),
+                "bbox": [round(t.x1, 1), round(t.y1, 1), round(t.x2, 1), round(t.y2, 1)],
+            }
+            for t in self._last_track_result
+        ]
 
     # ------------------------------------------------------------------
     def _shutdown(self) -> None:

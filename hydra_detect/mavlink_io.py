@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import math
 import threading
 import time
 from typing import Any, Dict, Optional
@@ -48,9 +49,9 @@ class MAVLinkIO:
         self._last_alert_times: Dict[str, float] = {}
         self._lock = threading.Lock()
 
-        # GPS state
+        # GPS state (lat/lon/alt in MAVLink int format, hdg in centidegrees)
         self._gps: Dict[str, Any] = {
-            "lat": None, "lon": None, "alt": None, "fix": 0,
+            "lat": None, "lon": None, "alt": None, "fix": 0, "hdg": None,
         }
         self._gps_lock = threading.Lock()
         self._stop_evt = threading.Event()
@@ -129,6 +130,7 @@ class MAVLinkIO:
                         self._gps["lat"] = msg.lat
                         self._gps["lon"] = msg.lon
                         self._gps["alt"] = msg.alt
+                        self._gps["hdg"] = msg.hdg  # centidegrees
                     else:
                         self._gps["fix"] = msg.fix_type
             except Exception as exc:
@@ -237,7 +239,7 @@ class MAVLinkIO:
 
     def set_roi(self, lat: float, lon: float, alt: float = 0.0) -> None:
         """Point camera gimbal at a GPS coordinate via MAV_CMD_DO_SET_ROI."""
-        if self._mav is None or not self._guided_roi:
+        if self._mav is None:
             return
         try:
             from pymavlink import mavutil
@@ -253,6 +255,171 @@ class MAVLinkIO:
             logger.info("ROI set to %.6f, %.6f", lat, lon)
         except Exception as exc:
             logger.warning("Failed to set ROI: %s", exc)
+
+    def clear_roi(self) -> None:
+        """Clear any active ROI / gimbal lock."""
+        if self._mav is None:
+            return
+        try:
+            from pymavlink import mavutil
+
+            self._mav.mav.command_long_send(
+                self._mav.target_system,
+                self._mav.target_component,
+                mavutil.mavlink.MAV_CMD_DO_SET_ROI_NONE,
+                0, 0, 0, 0, 0, 0, 0, 0,
+            )
+            logger.info("ROI cleared.")
+        except Exception as exc:
+            logger.warning("Failed to clear ROI: %s", exc)
+
+    # ------------------------------------------------------------------
+    # Keep-in-frame: yaw the vehicle to center the target in camera
+    # ------------------------------------------------------------------
+    def adjust_yaw(self, error_x: float, yaw_rate_max: float = 30.0) -> None:
+        """Adjust vehicle yaw to center a target in the camera frame.
+
+        Args:
+            error_x: Normalised horizontal error from frame center.
+                     -1.0 = target is at left edge, +1.0 = right edge, 0 = centered.
+            yaw_rate_max: Maximum yaw rate in degrees/second.
+        """
+        if self._mav is None:
+            return
+
+        # Proportional yaw correction: positive error = target is right = yaw right
+        yaw_rate = error_x * yaw_rate_max
+
+        # Clamp
+        yaw_rate = max(-yaw_rate_max, min(yaw_rate_max, yaw_rate))
+
+        # Dead zone: don't send tiny corrections
+        if abs(error_x) < 0.05:
+            return
+
+        try:
+            from pymavlink import mavutil
+
+            # CONDITION_YAW: param1=target_angle, param2=yaw_speed, param3=direction, param4=relative
+            # We use relative yaw: small incremental adjustments each frame
+            direction = 1 if yaw_rate >= 0 else -1  # 1=CW, -1=CCW
+            angle = abs(yaw_rate) * 0.1  # Small step per call (~100ms frame interval)
+            self._mav.mav.command_long_send(
+                self._mav.target_system,
+                self._mav.target_component,
+                mavutil.mavlink.MAV_CMD_CONDITION_YAW,
+                0,  # confirmation
+                angle,            # param1: target angle (degrees)
+                abs(yaw_rate),    # param2: yaw speed (deg/s)
+                direction,        # param3: direction (1=CW, -1=CCW)
+                1,                # param4: 1=relative, 0=absolute
+                0, 0, 0,
+            )
+        except Exception as exc:
+            logger.warning("Yaw adjust failed: %s", exc)
+
+    # ------------------------------------------------------------------
+    # Strike: navigate to estimated target position
+    # ------------------------------------------------------------------
+    def get_heading_deg(self) -> Optional[float]:
+        """Return vehicle heading in degrees (0-360), or None."""
+        with self._gps_lock:
+            if self._gps["hdg"] is not None:
+                return self._gps["hdg"] / 100.0
+        return None
+
+    def command_guided_to(self, lat: float, lon: float, alt: Optional[float] = None) -> bool:
+        """Switch to GUIDED mode and navigate to a GPS coordinate.
+
+        Args:
+            lat: Target latitude (decimal degrees).
+            lon: Target longitude (decimal degrees).
+            alt: Target altitude in metres. None = maintain current altitude.
+
+        Returns:
+            True if command was sent successfully.
+        """
+        if self._mav is None:
+            return False
+        try:
+            from pymavlink import mavutil
+
+            # Switch to GUIDED mode
+            mode_map = self._mav.mode_mapping()
+            if "GUIDED" in mode_map:
+                self._mav.set_mode_apm(mode_map["GUIDED"])
+            else:
+                logger.warning("GUIDED mode not available in mode mapping.")
+                return False
+
+            # Use current altitude if not specified
+            if alt is None:
+                _, _, cur_alt = self.get_lat_lon()
+                alt = cur_alt if cur_alt is not None else 0.0
+
+            # Send position target
+            self._mav.mav.set_position_target_global_int_send(
+                0,  # time_boot_ms (not used)
+                self._mav.target_system,
+                self._mav.target_component,
+                mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+                0b0000111111111000,  # type_mask: use only lat/lon/alt
+                int(lat * 1e7),     # lat_int
+                int(lon * 1e7),     # lon_int
+                alt,                # alt (metres)
+                0, 0, 0,            # vx, vy, vz (ignored)
+                0, 0, 0,            # afx, afy, afz (ignored)
+                0, 0,               # yaw, yaw_rate (ignored)
+            )
+            logger.info("GUIDED to %.6f, %.6f alt=%.1fm", lat, lon, alt)
+            self.send_statustext(f"STRIKE: GUIDED to {lat:.5f},{lon:.5f}", severity=2)
+            return True
+
+        except Exception as exc:
+            logger.error("GUIDED command failed: %s", exc)
+            return False
+
+    def estimate_target_position(
+        self,
+        error_x: float,
+        approach_distance_m: float = 20.0,
+        camera_hfov_deg: float = 60.0,
+    ) -> Optional[tuple[float, float]]:
+        """Estimate a target's GPS position from its camera frame offset.
+
+        Uses vehicle GPS + heading + target's horizontal offset to compute
+        a bearing, then projects a waypoint at the given approach distance.
+
+        Args:
+            error_x: Normalised horizontal offset (-1.0 to +1.0).
+            approach_distance_m: Distance in metres to project the waypoint.
+            camera_hfov_deg: Camera horizontal field of view in degrees.
+
+        Returns:
+            (lat, lon) tuple or None if GPS/heading unavailable.
+        """
+        lat, lon, _ = self.get_lat_lon()
+        heading = self.get_heading_deg()
+        if lat is None or heading is None:
+            return None
+
+        # Compute target bearing: vehicle heading + camera offset
+        angle_offset = error_x * (camera_hfov_deg / 2.0)
+        bearing_deg = (heading + angle_offset) % 360.0
+        bearing_rad = math.radians(bearing_deg)
+
+        # Project point at approach_distance along bearing (flat earth approx, good for <1km)
+        d = approach_distance_m
+        R = 6371000.0  # Earth radius in metres
+        lat_rad = math.radians(lat)
+
+        dlat = (d * math.cos(bearing_rad)) / R
+        dlon = (d * math.sin(bearing_rad)) / (R * math.cos(lat_rad))
+
+        target_lat = lat + math.degrees(dlat)
+        target_lon = lon + math.degrees(dlon)
+
+        return (target_lat, target_lon)
 
     # ------------------------------------------------------------------
     @property

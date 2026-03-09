@@ -43,13 +43,25 @@ class StreamState:
         self._on_prompts_change: Optional[Callable] = None
         self._on_threshold_change: Optional[Callable] = None
         self._on_loiter_command: Optional[Callable] = None
+        self._on_target_lock: Optional[Callable] = None
+        self._on_target_unlock: Optional[Callable] = None
+        self._on_strike_command: Optional[Callable] = None
         self._get_recent_detections: Optional[Callable] = None
+        self._get_active_tracks: Optional[Callable] = None
 
         # Current runtime config (readable by web UI)
         self.runtime_config: Dict[str, Any] = {
             "prompts": [],
             "threshold": 0.25,
             "auto_loiter": False,
+        }
+
+        # Target lock state (readable by web UI)
+        self.target_lock: Dict[str, Any] = {
+            "locked": False,
+            "track_id": None,
+            "mode": None,  # "track" or "strike"
+            "label": None,
         }
 
     def update_frame(self, frame: np.ndarray) -> None:
@@ -73,12 +85,20 @@ class StreamState:
         on_prompts_change: Optional[Callable] = None,
         on_threshold_change: Optional[Callable] = None,
         on_loiter_command: Optional[Callable] = None,
+        on_target_lock: Optional[Callable] = None,
+        on_target_unlock: Optional[Callable] = None,
+        on_strike_command: Optional[Callable] = None,
         get_recent_detections: Optional[Callable] = None,
+        get_active_tracks: Optional[Callable] = None,
     ) -> None:
         self._on_prompts_change = on_prompts_change
         self._on_threshold_change = on_threshold_change
         self._on_loiter_command = on_loiter_command
+        self._on_target_lock = on_target_lock
+        self._on_target_unlock = on_target_unlock
+        self._on_strike_command = on_strike_command
         self._get_recent_detections = get_recent_detections
+        self._get_active_tracks = get_active_tracks
 
 
 # Global state instance — set by the pipeline before starting the server
@@ -145,6 +165,78 @@ async def api_command_loiter():
         stream_state._on_loiter_command()
         return {"status": "ok", "command": "loiter"}
     return JSONResponse({"error": "MAVLink not connected"}, status_code=503)
+
+
+@app.get("/api/tracks")
+async def api_active_tracks():
+    """Return currently active tracked objects (for target selection)."""
+    if stream_state._get_active_tracks:
+        return stream_state._get_active_tracks()
+    return []
+
+
+@app.get("/api/target")
+async def api_target_status():
+    """Return current target lock state."""
+    return stream_state.target_lock
+
+
+@app.post("/api/target/lock")
+async def api_target_lock(request: Request):
+    """Lock onto a tracked object for keep-in-frame tracking.
+
+    Body: {"track_id": 5}
+    """
+    body = await request.json()
+    track_id = body.get("track_id")
+    if track_id is None:
+        return JSONResponse({"error": "track_id required"}, status_code=400)
+
+    if stream_state._on_target_lock:
+        result = stream_state._on_target_lock(int(track_id), mode="track")
+        if result:
+            return {"status": "ok", "track_id": track_id, "mode": "track"}
+        return JSONResponse({"error": "track_id not found in active tracks"}, status_code=404)
+    return JSONResponse({"error": "target lock not available"}, status_code=503)
+
+
+@app.post("/api/target/unlock")
+async def api_target_unlock():
+    """Release target lock."""
+    if stream_state._on_target_unlock:
+        stream_state._on_target_unlock()
+        return {"status": "ok"}
+    return JSONResponse({"error": "target lock not available"}, status_code=503)
+
+
+@app.post("/api/target/strike")
+async def api_strike_command(request: Request):
+    """Command vehicle to navigate toward the locked target.
+
+    Body: {"track_id": 5, "confirm": true}
+    The confirm field MUST be true — this is a safety check.
+    """
+    body = await request.json()
+    track_id = body.get("track_id")
+    confirm = body.get("confirm", False)
+
+    if not confirm:
+        return JSONResponse(
+            {"error": "Strike requires explicit confirmation. Set confirm=true."},
+            status_code=400,
+        )
+    if track_id is None:
+        return JSONResponse({"error": "track_id required"}, status_code=400)
+
+    if stream_state._on_strike_command:
+        result = stream_state._on_strike_command(int(track_id))
+        if result:
+            return {"status": "ok", "track_id": track_id, "mode": "strike"}
+        return JSONResponse(
+            {"error": "Strike failed — no GPS fix or track not found"},
+            status_code=503,
+        )
+    return JSONResponse({"error": "strike not available"}, status_code=503)
 
 
 @app.get("/api/detections")

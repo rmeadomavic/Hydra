@@ -180,6 +180,117 @@
         .det-entry .det-pos {
             color: #f59e0b;
         }
+
+        /* Target controls */
+        .target-section { margin-top: 0; }
+        .track-list {
+            max-height: 140px;
+            overflow-y: auto;
+            background: #0d1117;
+            border-radius: 6px;
+            padding: 4px;
+        }
+        .track-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            border-bottom: 1px solid #1e2a3a;
+        }
+        .track-item:hover { background: #1a2335; }
+        .track-item.selected { background: #1a3a2a; border-left: 3px solid #4ade80; }
+        .track-item.strike-selected { background: #3a1a1a; border-left: 3px solid #ef4444; }
+        .track-item .tid { color: #00d4ff; font-weight: 700; margin-right: 6px; }
+        .track-item .tlabel { color: #e2e8f0; }
+        .track-item .tconf { color: #6b7fa3; font-size: 0.7rem; }
+        .target-btns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .btn-danger {
+            background: #ef4444;
+            color: #fff;
+        }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-success {
+            background: #22c55e;
+            color: #0a0e17;
+        }
+        .btn-success:hover { background: #16a34a; }
+        .btn-ghost {
+            background: #2a3a50;
+            color: #c8d6e5;
+        }
+        .btn-ghost:hover { background: #3a4a60; }
+        .lock-indicator {
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 8px;
+        }
+        .lock-indicator.tracking {
+            background: #1a3a2a;
+            color: #4ade80;
+            border: 1px solid #4ade80;
+        }
+        .lock-indicator.strike-active {
+            background: #3a1a1a;
+            color: #ef4444;
+            border: 1px solid #ef4444;
+            animation: pulse-red 1s infinite;
+        }
+        @keyframes pulse-red {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        /* Strike confirmation modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: #131a2b;
+            border: 2px solid #ef4444;
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 420px;
+            width: 90%;
+            text-align: center;
+        }
+        .modal h3 {
+            color: #ef4444;
+            font-size: 1.2rem;
+            margin-bottom: 12px;
+        }
+        .modal p {
+            color: #c8d6e5;
+            font-size: 0.9rem;
+            margin-bottom: 8px;
+        }
+        .modal .warning-text {
+            color: #f59e0b;
+            font-size: 0.8rem;
+            margin-bottom: 16px;
+        }
+        .modal-btns {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
     </style>
 </head>
 <body>
@@ -240,6 +351,47 @@
                 <button class="btn-warning btn-sm" style="margin-top:8px; width:100%;" onclick="commandLoiter()">
                     COMMAND LOITER / HOLD
                 </button>
+            </div>
+
+            <!-- Target Control -->
+            <div class="target-section">
+                <h2>Target Control</h2>
+                <div id="lock-indicator" style="display:none;" class="lock-indicator"></div>
+                <div class="stat-card">
+                    <div class="label">Active Tracks (select target)</div>
+                    <div class="track-list" id="track-list">
+                        <div style="color:#6b7fa3; padding:8px; font-size:0.75rem;">No tracks</div>
+                    </div>
+                </div>
+                <div class="target-btns">
+                    <button class="btn-success btn-sm" id="btn-track" onclick="lockTarget('track')" disabled>
+                        KEEP IN FRAME
+                    </button>
+                    <button class="btn-danger btn-sm" id="btn-strike" onclick="showStrikeConfirm()" disabled>
+                        STRIKE
+                    </button>
+                    <button class="btn-ghost btn-sm" id="btn-unlock" onclick="unlockTarget()" style="grid-column: span 2;" disabled>
+                        RELEASE LOCK
+                    </button>
+                </div>
+            </div>
+
+            <!-- Strike Confirmation Modal -->
+            <div class="modal-overlay" id="strike-modal">
+                <div class="modal">
+                    <h3>CONFIRM STRIKE</h3>
+                    <p>This will command the vehicle to navigate directly toward target
+                       <strong id="strike-target-label">--</strong>.</p>
+                    <p class="warning-text">
+                        The vehicle will switch to GUIDED mode and drive/fly toward the
+                        estimated target position. The operator retains override authority
+                        via the GCS (Mission Planner) at all times.
+                    </p>
+                    <div class="modal-btns">
+                        <button class="btn-ghost" onclick="hideStrikeConfirm()">CANCEL</button>
+                        <button class="btn-danger" onclick="confirmStrike()">EXECUTE STRIKE</button>
+                    </div>
+                </div>
             </div>
 
             <!-- Detection Config -->
@@ -400,9 +552,138 @@
             }
         }
 
+        // ── Target control ────────────────────────────────────
+        let selectedTrackId = null;
+        let selectedTrackLabel = '';
+
+        async function updateTracks() {
+            try {
+                const resp = await fetch('/api/tracks');
+                const tracks = await resp.json();
+                const list = document.getElementById('track-list');
+
+                if (!tracks || tracks.length === 0) {
+                    list.innerHTML = '<div style="color:#6b7fa3; padding:8px; font-size:0.75rem;">No tracks</div>';
+                    return;
+                }
+
+                list.innerHTML = '';
+                for (const t of tracks) {
+                    const div = document.createElement('div');
+                    div.className = 'track-item' + (t.track_id === selectedTrackId ? ' selected' : '');
+                    div.innerHTML = `<span><span class="tid">#${t.track_id}</span><span class="tlabel">${t.label}</span></span>`
+                        + `<span class="tconf">${(t.confidence * 100).toFixed(0)}%</span>`;
+                    div.onclick = () => selectTrack(t.track_id, t.label);
+                    list.appendChild(div);
+                }
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        function selectTrack(trackId, label) {
+            selectedTrackId = trackId;
+            selectedTrackLabel = label;
+            document.getElementById('btn-track').disabled = false;
+            document.getElementById('btn-strike').disabled = false;
+            // Re-render list to show selection
+            document.querySelectorAll('.track-item').forEach(el => {
+                el.classList.remove('selected');
+            });
+            // Find and highlight
+            updateTracks();
+        }
+
+        async function lockTarget(mode) {
+            if (selectedTrackId === null) return;
+            try {
+                const resp = await fetch('/api/target/lock', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({track_id: selectedTrackId})
+                });
+                const result = await resp.json();
+                if (result.status === 'ok') {
+                    document.getElementById('btn-unlock').disabled = false;
+                    updateLockIndicator();
+                }
+            } catch (e) {
+                console.error('Lock failed:', e);
+            }
+        }
+
+        async function unlockTarget() {
+            try {
+                await fetch('/api/target/unlock', {method: 'POST'});
+                selectedTrackId = null;
+                selectedTrackLabel = '';
+                document.getElementById('btn-track').disabled = true;
+                document.getElementById('btn-strike').disabled = true;
+                document.getElementById('btn-unlock').disabled = true;
+                document.getElementById('lock-indicator').style.display = 'none';
+            } catch (e) {
+                console.error('Unlock failed:', e);
+            }
+        }
+
+        function showStrikeConfirm() {
+            if (selectedTrackId === null) return;
+            document.getElementById('strike-target-label').textContent =
+                `#${selectedTrackId} (${selectedTrackLabel})`;
+            document.getElementById('strike-modal').classList.add('active');
+        }
+
+        function hideStrikeConfirm() {
+            document.getElementById('strike-modal').classList.remove('active');
+        }
+
+        async function confirmStrike() {
+            hideStrikeConfirm();
+            if (selectedTrackId === null) return;
+            try {
+                const resp = await fetch('/api/target/strike', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({track_id: selectedTrackId, confirm: true})
+                });
+                const result = await resp.json();
+                if (result.status === 'ok') {
+                    document.getElementById('btn-unlock').disabled = false;
+                    updateLockIndicator();
+                }
+            } catch (e) {
+                console.error('Strike failed:', e);
+            }
+        }
+
+        async function updateLockIndicator() {
+            try {
+                const resp = await fetch('/api/target');
+                const lock = await resp.json();
+                const indicator = document.getElementById('lock-indicator');
+                if (lock.locked) {
+                    indicator.style.display = 'block';
+                    if (lock.mode === 'strike') {
+                        indicator.className = 'lock-indicator strike-active';
+                        indicator.textContent = `STRIKE: #${lock.track_id} ${lock.label || ''}`;
+                    } else {
+                        indicator.className = 'lock-indicator tracking';
+                        indicator.textContent = `TRACKING: #${lock.track_id} ${lock.label || ''}`;
+                    }
+                    document.getElementById('btn-unlock').disabled = false;
+                } else {
+                    indicator.style.display = 'none';
+                }
+            } catch (e) {
+                // ignore
+            }
+        }
+
         // Polling intervals
         setInterval(updateStats, 1000);
         setInterval(updateDetections, 2000);
+        setInterval(updateTracks, 500);
+        setInterval(updateLockIndicator, 1000);
         updateStats();
         loadConfig();
     </script>
