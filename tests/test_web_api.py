@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 
-from hydra_detect.web.server import app, configure_auth, stream_state
+from hydra_detect.web.server import MAX_PROMPT_LENGTH, MAX_PROMPTS, app, configure_auth, stream_state
 
 
 @pytest.fixture(autouse=True)
@@ -150,3 +152,73 @@ class TestControlEndpoints:
     def test_loiter_no_mavlink(self, client):
         resp = client.post("/api/vehicle/loiter")
         assert resp.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# Prompt input validation
+# ---------------------------------------------------------------------------
+
+class TestPromptValidation:
+    def test_too_many_prompts(self, client):
+        prompts = [f"item{i}" for i in range(MAX_PROMPTS + 1)]
+        resp = client.post("/api/config/prompts", json={"prompts": prompts})
+        assert resp.status_code == 400
+        assert "max" in resp.json()["error"]
+
+    def test_non_string_prompt(self, client):
+        resp = client.post("/api/config/prompts", json={"prompts": [123]})
+        assert resp.status_code == 400
+
+    def test_empty_string_prompt(self, client):
+        resp = client.post("/api/config/prompts", json={"prompts": ["valid", "  "]})
+        assert resp.status_code == 400
+
+    def test_long_prompt_truncated(self, client):
+        received = {}
+
+        def on_prompts(p):
+            received["p"] = p
+
+        stream_state.set_callbacks(on_prompts_change=on_prompts)
+        long_prompt = "x" * (MAX_PROMPT_LENGTH + 50)
+        resp = client.post("/api/config/prompts", json={"prompts": [long_prompt]})
+        assert resp.status_code == 200
+        assert len(received["p"][0]) == MAX_PROMPT_LENGTH
+
+    def test_prompts_stripped(self, client):
+        received = {}
+
+        def on_prompts(p):
+            received["p"] = p
+
+        stream_state.set_callbacks(on_prompts_change=on_prompts)
+        resp = client.post("/api/config/prompts", json={"prompts": ["  person  ", " car"]})
+        assert resp.status_code == 200
+        assert received["p"] == ["person", "car"]
+
+
+# ---------------------------------------------------------------------------
+# Audit logging
+# ---------------------------------------------------------------------------
+
+class TestAuditLogging:
+    def test_strike_logs_audit(self, client, caplog):
+        stream_state.set_callbacks(on_strike_command=lambda tid: True)
+        with caplog.at_level(logging.INFO, logger="hydra.audit"):
+            resp = client.post("/api/target/strike", json={"track_id": 7, "confirm": True})
+        assert resp.status_code == 200
+        assert any("action=strike" in r.message and "target=7" in r.message for r in caplog.records)
+
+    def test_loiter_logs_audit(self, client, caplog):
+        stream_state.set_callbacks(on_loiter_command=lambda: None)
+        with caplog.at_level(logging.INFO, logger="hydra.audit"):
+            resp = client.post("/api/vehicle/loiter")
+        assert resp.status_code == 200
+        assert any("action=loiter" in r.message and "outcome=ok" in r.message for r in caplog.records)
+
+    def test_failed_action_logs_outcome(self, client, caplog):
+        stream_state.set_callbacks(on_strike_command=lambda tid: False)
+        with caplog.at_level(logging.INFO, logger="hydra.audit"):
+            resp = client.post("/api/target/strike", json={"track_id": 3, "confirm": True})
+        assert resp.status_code == 503
+        assert any("action=strike" in r.message and "outcome=failed" in r.message for r in caplog.records)

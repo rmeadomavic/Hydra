@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import hashlib
 import hmac
 import logging
@@ -48,6 +49,21 @@ def _check_auth(authorization: Optional[str]) -> Optional[JSONResponse]:
     if not hmac.compare_digest(provided, _api_token):
         return JSONResponse({"error": "Invalid API token"}, status_code=403)
     return None
+
+
+# Dedicated audit logger for control actions
+audit_log = logging.getLogger("hydra.audit")
+
+# Prompt constraints
+MAX_PROMPTS = 20
+MAX_PROMPT_LENGTH = 200
+
+
+def _audit(request: Request, action: str, target: str = "", outcome: str = "ok") -> None:
+    """Log a control action for accountability."""
+    client = request.client.host if request.client else "unknown"
+    ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    audit_log.info("ts=%s actor=%s action=%s target=%s outcome=%s", ts, client, action, target, outcome)
 
 
 class StreamState:
@@ -162,13 +178,27 @@ async def api_set_prompts(request: Request, authorization: Optional[str] = Heade
     body = await request.json()
     prompts = body.get("prompts", [])
     if not prompts or not isinstance(prompts, list):
+        _audit(request, "set_prompts", outcome="invalid_input")
         return JSONResponse({"error": "prompts must be a non-empty list"}, status_code=400)
 
+    if len(prompts) > MAX_PROMPTS:
+        _audit(request, "set_prompts", outcome="too_many_prompts")
+        return JSONResponse({"error": f"max {MAX_PROMPTS} prompts allowed"}, status_code=400)
+
+    sanitized = []
+    for p in prompts:
+        if not isinstance(p, str) or not p.strip():
+            _audit(request, "set_prompts", outcome="invalid_prompt_value")
+            return JSONResponse({"error": "each prompt must be a non-empty string"}, status_code=400)
+        s = p.strip()[:MAX_PROMPT_LENGTH]
+        sanitized.append(s)
+
     if stream_state._on_prompts_change:
-        stream_state._on_prompts_change(prompts)
-        stream_state.runtime_config["prompts"] = prompts
-        logger.info("Prompts updated via web UI: %s", prompts)
-        return {"status": "ok", "prompts": prompts}
+        stream_state._on_prompts_change(sanitized)
+        stream_state.runtime_config["prompts"] = sanitized
+        _audit(request, "set_prompts", target=",".join(sanitized))
+        return {"status": "ok", "prompts": sanitized}
+    _audit(request, "set_prompts", outcome="unsupported")
     return JSONResponse({"error": "prompt change not supported for current detector"}, status_code=400)
 
 
@@ -187,20 +217,23 @@ async def api_set_threshold(request: Request, authorization: Optional[str] = Hea
     if stream_state._on_threshold_change:
         stream_state._on_threshold_change(threshold)
         stream_state.runtime_config["threshold"] = threshold
-        logger.info("Threshold updated via web UI: %.2f", threshold)
+        _audit(request, "set_threshold", target=f"{threshold:.2f}")
         return {"status": "ok", "threshold": threshold}
+    _audit(request, "set_threshold", outcome="unavailable")
     return JSONResponse({"error": "threshold change not available"}, status_code=400)
 
 
 @app.post("/api/vehicle/loiter")
-async def api_command_loiter(authorization: Optional[str] = Header(None)):
+async def api_command_loiter(request: Request, authorization: Optional[str] = Header(None)):
     """Command vehicle to LOITER/HOLD at current position."""
     auth_err = _check_auth(authorization)
     if auth_err:
         return auth_err
     if stream_state._on_loiter_command:
         stream_state._on_loiter_command()
+        _audit(request, "loiter")
         return {"status": "ok", "command": "loiter"}
+    _audit(request, "loiter", outcome="mavlink_disconnected")
     return JSONResponse({"error": "MAVLink not connected"}, status_code=503)
 
 
@@ -235,20 +268,25 @@ async def api_target_lock(request: Request, authorization: Optional[str] = Heade
     if stream_state._on_target_lock:
         result = stream_state._on_target_lock(int(track_id), mode="track")
         if result:
+            _audit(request, "target_lock", target=str(track_id))
             return {"status": "ok", "track_id": track_id, "mode": "track"}
+        _audit(request, "target_lock", target=str(track_id), outcome="track_not_found")
         return JSONResponse({"error": "track_id not found in active tracks"}, status_code=404)
+    _audit(request, "target_lock", outcome="unavailable")
     return JSONResponse({"error": "target lock not available"}, status_code=503)
 
 
 @app.post("/api/target/unlock")
-async def api_target_unlock(authorization: Optional[str] = Header(None)):
+async def api_target_unlock(request: Request, authorization: Optional[str] = Header(None)):
     """Release target lock."""
     auth_err = _check_auth(authorization)
     if auth_err:
         return auth_err
     if stream_state._on_target_unlock:
         stream_state._on_target_unlock()
+        _audit(request, "target_unlock")
         return {"status": "ok"}
+    _audit(request, "target_unlock", outcome="unavailable")
     return JSONResponse({"error": "target lock not available"}, status_code=503)
 
 
@@ -277,11 +315,14 @@ async def api_strike_command(request: Request, authorization: Optional[str] = He
     if stream_state._on_strike_command:
         result = stream_state._on_strike_command(int(track_id))
         if result:
+            _audit(request, "strike", target=str(track_id))
             return {"status": "ok", "track_id": track_id, "mode": "strike"}
+        _audit(request, "strike", target=str(track_id), outcome="failed")
         return JSONResponse(
             {"error": "Strike failed — no GPS fix or track not found"},
             status_code=503,
         )
+    _audit(request, "strike", outcome="unavailable")
     return JSONResponse({"error": "strike not available"}, status_code=503)
 
 
