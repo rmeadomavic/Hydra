@@ -1,6 +1,6 @@
 # Hydra Detect v2.0
 
-Real-time object detection and tracking system built for unmanned vehicles — drones, boats, rovers, or anything running [ArduPilot](https://ardupilot.org/). Runs on NVIDIA Jetson or any Linux box with a camera and a MAVLink radio.
+Real-time object detection and tracking system built for uncrewed vehicles — drones, boats, rovers, or anything running [ArduPilot](https://ardupilot.org/). Runs on NVIDIA Jetson or any Linux box with a camera and a MAVLink radio.
 
 ```
 Camera ─> Detector (YOLO / NanoOWL) ─> ByteTrack ─> MAVLink Alerts
