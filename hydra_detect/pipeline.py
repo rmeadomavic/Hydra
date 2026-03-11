@@ -138,7 +138,11 @@ class Pipeline:
         signal.signal(signal.SIGTERM, self._signal_handler)
 
         # Init subsystems
-        self._detector.load()
+        try:
+            self._detector.load()
+        except Exception as exc:
+            logger.error("Detector failed to load: %s", exc)
+            sys.exit(1)
         engine_name = self._cfg.get("detector", "engine", fallback="yolo")
         logger.info("Detector engine: %s", engine_name)
 
