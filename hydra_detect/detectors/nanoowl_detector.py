@@ -131,6 +131,21 @@ class NanoOWLDetector(BaseDetector):
 
         return DetectionResult(detections=detections, inference_ms=elapsed_ms)
 
+    # -- Public setters for runtime reconfiguration ----------------------
+    def set_prompts(self, prompts: list[str]) -> None:
+        """Update detection prompts at runtime."""
+        self._prompts = prompts
+
+    def get_prompts(self) -> list[str]:
+        return list(self._prompts)
+
+    def set_threshold(self, threshold: float) -> None:
+        """Update confidence threshold at runtime."""
+        self._threshold = threshold
+
+    def get_threshold(self) -> float:
+        return self._threshold
+
     def unload(self) -> None:
         self._predictor = None
         self._model = None

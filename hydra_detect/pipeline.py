@@ -20,7 +20,7 @@ from .detectors.yolo_detector import YOLODetector
 from .mavlink_io import MAVLinkIO
 from .overlay import draw_tracks
 from .tracker import ByteTracker
-from .web.server import run_server, stream_state
+from .web.server import configure_auth, run_server, stream_state
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +138,11 @@ class Pipeline:
         signal.signal(signal.SIGTERM, self._signal_handler)
 
         # Init subsystems
-        self._detector.load()
+        try:
+            self._detector.load()
+        except Exception as exc:
+            logger.error("Detector failed to load: %s", exc)
+            sys.exit(1)
         engine_name = self._cfg.get("detector", "engine", fallback="yolo")
         logger.info("Detector engine: %s", engine_name)
 
@@ -156,6 +160,10 @@ class Pipeline:
         self._det_logger.start()
 
         if self._web_enabled:
+            # Configure API auth
+            api_token = self._cfg.get("web", "api_token", fallback="").strip()
+            configure_auth(api_token or None)
+
             # Set initial runtime config for web UI
             if engine_name == "nanoowl":
                 prompts = [
@@ -228,7 +236,7 @@ class Pipeline:
                     self._mavlink.alert_detection(track.label, track.confidence)
 
                 # Auto-loiter on detection
-                if self._mavlink._auto_loiter:
+                if self._mavlink.auto_loiter:
                     self._mavlink.command_loiter()
 
             # Keep-in-frame: adjust yaw to center locked target
@@ -315,29 +323,21 @@ class Pipeline:
     def _handle_prompts_change(self, prompts: list[str]) -> None:
         """Update NanoOWL prompts at runtime."""
         if isinstance(self._detector, NanoOWLDetector):
-            self._detector._prompts = prompts
+            self._detector.set_prompts(prompts)
             logger.info("NanoOWL prompts updated: %s", prompts)
 
     def _handle_threshold_change(self, threshold: float) -> None:
         """Update detector confidence threshold at runtime."""
-        if isinstance(self._detector, NanoOWLDetector):
-            self._detector._threshold = threshold
-        elif isinstance(self._detector, YOLODetector):
-            self._detector._confidence = threshold
+        self._detector.set_threshold(threshold)
         logger.info("Detection threshold updated: %.2f", threshold)
 
     def _handle_loiter_command(self) -> None:
         """Manual loiter command from web UI."""
         if self._mavlink is not None:
-            try:
-                mode_map = self._mavlink._mav.mode_mapping()
-                for mode_name in ("LOITER", "HOLD"):
-                    if mode_name in mode_map:
-                        self._mavlink._mav.set_mode_apm(mode_map[mode_name])
-                        logger.info("Manual LOITER command from web UI.")
-                        return
-            except Exception as exc:
-                logger.warning("Manual LOITER failed: %s", exc)
+            for mode_name in ("LOITER", "HOLD"):
+                if self._mavlink.set_mode(mode_name):
+                    logger.info("Manual LOITER command from web UI.")
+                    return
 
     def _handle_target_lock(self, track_id: int, mode: str = "track") -> bool:
         """Lock onto a tracked object for keep-in-frame or strike."""
@@ -389,8 +389,8 @@ class Pipeline:
             return False
 
         # Compute target bearing from frame position
-        if self._camera._frame is not None:
-            frame_w = self._camera._width
+        if self._camera.has_frame:
+            frame_w = self._camera.width
         else:
             frame_w = 640
         cx = (target_track.x1 + target_track.x2) / 2.0
