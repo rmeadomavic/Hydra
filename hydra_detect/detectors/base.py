@@ -59,5 +59,9 @@ class BaseDetector(ABC):
     def detect(self, frame: np.ndarray) -> DetectionResult:
         """Run inference on a single BGR frame."""
 
+    def set_threshold(self, threshold: float) -> None:
+        """Update confidence threshold at runtime (override in subclass)."""
+        raise NotImplementedError
+
     def unload(self) -> None:
         """Optional cleanup."""

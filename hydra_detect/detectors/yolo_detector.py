@@ -66,5 +66,13 @@ class YOLODetector(BaseDetector):
 
         return DetectionResult(detections=detections, inference_ms=elapsed_ms)
 
+    # -- Public setters for runtime reconfiguration ----------------------
+    def set_threshold(self, threshold: float) -> None:
+        """Update confidence threshold at runtime."""
+        self._confidence = threshold
+
+    def get_threshold(self) -> float:
+        return self._confidence
+
     def unload(self) -> None:
         self._model = None

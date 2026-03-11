@@ -97,6 +97,16 @@ class Camera:
             with self._lock:
                 self._frame = frame
 
+    # -- Public accessors -------------------------------------------------
+    @property
+    def width(self) -> int:
+        return self._width
+
+    @property
+    def has_frame(self) -> bool:
+        with self._lock:
+            return self._frame is not None
+
     # ------------------------------------------------------------------
     def __enter__(self) -> "Camera":
         self.open()

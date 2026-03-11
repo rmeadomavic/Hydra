@@ -421,7 +421,31 @@ class MAVLinkIO:
 
         return (target_lat, target_lon)
 
-    # ------------------------------------------------------------------
+    # -- Public accessors / mutators ------------------------------------
+    @property
+    def auto_loiter(self) -> bool:
+        return self._auto_loiter
+
+    @auto_loiter.setter
+    def auto_loiter(self, value: bool) -> None:
+        self._auto_loiter = value
+
+    def set_mode(self, mode_name: str) -> bool:
+        """Set the vehicle flight mode by name. Returns True on success."""
+        if self._mav is None:
+            return False
+        try:
+            mode_map = self._mav.mode_mapping()
+            if mode_name in mode_map:
+                self._mav.set_mode_apm(mode_map[mode_name])
+                logger.info("Vehicle set to %s mode.", mode_name)
+                return True
+            logger.warning("Mode %s not found in mode mapping.", mode_name)
+            return False
+        except Exception as exc:
+            logger.warning("Failed to set mode %s: %s", mode_name, exc)
+            return False
+
     @property
     def connected(self) -> bool:
         return self._mav is not None

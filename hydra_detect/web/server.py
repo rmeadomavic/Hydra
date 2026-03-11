@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import logging
+import secrets
 import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Header, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
@@ -20,6 +23,31 @@ TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 app = FastAPI(title="Hydra Detect v2.0", version="2.0.0")
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+
+# API token for control endpoints — set via configure_auth()
+_api_token: Optional[str] = None
+
+
+def configure_auth(token: Optional[str]) -> None:
+    """Set the API token for control endpoints. None or empty disables auth."""
+    global _api_token
+    _api_token = token if token else None
+    if _api_token:
+        logger.info("API token auth enabled for control endpoints.")
+    else:
+        logger.info("API token auth disabled (no token configured).")
+
+
+def _check_auth(authorization: Optional[str]) -> Optional[JSONResponse]:
+    """Validate Bearer token. Returns an error response if auth fails, None if OK."""
+    if _api_token is None:
+        return None  # Auth disabled
+    if not authorization or not authorization.startswith("Bearer "):
+        return JSONResponse({"error": "Authorization header with Bearer token required"}, status_code=401)
+    provided = authorization[len("Bearer "):]
+    if not hmac.compare_digest(provided, _api_token):
+        return JSONResponse({"error": "Invalid API token"}, status_code=403)
+    return None
 
 
 class StreamState:
@@ -126,8 +154,11 @@ async def api_get_config():
 
 
 @app.post("/api/config/prompts")
-async def api_set_prompts(request: Request):
+async def api_set_prompts(request: Request, authorization: Optional[str] = Header(None)):
     """Update detection prompts at runtime (NanoOWL)."""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
     body = await request.json()
     prompts = body.get("prompts", [])
     if not prompts or not isinstance(prompts, list):
@@ -142,8 +173,11 @@ async def api_set_prompts(request: Request):
 
 
 @app.post("/api/config/threshold")
-async def api_set_threshold(request: Request):
+async def api_set_threshold(request: Request, authorization: Optional[str] = Header(None)):
     """Update detection confidence threshold at runtime."""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
     body = await request.json()
     threshold = body.get("threshold")
     if threshold is None or not (0.0 <= float(threshold) <= 1.0):
@@ -159,8 +193,11 @@ async def api_set_threshold(request: Request):
 
 
 @app.post("/api/vehicle/loiter")
-async def api_command_loiter():
+async def api_command_loiter(authorization: Optional[str] = Header(None)):
     """Command vehicle to LOITER/HOLD at current position."""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
     if stream_state._on_loiter_command:
         stream_state._on_loiter_command()
         return {"status": "ok", "command": "loiter"}
@@ -182,11 +219,14 @@ async def api_target_status():
 
 
 @app.post("/api/target/lock")
-async def api_target_lock(request: Request):
+async def api_target_lock(request: Request, authorization: Optional[str] = Header(None)):
     """Lock onto a tracked object for keep-in-frame tracking.
 
     Body: {"track_id": 5}
     """
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
     body = await request.json()
     track_id = body.get("track_id")
     if track_id is None:
@@ -201,8 +241,11 @@ async def api_target_lock(request: Request):
 
 
 @app.post("/api/target/unlock")
-async def api_target_unlock():
+async def api_target_unlock(authorization: Optional[str] = Header(None)):
     """Release target lock."""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
     if stream_state._on_target_unlock:
         stream_state._on_target_unlock()
         return {"status": "ok"}
@@ -210,12 +253,15 @@ async def api_target_unlock():
 
 
 @app.post("/api/target/strike")
-async def api_strike_command(request: Request):
+async def api_strike_command(request: Request, authorization: Optional[str] = Header(None)):
     """Command vehicle to navigate toward the locked target.
 
     Body: {"track_id": 5, "confirm": true}
     The confirm field MUST be true — this is a safety check.
     """
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
     body = await request.json()
     track_id = body.get("track_id")
     confirm = body.get("confirm", False)
