@@ -493,10 +493,24 @@
                         : '';
                     const div = document.createElement('div');
                     div.className = 'det-entry';
-                    div.innerHTML = `<span class="det-time">${time}</span> `
-                        + `<span class="det-label">${d.label}</span> `
-                        + `<span class="det-conf">${(d.confidence * 100).toFixed(0)}%</span>`
-                        + (pos ? ` <span class="det-pos">${pos}</span>` : '');
+                    const timeSpan = document.createElement('span');
+                    timeSpan.className = 'det-time';
+                    timeSpan.textContent = time;
+                    const labelSpan = document.createElement('span');
+                    labelSpan.className = 'det-label';
+                    labelSpan.textContent = ' ' + d.label + ' ';
+                    const confSpan = document.createElement('span');
+                    confSpan.className = 'det-conf';
+                    confSpan.textContent = (d.confidence * 100).toFixed(0) + '%';
+                    div.appendChild(timeSpan);
+                    div.appendChild(labelSpan);
+                    div.appendChild(confSpan);
+                    if (pos) {
+                        const posSpan = document.createElement('span');
+                        posSpan.className = 'det-pos';
+                        posSpan.textContent = ' ' + pos;
+                        div.appendChild(posSpan);
+                    }
                     log.appendChild(div);
                 }
             } catch (e) {
@@ -571,8 +585,20 @@
                 for (const t of tracks) {
                     const div = document.createElement('div');
                     div.className = 'track-item' + (t.track_id === selectedTrackId ? ' selected' : '');
-                    div.innerHTML = `<span><span class="tid">#${t.track_id}</span><span class="tlabel">${t.label}</span></span>`
-                        + `<span class="tconf">${(t.confidence * 100).toFixed(0)}%</span>`;
+                    const infoSpan = document.createElement('span');
+                    const tidSpan = document.createElement('span');
+                    tidSpan.className = 'tid';
+                    tidSpan.textContent = '#' + t.track_id;
+                    const tlabelSpan = document.createElement('span');
+                    tlabelSpan.className = 'tlabel';
+                    tlabelSpan.textContent = t.label;
+                    infoSpan.appendChild(tidSpan);
+                    infoSpan.appendChild(tlabelSpan);
+                    const confSpan = document.createElement('span');
+                    confSpan.className = 'tconf';
+                    confSpan.textContent = (t.confidence * 100).toFixed(0) + '%';
+                    div.appendChild(infoSpan);
+                    div.appendChild(confSpan);
                     div.onclick = () => selectTrack(t.track_id, t.label);
                     list.appendChild(div);
                 }

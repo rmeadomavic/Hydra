@@ -117,7 +117,9 @@ class MAVLinkIO:
     # ------------------------------------------------------------------
     def _gps_listener(self) -> None:
         """Background thread: read GPS messages and update state."""
-        while not self._stop_evt.is_set() and self._mav is not None:
+        while not self._stop_evt.is_set():
+            if self._mav is None:
+                break
             try:
                 msg = self._mav.recv_match(
                     type=["GLOBAL_POSITION_INT", "GPS_RAW_INT"],
@@ -196,14 +198,15 @@ class MAVLinkIO:
         """Rate-limited per-label detection alert with geo-coordinates."""
         now = time.time()
 
-        # Per-label throttling
-        last = self._last_alert_times.get(label, 0.0)
-        if (now - last) < self._alert_interval:
-            logger.debug(
-                "Skipping duplicate alert for %s (last %.1fs ago)", label, now - last
-            )
-            return
-        self._last_alert_times[label] = now
+        # Per-label throttling (protected by main lock)
+        with self._lock:
+            last = self._last_alert_times.get(label, 0.0)
+            if (now - last) < self._alert_interval:
+                logger.debug(
+                    "Skipping duplicate alert for %s (last %.1fs ago)", label, now - last
+                )
+                return
+            self._last_alert_times[label] = now
 
         # Build alert message with DTG and coordinates
         dtg = datetime.datetime.utcnow().strftime("%Y%m%d %H%MZ")
@@ -287,6 +290,10 @@ class MAVLinkIO:
         if self._mav is None:
             return
 
+        # Clamp inputs to valid ranges
+        error_x = max(-1.0, min(1.0, error_x))
+        yaw_rate_max = max(1.0, min(180.0, yaw_rate_max))
+
         # Proportional yaw correction: positive error = target is right = yaw right
         yaw_rate = error_x * yaw_rate_max
 
@@ -352,10 +359,13 @@ class MAVLinkIO:
                 logger.warning("GUIDED mode not available in mode mapping.")
                 return False
 
-            # Use current altitude if not specified
+            # Use current altitude if not specified — abort if unknown
             if alt is None:
                 _, _, cur_alt = self.get_lat_lon()
-                alt = cur_alt if cur_alt is not None else 0.0
+                if cur_alt is None:
+                    logger.error("GUIDED aborted: current altitude unknown (no GPS fix).")
+                    return False
+                alt = cur_alt
 
             # Send position target
             self._mav.mav.set_position_target_global_int_send(

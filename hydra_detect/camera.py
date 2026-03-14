@@ -62,7 +62,8 @@ class Camera:
         """Stop capture and release resources."""
         self._running = False
         if self._thread is not None:
-            self._thread.join(timeout=3.0)
+            # Timeout must exceed max backoff (30s) to avoid racing with the grab thread
+            self._thread.join(timeout=35.0)
         if self._cap is not None:
             self._cap.release()
         logger.info("Camera closed.")

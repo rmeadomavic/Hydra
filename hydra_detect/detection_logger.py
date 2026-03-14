@@ -58,37 +58,49 @@ class DetectionLogger:
 
     def start(self) -> None:
         """Create directories and open output file."""
-        self._log_dir.mkdir(parents=True, exist_ok=True)
-        if self._save_images:
-            self._image_dir.mkdir(parents=True, exist_ok=True)
-        if self._save_crops:
-            self._crop_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self._log_dir.mkdir(parents=True, exist_ok=True)
+            if self._save_images:
+                self._image_dir.mkdir(parents=True, exist_ok=True)
+            if self._save_crops:
+                self._crop_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.error("Failed to create logging directories: %s", exc)
+            return
 
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
-        if self._log_format == "csv":
-            path = self._log_dir / f"detections_{timestamp}.csv"
-            self._csv_file = open(path, "w", newline="")
-            self._csv_writer = csv.writer(self._csv_file)
-            self._csv_writer.writerow([
-                "timestamp", "frame", "track_id", "label", "class_id",
-                "confidence", "x1", "y1", "x2", "y2",
-                "lat", "lon", "alt", "fix", "image",
-            ])
-            logger.info("Logging detections to %s", path)
-        else:
-            path = self._log_dir / f"detections_{timestamp}.jsonl"
-            self._json_file = open(path, "w")
-            logger.info("Logging detections to %s", path)
+        try:
+            if self._log_format == "csv":
+                path = self._log_dir / f"detections_{timestamp}.csv"
+                self._csv_file = open(path, "w", newline="")
+                self._csv_writer = csv.writer(self._csv_file)
+                self._csv_writer.writerow([
+                    "timestamp", "frame", "track_id", "label", "class_id",
+                    "confidence", "x1", "y1", "x2", "y2",
+                    "lat", "lon", "alt", "fix", "image",
+                ])
+                logger.info("Logging detections to %s", path)
+            else:
+                path = self._log_dir / f"detections_{timestamp}.jsonl"
+                self._json_file = open(path, "w")
+                logger.info("Logging detections to %s", path)
+        except OSError as exc:
+            logger.error("Failed to open detection log file: %s", exc)
 
     def stop(self) -> None:
         """Flush and close log files."""
-        if self._csv_file is not None:
-            self._csv_file.close()
-            self._csv_file = None
-        if self._json_file is not None:
-            self._json_file.close()
-            self._json_file = None
+        for fh_name in ("_csv_file", "_json_file"):
+            fh = getattr(self, fh_name, None)
+            if fh is not None:
+                try:
+                    fh.flush()
+                    fh.close()
+                except OSError as exc:
+                    logger.warning("Error closing log file: %s", exc)
+                finally:
+                    setattr(self, fh_name, None)
+        self._csv_writer = None
 
     def log(
         self,
@@ -125,11 +137,15 @@ class DetectionLogger:
         img_filename = None
         if self._save_images and frame is not None:
             img_filename = f"{ts_file}_{self._frame_count:06d}.jpg"
-            cv2.imwrite(
-                str(self._image_dir / img_filename),
-                frame,
-                [int(cv2.IMWRITE_JPEG_QUALITY), self._image_quality],
-            )
+            try:
+                cv2.imwrite(
+                    str(self._image_dir / img_filename),
+                    frame,
+                    [int(cv2.IMWRITE_JPEG_QUALITY), self._image_quality],
+                )
+            except Exception as exc:
+                logger.warning("Failed to save snapshot: %s", exc)
+                img_filename = None
 
         for track in tracking_result:
             record = {
@@ -173,10 +189,13 @@ class DetectionLogger:
 
         # Periodic flush
         if self._frame_count % 30 == 0:
-            if self._csv_file is not None:
-                self._csv_file.flush()
-            if self._json_file is not None:
-                self._json_file.flush()
+            try:
+                if self._csv_file is not None:
+                    self._csv_file.flush()
+                if self._json_file is not None:
+                    self._json_file.flush()
+            except OSError as exc:
+                logger.warning("Failed to flush log file: %s", exc)
 
     def get_recent(self, n: int = 20) -> list[Dict[str, Any]]:
         """Return the N most recent detection records (for web UI)."""
@@ -195,4 +214,7 @@ class DetectionLogger:
 
         crop = frame[y1:y2, x1:x2]
         fname = f"frame{self._frame_count:06d}_id{track.track_id}_{track.label}.jpg"
-        cv2.imwrite(str(self._crop_dir / fname), crop)
+        try:
+            cv2.imwrite(str(self._crop_dir / fname), crop)
+        except Exception as exc:
+            logger.warning("Failed to save crop: %s", exc)
