@@ -19,6 +19,7 @@ from .detectors.base import BaseDetector
 from .detectors.nanoowl_detector import NanoOWLDetector
 from .detectors.yolo_detector import YOLODetector
 from .mavlink_io import MAVLinkIO
+from .osd import FpvOsd, build_osd_state
 from .overlay import draw_tracks
 from .tracker import ByteTracker
 from .web.server import configure_auth, run_server, stream_state
@@ -112,6 +113,20 @@ class Pipeline:
                 ),
                 guided_roi=self._cfg.getboolean(
                     "mavlink", "guided_roi_on_detect", fallback=False
+                ),
+            )
+
+        # FPV OSD overlay (requires MAVLink and FC with OSD chip)
+        self._osd: FpvOsd | None = None
+        if (
+            self._mavlink is not None
+            and self._cfg.getboolean("osd", "enabled", fallback=False)
+        ):
+            self._osd = FpvOsd(
+                self._mavlink,
+                mode=self._cfg.get("osd", "mode", fallback="statustext"),
+                update_interval=self._cfg.getfloat(
+                    "osd", "update_interval", fallback=0.2
                 ),
             )
 
@@ -313,6 +328,14 @@ class Pipeline:
                 locked_track_id=render_lock_id,
                 lock_mode=render_lock_mode,
             )
+
+            # FPV OSD update (sends to FC onboard OSD chip via MAVLink)
+            if self._osd is not None:
+                osd_state = build_osd_state(
+                    track_result, fps, det_result.inference_ms,
+                    render_lock_id, render_lock_mode, gps,
+                )
+                self._osd.update(osd_state)
 
             # Push to web stream
             if self._web_enabled:
