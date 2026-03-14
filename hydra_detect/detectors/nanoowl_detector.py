@@ -87,7 +87,7 @@ class NanoOWLDetector(BaseDetector):
                     x1=x1, y1=y1, x2=x2, y2=y2,
                     confidence=conf,
                     class_id=cls,
-                    label=self._prompts[cls] if cls < len(self._prompts) else str(cls),
+                    label=self._prompts[cls] if 0 <= cls < len(self._prompts) else str(cls),
                 )
             )
 
@@ -125,7 +125,7 @@ class NanoOWLDetector(BaseDetector):
                     x1=x1, y1=y1, x2=x2, y2=y2,
                     confidence=float(score),
                     class_id=cls,
-                    label=self._prompts[cls] if cls < len(self._prompts) else str(cls),
+                    label=self._prompts[cls] if 0 <= cls < len(self._prompts) else str(cls),
                 )
             )
 

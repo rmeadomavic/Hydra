@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, List, Optional
 import cv2
 import numpy as np
 from fastapi import FastAPI, Header, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
@@ -21,6 +22,15 @@ logger = logging.getLogger(__name__)
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 app = FastAPI(title="Hydra Detect v2.0", version="2.0.0")
+
+# CORS: restrict to same-origin by default; override via configure_cors()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[],  # No cross-origin by default
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 # API token for control endpoints — set via configure_auth()
@@ -122,6 +132,26 @@ class StreamState:
         with self._lock:
             return dict(self.stats)
 
+    def set_target_lock(self, lock_state: Dict[str, Any]) -> None:
+        with self._lock:
+            self.target_lock = lock_state
+
+    def get_target_lock(self) -> Dict[str, Any]:
+        with self._lock:
+            return dict(self.target_lock)
+
+    def set_runtime_config(self, key: str, value: Any) -> None:
+        with self._lock:
+            self.runtime_config[key] = value
+
+    def update_runtime_config(self, updates: Dict[str, Any]) -> None:
+        with self._lock:
+            self.runtime_config.update(updates)
+
+    def get_runtime_config(self) -> Dict[str, Any]:
+        with self._lock:
+            return dict(self.runtime_config)
+
     def set_callbacks(
         self,
         on_prompts_change: Optional[Callable] = None,
@@ -164,7 +194,7 @@ async def api_stats():
 @app.get("/api/config")
 async def api_get_config():
     """Return current runtime configuration."""
-    return stream_state.runtime_config
+    return stream_state.get_runtime_config()
 
 
 @app.post("/api/config/prompts")
@@ -193,7 +223,7 @@ async def api_set_prompts(request: Request, authorization: Optional[str] = Heade
 
     if stream_state._on_prompts_change:
         stream_state._on_prompts_change(sanitized)
-        stream_state.runtime_config["prompts"] = sanitized
+        stream_state.set_runtime_config("prompts", sanitized)
         _audit(request, "set_prompts", target=",".join(sanitized))
         return {"status": "ok", "prompts": sanitized}
     _audit(request, "set_prompts", outcome="unsupported")
@@ -208,15 +238,18 @@ async def api_set_threshold(request: Request, authorization: Optional[str] = Hea
         return auth_err
     body = await request.json()
     threshold = body.get("threshold")
-    if threshold is None or not (0.0 <= float(threshold) <= 1.0):
+    try:
+        threshold_val = float(threshold)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "threshold must be a number 0.0-1.0"}, status_code=400)
+    if not (0.0 <= threshold_val <= 1.0):
         return JSONResponse({"error": "threshold must be 0.0-1.0"}, status_code=400)
 
-    threshold = float(threshold)
     if stream_state._on_threshold_change:
-        stream_state._on_threshold_change(threshold)
-        stream_state.runtime_config["threshold"] = threshold
-        _audit(request, "set_threshold", target=f"{threshold:.2f}")
-        return {"status": "ok", "threshold": threshold}
+        stream_state._on_threshold_change(threshold_val)
+        stream_state.set_runtime_config("threshold", threshold_val)
+        _audit(request, "set_threshold", target=f"{threshold_val:.2f}")
+        return {"status": "ok", "threshold": threshold_val}
     _audit(request, "set_threshold", outcome="unavailable")
     return JSONResponse({"error": "threshold change not available"}, status_code=400)
 
@@ -246,7 +279,7 @@ async def api_active_tracks():
 @app.get("/api/target")
 async def api_target_status():
     """Return current target lock state."""
-    return stream_state.target_lock
+    return stream_state.get_target_lock()
 
 
 @app.post("/api/target/lock")
@@ -262,9 +295,13 @@ async def api_target_lock(request: Request, authorization: Optional[str] = Heade
     track_id = body.get("track_id")
     if track_id is None:
         return JSONResponse({"error": "track_id required"}, status_code=400)
+    try:
+        track_id_int = int(track_id)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "track_id must be an integer"}, status_code=400)
 
     if stream_state._on_target_lock:
-        result = stream_state._on_target_lock(int(track_id), mode="track")
+        result = stream_state._on_target_lock(track_id_int, mode="track")
         if result:
             _audit(request, "target_lock", target=str(track_id))
             return {"status": "ok", "track_id": track_id, "mode": "track"}
@@ -309,9 +346,13 @@ async def api_strike_command(request: Request, authorization: Optional[str] = He
         )
     if track_id is None:
         return JSONResponse({"error": "track_id required"}, status_code=400)
+    try:
+        track_id_int = int(track_id)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "track_id must be an integer"}, status_code=400)
 
     if stream_state._on_strike_command:
-        result = stream_state._on_strike_command(int(track_id))
+        result = stream_state._on_strike_command(track_id_int)
         if result:
             _audit(request, "strike", target=str(track_id))
             return {"status": "ok", "track_id": track_id, "mode": "strike"}
@@ -342,22 +383,29 @@ async def mjpeg_stream():
 
 
 async def _generate_mjpeg():
-    """Async generator that yields JPEG frames."""
+    """Async generator that yields JPEG frames.
+
+    Catches GeneratorExit / CancelledError to clean up when the client disconnects.
+    """
     quality = 70
-    while True:
-        frame = stream_state.get_frame()
-        if frame is not None:
-            ok, buf = cv2.imencode(
-                ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality]
-            )
-            if ok:
-                yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n"
-                    + buf.tobytes()
-                    + b"\r\n"
+    try:
+        while True:
+            frame = stream_state.get_frame()
+            if frame is not None:
+                ok, buf = cv2.imencode(
+                    ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality]
                 )
-        await asyncio.sleep(0.033)  # ~30 fps cap
+                if ok:
+                    yield (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n\r\n"
+                        + buf.tobytes()
+                        + b"\r\n"
+                    )
+            await asyncio.sleep(0.033)  # ~30 fps cap
+    except (GeneratorExit, asyncio.CancelledError):
+        logger.debug("MJPEG stream client disconnected.")
+        return
 
 
 # ── Server launcher ──────────────────────────────────────────────────
