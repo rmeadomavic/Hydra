@@ -48,6 +48,23 @@ docker run --rm --runtime nvidia \
   hydra-detect
 ```
 
+### Jetson Orin Nano Super (MAXN SUPER) Preflight
+
+Before field deployment, run a quick host sanity check on the Jetson:
+
+```bash
+./scripts/jetson_preflight.sh
+```
+
+Recommended one-time performance setup:
+
+```bash
+sudo nvpmodel -m 0
+sudo jetson_clocks
+```
+
+If preflight reports no failures, Hydra is generally ready to run on-device (camera/MAVLink wiring still needs to match your `config.ini`).
+
 ### systemd Service
 
 ```bash
