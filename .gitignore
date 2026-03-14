@@ -12,3 +12,4 @@ crops/
 *.engine
 .venv/
 venv/
+config.local.ini
