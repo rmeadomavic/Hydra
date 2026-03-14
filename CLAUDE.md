@@ -88,8 +88,10 @@ Follow the **discover → review → fix** workflow:
 - Keep the detector interface (`detectors/base.py`) stable — new detectors
   implement `BaseDetector`
 - Web endpoints in `web/server.py` require bearer token auth for control actions
-- Never commit secrets or API tokens — keep `config.ini` token fields empty and
-  store local secrets in an ignored override file like `config.local.ini`
+- Never commit secrets or API tokens — do not place secrets in tracked
+  `config.ini`; instead create an ignored local config file (for example,
+  `config.local.ini` copied from `config.ini`) and run with
+  `python -m hydra_detect --config config.local.ini`
 
 ## Common Commands
 
