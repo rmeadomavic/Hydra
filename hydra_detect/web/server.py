@@ -163,14 +163,20 @@ class StreamState:
         get_recent_detections: Optional[Callable] = None,
         get_active_tracks: Optional[Callable] = None,
     ) -> None:
-        self._on_prompts_change = on_prompts_change
-        self._on_threshold_change = on_threshold_change
-        self._on_loiter_command = on_loiter_command
-        self._on_target_lock = on_target_lock
-        self._on_target_unlock = on_target_unlock
-        self._on_strike_command = on_strike_command
-        self._get_recent_detections = get_recent_detections
-        self._get_active_tracks = get_active_tracks
+        with self._lock:
+            self._on_prompts_change = on_prompts_change
+            self._on_threshold_change = on_threshold_change
+            self._on_loiter_command = on_loiter_command
+            self._on_target_lock = on_target_lock
+            self._on_target_unlock = on_target_unlock
+            self._on_strike_command = on_strike_command
+            self._get_recent_detections = get_recent_detections
+            self._get_active_tracks = get_active_tracks
+
+    def get_callback(self, name: str) -> Optional[Callable]:
+        """Safely retrieve a callback by name."""
+        with self._lock:
+            return getattr(self, name, None)
 
 
 # Global state instance — set by the pipeline before starting the server
@@ -221,8 +227,9 @@ async def api_set_prompts(request: Request, authorization: Optional[str] = Heade
         s = p.strip()[:MAX_PROMPT_LENGTH]
         sanitized.append(s)
 
-    if stream_state._on_prompts_change:
-        stream_state._on_prompts_change(sanitized)
+    cb = stream_state.get_callback("_on_prompts_change")
+    if cb:
+        cb(sanitized)
         stream_state.set_runtime_config("prompts", sanitized)
         _audit(request, "set_prompts", target=",".join(sanitized))
         return {"status": "ok", "prompts": sanitized}
@@ -245,8 +252,9 @@ async def api_set_threshold(request: Request, authorization: Optional[str] = Hea
     if not (0.0 <= threshold_val <= 1.0):
         return JSONResponse({"error": "threshold must be 0.0-1.0"}, status_code=400)
 
-    if stream_state._on_threshold_change:
-        stream_state._on_threshold_change(threshold_val)
+    cb = stream_state.get_callback("_on_threshold_change")
+    if cb:
+        cb(threshold_val)
         stream_state.set_runtime_config("threshold", threshold_val)
         _audit(request, "set_threshold", target=f"{threshold_val:.2f}")
         return {"status": "ok", "threshold": threshold_val}
@@ -260,8 +268,9 @@ async def api_command_loiter(request: Request, authorization: Optional[str] = He
     auth_err = _check_auth(authorization)
     if auth_err:
         return auth_err
-    if stream_state._on_loiter_command:
-        stream_state._on_loiter_command()
+    cb = stream_state.get_callback("_on_loiter_command")
+    if cb:
+        cb()
         _audit(request, "loiter")
         return {"status": "ok", "command": "loiter"}
     _audit(request, "loiter", outcome="mavlink_disconnected")
@@ -271,8 +280,9 @@ async def api_command_loiter(request: Request, authorization: Optional[str] = He
 @app.get("/api/tracks")
 async def api_active_tracks():
     """Return currently active tracked objects (for target selection)."""
-    if stream_state._get_active_tracks:
-        return stream_state._get_active_tracks()
+    cb = stream_state.get_callback("_get_active_tracks")
+    if cb:
+        return cb()
     return []
 
 
@@ -300,8 +310,9 @@ async def api_target_lock(request: Request, authorization: Optional[str] = Heade
     except (TypeError, ValueError):
         return JSONResponse({"error": "track_id must be an integer"}, status_code=400)
 
-    if stream_state._on_target_lock:
-        result = stream_state._on_target_lock(track_id_int, mode="track")
+    cb = stream_state.get_callback("_on_target_lock")
+    if cb:
+        result = cb(track_id_int, mode="track")
         if result:
             _audit(request, "target_lock", target=str(track_id))
             return {"status": "ok", "track_id": track_id, "mode": "track"}
@@ -317,8 +328,9 @@ async def api_target_unlock(request: Request, authorization: Optional[str] = Hea
     auth_err = _check_auth(authorization)
     if auth_err:
         return auth_err
-    if stream_state._on_target_unlock:
-        stream_state._on_target_unlock()
+    cb = stream_state.get_callback("_on_target_unlock")
+    if cb:
+        cb()
         _audit(request, "target_unlock")
         return {"status": "ok"}
     _audit(request, "target_unlock", outcome="unavailable")
@@ -351,8 +363,9 @@ async def api_strike_command(request: Request, authorization: Optional[str] = He
     except (TypeError, ValueError):
         return JSONResponse({"error": "track_id must be an integer"}, status_code=400)
 
-    if stream_state._on_strike_command:
-        result = stream_state._on_strike_command(track_id_int)
+    cb = stream_state.get_callback("_on_strike_command")
+    if cb:
+        result = cb(track_id_int)
         if result:
             _audit(request, "strike", target=str(track_id))
             return {"status": "ok", "track_id": track_id, "mode": "strike"}
@@ -368,8 +381,9 @@ async def api_strike_command(request: Request, authorization: Optional[str] = He
 @app.get("/api/detections")
 async def api_recent_detections():
     """Return recent detection log entries."""
-    if stream_state._get_recent_detections:
-        return stream_state._get_recent_detections()
+    cb = stream_state.get_callback("_get_recent_detections")
+    if cb:
+        return cb()
     return []
 
 

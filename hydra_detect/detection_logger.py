@@ -52,6 +52,7 @@ class DetectionLogger:
         self._csv_file = None
         self._json_file = None
         self._frame_count = 0
+        self._disabled = False
 
         # Recent detections ring buffer for web UI
         self._recent: list[Dict[str, Any]] = []
@@ -66,6 +67,7 @@ class DetectionLogger:
                 self._crop_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             logger.error("Failed to create logging directories: %s", exc)
+            self._disabled = True
             return
 
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -87,6 +89,7 @@ class DetectionLogger:
                 logger.info("Logging detections to %s", path)
         except OSError as exc:
             logger.error("Failed to open detection log file: %s", exc)
+            self._disabled = True
 
     def stop(self) -> None:
         """Flush and close log files."""
@@ -115,7 +118,7 @@ class DetectionLogger:
             frame: The BGR frame (for image saving).
             gps: GPS dict with keys lat, lon, alt, fix (raw MAVLink ints).
         """
-        if len(tracking_result) == 0:
+        if self._disabled or len(tracking_result) == 0:
             self._frame_count += 1
             return
 

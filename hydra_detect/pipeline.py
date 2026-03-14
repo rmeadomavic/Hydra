@@ -133,8 +133,10 @@ class Pipeline:
 
         self._running = False
         self._total_detections = 0
+        self._init_target_state()
 
-        # Target lock state (protected by _state_lock)
+    def _init_target_state(self) -> None:
+        """Initialise target-lock state. Safe to call from tests."""
         self._state_lock = threading.Lock()
         self._locked_track_id: Optional[int] = None
         self._lock_mode: Optional[str] = None  # "track" or "strike"
@@ -242,6 +244,8 @@ class Pipeline:
             with self._state_lock:
                 self._last_track_result = track_result
                 self._total_detections += len(track_result)
+                current_lock_id = self._locked_track_id
+                current_lock_mode = self._lock_mode
 
             # Get GPS state for logging and alerts
             gps = None
@@ -256,11 +260,6 @@ class Pipeline:
                 # Auto-loiter on detection
                 if self._mavlink.auto_loiter:
                     self._mavlink.command_loiter()
-
-            # Keep-in-frame: adjust yaw to center locked target
-            with self._state_lock:
-                current_lock_id = self._locked_track_id
-                current_lock_mode = self._lock_mode
 
             if current_lock_id is not None and self._mavlink is not None:
                 locked_track = None
@@ -281,7 +280,11 @@ class Pipeline:
                     elif current_lock_mode == "strike":
                         self._mavlink.adjust_yaw(error_x, yaw_rate_max=15.0)
                 else:
-                    # Target lost — auto-unlock and notify operator
+                    # Target lost — auto-unlock and notify operator.
+                    # NOTE: The lock is released automatically so the vehicle
+                    # stops yaw corrections toward a stale position. The
+                    # operator is notified via MAVLink STATUSTEXT and can
+                    # re-acquire manually if the target reappears.
                     logger.warning(
                         "Locked target #%d lost from tracker — auto-unlocking.",
                         current_lock_id,
@@ -302,6 +305,7 @@ class Pipeline:
             with self._state_lock:
                 render_lock_id = self._locked_track_id
                 render_lock_mode = self._lock_mode
+                total_det = self._total_detections
             annotated = draw_tracks(
                 frame, track_result,
                 inference_ms=det_result.inference_ms,
@@ -313,8 +317,6 @@ class Pipeline:
             # Push to web stream
             if self._web_enabled:
                 stream_state.update_frame(annotated)
-                with self._state_lock:
-                    total_det = self._total_detections
                 stats_update = {
                     "fps": fps,
                     "inference_ms": det_result.inference_ms,
@@ -329,19 +331,17 @@ class Pipeline:
                 stream_state.update_stats(**stats_update)
 
                 # Update target lock state for web UI
-                with self._state_lock:
-                    lock_id = self._locked_track_id
-                    lock_mode = self._lock_mode
-                if lock_id is not None:
+                # (reuse render_lock_id/render_lock_mode from above)
+                if render_lock_id is not None:
                     locked_label = None
                     for t in track_result:
-                        if t.track_id == lock_id:
+                        if t.track_id == render_lock_id:
                             locked_label = t.label
                             break
                     stream_state.set_target_lock({
                         "locked": True,
-                        "track_id": lock_id,
-                        "mode": lock_mode,
+                        "track_id": render_lock_id,
+                        "mode": render_lock_mode,
                         "label": locked_label,
                     })
                 else:
@@ -451,17 +451,21 @@ class Pipeline:
 
         target_lat, target_lon = target_pos
 
-        # Lock target and set mode
-        with self._state_lock:
-            self._locked_track_id = track_id
-            self._lock_mode = "strike"
-
         # Command GUIDED to estimated position
         success = self._mavlink.command_guided_to(target_lat, target_lon)
         if success:
+            # Only lock target after GUIDED is confirmed
+            with self._state_lock:
+                self._locked_track_id = track_id
+                self._lock_mode = "strike"
             logger.info(
                 "STRIKE initiated: #%d (%s) -> %.6f, %.6f",
                 track_id, target_track.label, target_lat, target_lon,
+            )
+        else:
+            logger.error(
+                "STRIKE failed: GUIDED command rejected for #%d (%s)",
+                track_id, target_track.label,
             )
         return success
 
