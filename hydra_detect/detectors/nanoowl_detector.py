@@ -69,6 +69,7 @@ class NanoOWLDetector(BaseDetector):
         output = self._predictor.predict(
             image=image,
             text=self._prompts,
+            text_encodings=None,
             threshold=self._threshold,
         )
         elapsed_ms = (time.perf_counter() - t0) * 1000
