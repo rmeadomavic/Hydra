@@ -140,6 +140,8 @@ mode = statustext
    ```
 4. Reboot the FC
 
+**Using HDZero (digital FPV)?** See [docs/hdzero-osd-setup.md](docs/hdzero-osd-setup.md) for MSP DisplayPort wiring, ArduPilot parameters, and troubleshooting.
+
 ## Configuration
 
 All settings are in `config.ini`. Here's what each section controls:
