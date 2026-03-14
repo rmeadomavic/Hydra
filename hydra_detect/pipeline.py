@@ -8,10 +8,7 @@ import signal
 import sys
 import threading
 import time
-from pathlib import Path
 from typing import Optional
-
-import cv2
 
 from .camera import Camera
 from .detection_logger import DetectionLogger
@@ -19,6 +16,7 @@ from .detectors.base import BaseDetector
 from .detectors.nanoowl_detector import NanoOWLDetector
 from .detectors.yolo_detector import YOLODetector
 from .mavlink_io import MAVLinkIO
+from .osd import FpvOsd, build_osd_state
 from .overlay import draw_tracks
 from .tracker import ByteTracker
 from .web.server import configure_auth, run_server, stream_state
@@ -56,7 +54,8 @@ def _build_detector(cfg: configparser.ConfigParser) -> BaseDetector:
                 classes = [c for c in classes if c >= 0]
             classes = classes or None
         except ValueError:
-            logger.error("Invalid yolo_classes config (must be comma-separated integers): %s", classes_raw)
+            logger.error("Invalid yolo_classes config (comma-separated ints): %s",
+                         classes_raw)
             classes = None
     return YOLODetector(
         model_path=cfg.get("detector", "yolo_model", fallback="yolov8n.pt"),
@@ -112,6 +111,20 @@ class Pipeline:
                 ),
                 guided_roi=self._cfg.getboolean(
                     "mavlink", "guided_roi_on_detect", fallback=False
+                ),
+            )
+
+        # FPV OSD overlay (requires MAVLink and FC with OSD chip)
+        self._osd: FpvOsd | None = None
+        if (
+            self._mavlink is not None
+            and self._cfg.getboolean("osd", "enabled", fallback=False)
+        ):
+            self._osd = FpvOsd(
+                self._mavlink,
+                mode=self._cfg.get("osd", "mode", fallback="statustext"),
+                update_interval=self._cfg.getfloat(
+                    "osd", "update_interval", fallback=0.2
                 ),
             )
 
@@ -171,6 +184,12 @@ class Pipeline:
             if not self._mavlink.connect():
                 logger.warning("MAVLink connection failed — continuing without.")
                 self._mavlink = None
+                self._osd = None
+
+        if self._osd is not None:
+            logger.info("FPV OSD enabled (mode=%s, interval=%.2fs)",
+                        self._osd.mode, self._cfg.getfloat(
+                            "osd", "update_interval", fallback=0.2))
 
         self._det_logger.start()
 
@@ -313,6 +332,14 @@ class Pipeline:
                 locked_track_id=render_lock_id,
                 lock_mode=render_lock_mode,
             )
+
+            # FPV OSD update (sends to FC onboard OSD chip via MAVLink)
+            if self._osd is not None:
+                osd_state = build_osd_state(
+                    track_result, fps, det_result.inference_ms,
+                    render_lock_id, render_lock_mode, gps,
+                )
+                self._osd.update(osd_state)
 
             # Push to web stream
             if self._web_enabled:

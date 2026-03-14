@@ -5,6 +5,7 @@ Real-time object detection and tracking system built for uncrewed vehicles — d
 ```
 Camera ─> Detector (YOLO / NanoOWL) ─> ByteTrack ─> MAVLink Alerts
                                                    ─> Target Lock / Strike
+                                                   ─> FPV OSD (via FC OSD chip)
                                                    ─> Web Dashboard (MJPEG)
                                                    ─> Detection Logger
 ```
@@ -17,6 +18,7 @@ Camera ─> Detector (YOLO / NanoOWL) ─> ByteTrack ─> MAVLink Alerts
 - **Keep in Frame** — lock a tracked target; the vehicle yaws to keep it centered in the camera
 - **Strike** — command the vehicle to navigate toward a target's estimated position (GUIDED mode)
 - **Log** every detection with timestamps, GPS, confidence scores, and optional image snapshots
+- **FPV OSD** — show detection data on your FPV goggles via the flight controller's onboard OSD chip (Matek H743, SpeedyBee F405-Wing, etc.)
 - **Stream** live annotated video to any browser over MJPEG
 
 ## Quick Start
@@ -101,6 +103,43 @@ The dashboard runs on port 8080 and gives you:
 
 The operator always retains override via Mission Planner or any GCS.
 
+### FPV OSD Overlay
+
+If your flight controller has an onboard analog OSD chip (MAX7456 / AT7456E), Hydra can send detection telemetry directly to it over MAVLink. This composites text onto your analog FPV feed with sub-millisecond latency — no extra hardware, no video passthrough, no added delay.
+
+**What shows on your goggles:**
+```
+T:3 12fps 35ms LK#5TRK
+```
+Track count, pipeline FPS, inference time, and locked target status.
+
+**Compatible flight controllers:** Matek H743, SpeedyBee F405-Wing, or any ArduPilot FC with AT7456E/MAX7456. **Not compatible** with Pixhawk 6C (no OSD chip) — use the web dashboard overlay instead.
+
+**Two modes:**
+
+| Mode | Setup | What You Get |
+|------|-------|-------------|
+| `statustext` | Just enable in config — no FC changes needed | Detection info in the OSD message panel |
+| `named_value` | Copy `scripts/hydra_osd.lua` to FC SD card, enable Lua scripting | Richer display with stale-link warnings |
+
+**Quick setup (statustext mode):**
+```ini
+[osd]
+enabled = true
+mode = statustext
+```
+
+**Lua script setup (named_value mode):**
+1. Copy `scripts/hydra_osd.lua` to `APM/scripts/` on the FC SD card
+2. Set ArduPilot parameters: `SCR_ENABLE=1`, `SCR_HEAP_SIZE=65536`, `OSD_TYPE=1`, `OSD1_ENABLE=1`
+3. Set in `config.ini`:
+   ```ini
+   [osd]
+   enabled = true
+   mode = named_value
+   ```
+4. Reboot the FC
+
 ## Configuration
 
 All settings are in `config.ini`. Here's what each section controls:
@@ -155,6 +194,13 @@ All settings are in `config.ini`. Here's what each section controls:
 | `port` | `8080` | HTTP port |
 | `mjpeg_quality` | `70` | JPEG quality for the video stream (1-100) |
 
+### [osd]
+| Key | Default | Description |
+|-----|---------|-------------|
+| `enabled` | `false` | Enable FPV OSD overlay (requires MAVLink and FC with OSD chip) |
+| `mode` | `statustext` | OSD mode: `statustext` (simple) or `named_value` (needs Lua script on FC) |
+| `update_interval` | `0.2` | Seconds between OSD updates (lower = more responsive, more MAVLink traffic) |
+
 ### [logging]
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -173,7 +219,10 @@ Hydra/
   config.ini                          # All settings
   requirements.txt                    # Python dependencies
   Dockerfile                          # Jetson container build
-  scripts/hydra-detect.service        # systemd unit file
+  scripts/
+    hydra-detect.service              # systemd unit file
+    jetson_preflight.sh               # Jetson hardware preflight checks
+    hydra_osd.lua                     # ArduPilot Lua script for FPV OSD
 
   hydra_detect/
     __init__.py
@@ -182,6 +231,7 @@ Hydra/
     camera.py                         # Thread-safe capture with auto-reconnect
     tracker.py                        # ByteTrack multi-object tracker
     overlay.py                        # Bounding box + HUD + target lock renderer
+    osd.py                            # FPV OSD overlay via MAVLink (FC OSD chip)
     mavlink_io.py                     # MAVLink connection, alerts, vehicle commands
     detection_logger.py               # CSV/JSONL logging with image snapshots
 
