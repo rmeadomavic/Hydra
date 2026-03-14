@@ -52,6 +52,8 @@ class FpvOsd:
     to send OSD-specific messages alongside normal telemetry.
     """
 
+    _VALID_MODES = ("statustext", "named_value")
+
     def __init__(
         self,
         mavlink_io,  # hydra_detect.mavlink_io.MAVLinkIO instance
@@ -59,6 +61,12 @@ class FpvOsd:
         mode: str = "statustext",
         update_interval: float = 0.2,
     ):
+        if mode not in self._VALID_MODES:
+            logger.warning(
+                "Invalid OSD mode '%s', falling back to 'statustext'. "
+                "Valid modes: %s", mode, ", ".join(self._VALID_MODES),
+            )
+            mode = "statustext"
         self._mav = mavlink_io
         self._mode = mode
         self._interval = max(0.05, update_interval)
@@ -72,10 +80,9 @@ class FpvOsd:
     def update(self, state: OSDState) -> None:
         """Send OSD data if enough time has elapsed since the last send."""
         now = time.monotonic()
-        if (now - self._last_send) < self._interval:
-            return
-
         with self._lock:
+            if (now - self._last_send) < self._interval:
+                return
             self._last_send = now
 
         if self._mode == "named_value":

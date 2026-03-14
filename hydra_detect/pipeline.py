@@ -8,10 +8,7 @@ import signal
 import sys
 import threading
 import time
-from pathlib import Path
 from typing import Optional
-
-import cv2
 
 from .camera import Camera
 from .detection_logger import DetectionLogger
@@ -57,7 +54,8 @@ def _build_detector(cfg: configparser.ConfigParser) -> BaseDetector:
                 classes = [c for c in classes if c >= 0]
             classes = classes or None
         except ValueError:
-            logger.error("Invalid yolo_classes config (must be comma-separated integers): %s", classes_raw)
+            logger.error("Invalid yolo_classes config (comma-separated ints): %s",
+                         classes_raw)
             classes = None
     return YOLODetector(
         model_path=cfg.get("detector", "yolo_model", fallback="yolov8n.pt"),
@@ -186,6 +184,12 @@ class Pipeline:
             if not self._mavlink.connect():
                 logger.warning("MAVLink connection failed — continuing without.")
                 self._mavlink = None
+                self._osd = None
+
+        if self._osd is not None:
+            logger.info("FPV OSD enabled (mode=%s, interval=%.2fs)",
+                        self._osd.mode, self._cfg.getfloat(
+                            "osd", "update_interval", fallback=0.2))
 
         self._det_logger.start()
 

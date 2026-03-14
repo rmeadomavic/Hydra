@@ -190,6 +190,26 @@ class TestFpvOsdNamedValue:
 # OSDState defaults
 # ---------------------------------------------------------------------------
 
+class TestFpvOsdValidation:
+    def test_invalid_mode_falls_back_to_statustext(self):
+        mav = _make_mavlink_mock()
+        osd = FpvOsd(mav, mode="bogus", update_interval=0.0)
+        assert osd.mode == "statustext"
+
+    def test_valid_modes_accepted(self):
+        mav = _make_mavlink_mock()
+        for mode in ("statustext", "named_value"):
+            osd = FpvOsd(mav, mode=mode, update_interval=0.0)
+            assert osd.mode == mode
+
+    def test_min_update_interval_clamped(self):
+        """Interval below 50ms should be clamped to 50ms."""
+        mav = _make_mavlink_mock()
+        osd = FpvOsd(mav, mode="statustext", update_interval=0.01)
+        # Internal interval should be clamped to 0.05
+        assert osd._interval >= 0.05
+
+
 class TestOsdState:
     def test_defaults(self):
         state = OSDState()
