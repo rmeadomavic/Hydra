@@ -18,8 +18,11 @@
          enabled = true
          mode = named_value
 
-  Compatible boards: Matek H743, SpeedyBee F405-Wing, any FC with AT7456E/MAX7456.
-  NOT compatible with Pixhawk 6C (no onboard OSD chip).
+  Compatible boards:
+    Analog OSD (OSD_TYPE=1): Matek H743, SpeedyBee F405-Wing, any FC with AT7456E/MAX7456
+    MSP DisplayPort (OSD_TYPE=3): ANY ArduPilot FC including Pixhawk 6C
+      — wire FC UART TX to VTX MSP pad, set SERIALx_PROTOCOL=42
+      — works with HDZero, DJI O3, Walksnail
 
   Expected NAMED_VALUE messages from Jetson:
     osd_fps    (float)  — detection pipeline FPS

@@ -105,7 +105,7 @@ The operator always retains override via Mission Planner or any GCS.
 
 ### FPV OSD Overlay
 
-If your flight controller has an onboard analog OSD chip (MAX7456 / AT7456E), Hydra can send detection telemetry directly to it over MAVLink. This composites text onto your analog FPV feed with sub-millisecond latency — no extra hardware, no video passthrough, no added delay.
+Hydra can send detection telemetry directly to your FPV goggles via the flight controller's OSD system — no video passthrough, no added latency. Works with both analog and digital FPV.
 
 **What shows on your goggles:**
 ```
@@ -113,7 +113,16 @@ T:3 12fps 35ms LK#5TRK
 ```
 Track count, pipeline FPS, inference time, and locked target status.
 
-**Compatible flight controllers:** Matek H743, SpeedyBee F405-Wing, or any ArduPilot FC with AT7456E/MAX7456. **Not compatible** with Pixhawk 6C (no OSD chip) — use the web dashboard overlay instead.
+**Compatible with any ArduPilot FC and FPV system:**
+
+| FPV System | ArduPilot OSD_TYPE | FC Requirement | Connection |
+|---|---|---|---|
+| Analog (PAL/NTSC) | `OSD_TYPE = 1` | FC with MAX7456/AT7456E (Matek H743, SpeedyBee F405-Wing) | Onboard SPI |
+| HDZero | `OSD_TYPE = 3` | Any FC with spare UART (including Pixhawk 6C) | UART TX → VTX MSP pad |
+| DJI O3 | `OSD_TYPE = 3` | Any FC with spare UART | UART TX → O3 MSP pad |
+| Walksnail | `OSD_TYPE = 3` | Any FC with spare UART | UART TX → VTX MSP pad |
+
+For digital systems (HDZero/DJI/Walksnail), also set `SERIALx_PROTOCOL = 42` on the UART connected to the VTX.
 
 **Two modes:**
 
@@ -131,14 +140,15 @@ mode = statustext
 
 **Lua script setup (named_value mode):**
 1. Copy `scripts/hydra_osd.lua` to `APM/scripts/` on the FC SD card
-2. Set ArduPilot parameters: `SCR_ENABLE=1`, `SCR_HEAP_SIZE=65536`, `OSD_TYPE=1`, `OSD1_ENABLE=1`
-3. Set in `config.ini`:
+2. Set ArduPilot parameters: `SCR_ENABLE=1`, `SCR_HEAP_SIZE=65536`, `OSD1_ENABLE=1`
+3. Set `OSD_TYPE=1` (analog) or `OSD_TYPE=3` + `SERIALx_PROTOCOL=42` (digital)
+4. Set in `config.ini`:
    ```ini
    [osd]
    enabled = true
    mode = named_value
    ```
-4. Reboot the FC
+5. Reboot the FC
 
 ## Configuration
 
@@ -197,7 +207,7 @@ All settings are in `config.ini`. Here's what each section controls:
 ### [osd]
 | Key | Default | Description |
 |-----|---------|-------------|
-| `enabled` | `false` | Enable FPV OSD overlay (requires MAVLink and FC with OSD chip) |
+| `enabled` | `false` | Enable FPV OSD overlay (requires MAVLink enabled) |
 | `mode` | `statustext` | OSD mode: `statustext` (simple) or `named_value` (needs Lua script on FC) |
 | `update_interval` | `0.2` | Seconds between OSD updates (lower = more responsive, more MAVLink traffic) |
 

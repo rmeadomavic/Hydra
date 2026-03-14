@@ -1,19 +1,21 @@
-"""FPV OSD overlay via MAVLink — sends detection data to FC onboard OSD chip.
+"""FPV OSD overlay via MAVLink — sends detection data to the FC for display
+on the pilot's FPV feed.
 
-Supports two modes:
+Works with two OSD paths:
+- **Analog OSD (MAX7456/AT7456E):** FC composites characters onto the analog
+  video signal. Requires an FC with an onboard OSD chip (Matek H743,
+  SpeedyBee F405-Wing, etc.). Set ArduPilot ``OSD_TYPE = 1``.
+- **MSP DisplayPort (HDZero, DJI O3, Walksnail):** FC sends OSD data over
+  UART to a digital VTX, which composites it onto the digital stream. Works
+  on ANY ArduPilot FC with a spare UART — including Pixhawk 6C.
+  Set ArduPilot ``SERIALx_PROTOCOL = 42`` and ``OSD_TYPE = 3``.
+
+Supports two transmission modes:
 - 'statustext': Sends formatted STATUSTEXT messages shown in the OSD message
   panel. Works on any ArduPilot FC with OSD. No Lua script required.
 - 'named_value': Sends structured NAMED_VALUE_FLOAT/INT messages for a Lua
-  script on the FC to decode and render at specific OSD positions. Richer
-  display but requires the companion Lua script on the FC SD card.
-
-Compatible FC boards (with onboard OSD chip):
-- Matek H743 (AT7456E)
-- SpeedyBee F405-Wing (AT7456E)
-- Any ArduPilot FC with MAX7456/AT7456E OSD
-
-NOTE: Pixhawk 6C does not have an onboard OSD chip. Use the web dashboard
-overlay for Pixhawk platforms instead.
+  script on the FC to decode and render. Richer display but requires the
+  companion Lua script (``scripts/hydra_osd.lua``) on the FC SD card.
 """
 
 from __future__ import annotations
