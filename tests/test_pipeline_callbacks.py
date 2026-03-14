@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import configparser
-import threading
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -43,10 +42,7 @@ def _make_pipeline(**overrides) -> Pipeline:
     p._camera.has_frame = True
     p._camera.width = 640
     p._mavlink = None
-    p._state_lock = threading.Lock()
-    p._locked_track_id = None
-    p._lock_mode = None
-    p._last_track_result = None
+    p._init_target_state()
     p._running = False
     return p
 
