@@ -13,6 +13,7 @@ must preserve deterministic timing, bounded memory usage, and fail-safe behavior
 
 ```
 Camera → Detector (YOLO/NanoOWL) → ByteTrack Tracker → MAVLink Alerts
+                                                      → FPV OSD (via FC OSD/MSP)
                                                       → Web Dashboard (FastAPI)
                                                       → Detection Logger
 ```
