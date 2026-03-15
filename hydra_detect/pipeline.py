@@ -172,9 +172,10 @@ def _build_detector(cfg: configparser.ConfigParser, models_dir: Path | None = No
                          classes_raw)
             classes = None
     model_name = cfg.get("detector", "yolo_model", fallback="yolov8n.pt")
-    # Search for the model in /models (Docker), then local models/, then bare name
+    # Search for the model in /models (Docker), then local models/, then project root
     model_path = model_name
-    for candidate_dir in [Path("/models"), models_dir]:
+    project_dir = models_dir.parent if models_dir is not None else None
+    for candidate_dir in [Path("/models"), models_dir, project_dir]:
         if candidate_dir is not None:
             candidate = candidate_dir / model_name
             if candidate.exists():
@@ -194,8 +195,9 @@ class Pipeline:
         self._cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
         self._cfg.read(config_path)
 
-        # Models directory: prefer /models (Docker mount), fall back to ./models
-        self._models_dir = Path(config_path).resolve().parent / "models"
+        # Models search: /models (Docker mount), then ./models, then project root
+        self._project_dir = Path(config_path).resolve().parent
+        self._models_dir = self._project_dir / "models"
 
         # Camera
         self._camera = Camera(
@@ -660,7 +662,7 @@ class Pipeline:
 
     def _get_models(self) -> list[dict]:
         """Return available YOLO model files with current marked."""
-        models = _list_models("/models", str(self._models_dir))
+        models = _list_models("/models", str(self._models_dir), str(self._project_dir))
         current = Path(self._detector.model_path).name
         for m in models:
             m["active"] = m["name"] == current
@@ -668,8 +670,8 @@ class Pipeline:
 
     def _handle_model_switch(self, model_name: str) -> bool:
         """Switch YOLO model at runtime."""
-        # Search /models (Docker), then local models/
-        for candidate_dir in [Path("/models"), self._models_dir]:
+        # Search /models (Docker), then local models/, then project root
+        for candidate_dir in [Path("/models"), self._models_dir, self._project_dir]:
             candidate = candidate_dir / model_name
             if candidate.exists():
                 return self._detector.switch_model(str(candidate))
