@@ -145,6 +145,7 @@ class Pipeline:
         self._web_port = self._cfg.getint("web", "port", fallback=8080)
 
         self._running = False
+        self._paused = False
         self._total_detections = 0
         self._init_target_state()
 
@@ -229,6 +230,9 @@ class Pipeline:
                 on_strike_command=self._handle_strike_command,
                 get_recent_detections=self._det_logger.get_recent,
                 get_active_tracks=self._get_active_tracks,
+                on_stop_command=self._handle_stop_command,
+                on_pause_command=self._handle_pause_command,
+                on_resume_command=self._handle_resume_command,
             )
 
             stream_state.update_stats(
@@ -250,6 +254,10 @@ class Pipeline:
         fps_counter = _FPSCounter()
 
         while self._running:
+            if self._paused:
+                time.sleep(0.1)
+                continue
+
             frame = self._camera.read()
             if frame is None:
                 time.sleep(0.01)
@@ -511,6 +519,21 @@ class Pipeline:
             }
             for t in result
         ]
+
+    def _handle_stop_command(self) -> None:
+        """Stop the pipeline gracefully from the web UI."""
+        logger.info("Stop command received from web UI.")
+        self._running = False
+
+    def _handle_pause_command(self) -> None:
+        """Pause the detection loop (camera stays open, inference stops)."""
+        self._paused = True
+        logger.info("Pipeline PAUSED from web UI.")
+
+    def _handle_resume_command(self) -> None:
+        """Resume the detection loop."""
+        self._paused = False
+        logger.info("Pipeline RESUMED from web UI.")
 
     # ------------------------------------------------------------------
     def _shutdown(self) -> None:

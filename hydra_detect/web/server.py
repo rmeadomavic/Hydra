@@ -100,6 +100,9 @@ class StreamState:
         self._on_strike_command: Optional[Callable] = None
         self._get_recent_detections: Optional[Callable] = None
         self._get_active_tracks: Optional[Callable] = None
+        self._on_stop_command: Optional[Callable] = None
+        self._on_pause_command: Optional[Callable] = None
+        self._on_resume_command: Optional[Callable] = None
 
         # Current runtime config (readable by web UI)
         self.runtime_config: Dict[str, Any] = {
@@ -162,6 +165,9 @@ class StreamState:
         on_strike_command: Optional[Callable] = None,
         get_recent_detections: Optional[Callable] = None,
         get_active_tracks: Optional[Callable] = None,
+        on_stop_command: Optional[Callable] = None,
+        on_pause_command: Optional[Callable] = None,
+        on_resume_command: Optional[Callable] = None,
     ) -> None:
         with self._lock:
             self._on_prompts_change = on_prompts_change
@@ -172,6 +178,9 @@ class StreamState:
             self._on_strike_command = on_strike_command
             self._get_recent_detections = get_recent_detections
             self._get_active_tracks = get_active_tracks
+            self._on_stop_command = on_stop_command
+            self._on_pause_command = on_pause_command
+            self._on_resume_command = on_resume_command
 
     def get_callback(self, name: str) -> Optional[Callable]:
         """Safely retrieve a callback by name."""
@@ -385,6 +394,44 @@ async def api_recent_detections():
     if cb:
         return cb()
     return []
+
+
+@app.post("/api/pipeline/stop")
+async def api_pipeline_stop(request: Request, authorization: Optional[str] = Header(None)):
+    """Gracefully stop the pipeline and shut down."""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    cb = stream_state.get_callback("_on_stop_command")
+    if cb:
+        cb()
+        _audit(request, "pipeline_stop")
+        return {"status": "ok", "message": "Shutting down"}
+    _audit(request, "pipeline_stop", outcome="unavailable")
+    return JSONResponse({"error": "Stop not available"}, status_code=503)
+
+
+@app.post("/api/pipeline/pause")
+async def api_pipeline_pause(request: Request, authorization: Optional[str] = Header(None)):
+    """Pause or resume the detection pipeline."""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    paused = body.get("paused", True)
+    if paused:
+        cb = stream_state.get_callback("_on_pause_command")
+        if cb:
+            cb()
+            _audit(request, "pipeline_pause")
+            return {"status": "ok", "paused": True}
+    else:
+        cb = stream_state.get_callback("_on_resume_command")
+        if cb:
+            cb()
+            _audit(request, "pipeline_resume")
+            return {"status": "ok", "paused": False}
+    return JSONResponse({"error": "Pause/resume not available"}, status_code=503)
 
 
 @app.get("/stream.mjpeg")
