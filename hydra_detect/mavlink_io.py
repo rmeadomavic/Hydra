@@ -7,7 +7,7 @@ import logging
 import math
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,24 @@ class MAVLinkIO:
         self._gps_lock = threading.Lock()
         self._stop_evt = threading.Event()
 
+        # Vehicle mode state (from HEARTBEAT)
+        self._vehicle_mode: Optional[str] = None
+        self._vehicle_mode_lock = threading.Lock()
+
+        # MAVLink command callbacks (set by pipeline)
+        self._cmd_callbacks: Dict[str, Callable] = {}
+        self._cmd_callbacks_lock = threading.Lock()
+
+        # MAV_CMD_USER IDs for Hydra commands
+        self.CMD_LOCK = 31010     # MAV_CMD_USER_1: param1=track_id
+        self.CMD_STRIKE = 31011   # MAV_CMD_USER_2: param1=track_id
+        self.CMD_UNLOCK = 31012   # MAV_CMD_USER_3: no params
+
+        # NAMED_VALUE_INT names for Lua/custom GCS
+        self.NV_LOCK = "HYDRA_LCK"      # value=track_id (10 char max)
+        self.NV_STRIKE = "HYDRA_STK"    # value=track_id
+        self.NV_UNLOCK = "HYDRA_ULK"    # value=0
+
         # MGRS converter (optional)
         self._mgrs = None
         try:
@@ -100,6 +118,11 @@ class MAVLinkIO:
                 target=self._gps_listener, daemon=True, name="mav-gps"
             ).start()
 
+            # Start command listener thread
+            threading.Thread(
+                target=self._command_listener, daemon=True, name="mav-cmd"
+            ).start()
+
             return True
         except Exception as exc:
             logger.error("MAVLink connection failed: %s", exc)
@@ -116,28 +139,164 @@ class MAVLinkIO:
     # GPS listener
     # ------------------------------------------------------------------
     def _gps_listener(self) -> None:
-        """Background thread: read GPS messages and update state."""
+        """Background thread: read GPS and HEARTBEAT messages."""
         while not self._stop_evt.is_set():
             if self._mav is None:
                 break
             try:
                 msg = self._mav.recv_match(
-                    type=["GLOBAL_POSITION_INT", "GPS_RAW_INT"],
+                    type=["GLOBAL_POSITION_INT", "GPS_RAW_INT", "HEARTBEAT"],
                     timeout=1,
                 )
                 if msg is None:
                     continue
-                with self._gps_lock:
-                    if msg.get_type() == "GLOBAL_POSITION_INT":
+                msg_type = msg.get_type()
+                if msg_type == "GLOBAL_POSITION_INT":
+                    with self._gps_lock:
                         self._gps["lat"] = msg.lat
                         self._gps["lon"] = msg.lon
                         self._gps["alt"] = msg.alt
                         self._gps["hdg"] = msg.hdg  # centidegrees
-                    else:
+                elif msg_type == "GPS_RAW_INT":
+                    with self._gps_lock:
                         self._gps["fix"] = msg.fix_type
+                elif msg_type == "HEARTBEAT":
+                    # Skip GCS heartbeats (type 6 = MAV_TYPE_GCS)
+                    if msg.type == 6:
+                        continue
+                    self._update_vehicle_mode(msg)
             except Exception as exc:
                 logger.warning("GPS listener error: %s", exc)
                 time.sleep(0.5)
+
+    def _update_vehicle_mode(self, heartbeat_msg) -> None:
+        """Extract flight mode name from a HEARTBEAT message."""
+        try:
+            mode_map = self._mav.mode_mapping()
+            # Reverse lookup: mode number → mode name
+            custom_mode = heartbeat_msg.custom_mode
+            reverse = {v: k for k, v in mode_map.items()}
+            mode_name = reverse.get(custom_mode)
+            with self._vehicle_mode_lock:
+                self._vehicle_mode = mode_name
+        except Exception:
+            pass
+
+    def get_vehicle_mode(self) -> Optional[str]:
+        """Return current vehicle flight mode name, or None if unknown."""
+        with self._vehicle_mode_lock:
+            return self._vehicle_mode
+
+    # ------------------------------------------------------------------
+    # MAVLink command listener (lock, strike, unlock over SiK radio)
+    # ------------------------------------------------------------------
+    def set_command_callbacks(
+        self,
+        on_lock: Callable[[int], bool] | None = None,
+        on_strike: Callable[[int], bool] | None = None,
+        on_unlock: Callable[[], None] | None = None,
+    ) -> None:
+        """Register callbacks for MAVLink commands received from GCS."""
+        with self._cmd_callbacks_lock:
+            if on_lock is not None:
+                self._cmd_callbacks["lock"] = on_lock
+            if on_strike is not None:
+                self._cmd_callbacks["strike"] = on_strike
+            if on_unlock is not None:
+                self._cmd_callbacks["unlock"] = on_unlock
+
+    def _command_listener(self) -> None:
+        """Background thread: listen for COMMAND_LONG and NAMED_VALUE_INT."""
+        audit = logging.getLogger("hydra.audit")
+        while not self._stop_evt.is_set():
+            if self._mav is None:
+                break
+            try:
+                msg = self._mav.recv_match(
+                    type=["COMMAND_LONG", "NAMED_VALUE_INT"],
+                    timeout=1,
+                )
+                if msg is None:
+                    continue
+                msg_type = msg.get_type()
+                if msg_type == "COMMAND_LONG":
+                    self._handle_command_long(msg, audit)
+                elif msg_type == "NAMED_VALUE_INT":
+                    self._handle_named_value_int(msg, audit)
+            except Exception as exc:
+                logger.warning("Command listener error: %s", exc)
+                time.sleep(0.5)
+
+    def _handle_command_long(self, msg, audit) -> None:
+        """Process a COMMAND_LONG message for Hydra commands."""
+        cmd_id = msg.command
+        result = 0  # MAV_RESULT_ACCEPTED
+        with self._cmd_callbacks_lock:
+            callbacks = dict(self._cmd_callbacks)
+
+        if cmd_id == self.CMD_LOCK:
+            track_id = int(msg.param1)
+            cb = callbacks.get("lock")
+            if cb:
+                ok = cb(track_id)
+                result = 0 if ok else 4  # MAV_RESULT_FAILED
+                audit.info("MAVLINK_CMD lock track_id=%d result=%s", track_id, "ok" if ok else "failed")
+            else:
+                result = 3  # MAV_RESULT_UNSUPPORTED
+        elif cmd_id == self.CMD_STRIKE:
+            track_id = int(msg.param1)
+            cb = callbacks.get("strike")
+            if cb:
+                ok = cb(track_id)
+                result = 0 if ok else 4
+                audit.info("MAVLINK_CMD strike track_id=%d result=%s", track_id, "ok" if ok else "failed")
+            else:
+                result = 3
+        elif cmd_id == self.CMD_UNLOCK:
+            cb = callbacks.get("unlock")
+            if cb:
+                cb()
+                result = 0
+                audit.info("MAVLINK_CMD unlock result=ok")
+            else:
+                result = 3
+        else:
+            return  # Not our command, ignore
+
+        # Send COMMAND_ACK
+        self._send_command_ack(cmd_id, result)
+
+    def _handle_named_value_int(self, msg, audit) -> None:
+        """Process a NAMED_VALUE_INT message for Hydra commands."""
+        name = msg.name.rstrip("\x00").strip()
+        value = msg.value
+        with self._cmd_callbacks_lock:
+            callbacks = dict(self._cmd_callbacks)
+
+        if name == self.NV_LOCK:
+            cb = callbacks.get("lock")
+            if cb:
+                ok = cb(value)
+                audit.info("MAVLINK_NV lock track_id=%d result=%s", value, "ok" if ok else "failed")
+        elif name == self.NV_STRIKE:
+            cb = callbacks.get("strike")
+            if cb:
+                ok = cb(value)
+                audit.info("MAVLINK_NV strike track_id=%d result=%s", value, "ok" if ok else "failed")
+        elif name == self.NV_UNLOCK:
+            cb = callbacks.get("unlock")
+            if cb:
+                cb()
+                audit.info("MAVLINK_NV unlock result=ok")
+
+    def _send_command_ack(self, command: int, result: int) -> None:
+        """Send COMMAND_ACK back to the GCS."""
+        if self._mav is None:
+            return
+        try:
+            self._mav.mav.command_ack_send(command, result)
+        except Exception as exc:
+            logger.warning("Failed to send COMMAND_ACK: %s", exc)
 
     def get_gps(self) -> Dict[str, Any]:
         """Return current GPS state (thread-safe copy)."""

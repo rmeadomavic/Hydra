@@ -466,6 +466,100 @@ async def api_pipeline_pause(request: Request, authorization: Optional[str] = He
     return JSONResponse({"error": "Pause/resume not available"}, status_code=503)
 
 
+# ── Mission Review ────────────────────────────────────────────────
+
+@app.get("/review", response_class=HTMLResponse)
+async def review_page(request: Request):
+    """Serve the post-mission review page."""
+    return templates.TemplateResponse("review.html", {"request": request})
+
+
+@app.get("/api/review/logs")
+async def api_review_logs():
+    """List available detection log files."""
+    cb = stream_state.get_callback("get_log_dir")
+    log_dir = cb() if cb else "/data/logs"
+    image_dir_cb = stream_state.get_callback("get_image_dir")
+    image_dir = image_dir_cb() if image_dir_cb else "/data/images"
+    result = []
+    log_path = Path(log_dir)
+    if log_path.is_dir():
+        for f in sorted(log_path.iterdir(), reverse=True):
+            if f.suffix in (".jsonl", ".csv"):
+                result.append({
+                    "filename": f.name,
+                    "size_kb": round(f.stat().st_size / 1024, 1),
+                    "modified": f.stat().st_mtime,
+                })
+    return {"logs": result, "image_dir": image_dir}
+
+
+@app.get("/api/review/log/{filename}")
+async def api_review_log(filename: str):
+    """Parse and return detection data from a log file."""
+    import json as _json
+    # Prevent path traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return JSONResponse({"error": "Invalid filename"}, status_code=400)
+
+    cb = stream_state.get_callback("get_log_dir")
+    log_dir = cb() if cb else "/data/logs"
+    path = Path(log_dir) / filename
+
+    if not path.exists() or not path.is_file():
+        return JSONResponse({"error": "Log file not found"}, status_code=404)
+
+    records = []
+    if path.suffix == ".jsonl":
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        records.append(_json.loads(line))
+                    except _json.JSONDecodeError:
+                        continue
+    elif path.suffix == ".csv":
+        import csv as _csv
+        with open(path) as f:
+            reader = _csv.DictReader(f)
+            for row in reader:
+                # Convert numeric fields
+                for key in ("confidence", "x1", "y1", "x2", "y2", "lat", "lon", "alt"):
+                    if key in row and row[key]:
+                        try:
+                            row[key] = float(row[key])
+                        except ValueError:
+                            pass
+                for key in ("frame", "track_id", "class_id", "fix"):
+                    if key in row and row[key]:
+                        try:
+                            row[key] = int(row[key])
+                        except ValueError:
+                            pass
+                records.append(row)
+
+    return {"filename": filename, "count": len(records), "detections": records}
+
+
+@app.get("/api/review/images/{filename}")
+async def api_review_image(filename: str):
+    """Serve a saved detection image."""
+    from fastapi.responses import FileResponse
+    # Prevent path traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return JSONResponse({"error": "Invalid filename"}, status_code=400)
+
+    cb = stream_state.get_callback("get_image_dir")
+    image_dir = cb() if cb else "/data/images"
+    path = Path(image_dir) / filename
+
+    if not path.exists() or not path.is_file():
+        return JSONResponse({"error": "Image not found"}, status_code=404)
+
+    return FileResponse(str(path), media_type="image/jpeg")
+
+
 @app.get("/stream.mjpeg")
 async def mjpeg_stream():
     """MJPEG video stream endpoint."""

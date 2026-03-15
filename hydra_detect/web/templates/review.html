@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hydra Detect — Mission Review</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Courier New', monospace; background: #0a0a0a; color: #e0e0e0; }
+        .header { background: #111; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
+        .header h1 { font-size: 16px; color: #00ff88; letter-spacing: 2px; }
+        .header a { color: #888; text-decoration: none; font-size: 13px; }
+        .header a:hover { color: #00ff88; }
+        .container { display: flex; height: calc(100vh - 42px); }
+        #map { flex: 1; }
+        .sidebar { width: 320px; background: #111; border-left: 1px solid #333; overflow-y: auto; padding: 12px; }
+        .sidebar h3 { color: #00ff88; font-size: 13px; margin-bottom: 8px; border-bottom: 1px solid #333; padding-bottom: 4px; }
+        .section { margin-bottom: 16px; }
+        select, input[type="range"] { width: 100%; background: #1a1a1a; color: #e0e0e0; border: 1px solid #333; padding: 6px; font-family: inherit; font-size: 12px; margin-bottom: 8px; }
+        select:focus { border-color: #00ff88; outline: none; }
+        label { font-size: 11px; color: #888; display: block; margin-bottom: 4px; }
+        .stat { font-size: 12px; color: #aaa; margin-bottom: 4px; }
+        .stat span { color: #00ff88; }
+        .toggle-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .toggle-row input[type="checkbox"] { accent-color: #00ff88; }
+        .toggle-row label { margin: 0; font-size: 12px; }
+        .class-filters { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+        .class-tag { padding: 2px 8px; border-radius: 3px; font-size: 11px; cursor: pointer; border: 1px solid #444; background: #1a1a1a; }
+        .class-tag.active { background: #00ff88; color: #000; border-color: #00ff88; }
+        .legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+        .legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+        .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+        .btn { background: #1a1a1a; color: #00ff88; border: 1px solid #00ff88; padding: 6px 12px; cursor: pointer; font-family: inherit; font-size: 12px; margin-top: 4px; }
+        .btn:hover { background: #00ff88; color: #000; }
+        .popup-img { max-width: 280px; margin-top: 6px; border: 1px solid #444; }
+        .leaflet-popup-content-wrapper { background: #1a1a1a; color: #e0e0e0; border-radius: 4px; }
+        .leaflet-popup-tip { background: #1a1a1a; }
+        .leaflet-popup-content { font-family: 'Courier New', monospace; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>HYDRA DETECT — MISSION REVIEW</h1>
+        <a href="/">← Back to Dashboard</a>
+    </div>
+    <div class="container">
+        <div id="map"></div>
+        <div class="sidebar">
+            <div class="section">
+                <h3>LOG FILE</h3>
+                <select id="logSelect"><option value="">Loading...</option></select>
+                <div class="stat">Detections: <span id="detCount">-</span></div>
+                <div class="stat">Time range: <span id="timeRange">-</span></div>
+                <div class="stat">Unique tracks: <span id="trackCount">-</span></div>
+            </div>
+            <div class="section">
+                <h3>FILTERS</h3>
+                <label>Min confidence: <span id="confValue">0.00</span></label>
+                <input type="range" id="confSlider" min="0" max="0.99" step="0.05" value="0">
+                <label>Class filter (click to toggle):</label>
+                <div id="classFilters" class="class-filters"></div>
+            </div>
+            <div class="section">
+                <h3>DISPLAY</h3>
+                <div class="toggle-row">
+                    <input type="checkbox" id="showTrails" checked>
+                    <label for="showTrails">Show track trails</label>
+                </div>
+                <div class="toggle-row">
+                    <input type="checkbox" id="showMarkers" checked>
+                    <label for="showMarkers">Show markers</label>
+                </div>
+            </div>
+            <div class="section">
+                <h3>SUMMARY</h3>
+                <div id="classSummary"></div>
+                <div class="legend" id="legend"></div>
+            </div>
+            <div class="section">
+                <h3>EXPORT</h3>
+                <button class="btn" onclick="exportGeoJSON()">Download GeoJSON</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        // --- Map init ---
+        const map = L.map('map').setView([0, 0], 2);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap',
+            maxZoom: 19,
+        }).addTo(map);
+
+        // --- State ---
+        let allDetections = [];
+        let activeClasses = new Set();
+        let markerLayer = L.layerGroup().addTo(map);
+        let trailLayer = L.layerGroup().addTo(map);
+
+        const CLASS_COLORS = [
+            '#ff4444', '#44ff44', '#4488ff', '#ffaa00', '#ff44ff',
+            '#44ffff', '#ff8844', '#88ff44', '#4444ff', '#ffff44',
+        ];
+        let classColorMap = {};
+
+        function getClassColor(label) {
+            if (!(label in classColorMap)) {
+                const idx = Object.keys(classColorMap).length % CLASS_COLORS.length;
+                classColorMap[label] = CLASS_COLORS[idx];
+            }
+            return classColorMap[label];
+        }
+
+        // --- Load log list ---
+        async function loadLogList() {
+            const res = await fetch('/api/review/logs');
+            const data = await res.json();
+            const sel = document.getElementById('logSelect');
+            sel.innerHTML = '<option value="">-- Select a log file --</option>';
+            for (const log of data.logs) {
+                const opt = document.createElement('option');
+                opt.value = log.filename;
+                opt.textContent = `${log.filename} (${log.size_kb} KB)`;
+                sel.appendChild(opt);
+            }
+        }
+
+        // --- Load detections from log ---
+        async function loadLog(filename) {
+            if (!filename) return;
+            const res = await fetch(`/api/review/log/${filename}`);
+            const data = await res.json();
+            allDetections = data.detections || [];
+            classColorMap = {};
+
+            // Discover classes
+            const classes = new Set();
+            allDetections.forEach(d => { if (d.label) classes.add(d.label); });
+            activeClasses = new Set(classes);
+
+            // Update stats
+            document.getElementById('detCount').textContent = allDetections.length;
+            const trackIds = new Set(allDetections.map(d => d.track_id));
+            document.getElementById('trackCount').textContent = trackIds.size;
+
+            if (allDetections.length > 0) {
+                const first = allDetections[0].timestamp || '';
+                const last = allDetections[allDetections.length - 1].timestamp || '';
+                document.getElementById('timeRange').textContent =
+                    `${first.slice(11, 19)} → ${last.slice(11, 19)}`;
+            }
+
+            renderClassFilters(classes);
+            renderMap();
+        }
+
+        function renderClassFilters(classes) {
+            const container = document.getElementById('classFilters');
+            container.innerHTML = '';
+            for (const cls of classes) {
+                const tag = document.createElement('span');
+                tag.className = 'class-tag active';
+                tag.textContent = cls;
+                tag.style.borderColor = getClassColor(cls);
+                tag.onclick = () => {
+                    if (activeClasses.has(cls)) {
+                        activeClasses.delete(cls);
+                        tag.classList.remove('active');
+                    } else {
+                        activeClasses.add(cls);
+                        tag.classList.add('active');
+                    }
+                    renderMap();
+                };
+                container.appendChild(tag);
+            }
+        }
+
+        function renderMap() {
+            markerLayer.clearLayers();
+            trailLayer.clearLayers();
+
+            const minConf = parseFloat(document.getElementById('confSlider').value);
+            const showTrails = document.getElementById('showTrails').checked;
+            const showMarkers = document.getElementById('showMarkers').checked;
+
+            const filtered = allDetections.filter(d =>
+                d.lat != null && d.lon != null &&
+                activeClasses.has(d.label) &&
+                (d.confidence || 0) >= minConf
+            );
+
+            if (filtered.length === 0) {
+                updateSummary({});
+                return;
+            }
+
+            // Markers
+            const bounds = [];
+            const classCounts = {};
+            const trackPoints = {};
+
+            for (const d of filtered) {
+                const lat = parseFloat(d.lat);
+                const lon = parseFloat(d.lon);
+                if (isNaN(lat) || isNaN(lon)) continue;
+
+                bounds.push([lat, lon]);
+                classCounts[d.label] = (classCounts[d.label] || 0) + 1;
+
+                // Group by track_id for trails
+                const tid = d.track_id;
+                if (!trackPoints[tid]) trackPoints[tid] = { label: d.label, points: [] };
+                trackPoints[tid].points.push([lat, lon]);
+
+                if (showMarkers) {
+                    const color = getClassColor(d.label);
+                    const marker = L.circleMarker([lat, lon], {
+                        radius: 6,
+                        fillColor: color,
+                        color: '#000',
+                        weight: 1,
+                        fillOpacity: 0.8,
+                    });
+
+                    let popup = `<b>${d.label}</b> #${d.track_id}<br>` +
+                        `Conf: ${((d.confidence || 0) * 100).toFixed(0)}%<br>` +
+                        `Time: ${(d.timestamp || '').slice(11, 19)}<br>` +
+                        `Pos: ${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+
+                    if (d.image) {
+                        popup += `<br><img class="popup-img" src="/api/review/images/${d.image}" loading="lazy">`;
+                    }
+
+                    marker.bindPopup(popup, { maxWidth: 300 });
+                    markerLayer.addLayer(marker);
+                }
+            }
+
+            // Track trails
+            if (showTrails) {
+                for (const tid of Object.keys(trackPoints)) {
+                    const tp = trackPoints[tid];
+                    if (tp.points.length < 2) continue;
+                    const color = getClassColor(tp.label);
+                    L.polyline(tp.points, {
+                        color: color,
+                        weight: 2,
+                        opacity: 0.5,
+                        dashArray: '4 4',
+                    }).addTo(trailLayer);
+                }
+            }
+
+            if (bounds.length > 0) {
+                map.fitBounds(bounds, { padding: [30, 30] });
+            }
+
+            updateSummary(classCounts);
+        }
+
+        function updateSummary(classCounts) {
+            const container = document.getElementById('classSummary');
+            const legend = document.getElementById('legend');
+            container.innerHTML = '';
+            legend.innerHTML = '';
+
+            for (const [cls, count] of Object.entries(classCounts).sort((a, b) => b[1] - a[1])) {
+                const color = getClassColor(cls);
+                container.innerHTML += `<div class="stat">${cls}: <span>${count}</span></div>`;
+                legend.innerHTML += `<div class="legend-item"><div class="legend-dot" style="background:${color}"></div>${cls}</div>`;
+            }
+        }
+
+        function exportGeoJSON() {
+            const minConf = parseFloat(document.getElementById('confSlider').value);
+            const features = allDetections
+                .filter(d => d.lat != null && d.lon != null && activeClasses.has(d.label) && (d.confidence || 0) >= minConf)
+                .map(d => ({
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: [parseFloat(d.lon), parseFloat(d.lat)] },
+                    properties: {
+                        label: d.label,
+                        track_id: d.track_id,
+                        confidence: d.confidence,
+                        timestamp: d.timestamp,
+                        image: d.image,
+                    },
+                }));
+
+            const geojson = { type: 'FeatureCollection', features };
+            const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'hydra_detections.geojson';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // --- Event listeners ---
+        document.getElementById('logSelect').onchange = e => loadLog(e.target.value);
+        document.getElementById('confSlider').oninput = e => {
+            document.getElementById('confValue').textContent = parseFloat(e.target.value).toFixed(2);
+            renderMap();
+        };
+        document.getElementById('showTrails').onchange = renderMap;
+        document.getElementById('showMarkers').onchange = renderMap;
+
+        // --- Init ---
+        loadLogList();
+    </script>
+</body>
+</html>
