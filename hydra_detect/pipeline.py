@@ -13,7 +13,6 @@ from typing import Optional
 from .camera import Camera
 from .detection_logger import DetectionLogger
 from .detectors.base import BaseDetector
-from .detectors.nanoowl_detector import NanoOWLDetector
 from .detectors.yolo_detector import YOLODetector
 from .mavlink_io import MAVLinkIO
 from .osd import FpvOsd, build_osd_state
@@ -24,26 +23,8 @@ from .web.server import configure_auth, run_server, stream_state
 logger = logging.getLogger(__name__)
 
 
-def _build_detector(cfg: configparser.ConfigParser) -> BaseDetector:
-    """Factory: create the right detector from config."""
-    engine = cfg.get("detector", "engine", fallback="yolo").lower()
-
-    if engine == "nanoowl":
-        prompts = [
-            p.strip()
-            for p in cfg.get("detector", "nanoowl_prompts", fallback="person,vehicle").split(",")
-            if p.strip()
-        ]
-        if not prompts:
-            logger.warning("No valid NanoOWL prompts configured, using defaults.")
-            prompts = ["person", "vehicle"]
-        return NanoOWLDetector(
-            model_name=cfg.get("detector", "nanoowl_model", fallback="google/owlvit-base-patch32"),
-            prompts=prompts,
-            threshold=cfg.getfloat("detector", "nanoowl_threshold", fallback=0.3),
-        )
-
-    # Default: YOLO
+def _build_detector(cfg: configparser.ConfigParser) -> YOLODetector:
+    """Build a YOLO detector from config."""
     classes_raw = cfg.get("detector", "yolo_classes", fallback="")
     classes = None
     if classes_raw.strip():
@@ -171,8 +152,7 @@ class Pipeline:
         except Exception as exc:
             logger.error("Detector failed to load: %s", exc)
             sys.exit(1)
-        engine_name = self._cfg.get("detector", "engine", fallback="yolo")
-        logger.info("Detector engine: %s", engine_name)
+        logger.info("Detector engine: yolo")
 
         self._tracker.init()
 
@@ -200,21 +180,8 @@ class Pipeline:
             configure_auth(api_token or None)
 
             # Set initial runtime config for web UI
-            if engine_name == "nanoowl":
-                prompts = [
-                    p.strip()
-                    for p in self._cfg.get(
-                        "detector", "nanoowl_prompts", fallback="person"
-                    ).split(",")
-                ]
-                threshold = self._cfg.getfloat("detector", "nanoowl_threshold", fallback=0.3)
-            else:
-                prompts = []
-                threshold = self._cfg.getfloat("detector", "yolo_confidence", fallback=0.45)
-
             stream_state.update_runtime_config({
-                "prompts": prompts,
-                "threshold": threshold,
+                "threshold": self._cfg.getfloat("detector", "yolo_confidence", fallback=0.45),
                 "auto_loiter": self._cfg.getboolean(
                     "mavlink", "auto_loiter_on_detect", fallback=False
                 ),
@@ -222,7 +189,6 @@ class Pipeline:
 
             # Wire runtime config callbacks
             stream_state.set_callbacks(
-                on_prompts_change=self._handle_prompts_change,
                 on_threshold_change=self._handle_threshold_change,
                 on_loiter_command=self._handle_loiter_command,
                 on_target_lock=self._handle_target_lock,
@@ -233,11 +199,10 @@ class Pipeline:
                 on_stop_command=self._handle_stop_command,
                 on_pause_command=self._handle_pause_command,
                 on_resume_command=self._handle_resume_command,
-                on_engine_change=self._handle_engine_change,
             )
 
             stream_state.update_stats(
-                detector=engine_name,
+                detector="yolo",
                 mavlink=self._mavlink is not None and self._mavlink.connected,
             )
             run_server(self._web_host, self._web_port)
@@ -393,12 +358,6 @@ class Pipeline:
     # ------------------------------------------------------------------
     # Runtime config handlers (called from web UI)
     # ------------------------------------------------------------------
-    def _handle_prompts_change(self, prompts: list[str]) -> None:
-        """Update NanoOWL prompts at runtime."""
-        if isinstance(self._detector, NanoOWLDetector):
-            self._detector.set_prompts(prompts)
-            logger.info("NanoOWL prompts updated: %s", prompts)
-
     def _handle_threshold_change(self, threshold: float) -> None:
         """Update detector confidence threshold at runtime."""
         self._detector.set_threshold(threshold)
@@ -520,56 +479,6 @@ class Pipeline:
             }
             for t in result
         ]
-
-    def _handle_engine_change(self, engine: str) -> bool:
-        """Switch detector engine at runtime. Pauses pipeline during swap."""
-        engine = engine.lower()
-        current = self._cfg.get("detector", "engine", fallback="yolo").lower()
-        if engine == current:
-            return True
-
-        if engine not in ("yolo", "nanoowl"):
-            logger.warning("Unknown engine: %s", engine)
-            return False
-
-        logger.info("Switching detector engine: %s -> %s", current, engine)
-        self._paused = True
-
-        try:
-            self._detector.unload()
-            self._cfg.set("detector", "engine", engine)
-            self._detector = _build_detector(self._cfg)
-            self._detector.load()
-
-            # Update runtime config for web UI
-            if engine == "nanoowl":
-                prompts = [
-                    p.strip()
-                    for p in self._cfg.get(
-                        "detector", "nanoowl_prompts", fallback="person"
-                    ).split(",")
-                ]
-                threshold = self._cfg.getfloat("detector", "nanoowl_threshold", fallback=0.3)
-            else:
-                prompts = []
-                threshold = self._cfg.getfloat("detector", "yolo_confidence", fallback=0.45)
-
-            stream_state.update_runtime_config({"prompts": prompts, "threshold": threshold})
-            stream_state.update_stats(detector=engine)
-            logger.info("Detector engine switched to: %s", engine)
-            return True
-        except Exception as exc:
-            logger.error("Engine switch failed: %s — reverting to YOLO", exc)
-            self._cfg.set("detector", "engine", "yolo")
-            self._detector = _build_detector(self._cfg)
-            try:
-                self._detector.load()
-            except Exception:
-                logger.critical("Failed to load fallback YOLO detector")
-            stream_state.update_stats(detector="yolo")
-            return False
-        finally:
-            self._paused = False
 
     def _handle_stop_command(self) -> None:
         """Stop the pipeline gracefully from the web UI."""

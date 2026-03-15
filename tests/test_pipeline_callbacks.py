@@ -1,4 +1,4 @@
-"""Integration tests for pipeline runtime callbacks (prompts, threshold, lock, strike)."""
+"""Integration tests for pipeline runtime callbacks (threshold, lock, strike)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ import numpy as np
 import pytest
 
 from hydra_detect.detectors.base import DetectionResult
-from hydra_detect.detectors.nanoowl_detector import NanoOWLDetector
 from hydra_detect.detectors.yolo_detector import YOLODetector
 from hydra_detect.pipeline import Pipeline
 from hydra_detect.tracker import TrackedObject, TrackingResult
@@ -24,7 +23,7 @@ def _make_pipeline(**overrides) -> Pipeline:
     cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
     cfg.read_dict({
         "camera": {"source": "0", "width": "640", "height": "480", "fps": "30"},
-        "detector": {"engine": "yolo", "yolo_model": "yolov8n.pt", "yolo_confidence": "0.45"},
+        "detector": {"yolo_model": "yolov8n.pt", "yolo_confidence": "0.45"},
         "tracker": {"track_thresh": "0.5", "track_buffer": "30", "match_thresh": "0.8"},
         "mavlink": {"enabled": "false"},
         "web": {"enabled": "false"},
@@ -65,31 +64,6 @@ class TestThresholdChange:
         p._detector = YOLODetector(confidence=0.45)
         p._handle_threshold_change(0.7)
         assert p._detector.get_threshold() == 0.7
-
-    def test_nanoowl_threshold_update(self):
-        p = _make_pipeline()
-        p._detector = NanoOWLDetector(threshold=0.3)
-        p._handle_threshold_change(0.5)
-        assert p._detector.get_threshold() == 0.5
-
-
-# ---------------------------------------------------------------------------
-# Prompt change
-# ---------------------------------------------------------------------------
-
-class TestPromptsChange:
-    def test_nanoowl_prompts_update(self):
-        p = _make_pipeline()
-        p._detector = NanoOWLDetector(prompts=["person"])
-        p._handle_prompts_change(["car", "truck"])
-        assert p._detector.get_prompts() == ["car", "truck"]
-
-    def test_yolo_prompts_change_noop(self):
-        """Changing prompts on a YOLO detector should not crash."""
-        p = _make_pipeline()
-        p._detector = YOLODetector()
-        # Should silently do nothing (NanoOWL isinstance check fails)
-        p._handle_prompts_change(["car"])
 
 
 # ---------------------------------------------------------------------------

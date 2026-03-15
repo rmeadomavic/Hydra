@@ -92,7 +92,6 @@ class StreamState:
         self._lock = threading.Lock()
 
         # Runtime config callbacks (set by pipeline)
-        self._on_prompts_change: Optional[Callable] = None
         self._on_threshold_change: Optional[Callable] = None
         self._on_loiter_command: Optional[Callable] = None
         self._on_target_lock: Optional[Callable] = None
@@ -103,12 +102,10 @@ class StreamState:
         self._on_stop_command: Optional[Callable] = None
         self._on_pause_command: Optional[Callable] = None
         self._on_resume_command: Optional[Callable] = None
-        self._on_engine_change: Optional[Callable] = None
 
         # Current runtime config (readable by web UI)
         self.runtime_config: Dict[str, Any] = {
-            "prompts": [],
-            "threshold": 0.25,
+            "threshold": 0.45,
             "auto_loiter": False,
         }
 
@@ -158,7 +155,6 @@ class StreamState:
 
     def set_callbacks(
         self,
-        on_prompts_change: Optional[Callable] = None,
         on_threshold_change: Optional[Callable] = None,
         on_loiter_command: Optional[Callable] = None,
         on_target_lock: Optional[Callable] = None,
@@ -169,10 +165,8 @@ class StreamState:
         on_stop_command: Optional[Callable] = None,
         on_pause_command: Optional[Callable] = None,
         on_resume_command: Optional[Callable] = None,
-        on_engine_change: Optional[Callable] = None,
     ) -> None:
         with self._lock:
-            self._on_prompts_change = on_prompts_change
             self._on_threshold_change = on_threshold_change
             self._on_loiter_command = on_loiter_command
             self._on_target_lock = on_target_lock
@@ -183,7 +177,6 @@ class StreamState:
             self._on_stop_command = on_stop_command
             self._on_pause_command = on_pause_command
             self._on_resume_command = on_resume_command
-            self._on_engine_change = on_engine_change
 
     def get_callback(self, name: str) -> Optional[Callable]:
         """Safely retrieve a callback by name."""
@@ -213,40 +206,6 @@ async def api_stats():
 async def api_get_config():
     """Return current runtime configuration."""
     return stream_state.get_runtime_config()
-
-
-@app.post("/api/config/prompts")
-async def api_set_prompts(request: Request, authorization: Optional[str] = Header(None)):
-    """Update detection prompts at runtime (NanoOWL)."""
-    auth_err = _check_auth(authorization)
-    if auth_err:
-        return auth_err
-    body = await request.json()
-    prompts = body.get("prompts", [])
-    if not prompts or not isinstance(prompts, list):
-        _audit(request, "set_prompts", outcome="invalid_input")
-        return JSONResponse({"error": "prompts must be a non-empty list"}, status_code=400)
-
-    if len(prompts) > MAX_PROMPTS:
-        _audit(request, "set_prompts", outcome="too_many_prompts")
-        return JSONResponse({"error": f"max {MAX_PROMPTS} prompts allowed"}, status_code=400)
-
-    sanitized = []
-    for p in prompts:
-        if not isinstance(p, str) or not p.strip():
-            _audit(request, "set_prompts", outcome="invalid_prompt_value")
-            return JSONResponse({"error": "each prompt must be a non-empty string"}, status_code=400)
-        s = p.strip()[:MAX_PROMPT_LENGTH]
-        sanitized.append(s)
-
-    cb = stream_state.get_callback("_on_prompts_change")
-    if cb:
-        cb(sanitized)
-        stream_state.set_runtime_config("prompts", sanitized)
-        _audit(request, "set_prompts", target=",".join(sanitized))
-        return {"status": "ok", "prompts": sanitized}
-    _audit(request, "set_prompts", outcome="unsupported")
-    return JSONResponse({"error": "prompt change not supported for current detector"}, status_code=400)
 
 
 @app.post("/api/config/threshold")
@@ -397,27 +356,6 @@ async def api_recent_detections():
     if cb:
         return cb()
     return []
-
-
-@app.post("/api/config/engine")
-async def api_set_engine(request: Request, authorization: Optional[str] = Header(None)):
-    """Switch detector engine at runtime (yolo or nanoowl)."""
-    auth_err = _check_auth(authorization)
-    if auth_err:
-        return auth_err
-    body = await request.json()
-    engine = body.get("engine", "").strip().lower()
-    if engine not in ("yolo", "nanoowl"):
-        return JSONResponse({"error": "engine must be 'yolo' or 'nanoowl'"}, status_code=400)
-    cb = stream_state.get_callback("_on_engine_change")
-    if cb:
-        success = cb(engine)
-        if success:
-            _audit(request, "set_engine", target=engine)
-            return {"status": "ok", "engine": engine}
-        _audit(request, "set_engine", target=engine, outcome="failed")
-        return JSONResponse({"error": "Engine switch failed"}, status_code=500)
-    return JSONResponse({"error": "Engine change not available"}, status_code=503)
 
 
 @app.post("/api/pipeline/stop")

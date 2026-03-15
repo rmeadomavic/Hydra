@@ -422,28 +422,6 @@
         .modal .warning-text { color: var(--warning); font-size: 0.75rem; margin-bottom: 16px; }
         .modal-btns { display: flex; gap: 10px; justify-content: center; }
 
-        /* ── SELECT ────────────────────────────────────────── */
-        select {
-            width: 100%;
-            background: var(--card-bg);
-            border: 1px solid var(--card-border);
-            color: var(--text-primary);
-            border-radius: 2px;
-            padding: 6px 8px;
-            font-family: 'Barlow', sans-serif;
-            font-size: 0.8rem;
-            font-weight: 500;
-            cursor: pointer;
-            appearance: none;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 8px center;
-        }
-        select:focus { outline: none; border-color: var(--ogt-green); }
-        .prompts-section { transition: max-height 0.3s ease, opacity 0.3s ease; overflow: hidden; }
-        .prompts-section.hidden { max-height: 0; opacity: 0; margin: 0; padding: 0; }
-        .prompts-section.visible { max-height: 200px; opacity: 1; }
-
         /* ── FOOTER ───────────────────────────────────────── */
         .footer-bar {
             background: var(--ogt-muted);
@@ -575,17 +553,7 @@
             <!-- Detection Config -->
             <div class="sidebar-section">
                 <div class="section-label">Detection Config</div>
-                <div class="field-label">Engine</div>
-                <select id="engine-select" onchange="switchEngine(this.value)">
-                    <option value="yolo">YOLO (Fixed Classes)</option>
-                    <option value="nanoowl">NanoOWL (Open Vocabulary)</option>
-                </select>
-                <div class="prompts-section hidden" id="prompts-section" style="margin-top:10px;">
-                    <div class="field-label">Prompts <span class="field-note">(comma-separated)</span></div>
-                    <textarea id="prompts-input" rows="2" placeholder="person, rifle, boat"></textarea>
-                    <button class="btn-primary" id="btn-prompts" style="margin-top:6px;" onclick="updatePrompts()">Update Prompts</button>
-                </div>
-                <div class="field-label" style="margin-top:10px;">Confidence Threshold</div>
+                <div class="field-label">Confidence Threshold</div>
                 <div class="range-inline">
                     <input type="range" id="thresh-slider" min="0.05" max="0.95" step="0.05" value="0.45"
                            oninput="document.getElementById('thresh-val').textContent=this.value">
@@ -639,19 +607,7 @@
                 document.getElementById('tracks').textContent = s.active_tracks;
                 document.getElementById('total-det').textContent = s.total_detections;
 
-                const engine = (s.detector || 'n/a').toUpperCase();
-                document.getElementById('detector').textContent = engine;
-
-                // Sync engine selector and show/hide prompts
-                const engineSelect = document.getElementById('engine-select');
-                const promptsSection = document.getElementById('prompts-section');
-                if (engine === 'YOLO') {
-                    engineSelect.value = 'yolo';
-                    promptsSection.className = 'prompts-section hidden';
-                } else if (engine === 'NANOOWL') {
-                    engineSelect.value = 'nanoowl';
-                    promptsSection.className = 'prompts-section visible';
-                }
+                document.getElementById('detector').textContent = (s.detector || 'yolo').toUpperCase();
 
                 const mavBadge = document.getElementById('mav-badge');
                 if (s.mavlink) {
@@ -677,9 +633,6 @@
             try {
                 const resp = await fetch('/api/config');
                 const cfg = await resp.json();
-                if (cfg.prompts && cfg.prompts.length > 0) {
-                    document.getElementById('prompts-input').value = cfg.prompts.join(', ');
-                }
                 if (cfg.threshold !== undefined) {
                     document.getElementById('thresh-slider').value = cfg.threshold;
                     document.getElementById('thresh-val').textContent = cfg.threshold;
@@ -715,19 +668,6 @@
                     log.appendChild(div);
                 }
             } catch (e) {}
-        }
-
-        async function updatePrompts() {
-            const raw = document.getElementById('prompts-input').value;
-            const prompts = raw.split(',').map(s => s.trim()).filter(s => s);
-            if (prompts.length === 0) return;
-            try {
-                await fetch('/api/config/prompts', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({prompts})
-                });
-            } catch (e) { console.error('Failed to update prompts:', e); }
         }
 
         async function updateThreshold() {
@@ -860,27 +800,6 @@
                     el.style.display = 'none';
                 }
             } catch (e) {}
-        }
-
-        // ── Engine switch ──────────────────────────────────
-        async function switchEngine(engine) {
-            const sel = document.getElementById('engine-select');
-            sel.disabled = true;
-            try {
-                const resp = await fetch('/api/config/engine', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({engine})
-                });
-                const result = await resp.json();
-                if (result.status !== 'ok') {
-                    alert('Engine switch failed: ' + (result.error || 'unknown error'));
-                }
-            } catch (e) {
-                console.error('Engine switch failed:', e);
-                alert('Engine switch failed');
-            }
-            sel.disabled = false;
         }
 
         // ── Pipeline controls ─────────────────────────────
