@@ -102,34 +102,11 @@ A **Software Updater** popup will appear shortly after setup completes.
 The Jetson will show the NVIDIA boot screen with an update progress bar during
 restart. This is normal — do not power off during this step.
 
-## 5. Install Claude Code
-
-Once the desktop comes back up, open a terminal (`Ctrl+Alt+T` or find Terminal
-in the app menu).
-
-Install Claude Code:
-
-```bash
-# Install Node.js (Claude Code requires it)
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# Install Claude Code globally
-sudo npm install -g @anthropic-ai/claude-code
-
-# Launch it
-claude
-```
-
-Follow the authentication prompts to connect Claude Code to your Anthropic
-account.
-
 ## What's Next
 
-Claude Code is now running in the terminal. From here, it can handle the rest
-of the Hydra Detect setup — cloning the repo, building Docker images, and
-configuring the system. See [jetson-setup-guide.md](jetson-setup-guide.md) for
-the full software setup process.
+The Jetson is ready. Open a terminal (`Ctrl+Alt+T`) and proceed to the
+[Hydra software setup guide](jetson-setup-guide.md) to clone the repo, build
+the Docker image, and get Hydra Detect running.
 
 ---
 
