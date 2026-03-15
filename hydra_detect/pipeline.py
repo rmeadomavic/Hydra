@@ -13,6 +13,7 @@ from collections import deque
 from pathlib import Path
 from typing import Optional
 
+from .autonomous import AutonomousController, parse_polygon
 from .camera import Camera, list_video_sources
 from .detection_logger import DetectionLogger
 from .detectors.base import BaseDetector
@@ -256,6 +257,36 @@ class Pipeline:
                 ),
             )
 
+        # Autonomous strike controller
+        self._autonomous: AutonomousController | None = None
+        if self._cfg.getboolean("autonomous", "enabled", fallback=False):
+            poly_raw = self._cfg.get("autonomous", "geofence_polygon", fallback="").strip()
+            polygon = parse_polygon(poly_raw) if poly_raw else None
+            classes_raw = self._cfg.get("autonomous", "allowed_classes", fallback="")
+            allowed_classes = [c.strip() for c in classes_raw.split(",") if c.strip()] or None
+            modes_raw = self._cfg.get("autonomous", "allowed_vehicle_modes", fallback="AUTO")
+            allowed_modes = [m.strip() for m in modes_raw.split(",") if m.strip()] or None
+            self._autonomous = AutonomousController(
+                enabled=True,
+                geofence_lat=self._cfg.getfloat("autonomous", "geofence_lat", fallback=0.0),
+                geofence_lon=self._cfg.getfloat("autonomous", "geofence_lon", fallback=0.0),
+                geofence_radius_m=self._cfg.getfloat("autonomous", "geofence_radius_m", fallback=100.0),
+                geofence_polygon=polygon,
+                min_confidence=self._cfg.getfloat("autonomous", "min_confidence", fallback=0.85),
+                min_track_frames=self._cfg.getint("autonomous", "min_track_frames", fallback=5),
+                allowed_classes=allowed_classes,
+                strike_cooldown_sec=self._cfg.getfloat("autonomous", "strike_cooldown_sec", fallback=30.0),
+                allowed_vehicle_modes=allowed_modes,
+            )
+            logger.info(
+                "Autonomous strike ENABLED: fence_radius=%.0fm, min_conf=%.2f, "
+                "min_frames=%d, classes=%s",
+                self._cfg.getfloat("autonomous", "geofence_radius_m", fallback=100.0),
+                self._cfg.getfloat("autonomous", "min_confidence", fallback=0.85),
+                self._cfg.getint("autonomous", "min_track_frames", fallback=5),
+                classes_raw or "ALL",
+            )
+
         # Logger
         self._det_logger = DetectionLogger(
             log_dir=self._cfg.get("logging", "log_dir", fallback="/data/logs"),
@@ -316,6 +347,15 @@ class Pipeline:
                 self._mavlink = None
                 self._osd = None
 
+        # Wire MAVLink command callbacks (lock/strike/unlock over SiK radio)
+        if self._mavlink is not None:
+            self._mavlink.set_command_callbacks(
+                on_lock=lambda tid: self._handle_target_lock(tid, mode="track"),
+                on_strike=self._handle_strike_command,
+                on_unlock=self._handle_target_unlock,
+            )
+            logger.info("MAVLink command listener enabled (CMD_USER_1/2/3 + NAMED_VALUE_INT)")
+
         if self._osd is not None:
             logger.info("FPV OSD enabled (mode=%s, interval=%.2fs)",
                         self._osd.mode, self._cfg.getfloat(
@@ -354,6 +394,8 @@ class Pipeline:
                 get_power_modes=self._get_power_modes,
                 get_models=self._get_models,
                 on_model_switch=self._handle_model_switch,
+                get_log_dir=lambda: self._cfg.get("logging", "log_dir", fallback="/data/logs"),
+                get_image_dir=lambda: self._cfg.get("logging", "image_dir", fallback="/data/images"),
             )
 
             stream_state.update_stats(
@@ -408,6 +450,13 @@ class Pipeline:
                 # Auto-loiter on detection
                 if self._mavlink.auto_loiter:
                     self._mavlink.command_loiter()
+
+            # Autonomous strike evaluation
+            if self._autonomous is not None and self._mavlink is not None:
+                self._autonomous.evaluate(
+                    track_result, self._mavlink,
+                    self._handle_target_lock, self._handle_strike_command,
+                )
 
             if current_lock_id is not None and self._mavlink is not None:
                 locked_track = track_result.find(current_lock_id)
