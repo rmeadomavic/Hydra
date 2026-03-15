@@ -28,6 +28,22 @@ _TRACK_COLOUR = (0, 255, 0)    # green
 _STRIKE_COLOUR = (0, 0, 255)   # red (BGR)
 
 
+def _draw_corner_brackets(
+    frame: np.ndarray,
+    x1: int, y1: int, x2: int, y2: int,
+    colour: tuple[int, int, int],
+    thickness: int = 3,
+) -> None:
+    """Draw L-shaped corner brackets around a bounding box."""
+    blen = max(10, min(x2 - x1, y2 - y1) // 4)
+    for bx, by, dx, dy in [
+        (x1, y1, 1, 1), (x2, y1, -1, 1),
+        (x1, y2, 1, -1), (x2, y2, -1, -1),
+    ]:
+        cv2.line(frame, (bx, by), (bx + dx * blen, by), colour, thickness)
+        cv2.line(frame, (bx, by), (bx, by + dy * blen), colour, thickness)
+
+
 def draw_tracks(
     frame: np.ndarray,
     tracking: TrackingResult,
@@ -56,14 +72,7 @@ def draw_tracks(
             # ── STRIKE MODE: blinking red box with X crosshair ──
             if blink_on:
                 cv2.rectangle(frame, (x1 - 2, y1 - 2), (x2 + 2, y2 + 2), _STRIKE_COLOUR, 3)
-            # Corner brackets (always visible)
-            blen = max(10, min(x2 - x1, y2 - y1) // 4)
-            for bx, by, dx, dy in [
-                (x1, y1, 1, 1), (x2, y1, -1, 1),
-                (x1, y2, 1, -1), (x2, y2, -1, -1),
-            ]:
-                cv2.line(frame, (bx, by), (bx + dx * blen, by), _STRIKE_COLOUR, 3)
-                cv2.line(frame, (bx, by), (bx, by + dy * blen), _STRIKE_COLOUR, 3)
+            _draw_corner_brackets(frame, x1, y1, x2, y2, _STRIKE_COLOUR)
             # X crosshair at center (diagonal lines — large and bold)
             xlen = max(25, min(x2 - x1, y2 - y1) // 3)
             cv2.line(frame, (cx - xlen, cy - xlen), (cx + xlen, cy + xlen), _STRIKE_COLOUR, 3)
@@ -79,14 +88,7 @@ def draw_tracks(
         elif is_locked and lock_mode == "track":
             # ── TRACK MODE: solid green box with + crosshair ──
             cv2.rectangle(frame, (x1 - 2, y1 - 2), (x2 + 2, y2 + 2), _TRACK_COLOUR, 3)
-            # Corner brackets
-            blen = max(10, min(x2 - x1, y2 - y1) // 4)
-            for bx, by, dx, dy in [
-                (x1, y1, 1, 1), (x2, y1, -1, 1),
-                (x1, y2, 1, -1), (x2, y2, -1, -1),
-            ]:
-                cv2.line(frame, (bx, by), (bx + dx * blen, by), _TRACK_COLOUR, 3)
-                cv2.line(frame, (bx, by), (bx, by + dy * blen), _TRACK_COLOUR, 3)
+            _draw_corner_brackets(frame, x1, y1, x2, y2, _TRACK_COLOUR)
             # + crosshair at center
             cv2.line(frame, (cx - 12, cy), (cx + 12, cy), _TRACK_COLOUR, 1)
             cv2.line(frame, (cx, cy - 12), (cx, cy + 12), _TRACK_COLOUR, 1)

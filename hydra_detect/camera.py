@@ -98,13 +98,7 @@ class Camera:
             logger.error("Cannot open camera source: %s", self._source)
             return False
 
-        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
-        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
-        self._cap.set(cv2.CAP_PROP_FPS, self._fps)
-
-        self._running = True
-        self._thread = threading.Thread(target=self._grab_loop, daemon=True)
-        self._thread.start()
+        self._configure_and_start()
         logger.info(
             "Camera opened: %s (%dx%d @ %d fps)",
             self._source,
@@ -123,6 +117,15 @@ class Camera:
         if self._cap is not None:
             self._cap.release()
         logger.info("Camera closed.")
+
+    def _configure_and_start(self) -> None:
+        """Apply capture properties and start the grab thread."""
+        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
+        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+        self._cap.set(cv2.CAP_PROP_FPS, self._fps)
+        self._running = True
+        self._thread = threading.Thread(target=self._grab_loop, daemon=True)
+        self._thread.start()
 
     # ------------------------------------------------------------------
     def read(self) -> Optional[np.ndarray]:
@@ -183,22 +186,12 @@ class Camera:
             if not self._cap.isOpened():
                 logger.error("Cannot reopen original source either!")
                 return False
-            self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
-            self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
-            self._cap.set(cv2.CAP_PROP_FPS, self._fps)
-            self._running = True
-            self._thread = threading.Thread(target=self._grab_loop, daemon=True)
-            self._thread.start()
+            self._configure_and_start()
             return False
 
-        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
-        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
-        self._cap.set(cv2.CAP_PROP_FPS, self._fps)
         with self._lock:
             self._frame = None  # Clear stale frame from old source
-        self._running = True
-        self._thread = threading.Thread(target=self._grab_loop, daemon=True)
-        self._thread.start()
+        self._configure_and_start()
         logger.info("Camera switched to: %s", new_source)
         return True
 

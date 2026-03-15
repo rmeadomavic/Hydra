@@ -48,6 +48,13 @@ class TrackingResult:
     def __iter__(self):
         return iter(self.tracks)
 
+    def find(self, track_id: int) -> TrackedObject | None:
+        """Find a track by ID, or None if not present."""
+        for t in self.tracks:
+            if t.track_id == track_id:
+                return t
+        return None
+
 
 class ByteTracker:
     """Wrapper around the ``byte_tracker`` / ``supervision`` ByteTrack implementation."""
