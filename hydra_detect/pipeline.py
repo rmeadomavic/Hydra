@@ -5,9 +5,11 @@ from __future__ import annotations
 import configparser
 import logging
 import signal
+import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from pathlib import Path
 from typing import Optional
 
@@ -35,7 +37,6 @@ def _read_thermal(zone: str) -> float | None:
 
 def _read_jetson_stats() -> dict:
     """Read Jetson system stats from sysfs and nvpmodel."""
-    import subprocess
     stats: dict = {}
 
     # Temperatures
@@ -84,7 +85,6 @@ def _read_jetson_stats() -> dict:
 
 def _list_power_modes() -> list[dict]:
     """Parse nvpmodel config for available power modes."""
-    import subprocess
     modes: list[dict] = []
     try:
         r = subprocess.run(
@@ -105,7 +105,6 @@ def _list_power_modes() -> list[dict]:
 
 def _set_power_mode(mode_id: int) -> dict:
     """Set Jetson power mode by ID and optionally enable jetson_clocks."""
-    import subprocess
     result = {"status": "ok", "actions": []}
     try:
         r = subprocess.run(
@@ -136,10 +135,10 @@ def _set_power_mode(mode_id: int) -> dict:
 
 def _list_models(models_dir: str = "/models") -> list[dict]:
     """List available YOLO model files in the models directory."""
-    import glob as g
+    import glob
     models: list[dict] = []
     for pattern in ("*.pt", "*.engine", "*.onnx"):
-        for path in sorted(g.glob(f"{models_dir}/{pattern}")):
+        for path in sorted(glob.glob(f"{models_dir}/{pattern}")):
             name = Path(path).name
             size_mb = round(Path(path).stat().st_size / (1024 * 1024), 1)
             models.append({"name": name, "path": path, "size_mb": size_mb})
@@ -390,11 +389,7 @@ class Pipeline:
                     self._mavlink.command_loiter()
 
             if current_lock_id is not None and self._mavlink is not None:
-                locked_track = None
-                for t in track_result:
-                    if t.track_id == current_lock_id:
-                        locked_track = t
-                        break
+                locked_track = track_result.find(current_lock_id)
 
                 if locked_track is not None:
                     # Compute normalised horizontal error from frame center
@@ -475,16 +470,12 @@ class Pipeline:
                 # Update target lock state for web UI
                 # (reuse render_lock_id/render_lock_mode from above)
                 if render_lock_id is not None:
-                    locked_label = None
-                    for t in track_result:
-                        if t.track_id == render_lock_id:
-                            locked_label = t.label
-                            break
+                    locked_obj = track_result.find(render_lock_id)
                     stream_state.set_target_lock({
                         "locked": True,
                         "track_id": render_lock_id,
                         "mode": render_lock_mode,
-                        "label": locked_label,
+                        "label": locked_obj.label if locked_obj else None,
                     })
                 else:
                     stream_state.set_target_lock({
@@ -517,21 +508,20 @@ class Pipeline:
         with self._state_lock:
             if self._last_track_result is None:
                 return False
-            # Verify track_id exists in current tracks
-            for t in self._last_track_result:
-                if t.track_id == track_id:
-                    self._locked_track_id = track_id
-                    self._lock_mode = mode
-                    logger.info(
-                        "Target LOCKED: #%d (%s) mode=%s", track_id, t.label, mode
-                    )
-                    if self._mavlink is not None:
-                        self._mavlink.send_statustext(
-                            f"TGT LOCK: #{track_id} {t.label} [{mode.upper()}]"
-                        )
-                    return True
-        logger.warning("Target lock failed: track #%d not found.", track_id)
-        return False
+            t = self._last_track_result.find(track_id)
+            if t is None:
+                logger.warning("Target lock failed: track #%d not found.", track_id)
+                return False
+            self._locked_track_id = track_id
+            self._lock_mode = mode
+            logger.info(
+                "Target LOCKED: #%d (%s) mode=%s", track_id, t.label, mode
+            )
+            if self._mavlink is not None:
+                self._mavlink.send_statustext(
+                    f"TGT LOCK: #{track_id} {t.label} [{mode.upper()}]"
+                )
+            return True
 
     def _handle_target_unlock(self) -> None:
         """Release target lock."""
@@ -556,12 +546,7 @@ class Pipeline:
         with self._state_lock:
             if self._last_track_result is None:
                 return False
-            # Find the track under lock (snapshot)
-            target_track = None
-            for t in self._last_track_result:
-                if t.track_id == track_id:
-                    target_track = t
-                    break
+            target_track = self._last_track_result.find(track_id)
         if target_track is None:
             logger.warning("Strike failed: track #%d not found.", track_id)
             return False
@@ -704,14 +689,11 @@ class _FPSCounter:
     """Simple rolling FPS counter."""
 
     def __init__(self, window: int = 30):
-        self._window = window
-        self._times: list[float] = []
+        self._times: deque[float] = deque(maxlen=window)
 
     def tick(self) -> float:
         now = time.perf_counter()
         self._times.append(now)
-        if len(self._times) > self._window:
-            self._times.pop(0)
         if len(self._times) < 2:
             return 0.0
         return (len(self._times) - 1) / (self._times[-1] - self._times[0])

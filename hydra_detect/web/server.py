@@ -91,23 +91,8 @@ class StreamState:
         }
         self._lock = threading.Lock()
 
-        # Runtime config callbacks (set by pipeline)
-        self._on_threshold_change: Optional[Callable] = None
-        self._on_loiter_command: Optional[Callable] = None
-        self._on_target_lock: Optional[Callable] = None
-        self._on_target_unlock: Optional[Callable] = None
-        self._on_strike_command: Optional[Callable] = None
-        self._get_recent_detections: Optional[Callable] = None
-        self._get_active_tracks: Optional[Callable] = None
-        self._on_stop_command: Optional[Callable] = None
-        self._on_pause_command: Optional[Callable] = None
-        self._on_resume_command: Optional[Callable] = None
-        self._get_camera_sources: Optional[Callable] = None
-        self._on_camera_switch: Optional[Callable] = None
-        self._on_set_power_mode: Optional[Callable] = None
-        self._get_power_modes: Optional[Callable] = None
-        self._get_models: Optional[Callable] = None
-        self._on_model_switch: Optional[Callable] = None
+        # Runtime config callbacks (set by pipeline via set_callbacks)
+        self._callbacks: Dict[str, Callable] = {}
 
         # Current runtime config (readable by web UI)
         self.runtime_config: Dict[str, Any] = {
@@ -159,47 +144,16 @@ class StreamState:
         with self._lock:
             return dict(self.runtime_config)
 
-    def set_callbacks(
-        self,
-        on_threshold_change: Optional[Callable] = None,
-        on_loiter_command: Optional[Callable] = None,
-        on_target_lock: Optional[Callable] = None,
-        on_target_unlock: Optional[Callable] = None,
-        on_strike_command: Optional[Callable] = None,
-        get_recent_detections: Optional[Callable] = None,
-        get_active_tracks: Optional[Callable] = None,
-        on_stop_command: Optional[Callable] = None,
-        on_pause_command: Optional[Callable] = None,
-        on_resume_command: Optional[Callable] = None,
-        get_camera_sources: Optional[Callable] = None,
-        on_camera_switch: Optional[Callable] = None,
-        on_set_power_mode: Optional[Callable] = None,
-        get_power_modes: Optional[Callable] = None,
-        get_models: Optional[Callable] = None,
-        on_model_switch: Optional[Callable] = None,
-    ) -> None:
+    def set_callbacks(self, **callbacks: Optional[Callable]) -> None:
         with self._lock:
-            self._on_threshold_change = on_threshold_change
-            self._on_loiter_command = on_loiter_command
-            self._on_target_lock = on_target_lock
-            self._on_target_unlock = on_target_unlock
-            self._on_strike_command = on_strike_command
-            self._get_recent_detections = get_recent_detections
-            self._get_active_tracks = get_active_tracks
-            self._on_stop_command = on_stop_command
-            self._on_pause_command = on_pause_command
-            self._on_resume_command = on_resume_command
-            self._get_camera_sources = get_camera_sources
-            self._on_camera_switch = on_camera_switch
-            self._on_set_power_mode = on_set_power_mode
-            self._get_power_modes = get_power_modes
-            self._get_models = get_models
-            self._on_model_switch = on_model_switch
+            for name, cb in callbacks.items():
+                if cb is not None:
+                    self._callbacks[name] = cb
 
     def get_callback(self, name: str) -> Optional[Callable]:
         """Safely retrieve a callback by name."""
         with self._lock:
-            return getattr(self, name, None)
+            return self._callbacks.get(name)
 
 
 # Global state instance — set by the pipeline before starting the server
@@ -241,7 +195,7 @@ async def api_set_threshold(request: Request, authorization: Optional[str] = Hea
     if not (0.0 <= threshold_val <= 1.0):
         return JSONResponse({"error": "threshold must be 0.0-1.0"}, status_code=400)
 
-    cb = stream_state.get_callback("_on_threshold_change")
+    cb = stream_state.get_callback("on_threshold_change")
     if cb:
         cb(threshold_val)
         stream_state.set_runtime_config("threshold", threshold_val)
@@ -257,7 +211,7 @@ async def api_command_loiter(request: Request, authorization: Optional[str] = He
     auth_err = _check_auth(authorization)
     if auth_err:
         return auth_err
-    cb = stream_state.get_callback("_on_loiter_command")
+    cb = stream_state.get_callback("on_loiter_command")
     if cb:
         cb()
         _audit(request, "loiter")
@@ -269,7 +223,7 @@ async def api_command_loiter(request: Request, authorization: Optional[str] = He
 @app.get("/api/tracks")
 async def api_active_tracks():
     """Return currently active tracked objects (for target selection)."""
-    cb = stream_state.get_callback("_get_active_tracks")
+    cb = stream_state.get_callback("get_active_tracks")
     if cb:
         return cb()
     return []
@@ -299,7 +253,7 @@ async def api_target_lock(request: Request, authorization: Optional[str] = Heade
     except (TypeError, ValueError):
         return JSONResponse({"error": "track_id must be an integer"}, status_code=400)
 
-    cb = stream_state.get_callback("_on_target_lock")
+    cb = stream_state.get_callback("on_target_lock")
     if cb:
         result = cb(track_id_int, mode="track")
         if result:
@@ -317,7 +271,7 @@ async def api_target_unlock(request: Request, authorization: Optional[str] = Hea
     auth_err = _check_auth(authorization)
     if auth_err:
         return auth_err
-    cb = stream_state.get_callback("_on_target_unlock")
+    cb = stream_state.get_callback("on_target_unlock")
     if cb:
         cb()
         _audit(request, "target_unlock")
@@ -352,7 +306,7 @@ async def api_strike_command(request: Request, authorization: Optional[str] = He
     except (TypeError, ValueError):
         return JSONResponse({"error": "track_id must be an integer"}, status_code=400)
 
-    cb = stream_state.get_callback("_on_strike_command")
+    cb = stream_state.get_callback("on_strike_command")
     if cb:
         result = cb(track_id_int)
         if result:
@@ -370,7 +324,7 @@ async def api_strike_command(request: Request, authorization: Optional[str] = He
 @app.get("/api/detections")
 async def api_recent_detections():
     """Return recent detection log entries."""
-    cb = stream_state.get_callback("_get_recent_detections")
+    cb = stream_state.get_callback("get_recent_detections")
     if cb:
         return cb()
     return []
@@ -379,7 +333,7 @@ async def api_recent_detections():
 @app.get("/api/camera/sources")
 async def api_camera_sources():
     """Return available video sources."""
-    cb = stream_state.get_callback("_get_camera_sources")
+    cb = stream_state.get_callback("get_camera_sources")
     if cb:
         return cb()
     return []
@@ -399,7 +353,7 @@ async def api_camera_switch(request: Request, authorization: Optional[str] = Hea
     if source is None:
         return JSONResponse({"error": "source required"}, status_code=400)
 
-    cb = stream_state.get_callback("_on_camera_switch")
+    cb = stream_state.get_callback("on_camera_switch")
     if cb:
         success = cb(source)
         if success:
@@ -413,7 +367,7 @@ async def api_camera_switch(request: Request, authorization: Optional[str] = Hea
 @app.get("/api/system/power-modes")
 async def api_power_modes():
     """Return available Jetson power modes."""
-    cb = stream_state.get_callback("_get_power_modes")
+    cb = stream_state.get_callback("get_power_modes")
     if cb:
         return cb()
     return []
@@ -433,7 +387,7 @@ async def api_set_power_mode(request: Request, authorization: Optional[str] = He
         mode_id_int = int(mode_id)
     except (TypeError, ValueError):
         return JSONResponse({"error": "mode_id must be an integer"}, status_code=400)
-    cb = stream_state.get_callback("_on_set_power_mode")
+    cb = stream_state.get_callback("on_set_power_mode")
     if cb:
         result = cb(mode_id_int)
         _audit(request, "set_power_mode", target=str(mode_id_int),
@@ -447,7 +401,7 @@ async def api_set_power_mode(request: Request, authorization: Optional[str] = He
 @app.get("/api/models")
 async def api_list_models():
     """Return available YOLO model files."""
-    cb = stream_state.get_callback("_get_models")
+    cb = stream_state.get_callback("get_models")
     if cb:
         return cb()
     return []
@@ -463,7 +417,7 @@ async def api_switch_model(request: Request, authorization: Optional[str] = Head
     model = body.get("model")
     if not model:
         return JSONResponse({"error": "model name required"}, status_code=400)
-    cb = stream_state.get_callback("_on_model_switch")
+    cb = stream_state.get_callback("on_model_switch")
     if cb:
         success = cb(model)
         if success:
@@ -480,7 +434,7 @@ async def api_pipeline_stop(request: Request, authorization: Optional[str] = Hea
     auth_err = _check_auth(authorization)
     if auth_err:
         return auth_err
-    cb = stream_state.get_callback("_on_stop_command")
+    cb = stream_state.get_callback("on_stop_command")
     if cb:
         cb()
         _audit(request, "pipeline_stop")
@@ -498,13 +452,13 @@ async def api_pipeline_pause(request: Request, authorization: Optional[str] = He
     body = await request.json()
     paused = body.get("paused", True)
     if paused:
-        cb = stream_state.get_callback("_on_pause_command")
+        cb = stream_state.get_callback("on_pause_command")
         if cb:
             cb()
             _audit(request, "pipeline_pause")
             return {"status": "ok", "paused": True}
     else:
-        cb = stream_state.get_callback("_on_resume_command")
+        cb = stream_state.get_callback("on_resume_command")
         if cb:
             cb()
             _audit(request, "pipeline_resume")
