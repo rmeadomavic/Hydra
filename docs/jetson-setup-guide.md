@@ -112,8 +112,15 @@ needs the host's NVIDIA libraries mounted in.
 ### Quick test run (no MAVLink)
 
 ```bash
-docker run --rm --runtime nvidia \
+docker run --rm --privileged --runtime nvidia \
   --device /dev/video0:/dev/video0 \
+  --device /dev/video2:/dev/video2 \
+  -v /usr/sbin/nvpmodel:/usr/sbin/nvpmodel:ro \
+  -v /usr/bin/jetson_clocks:/usr/bin/jetson_clocks:ro \
+  -v /etc/nvpmodel.conf:/etc/nvpmodel.conf:ro \
+  -v /etc/nvpmodel:/etc/nvpmodel:ro \
+  -v /var/lib/nvpmodel:/var/lib/nvpmodel \
+  -v $(pwd)/models:/models \
   -p 8080:8080 \
   hydra-detect:latest
 ```
@@ -121,14 +128,26 @@ docker run --rm --runtime nvidia \
 ### Full run with MAVLink and persistent data
 
 ```bash
-docker run --rm --runtime nvidia \
+docker run --rm --privileged --runtime nvidia \
   --device /dev/video0:/dev/video0 \
+  --device /dev/video2:/dev/video2 \
   --device /dev/ttyACM0:/dev/ttyACM0 \
+  -v /usr/sbin/nvpmodel:/usr/sbin/nvpmodel:ro \
+  -v /usr/bin/jetson_clocks:/usr/bin/jetson_clocks:ro \
+  -v /etc/nvpmodel.conf:/etc/nvpmodel.conf:ro \
+  -v /etc/nvpmodel:/etc/nvpmodel:ro \
+  -v /var/lib/nvpmodel:/var/lib/nvpmodel \
+  -v $(pwd)/models:/models \
   -v $(pwd)/output_data:/data \
   -p 8080:8080 \
   --name hydra-detect \
   hydra-detect:latest
 ```
+
+> **Volume mount explanation:**
+> - `nvpmodel` / `jetson_clocks` — lets the dashboard control Jetson power modes
+> - `models/` — drop YOLO `.pt` files here to switch models from the dashboard
+> - `output_data/` — detection logs and image snapshots persist outside the container
 
 ### Access the web dashboard
 

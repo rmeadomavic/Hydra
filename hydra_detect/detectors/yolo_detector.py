@@ -74,5 +74,30 @@ class YOLODetector(BaseDetector):
     def get_threshold(self) -> float:
         return self._confidence
 
+    @property
+    def model_path(self) -> str:
+        return self._model_path
+
+    def switch_model(self, model_path: str) -> bool:
+        """Switch to a different YOLO model at runtime.
+
+        Returns True on success, False if the new model can't be loaded
+        (old model stays active).
+        """
+        from ultralytics import YOLO
+
+        old_path = self._model_path
+        logger.info("Switching YOLO model: %s -> %s", old_path, model_path)
+        try:
+            new_model = YOLO(model_path)
+            self._model = new_model
+            self._model_path = model_path
+            logger.info("YOLO model switched to: %s", model_path)
+            return True
+        except Exception as exc:
+            logger.error("Failed to load model %s: %s — keeping %s",
+                         model_path, exc, old_path)
+            return False
+
     def unload(self) -> None:
         self._model = None

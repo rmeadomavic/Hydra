@@ -46,9 +46,15 @@ docker pull dustynv/l4t-pytorch:r36.4.0
 
 # Build and run
 docker build --network=host -t hydra-detect .
-docker run --rm --runtime nvidia \
-  --device /dev/video0 \
+docker run --rm --privileged --runtime nvidia \
+  --device /dev/video0 --device /dev/video2 \
   --device /dev/ttyACM0 \
+  -v /usr/sbin/nvpmodel:/usr/sbin/nvpmodel:ro \
+  -v /usr/bin/jetson_clocks:/usr/bin/jetson_clocks:ro \
+  -v /etc/nvpmodel.conf:/etc/nvpmodel.conf:ro \
+  -v /etc/nvpmodel:/etc/nvpmodel:ro \
+  -v /var/lib/nvpmodel:/var/lib/nvpmodel \
+  -v $(pwd)/models:/models \
   -v $(pwd)/output_data:/data \
   -p 8080:8080 \
   hydra-detect
@@ -244,7 +250,6 @@ Hydra/
       __init__.py
       base.py                         # Abstract detector interface
       yolo_detector.py                # YOLOv8/v11 via ultralytics
-      nanoowl_detector.py             # (archived) NanoOWL / OWL-ViT open-vocabulary
 
     web/
       __init__.py

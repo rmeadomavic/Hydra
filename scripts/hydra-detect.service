@@ -1,15 +1,22 @@
 [Unit]
 Description=Hydra Detect v2.0 — Autonomous MAVLink Detection Service
-After=network.target docker.service dev-ttyACM0.device
-Requires=docker.service dev-video0.device dev-ttyACM0.device
+After=network.target docker.service
+Requires=docker.service
 
 [Service]
 Restart=always
 RestartSec=5s
-ExecStart=/usr/bin/docker run --rm --runtime nvidia \
+ExecStart=/usr/bin/docker run --rm --privileged --runtime nvidia \
   --device /dev/video0:/dev/video0 \
+  --device /dev/video2:/dev/video2 \
   --device /dev/ttyACM0:/dev/ttyACM0 \
-  -v /home/sorcc/hydra_detect/output_data:/data \
+  -v /usr/sbin/nvpmodel:/usr/sbin/nvpmodel:ro \
+  -v /usr/bin/jetson_clocks:/usr/bin/jetson_clocks:ro \
+  -v /etc/nvpmodel.conf:/etc/nvpmodel.conf:ro \
+  -v /etc/nvpmodel:/etc/nvpmodel:ro \
+  -v /var/lib/nvpmodel:/var/lib/nvpmodel \
+  -v /home/sorcc/Hydra/models:/models \
+  -v /home/sorcc/Hydra/output_data:/data \
   -p 8080:8080 \
   --name hydra-detect hydra-detect:latest
 ExecStop=/usr/bin/docker stop hydra-detect

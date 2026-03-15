@@ -102,6 +102,12 @@ class StreamState:
         self._on_stop_command: Optional[Callable] = None
         self._on_pause_command: Optional[Callable] = None
         self._on_resume_command: Optional[Callable] = None
+        self._get_camera_sources: Optional[Callable] = None
+        self._on_camera_switch: Optional[Callable] = None
+        self._on_set_power_mode: Optional[Callable] = None
+        self._get_power_modes: Optional[Callable] = None
+        self._get_models: Optional[Callable] = None
+        self._on_model_switch: Optional[Callable] = None
 
         # Current runtime config (readable by web UI)
         self.runtime_config: Dict[str, Any] = {
@@ -165,6 +171,12 @@ class StreamState:
         on_stop_command: Optional[Callable] = None,
         on_pause_command: Optional[Callable] = None,
         on_resume_command: Optional[Callable] = None,
+        get_camera_sources: Optional[Callable] = None,
+        on_camera_switch: Optional[Callable] = None,
+        on_set_power_mode: Optional[Callable] = None,
+        get_power_modes: Optional[Callable] = None,
+        get_models: Optional[Callable] = None,
+        on_model_switch: Optional[Callable] = None,
     ) -> None:
         with self._lock:
             self._on_threshold_change = on_threshold_change
@@ -177,6 +189,12 @@ class StreamState:
             self._on_stop_command = on_stop_command
             self._on_pause_command = on_pause_command
             self._on_resume_command = on_resume_command
+            self._get_camera_sources = get_camera_sources
+            self._on_camera_switch = on_camera_switch
+            self._on_set_power_mode = on_set_power_mode
+            self._get_power_modes = get_power_modes
+            self._get_models = get_models
+            self._on_model_switch = on_model_switch
 
     def get_callback(self, name: str) -> Optional[Callable]:
         """Safely retrieve a callback by name."""
@@ -356,6 +374,104 @@ async def api_recent_detections():
     if cb:
         return cb()
     return []
+
+
+@app.get("/api/camera/sources")
+async def api_camera_sources():
+    """Return available video sources."""
+    cb = stream_state.get_callback("_get_camera_sources")
+    if cb:
+        return cb()
+    return []
+
+
+@app.post("/api/camera/switch")
+async def api_camera_switch(request: Request, authorization: Optional[str] = Header(None)):
+    """Switch to a different camera source at runtime.
+
+    Body: {"source": 2}  (device index or RTSP URL)
+    """
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    source = body.get("source")
+    if source is None:
+        return JSONResponse({"error": "source required"}, status_code=400)
+
+    cb = stream_state.get_callback("_on_camera_switch")
+    if cb:
+        success = cb(source)
+        if success:
+            _audit(request, "camera_switch", target=str(source))
+            return {"status": "ok", "source": source}
+        _audit(request, "camera_switch", target=str(source), outcome="failed")
+        return JSONResponse({"error": "Failed to switch camera source"}, status_code=400)
+    return JSONResponse({"error": "Camera switch not available"}, status_code=503)
+
+
+@app.get("/api/system/power-modes")
+async def api_power_modes():
+    """Return available Jetson power modes."""
+    cb = stream_state.get_callback("_get_power_modes")
+    if cb:
+        return cb()
+    return []
+
+
+@app.post("/api/system/power-mode")
+async def api_set_power_mode(request: Request, authorization: Optional[str] = Header(None)):
+    """Set Jetson power mode. Body: {"mode_id": 0}"""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    mode_id = body.get("mode_id")
+    if mode_id is None:
+        return JSONResponse({"error": "mode_id required"}, status_code=400)
+    try:
+        mode_id_int = int(mode_id)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "mode_id must be an integer"}, status_code=400)
+    cb = stream_state.get_callback("_on_set_power_mode")
+    if cb:
+        result = cb(mode_id_int)
+        _audit(request, "set_power_mode", target=str(mode_id_int),
+               outcome=result.get("status", "unknown"))
+        if result.get("status") == "ok":
+            return result
+        return JSONResponse(result, status_code=500)
+    return JSONResponse({"error": "Power mode control not available"}, status_code=503)
+
+
+@app.get("/api/models")
+async def api_list_models():
+    """Return available YOLO model files."""
+    cb = stream_state.get_callback("_get_models")
+    if cb:
+        return cb()
+    return []
+
+
+@app.post("/api/models/switch")
+async def api_switch_model(request: Request, authorization: Optional[str] = Header(None)):
+    """Switch YOLO model at runtime. Body: {"model": "yolov8s.pt"}"""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    model = body.get("model")
+    if not model:
+        return JSONResponse({"error": "model name required"}, status_code=400)
+    cb = stream_state.get_callback("_on_model_switch")
+    if cb:
+        success = cb(model)
+        if success:
+            _audit(request, "model_switch", target=model)
+            return {"status": "ok", "model": model}
+        _audit(request, "model_switch", target=model, outcome="failed")
+        return JSONResponse({"error": "Failed to switch model"}, status_code=400)
+    return JSONResponse({"error": "Model switching not available"}, status_code=503)
 
 
 @app.post("/api/pipeline/stop")

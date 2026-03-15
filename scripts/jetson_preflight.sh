@@ -72,10 +72,10 @@ else
 fi
 
 if [ -r config.ini ]; then
-  if rg -q "^engine\s*=\s*(nanoowl|yolo)" config.ini; then
-    ok "config.ini detector engine is set"
+  if rg -q "^yolo_model\s*=" config.ini; then
+    ok "config.ini detector model is configured"
   else
-    fail "config.ini detector engine is invalid"
+    warn "config.ini yolo_model not set (will use default yolov8n.pt)"
   fi
 else
   fail "config.ini not found"

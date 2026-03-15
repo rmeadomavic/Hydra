@@ -8,9 +8,10 @@ import signal
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
-from .camera import Camera
+from .camera import Camera, list_video_sources
 from .detection_logger import DetectionLogger
 from .detectors.base import BaseDetector
 from .detectors.yolo_detector import YOLODetector
@@ -21,6 +22,128 @@ from .tracker import ByteTracker
 from .web.server import configure_auth, run_server, stream_state
 
 logger = logging.getLogger(__name__)
+
+
+def _read_thermal(zone: str) -> float | None:
+    """Read a thermal zone temperature in °C."""
+    try:
+        raw = Path(f"/sys/devices/virtual/thermal/thermal_zone{zone}/temp").read_text().strip()
+        return round(int(raw) / 1000.0, 1)
+    except (FileNotFoundError, ValueError, PermissionError):
+        return None
+
+
+def _read_jetson_stats() -> dict:
+    """Read Jetson system stats from sysfs and nvpmodel."""
+    import subprocess
+    stats: dict = {}
+
+    # Temperatures
+    stats["gpu_temp_c"] = _read_thermal("1") or _read_thermal("0")
+    stats["cpu_temp_c"] = _read_thermal("0")
+
+    # RAM usage (shared CPU/GPU on Jetson)
+    try:
+        with open("/proc/meminfo") as f:
+            meminfo = {}
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2:
+                    meminfo[parts[0].rstrip(":")] = int(parts[1])
+        total = meminfo.get("MemTotal", 0)
+        available = meminfo.get("MemAvailable", 0)
+        used = total - available
+        stats["ram_used_mb"] = round(used / 1024)
+        stats["ram_total_mb"] = round(total / 1024)
+    except (FileNotFoundError, ValueError):
+        stats["ram_used_mb"] = None
+        stats["ram_total_mb"] = None
+
+    # GPU utilization (0-1000 scale -> percentage)
+    try:
+        load = int(Path("/sys/devices/platform/gpu.0/load").read_text().strip())
+        stats["gpu_load_pct"] = round(load / 10.0, 1)
+    except (FileNotFoundError, ValueError, PermissionError):
+        stats["gpu_load_pct"] = None
+
+    # Power mode via nvpmodel
+    try:
+        result = subprocess.run(
+            ["nvpmodel", "-q"], capture_output=True, text=True, timeout=2,
+        )
+        for line in result.stdout.splitlines():
+            if "NV Power Mode" in line:
+                stats["power_mode"] = line.split(":", 1)[1].strip()
+                break
+        else:
+            stats["power_mode"] = None
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        stats["power_mode"] = None
+    return stats
+
+
+def _list_power_modes() -> list[dict]:
+    """Parse nvpmodel config for available power modes."""
+    import subprocess
+    modes: list[dict] = []
+    try:
+        r = subprocess.run(
+            ["nvpmodel", "-p", "--verbose"],
+            capture_output=True, text=True, timeout=3,
+        )
+        for line in r.stderr.splitlines() + r.stdout.splitlines():
+            if "POWER_MODEL: ID=" in line:
+                # "NVPM VERB: POWER_MODEL: ID=0 NAME=15W"
+                parts = line.split("POWER_MODEL:")[1].strip()
+                mode_id = int(parts.split("ID=")[1].split()[0])
+                mode_name = parts.split("NAME=")[1].strip()
+                modes.append({"id": mode_id, "name": mode_name})
+    except (FileNotFoundError, Exception):
+        pass
+    return modes
+
+
+def _set_power_mode(mode_id: int) -> dict:
+    """Set Jetson power mode by ID and optionally enable jetson_clocks."""
+    import subprocess
+    result = {"status": "ok", "actions": []}
+    try:
+        r = subprocess.run(
+            ["nvpmodel", "-m", str(mode_id)],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            result["actions"].append(f"Power mode set to ID {mode_id}")
+        else:
+            result["status"] = "error"
+            result["error"] = r.stderr.strip() or r.stdout.strip()
+            return result
+    except (FileNotFoundError, Exception) as e:
+        result["status"] = "error"
+        result["error"] = f"nvpmodel not available: {e}"
+        return result
+    # Enable jetson_clocks for max performance modes
+    try:
+        r = subprocess.run(
+            ["jetson_clocks"], capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            result["actions"].append("jetson_clocks enabled")
+    except (FileNotFoundError, Exception):
+        pass
+    return result
+
+
+def _list_models(models_dir: str = "/models") -> list[dict]:
+    """List available YOLO model files in the models directory."""
+    import glob as g
+    models: list[dict] = []
+    for pattern in ("*.pt", "*.engine", "*.onnx"):
+        for path in sorted(g.glob(f"{models_dir}/{pattern}")):
+            name = Path(path).name
+            size_mb = round(Path(path).stat().st_size / (1024 * 1024), 1)
+            models.append({"name": name, "path": path, "size_mb": size_mb})
+    return models
 
 
 def _build_detector(cfg: configparser.ConfigParser) -> YOLODetector:
@@ -38,8 +161,12 @@ def _build_detector(cfg: configparser.ConfigParser) -> YOLODetector:
             logger.error("Invalid yolo_classes config (comma-separated ints): %s",
                          classes_raw)
             classes = None
+    model_name = cfg.get("detector", "yolo_model", fallback="yolov8n.pt")
+    # Prefer models from the mounted /models directory
+    models_path = Path("/models") / model_name
+    model_path = str(models_path) if models_path.exists() else model_name
     return YOLODetector(
-        model_path=cfg.get("detector", "yolo_model", fallback="yolov8n.pt"),
+        model_path=model_path,
         confidence=cfg.getfloat("detector", "yolo_confidence", fallback=0.45),
         classes=classes,
     )
@@ -128,6 +255,8 @@ class Pipeline:
         self._running = False
         self._paused = False
         self._total_detections = 0
+        self._frame_count = 0
+        self._jetson_stats: dict = {}
         self._init_target_state()
 
     def _init_target_state(self) -> None:
@@ -199,6 +328,12 @@ class Pipeline:
                 on_stop_command=self._handle_stop_command,
                 on_pause_command=self._handle_pause_command,
                 on_resume_command=self._handle_resume_command,
+                get_camera_sources=self._get_camera_sources,
+                on_camera_switch=self._handle_camera_switch,
+                on_set_power_mode=self._handle_set_power_mode,
+                get_power_modes=self._get_power_modes,
+                get_models=self._get_models,
+                on_model_switch=self._handle_model_switch,
             )
 
             stream_state.update_stats(
@@ -318,17 +453,23 @@ class Pipeline:
             # Push to web stream
             if self._web_enabled:
                 stream_state.update_frame(annotated)
+                self._frame_count += 1
                 stats_update = {
                     "fps": fps,
                     "inference_ms": det_result.inference_ms,
                     "active_tracks": len(track_result),
                     "total_detections": total_det,
                     "mavlink": self._mavlink is not None and self._mavlink.connected,
+                    "camera_source": str(self._camera.source),
                 }
                 if self._mavlink is not None:
                     gps_data = self._mavlink.get_gps()
                     stats_update["gps_fix"] = gps_data.get("fix", 0)
                     stats_update["position"] = self._mavlink.get_position_string()
+                # Read Jetson stats every ~5 seconds (not every frame)
+                if self._frame_count % 150 == 0:
+                    self._jetson_stats = _read_jetson_stats()
+                stats_update.update(self._jetson_stats)
                 stream_state.update_stats(**stats_update)
 
                 # Update target lock state for web UI
@@ -407,12 +548,11 @@ class Pipeline:
     def _handle_strike_command(self, track_id: int) -> bool:
         """Command vehicle to navigate toward a tracked target.
 
-        Estimates target GPS from camera offset, switches to GUIDED,
-        and sets lock_mode to 'strike' for continued yaw tracking.
+        Always sets the visual lock to 'strike' mode if the track exists.
+        If MAVLink is connected, also estimates target GPS, switches to
+        GUIDED, and sends the waypoint. Without MAVLink, the overlay
+        still shows strike mode for visual confirmation.
         """
-        if self._mavlink is None:
-            return False
-
         with self._state_lock:
             if self._last_track_result is None:
                 return False
@@ -425,6 +565,17 @@ class Pipeline:
         if target_track is None:
             logger.warning("Strike failed: track #%d not found.", track_id)
             return False
+
+        # Always set visual lock to strike mode
+        with self._state_lock:
+            self._locked_track_id = track_id
+            self._lock_mode = "strike"
+        logger.info("STRIKE LOCK: #%d (%s)", track_id, target_track.label)
+
+        # If no MAVLink, just visual — no vehicle command
+        if self._mavlink is None:
+            logger.warning("Strike visual only — MAVLink not connected.")
+            return True
 
         # Compute target bearing from frame position
         if self._camera.has_frame:
@@ -449,10 +600,6 @@ class Pipeline:
         # Command GUIDED to estimated position
         success = self._mavlink.command_guided_to(target_lat, target_lon)
         if success:
-            # Only lock target after GUIDED is confirmed
-            with self._state_lock:
-                self._locked_track_id = track_id
-                self._lock_mode = "strike"
             logger.info(
                 "STRIKE initiated: #%d (%s) -> %.6f, %.6f",
                 track_id, target_track.label, target_lat, target_lon,
@@ -479,6 +626,49 @@ class Pipeline:
             }
             for t in result
         ]
+
+    def _get_camera_sources(self) -> list[dict]:
+        """Return available video sources with current source marked."""
+        current = self._camera.source
+        sources = list_video_sources(current_source=current)
+        for s in sources:
+            s["active"] = s["index"] == current
+        return sources
+
+    def _handle_camera_switch(self, source: str | int) -> bool:
+        """Switch camera source at runtime."""
+        return self._camera.switch_source(source)
+
+    def _handle_set_power_mode(self, mode_id: int) -> dict:
+        """Set Jetson power mode by ID."""
+        result = _set_power_mode(mode_id)
+        if result["status"] == "ok":
+            self._jetson_stats = _read_jetson_stats()
+        return result
+
+    def _get_power_modes(self) -> list[dict]:
+        """Return available power modes with current marked."""
+        modes = _list_power_modes()
+        current = self._jetson_stats.get("power_mode", "")
+        for m in modes:
+            m["active"] = m["name"] == current
+        return modes
+
+    def _get_models(self) -> list[dict]:
+        """Return available YOLO model files with current marked."""
+        models = _list_models("/models")
+        current = Path(self._detector.model_path).name
+        for m in models:
+            m["active"] = m["name"] == current
+        return models
+
+    def _handle_model_switch(self, model_name: str) -> bool:
+        """Switch YOLO model at runtime."""
+        model_path = f"/models/{model_name}"
+        if not Path(model_path).exists():
+            logger.error("Model not found: %s", model_path)
+            return False
+        return self._detector.switch_model(model_path)
 
     def _handle_stop_command(self) -> None:
         """Stop the pipeline gracefully from the web UI."""

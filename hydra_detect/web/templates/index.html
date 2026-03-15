@@ -278,6 +278,18 @@
         }
         textarea:focus { outline: none; border-color: var(--ogt-green); box-shadow: 0 0 0 1px rgba(56,87,35,0.3); }
         textarea:disabled { opacity: 0.35; }
+        select {
+            width: 100%;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            color: var(--text-primary);
+            border-radius: 2px;
+            padding: 6px 8px;
+            font-family: 'JetBrains Mono', 'Consolas', monospace;
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+        select:focus { outline: none; border-color: var(--ogt-green); box-shadow: 0 0 0 1px rgba(56,87,35,0.3); }
         input[type="range"] {
             width: 100%;
             accent-color: var(--ogt-green);
@@ -435,6 +447,51 @@
             text-transform: uppercase;
         }
 
+        /* ── SYSTEM STATS BAR ─────────────────────────────── */
+        .sys-stats {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 3px;
+            padding: 6px 9px;
+        }
+        .sys-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 2px 0;
+        }
+        .sys-label {
+            font-family: 'Barlow Condensed', sans-serif;
+            font-size: 0.58rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-secondary);
+            font-weight: 500;
+            width: 26px;
+            flex-shrink: 0;
+        }
+        .sys-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            font-weight: 500;
+            width: 90px;
+            flex-shrink: 0;
+        }
+        .sys-bar-wrap {
+            flex: 1;
+            height: 4px;
+            background: #222;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .sys-bar {
+            display: block;
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.5s ease, background 0.5s ease;
+            width: 0%;
+        }
+
         /* ── SCROLLBAR ────────────────────────────────────── */
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -514,6 +571,35 @@
                         <div class="stat-value small" id="detector">--</div>
                     </div>
                 </div>
+                <div class="sys-stats" style="margin-top:6px;">
+                    <div class="sys-row">
+                        <span class="sys-label">GPU</span>
+                        <span class="sys-val" id="gpu-temp">--</span>
+                        <span class="sys-bar-wrap"><span class="sys-bar" id="gpu-bar"></span></span>
+                    </div>
+                    <div class="sys-row">
+                        <span class="sys-label">CPU</span>
+                        <span class="sys-val" id="cpu-temp">--</span>
+                        <span class="sys-bar-wrap"><span class="sys-bar" id="cpu-bar"></span></span>
+                    </div>
+                    <div class="sys-row">
+                        <span class="sys-label">RAM</span>
+                        <span class="sys-val" id="ram-usage">--</span>
+                        <span class="sys-bar-wrap"><span class="sys-bar" id="ram-bar"></span></span>
+                    </div>
+                </div>
+                <div class="field-label" style="margin-top:8px;">Power Mode</div>
+                <select id="power-mode-select" onchange="setPowerMode(this.value)">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
+
+            <!-- Camera Source -->
+            <div class="sidebar-section">
+                <div class="section-label">Camera Source</div>
+                <select id="camera-select" onchange="switchCamera(this.value)">
+                    <option value="">Loading sources...</option>
+                </select>
             </div>
 
             <!-- Vehicle Link -->
@@ -553,7 +639,11 @@
             <!-- Detection Config -->
             <div class="sidebar-section">
                 <div class="section-label">Detection Config</div>
-                <div class="field-label">Confidence Threshold</div>
+                <div class="field-label">Model</div>
+                <select id="model-select" onchange="switchModel(this.value)">
+                    <option value="">Loading...</option>
+                </select>
+                <div class="field-label" style="margin-top:8px;">Confidence Threshold</div>
                 <div class="range-inline">
                     <input type="range" id="thresh-slider" min="0.05" max="0.95" step="0.05" value="0.45"
                            oninput="document.getElementById('thresh-val').textContent=this.value">
@@ -609,6 +699,44 @@
 
                 document.getElementById('detector').textContent = (s.detector || 'yolo').toUpperCase();
 
+                // System stats — color + bar thresholds for field awareness
+                function levelColor(pct) {
+                    if (pct > 90) return '#ef4444';
+                    if (pct > 75) return '#dc2626';
+                    if (pct > 60) return '#b45309';
+                    if (pct > 45) return '#eab308';
+                    return '#4a7c2e';
+                }
+                function setBar(id, pct, color) {
+                    const bar = document.getElementById(id);
+                    if (bar) { bar.style.width = Math.min(pct, 100) + '%'; bar.style.background = color; }
+                }
+                // GPU: temp + load
+                if (s.gpu_temp_c != null) {
+                    const el = document.getElementById('gpu-temp');
+                    const load = s.gpu_load_pct != null ? s.gpu_load_pct : 0;
+                    el.textContent = s.gpu_temp_c + '\u00B0C  ' + load.toFixed(0) + '%';
+                    const c = levelColor(s.gpu_temp_c);  // temp as % of 100°C max
+                    el.style.color = c;
+                    setBar('gpu-bar', load, c);
+                }
+                // CPU: temp
+                if (s.cpu_temp_c != null) {
+                    const el = document.getElementById('cpu-temp');
+                    el.textContent = s.cpu_temp_c + '\u00B0C';
+                    const c = levelColor(s.cpu_temp_c);
+                    el.style.color = c;
+                    setBar('cpu-bar', s.cpu_temp_c, c);
+                }
+                // RAM: used/total
+                if (s.ram_used_mb != null && s.ram_total_mb != null) {
+                    const el = document.getElementById('ram-usage');
+                    const pct = Math.round(s.ram_used_mb / s.ram_total_mb * 100);
+                    el.textContent = (s.ram_used_mb / 1024).toFixed(1) + ' / ' + (s.ram_total_mb / 1024).toFixed(1) + ' GB';
+                    const c = levelColor(pct);
+                    el.style.color = c;
+                    setBar('ram-bar', pct, c);
+                }
                 const mavBadge = document.getElementById('mav-badge');
                 if (s.mavlink) {
                     mavBadge.className = 'badge on';
@@ -815,6 +943,14 @@
                 const btn = document.getElementById('btn-pause');
                 btn.textContent = isPaused ? 'Resume' : 'Pause';
                 btn.className = isPaused ? 'btn-primary' : 'btn-warning';
+                const pill = document.getElementById('conn-status');
+                if (isPaused) {
+                    pill.className = 'status-pill offline';
+                    pill.textContent = 'PAUSED';
+                } else {
+                    pill.className = 'status-pill live';
+                    pill.textContent = 'LIVE';
+                }
             } catch (e) { console.error('Pause failed:', e); isPaused = !isPaused; }
         }
 
@@ -827,12 +963,142 @@
             } catch (e) { console.error('Stop failed:', e); }
         }
 
+        // ── Power mode control ────────────────────────────
+        async function loadPowerModes() {
+            try {
+                const resp = await fetch('/api/system/power-modes');
+                const modes = await resp.json();
+                const sel = document.getElementById('power-mode-select');
+                sel.innerHTML = '';
+                if (!modes || modes.length === 0) {
+                    sel.innerHTML = '<option value="">Not available</option>';
+                    return;
+                }
+                for (const m of modes) {
+                    const opt = document.createElement('option');
+                    opt.value = m.id;
+                    opt.textContent = m.name;
+                    if (m.active) opt.selected = true;
+                    sel.appendChild(opt);
+                }
+            } catch (e) { console.warn('Failed to load power modes:', e); }
+        }
+
+        async function setPowerMode(modeId) {
+            if (modeId === '') return;
+            const sel = document.getElementById('power-mode-select');
+            sel.disabled = true;
+            try {
+                const resp = await fetch('/api/system/power-mode', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({mode_id: parseInt(modeId)})
+                });
+                const result = await resp.json();
+                if (result.status !== 'ok') {
+                    alert('Failed: ' + (result.error || 'unknown'));
+                }
+                // Reload modes to reflect actual state
+                setTimeout(() => { loadPowerModes(); sel.disabled = false; }, 2000);
+            } catch (e) {
+                alert('Failed to set power mode: ' + e);
+                sel.disabled = false;
+                loadPowerModes();
+            }
+        }
+
+        // ── Model selector ───────────────────────────────
+        async function loadModels() {
+            try {
+                const resp = await fetch('/api/models');
+                const models = await resp.json();
+                const sel = document.getElementById('model-select');
+                sel.innerHTML = '';
+                if (!models || models.length === 0) {
+                    sel.innerHTML = '<option value="">No models in /models</option>';
+                    return;
+                }
+                for (const m of models) {
+                    const opt = document.createElement('option');
+                    opt.value = m.name;
+                    opt.textContent = `${m.name} (${m.size_mb} MB)`;
+                    if (m.active) opt.selected = true;
+                    sel.appendChild(opt);
+                }
+            } catch (e) { console.warn('Failed to load models:', e); }
+        }
+
+        async function switchModel(modelName) {
+            if (!modelName) return;
+            const sel = document.getElementById('model-select');
+            sel.disabled = true;
+            try {
+                const resp = await fetch('/api/models/switch', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({model: modelName})
+                });
+                const result = await resp.json();
+                if (result.status !== 'ok') {
+                    alert('Failed: ' + (result.error || 'unknown'));
+                    loadModels();
+                }
+            } catch (e) {
+                alert('Model switch failed: ' + e);
+                loadModels();
+            }
+            sel.disabled = false;
+        }
+
+        // ── Camera source ─────────────────────────────────
+        async function loadCameraSources() {
+            try {
+                const resp = await fetch('/api/camera/sources');
+                const sources = await resp.json();
+                const sel = document.getElementById('camera-select');
+                sel.innerHTML = '';
+                if (!sources || sources.length === 0) {
+                    sel.innerHTML = '<option value="">No cameras found</option>';
+                    return;
+                }
+                for (const s of sources) {
+                    const opt = document.createElement('option');
+                    opt.value = s.index;
+                    opt.textContent = `/dev/video${s.index} — ${s.name}`;
+                    if (s.active) opt.selected = true;
+                    sel.appendChild(opt);
+                }
+            } catch (e) { console.warn('Failed to load camera sources:', e); }
+        }
+
+        async function switchCamera(source) {
+            if (source === '') return;
+            try {
+                const resp = await fetch('/api/camera/switch', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({source: parseInt(source)})
+                });
+                const result = await resp.json();
+                if (result.status !== 'ok') {
+                    alert('Failed to switch camera: ' + (result.error || 'unknown'));
+                    loadCameraSources(); // Revert dropdown
+                }
+            } catch (e) {
+                console.error('Camera switch failed:', e);
+                loadCameraSources();
+            }
+        }
+
         setInterval(updateStats, 1000);
         setInterval(updateDetections, 2000);
         setInterval(updateTracks, 500);
         setInterval(updateLockIndicator, 1000);
         updateStats();
         loadConfig();
+        loadCameraSources();
+        loadPowerModes();
+        loadModels();
     </script>
 </body>
 </html>
