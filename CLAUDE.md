@@ -12,7 +12,7 @@ must preserve deterministic timing, bounded memory usage, and fail-safe behavior
 ### Architecture Overview
 
 ```
-Camera → Detector (YOLO/NanoOWL) → ByteTrack Tracker → MAVLink Alerts
+Camera → Detector (YOLO) → ByteTrack Tracker → MAVLink Alerts
                                                       → Web Dashboard (FastAPI)
                                                       → Detection Logger
 ```
@@ -31,13 +31,10 @@ Camera → Detector (YOLO/NanoOWL) → ByteTrack Tracker → MAVLink Alerts
 - Profile with `tegrastats` or `jtop` before and after changes
 
 ### CUDA / TensorRT
-- NanoOWL uses TensorRT engines compiled for specific Jetson hardware — these
-  are NOT portable across devices
 - Model inference must stay on GPU; avoid unnecessary `.cpu()` or `.numpy()` calls
   that trigger device-to-host transfers
 - Do not add `torch.cuda.synchronize()` in hot paths — it kills throughput
-- The `nanoowl` import may fail on non-Jetson machines; always handle ImportError
-  with a fallback path (see `nanoowl_detector.py`)
+- Base Docker image: `dustynv/l4t-pytorch:r36.4.0` (CUDA OpenCV, PyTorch, TensorRT)
 
 ### GPIO / Serial / Peripherals
 - MAVLink connects via serial (`/dev/ttyACM0`) or UDP — never assume a specific

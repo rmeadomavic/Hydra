@@ -4,6 +4,9 @@ This guide walks through installing Hydra Detect from GitHub onto a fresh
 NVIDIA Jetson Orin Nano using Docker. Written for students and instructors
 to reproduce the setup.
 
+For initial JetPack flashing and OS setup, see
+[jetson-initial-setup.md](jetson-initial-setup.md) first.
+
 ## Prerequisites
 
 - NVIDIA Jetson Orin Nano (8 GB recommended)
@@ -25,7 +28,7 @@ groups | grep docker
 
 # If not in docker group:
 sudo usermod -aG docker $USER
-# Then log out and back in
+# Then log out and back in (or run: newgrp docker)
 
 # Check NVIDIA container runtime is installed
 dpkg -l | grep nvidia-container-toolkit
@@ -39,40 +42,20 @@ git clone https://github.com/rmeadomavic/Hydra.git
 cd Hydra
 ```
 
-## 3. Get the NanoOWL Base Image
+## 3. Pull the Base Image
 
-Hydra's Dockerfile uses `nanoowl:r36.4.3` as its base image. This comes from
-NVIDIA's `jetson-containers` project and includes TensorRT-optimized OWL-ViT.
-
-### Option A: Pull pre-built image (fastest)
-
-```bash
-# Pull the closest available pre-built image (~19 GB, takes a while)
-docker pull dustynv/nanoowl:r36.4.0
-
-# Tag it so our Dockerfile can find it
-docker tag dustynv/nanoowl:r36.4.0 nanoowl:r36.4.3
-```
-
-> **Note:** The r36.4.0 image works on R36.4.7 hosts. If you hit issues,
-> use Option B instead.
-
-### Option B: Build from jetson-containers (matches your exact L4T)
+Hydra's Dockerfile uses `dustynv/l4t-pytorch:r36.4.0` as its base image.
+This is a ~6 GB download from Docker Hub that includes PyTorch, CUDA-enabled
+OpenCV, and TensorRT — everything the detector needs.
 
 ```bash
-# Clone the jetson-containers project
-cd ~
-git clone https://github.com/dusty-nv/jetson-containers
-bash jetson-containers/install.sh
-
-# Build NanoOWL (this takes a LONG time — 1-2+ hours)
-jetson-containers build --skip-tests=all nanoowl
-
-# Find and tag the built image
-docker images | grep nanoowl
-# Tag it for our Dockerfile:
-docker tag <image_id> nanoowl:r36.4.3
+docker pull dustynv/l4t-pytorch:r36.4.0
 ```
+
+This will take several minutes depending on your internet speed.
+
+> **Note:** The r36.4.0 image works on R36.4.7 (JetPack 6.2.1) hosts
+> without issues.
 
 ## 4. Build the Hydra Detect Image
 
@@ -82,11 +65,12 @@ docker build --network=host -t hydra-detect:latest .
 ```
 
 Use `--network=host` to ensure DNS resolution works during the build.
+The build takes about 2 minutes.
 
 > **What the Dockerfile handles automatically:**
 >
-> The NanoOWL base image already includes opencv-contrib-python, numpy 1.x,
-> torch 2.5, and jinja2. The Dockerfile:
+> The l4t-pytorch base image already includes opencv-contrib-python (CUDA),
+> numpy 1.x, and PyTorch. The Dockerfile:
 >
 > 1. **Overrides `PIP_INDEX_URL`** — the base image sets it to
 >    `pypi.jetson-ai-lab.dev` (via env var), which can't resolve DNS during
@@ -97,6 +81,10 @@ Use `--network=host` to ensure DNS resolution works during the build.
 > 3. **Pins numpy to <2** — the base image's OpenCV was compiled against
 >    numpy 1.x. Letting pip upgrade to numpy 2.x causes
 >    `_ARRAY_API not found` crashes.
+>
+> You will see pip warnings about `opencv-python` not being installed —
+> this is expected and safe to ignore. The CUDA-enabled OpenCV from the
+> base image is what Hydra uses.
 
 ## 5. Configure
 
@@ -109,14 +97,11 @@ nano config.ini
 | Setting | Section | Notes |
 |---------|---------|-------|
 | `source` | `[camera]` | `0` for /dev/video0, RTSP URL, or file path |
-| `engine` | `[detector]` | `yolo` (recommended) or `nanoowl` |
 | `connection_string` | `[mavlink]` | `/dev/ttyACM0` or UDP endpoint |
 | `enabled` | `[mavlink]` | Set `false` if no flight controller connected |
 
-> **Recommendation:** Start with `engine = yolo` for testing. NanoOWL
-> requires more GPU memory and may fail with `NVML_SUCCESS` CUDA errors
-> on 8 GB Jetson boards under memory pressure. YOLO (yolov8n) is lighter
-> and downloads its model automatically on first run (~6 MB).
+> **Tip:** YOLO (yolov8n) downloads its model automatically on first run
+> (~6 MB). No manual model setup required.
 
 ## 6. Run Hydra Detect
 
@@ -150,6 +135,23 @@ docker run --rm --runtime nvidia \
 Open a browser to `http://<jetson-ip>:8080`
 
 You should see a live camera feed with detection bounding boxes overlaid.
+
+### Expected startup log
+
+A healthy startup looks like this:
+
+```
+=== Hydra Detect v2.0 starting ===
+Loading YOLO model: yolov8n.pt
+YOLO model loaded.
+Detector engine: yolo
+ByteTrack initialised (supervision back-end).
+Camera opened: 0 (640x480 @ 30 fps)
+Web UI started at http://0.0.0.0:8080
+```
+
+You will also see some Argus/GStreamer warnings — these are harmless
+(OpenCV tries CSI camera first, then falls back to USB).
 
 ## 7. Run as a System Service (Optional)
 
@@ -200,13 +202,11 @@ ImportError: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-cursor.so.0: file too 
 NVIDIA container runtime mounts the correct host GPU libraries into the
 container. Without it, stale library stubs inside the image cause crashes.
 
-### NanoOWL CUDA memory error
+### CUDA out of memory
 ```
 NVML_SUCCESS == r INTERNAL ASSERT FAILED at CUDACachingAllocator.cpp
 ```
-**Fix:** The Jetson's 7.4 GB shared RAM is too tight for NanoOWL under
-memory pressure. Switch to `engine = yolo` in `config.ini`, or close other
-GPU-using applications. Adding swap can help:
+**Fix:** Close other GPU-using applications. Adding swap can help:
 ```bash
 sudo fallocate -l 8G /swapfile
 sudo chmod 600 /swapfile
@@ -247,12 +247,13 @@ ls -la /dev/video*
 v4l2-ctl --list-devices
 ```
 
-### GStreamer warnings (safe to ignore)
+### Argus/GStreamer warnings (safe to ignore)
 ```
-cannot register existing type 'GstRtpSrc'
+(Argus) Error FileOperationFailed: Connecting to nvargus-daemon failed
+GStreamer: pipeline have not been created
 ```
-These are harmless GStreamer plugin warnings inside the container.
-They do not affect camera capture.
+These appear because OpenCV tries CSI camera access first, then falls
+back to USB V4L2. They do not affect camera capture.
 
 ### NvMap errors (safe to ignore)
 ```
@@ -270,15 +271,13 @@ problem. Here's the full list of issues hit and resolved:
 
 | # | Issue | Root Cause | Resolution |
 |---|-------|-----------|------------|
-| 1 | No exact NanoOWL image for R36.4.7 | NVIDIA only publishes up to r36.4.0 | Use `dustynv/nanoowl:r36.4.0` and tag it |
-| 2 | pip DNS failure during Docker build | Base image sets `PIP_INDEX_URL` env var to unreachable `pypi.jetson-ai-lab.dev` | Override `PIP_INDEX_URL` in Dockerfile |
-| 3 | opencv-python-headless conflicts | Base image has `opencv-contrib-python`; pip's `opencv-python-headless` overwrites it | Filter out opencv from requirements |
-| 4 | numpy 2.x breaks OpenCV | pip upgrades numpy to 2.x but OpenCV was compiled against 1.x | Pin `numpy<2.0` in Dockerfile |
-| 5 | ultralytics pulls in opencv-python | Transitive dependency overwrites base image's CUDA OpenCV | Install ultralytics/supervision with `--no-deps` |
-| 6 | cv2 crashes without `--runtime nvidia` | Container needs host NVIDIA libs mounted | Always use `--runtime nvidia` |
-| 7 | NanoOWL API changed | `OwlPredictor.predict()` requires explicit `text_encodings=None` | Fixed in `nanoowl_detector.py` |
-| 8 | NanoOWL CUDA OOM on 8GB Jetson | Not enough shared GPU/CPU RAM for OWL-ViT model | Use YOLO engine instead, or add swap |
+| 1 | pip DNS failure during Docker build | Base image sets `PIP_INDEX_URL` env var to unreachable `pypi.jetson-ai-lab.dev` | Override `PIP_INDEX_URL` in Dockerfile |
+| 2 | opencv-python-headless conflicts | Base image has `opencv-contrib-python`; pip's `opencv-python-headless` overwrites it | Filter out opencv from requirements |
+| 3 | numpy 2.x breaks OpenCV | pip upgrades numpy to 2.x but OpenCV was compiled against 1.x | Pin `numpy<2.0` in Dockerfile |
+| 4 | ultralytics pulls in opencv-python | Transitive dependency overwrites base image's CUDA OpenCV | Install ultralytics/supervision with `--no-deps` |
+| 5 | cv2 crashes without `--runtime nvidia` | Container needs host NVIDIA libs mounted | Always use `--runtime nvidia` |
+| 6 | supervision import fails (no matplotlib) | supervision requires matplotlib at import time | Added matplotlib to Dockerfile pip install |
 
 ---
 
-*Guide tested on Jetson Orin Nano 8GB, L4T R36.4.7, 2026-03-14*
+*Guide tested on Jetson Orin Nano Super 8GB, JetPack 6.2.1, L4T R36.4.7, 2026-03-14*

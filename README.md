@@ -3,7 +3,7 @@
 Real-time object detection and tracking system built for uncrewed vehicles — drones, boats, rovers, or anything running [ArduPilot](https://ardupilot.org/). Runs on NVIDIA Jetson or any Linux box with a camera and a MAVLink radio.
 
 ```
-Camera ─> Detector (YOLO / NanoOWL) ─> ByteTrack ─> MAVLink Alerts
+Camera ─> Detector (YOLO) ─> ByteTrack ─> MAVLink Alerts
                                                    ─> Target Lock / Strike
                                                    ─> FPV OSD (via FC OSD chip)
                                                    ─> Web Dashboard (MJPEG)
@@ -12,7 +12,7 @@ Camera ─> Detector (YOLO / NanoOWL) ─> ByteTrack ─> MAVLink Alerts
 
 ## What It Does
 
-- **Detect** objects in real-time using YOLOv8 or NanoOWL (open-vocabulary, just type what you want to find)
+- **Detect** objects in real-time using YOLOv8
 - **Track** objects across frames with persistent IDs (ByteTrack)
 - **Alert** your GCS (Mission Planner / QGroundControl) via MAVLink STATUSTEXT with GPS coordinates
 - **Keep in Frame** — lock a tracked target; the vehicle yaws to keep it centered in the camera
@@ -25,7 +25,7 @@ Camera ─> Detector (YOLO / NanoOWL) ─> ByteTrack ─> MAVLink Alerts
 
 ```bash
 # Clone and install
-git clone https://github.com/your-org/Hydra.git
+git clone https://github.com/rmeadomavic/Hydra.git
 cd Hydra
 pip install -r requirements.txt
 
@@ -41,14 +41,21 @@ Open **http://localhost:8080** in a browser for the operator dashboard.
 ### Docker (Jetson)
 
 ```bash
-docker build -t hydra-detect .
+# Pull the base image first (~6 GB)
+docker pull dustynv/l4t-pytorch:r36.4.0
+
+# Build and run
+docker build --network=host -t hydra-detect .
 docker run --rm --runtime nvidia \
   --device /dev/video0 \
   --device /dev/ttyACM0 \
-  -v /data:/data \
+  -v $(pwd)/output_data:/data \
   -p 8080:8080 \
   hydra-detect
 ```
+
+See [docs/jetson-setup-guide.md](docs/jetson-setup-guide.md) for the full
+step-by-step setup guide.
 
 ### Jetson Orin Nano Super (MAXN SUPER) Preflight
 
@@ -85,7 +92,7 @@ The dashboard runs on port 8080 and gives you:
 | **Pipeline Stats** | FPS, inference time, active tracks, total detections, detector engine |
 | **Vehicle Link** | MAVLink connection status, GPS fix, position (MGRS or lat/lon) |
 | **Target Control** | Active track list, Keep in Frame / Strike / Release buttons |
-| **Detection Config** | Live-editable prompts (NanoOWL) and confidence threshold |
+| **Detection Config** | Live-editable confidence threshold |
 | **Detection Log** | Scrolling feed of recent detections with timestamps and coordinates |
 
 ### Vehicle Commands
@@ -158,11 +165,7 @@ All settings are in `config.ini`. Here's what each section controls:
 ### [detector]
 | Key | Default | Description |
 |-----|---------|-------------|
-| `engine` | `nanoowl` | Detection engine: `nanoowl` (open-vocabulary) or `yolo` |
-| `nanoowl_model` | `google/owlvit-base-patch32` | OWL-ViT model name |
-| `nanoowl_prompts` | `a person, a rifle, a white bus` | Comma-separated text prompts (what to detect) |
-| `nanoowl_threshold` | `0.25` | Detection confidence threshold |
-| `yolo_model` | `yolov8n.pt` | YOLO model file |
+| `yolo_model` | `yolov8n.pt` | YOLO model file (downloaded automatically on first run) |
 | `yolo_confidence` | `0.45` | YOLO confidence threshold |
 | `yolo_classes` | *(all)* | Comma-separated COCO class IDs to filter (empty = all) |
 
@@ -241,7 +244,7 @@ Hydra/
       __init__.py
       base.py                         # Abstract detector interface
       yolo_detector.py                # YOLOv8/v11 via ultralytics
-      nanoowl_detector.py             # NanoOWL / OWL-ViT open-vocabulary
+      nanoowl_detector.py             # (archived) NanoOWL / OWL-ViT open-vocabulary
 
     web/
       __init__.py
@@ -258,7 +261,7 @@ Hydra/
 | `GET` | `/stream.mjpeg` | Live MJPEG video stream |
 | `GET` | `/api/stats` | Pipeline statistics (FPS, tracks, GPS, etc.) |
 | `GET` | `/api/config` | Current runtime configuration |
-| `POST` | `/api/config/prompts` | Update NanoOWL detection prompts |
+| `POST` | `/api/config/prompts` | Update detection prompts |
 | `POST` | `/api/config/threshold` | Update confidence threshold |
 | `GET` | `/api/detections` | Recent detection log entries |
 | `GET` | `/api/tracks` | Currently active tracked objects |
@@ -282,7 +285,7 @@ Hydra/
 
 - Python 3.10+
 - OpenCV (headless)
-- [ultralytics](https://github.com/ultralytics/ultralytics) (YOLO) or [NanoOWL](https://github.com/NVIDIA-AI-IOT/nanoowl) (Jetson)
+- [ultralytics](https://github.com/ultralytics/ultralytics) (YOLO)
 - [supervision](https://github.com/roboflow/supervision) (ByteTrack)
 - [pymavlink](https://github.com/ArduPilot/pymavlink) + pyserial
 - FastAPI + uvicorn
