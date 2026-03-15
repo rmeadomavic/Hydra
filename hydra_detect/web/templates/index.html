@@ -621,6 +621,99 @@
                 </button>
             </div>
 
+            <!-- RF Hunt -->
+            <div class="sidebar-section" id="rf-section">
+                <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
+                    RF Hunt
+                    <span class="badge off" id="rf-state-badge" style="font-size:0.6rem;">IDLE</span>
+                </div>
+                <!-- Status display (shown when hunt is active) -->
+                <div id="rf-status-panel" style="display:none; margin-bottom:8px;">
+                    <div class="stat-grid three-col">
+                        <div class="stat">
+                            <div class="stat-label">RSSI</div>
+                            <div class="stat-value accent" id="rf-best-rssi">--</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">Samples</div>
+                            <div class="stat-value" id="rf-samples">--</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">WP</div>
+                            <div class="stat-value" id="rf-wp">--</div>
+                        </div>
+                    </div>
+                    <div id="rf-best-pos" style="font-family:'JetBrains Mono',monospace; font-size:0.65rem; color:var(--ogt-muted); margin-top:4px;"></div>
+                    <div style="margin-top:6px;">
+                        <div class="sys-row">
+                            <span class="sys-label">Signal</span>
+                            <span class="sys-val" id="rf-rssi-label">--</span>
+                            <span class="sys-bar-wrap"><span class="sys-bar" id="rf-rssi-bar" style="background:var(--ogt-green);"></span></span>
+                        </div>
+                    </div>
+                </div>
+                <!-- Config form (shown when hunt is idle/stopped) -->
+                <div id="rf-config-panel">
+                    <div class="field-label">Mode</div>
+                    <select id="rf-mode" onchange="rfModeChanged()">
+                        <option value="wifi">WiFi (by BSSID)</option>
+                        <option value="sdr" selected>SDR (by Frequency)</option>
+                    </select>
+                    <div class="field-label" style="margin-top:6px;" id="rf-bssid-label">Target BSSID</div>
+                    <input type="text" id="rf-bssid" placeholder="AA:BB:CC:DD:EE:FF"
+                           style="width:100%; padding:4px 6px; background:#111; border:1px solid var(--card-border); color:var(--text-primary); font-family:'JetBrains Mono',monospace; font-size:0.7rem; border-radius:3px;">
+                    <div class="field-label" style="margin-top:6px;" id="rf-freq-label">Frequency (MHz)</div>
+                    <input type="number" id="rf-freq" value="915.0" step="0.1" min="1" max="6000"
+                           style="width:100%; padding:4px 6px; background:#111; border:1px solid var(--card-border); color:var(--text-primary); font-family:'JetBrains Mono',monospace; font-size:0.7rem; border-radius:3px;">
+                    <div class="field-label" style="margin-top:6px;">Search Pattern</div>
+                    <select id="rf-pattern">
+                        <option value="lawnmower">Lawnmower (Grid)</option>
+                        <option value="spiral">Spiral (Expanding)</option>
+                    </select>
+                    <div class="stat-grid" style="margin-top:6px;">
+                        <div class="stat">
+                            <div class="field-label">Area (m)</div>
+                            <input type="number" id="rf-area" value="200" min="10" max="2000" step="10"
+                                   style="width:100%; padding:3px 4px; background:#111; border:1px solid var(--card-border); color:var(--text-primary); font-size:0.68rem; border-radius:3px;">
+                        </div>
+                        <div class="stat">
+                            <div class="field-label">Spacing (m)</div>
+                            <input type="number" id="rf-spacing" value="30" min="2" max="200" step="5"
+                                   style="width:100%; padding:3px 4px; background:#111; border:1px solid var(--card-border); color:var(--text-primary); font-size:0.68rem; border-radius:3px;">
+                        </div>
+                    </div>
+                    <div class="stat-grid" style="margin-top:4px;">
+                        <div class="stat">
+                            <div class="field-label">Alt (m)</div>
+                            <input type="number" id="rf-alt" value="30" min="3" max="120" step="5"
+                                   style="width:100%; padding:3px 4px; background:#111; border:1px solid var(--card-border); color:var(--text-primary); font-size:0.68rem; border-radius:3px;">
+                        </div>
+                        <div class="stat">
+                            <div class="field-label">Step (m)</div>
+                            <input type="number" id="rf-step" value="10" min="1" max="50" step="1"
+                                   style="width:100%; padding:3px 4px; background:#111; border:1px solid var(--card-border); color:var(--text-primary); font-size:0.68rem; border-radius:3px;">
+                        </div>
+                    </div>
+                    <div class="field-label" style="margin-top:6px;">RSSI Thresholds (dBm)</div>
+                    <div class="stat-grid">
+                        <div class="stat">
+                            <div class="field-label" style="font-size:0.58rem;">Detect</div>
+                            <input type="number" id="rf-thresh" value="-80" min="-100" max="-10" step="5"
+                                   style="width:100%; padding:3px 4px; background:#111; border:1px solid var(--card-border); color:var(--text-primary); font-size:0.68rem; border-radius:3px;">
+                        </div>
+                        <div class="stat">
+                            <div class="field-label" style="font-size:0.58rem;">Converge</div>
+                            <input type="number" id="rf-converge" value="-40" min="-90" max="0" step="5"
+                                   style="width:100%; padding:3px 4px; background:#111; border:1px solid var(--card-border); color:var(--text-primary); font-size:0.68rem; border-radius:3px;">
+                        </div>
+                    </div>
+                </div>
+                <div class="btn-row grid" style="margin-top:8px;">
+                    <button class="btn-primary" id="btn-rf-start" onclick="rfStart()">Start Hunt</button>
+                    <button class="btn-danger" id="btn-rf-stop" onclick="rfStop()" disabled>Abort</button>
+                </div>
+            </div>
+
             <!-- Target Control -->
             <div class="sidebar-section">
                 <div class="section-label">Target Control</div>
@@ -1094,11 +1187,138 @@
             }
         }
 
+        // ── RF Hunt ───────────────────────────────────────
+        function rfModeChanged() {
+            const mode = document.getElementById('rf-mode').value;
+            document.getElementById('rf-bssid-label').style.display = mode === 'wifi' ? '' : 'none';
+            document.getElementById('rf-bssid').style.display = mode === 'wifi' ? '' : 'none';
+            document.getElementById('rf-freq-label').style.display = mode === 'sdr' ? '' : 'none';
+            document.getElementById('rf-freq').style.display = mode === 'sdr' ? '' : 'none';
+        }
+
+        async function rfStart() {
+            const mode = document.getElementById('rf-mode').value;
+            const bssid = document.getElementById('rf-bssid').value.trim();
+            const freq = parseFloat(document.getElementById('rf-freq').value);
+
+            if (mode === 'wifi' && !bssid) {
+                alert('Enter target BSSID (MAC address)');
+                return;
+            }
+            if (mode === 'sdr' && (isNaN(freq) || freq < 1)) {
+                alert('Enter valid frequency in MHz');
+                return;
+            }
+
+            if (!confirm(`Start RF hunt?\n\nMode: ${mode.toUpperCase()}\nTarget: ${mode === 'wifi' ? bssid : freq + ' MHz'}\n\nVehicle will switch to GUIDED mode.`)) return;
+
+            const body = {
+                mode: mode,
+                target_bssid: mode === 'wifi' ? bssid : '',
+                target_freq_mhz: freq,
+                search_pattern: document.getElementById('rf-pattern').value,
+                search_area_m: parseFloat(document.getElementById('rf-area').value),
+                search_spacing_m: parseFloat(document.getElementById('rf-spacing').value),
+                search_alt_m: parseFloat(document.getElementById('rf-alt').value),
+                gradient_step_m: parseFloat(document.getElementById('rf-step').value),
+                rssi_threshold_dbm: parseFloat(document.getElementById('rf-thresh').value),
+                rssi_converge_dbm: parseFloat(document.getElementById('rf-converge').value),
+            };
+
+            try {
+                const resp = await fetch('/api/rf/start', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body)
+                });
+                const result = await resp.json();
+                if (result.status === 'ok') {
+                    document.getElementById('btn-rf-start').disabled = true;
+                    document.getElementById('btn-rf-stop').disabled = false;
+                } else {
+                    alert('RF hunt failed: ' + (result.error || 'unknown'));
+                }
+            } catch (e) { alert('RF hunt start failed: ' + e); }
+        }
+
+        async function rfStop() {
+            if (!confirm('Abort RF hunt?')) return;
+            try {
+                await fetch('/api/rf/stop', {method: 'POST'});
+                document.getElementById('btn-rf-start').disabled = false;
+                document.getElementById('btn-rf-stop').disabled = true;
+            } catch (e) { console.error('RF stop failed:', e); }
+        }
+
+        const RF_STATE_COLORS = {
+            idle: 'off', searching: 'on', homing: 'on',
+            converged: 'on', lost: 'off', aborted: 'off', unavailable: 'off'
+        };
+        const RF_STATE_LABELS = {
+            idle: 'IDLE', searching: 'SEARCHING', homing: 'HOMING',
+            converged: 'CONVERGED', lost: 'LOST', aborted: 'ABORTED', unavailable: 'N/A'
+        };
+
+        async function updateRFStatus() {
+            try {
+                const resp = await fetch('/api/rf/status');
+                const rf = await resp.json();
+                const state = rf.state || 'unavailable';
+                const badge = document.getElementById('rf-state-badge');
+                badge.className = 'badge ' + (RF_STATE_COLORS[state] || 'off');
+                badge.textContent = RF_STATE_LABELS[state] || state.toUpperCase();
+
+                if (state === 'homing') {
+                    badge.style.animation = 'pulse-glow 1.5s ease-in-out infinite';
+                } else {
+                    badge.style.animation = '';
+                }
+
+                const isActive = ['searching', 'homing', 'lost'].includes(state);
+                const isDone = ['converged', 'aborted'].includes(state);
+                document.getElementById('rf-status-panel').style.display = (isActive || isDone) ? '' : 'none';
+                document.getElementById('rf-config-panel').style.display = isActive ? 'none' : '';
+                document.getElementById('btn-rf-start').disabled = isActive;
+                document.getElementById('btn-rf-stop').disabled = !isActive;
+
+                if (isActive || isDone) {
+                    const rssi = rf.best_rssi != null ? rf.best_rssi : -100;
+                    document.getElementById('rf-best-rssi').textContent = rssi.toFixed(0) + ' dBm';
+                    document.getElementById('rf-samples').textContent = rf.samples || 0;
+                    document.getElementById('rf-wp').textContent = rf.wp_progress || '--';
+
+                    if (rf.best_lat && rf.best_lon) {
+                        document.getElementById('rf-best-pos').textContent =
+                            'Best: ' + rf.best_lat.toFixed(6) + ', ' + rf.best_lon.toFixed(6);
+                    }
+
+                    // Signal bar: map -100..0 dBm to 0..100%
+                    const pct = Math.max(0, Math.min(100, (rssi + 100)));
+                    const bar = document.getElementById('rf-rssi-bar');
+                    bar.style.width = pct + '%';
+                    bar.style.background = pct > 60 ? '#4a7c2e' : pct > 30 ? '#eab308' : '#c53030';
+                    document.getElementById('rf-rssi-label').textContent = rssi.toFixed(0) + ' dBm';
+                    document.getElementById('rf-rssi-label').style.color =
+                        pct > 60 ? '#4a7c2e' : pct > 30 ? '#eab308' : '#c53030';
+                }
+
+                if (state === 'converged') {
+                    badge.style.background = '#4a7c2e';
+                    badge.style.color = '#fff';
+                }
+            } catch (e) {}
+        }
+
+        // Init mode visibility
+        rfModeChanged();
+
         setInterval(updateStats, 1000);
         setInterval(updateDetections, 2000);
         setInterval(updateTracks, 500);
         setInterval(updateLockIndicator, 1000);
+        setInterval(updateRFStatus, 1000);
         updateStats();
+        updateRFStatus();
         loadConfig();
         loadCameraSources();
         loadPowerModes();

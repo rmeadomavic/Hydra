@@ -430,6 +430,9 @@ class Pipeline:
                 on_model_switch=self._handle_model_switch,
                 get_log_dir=lambda: self._cfg.get("logging", "log_dir", fallback="/data/logs"),
                 get_image_dir=lambda: self._cfg.get("logging", "image_dir", fallback="/data/images"),
+                get_rf_status=self._get_rf_status,
+                on_rf_start=self._handle_rf_start,
+                on_rf_stop=self._handle_rf_stop,
             )
 
             stream_state.update_stats(
@@ -770,6 +773,52 @@ class Pipeline:
                 return self._detector.switch_model(str(candidate))
         logger.error("Model not found: %s", model_name)
         return False
+
+    # ------------------------------------------------------------------
+    # RF Hunt handlers (web UI)
+    # ------------------------------------------------------------------
+    def _get_rf_status(self) -> dict:
+        """Return RF hunt status for the web API."""
+        if self._rf_hunt is not None:
+            return self._rf_hunt.get_status()
+        return {"state": "unavailable"}
+
+    def _handle_rf_start(self, params: dict) -> bool:
+        """Start (or restart) an RF hunt from the web UI."""
+        if self._mavlink is None:
+            logger.error("RF hunt requires MAVLink")
+            return False
+
+        # Stop any existing hunt
+        if self._rf_hunt is not None:
+            self._rf_hunt.stop()
+
+        # Build a new controller from the web-submitted params
+        self._rf_hunt = RFHuntController(
+            self._mavlink,
+            mode=params.get("mode", "wifi"),
+            target_bssid=params.get("target_bssid", "").strip() or None,
+            target_freq_mhz=float(params.get("target_freq_mhz", 915.0)),
+            kismet_host=self._cfg.get("rf_homing", "kismet_host", fallback="http://localhost:2501"),
+            kismet_user=self._cfg.get("rf_homing", "kismet_user", fallback="kismet"),
+            kismet_pass=self._cfg.get("rf_homing", "kismet_pass", fallback="kismet"),
+            search_pattern=params.get("search_pattern", "lawnmower"),
+            search_area_m=float(params.get("search_area_m", 100.0)),
+            search_spacing_m=float(params.get("search_spacing_m", 20.0)),
+            search_alt_m=float(params.get("search_alt_m", 15.0)),
+            rssi_threshold_dbm=float(params.get("rssi_threshold_dbm", -80.0)),
+            rssi_converge_dbm=float(params.get("rssi_converge_dbm", -40.0)),
+            gradient_step_m=float(params.get("gradient_step_m", 5.0)),
+            poll_interval_sec=self._cfg.getfloat("rf_homing", "poll_interval_sec", fallback=0.5),
+            arrival_tolerance_m=self._cfg.getfloat("rf_homing", "arrival_tolerance_m", fallback=3.0),
+        )
+        return self._rf_hunt.start()
+
+    def _handle_rf_stop(self) -> None:
+        """Stop the active RF hunt from the web UI."""
+        if self._rf_hunt is not None:
+            self._rf_hunt.stop()
+            logger.info("RF hunt stopped from web UI")
 
     def _handle_stop_command(self) -> None:
         """Stop the pipeline gracefully from the web UI."""

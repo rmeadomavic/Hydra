@@ -428,6 +428,108 @@ async def api_switch_model(request: Request, authorization: Optional[str] = Head
     return JSONResponse({"error": "Model switching not available"}, status_code=503)
 
 
+# ── RF Hunt ─────────────────────────────────────────────────────
+
+@app.get("/api/rf/status")
+async def api_rf_status():
+    """Return current RF hunt status."""
+    cb = stream_state.get_callback("get_rf_status")
+    if cb:
+        return cb()
+    return {"state": "unavailable"}
+
+
+@app.post("/api/rf/start")
+async def api_rf_start(request: Request, authorization: Optional[str] = Header(None)):
+    """Start an RF hunt with the given parameters.
+
+    Body: {mode, target_bssid, target_freq_mhz, search_pattern,
+           search_area_m, search_spacing_m, search_alt_m,
+           rssi_threshold_dbm, rssi_converge_dbm, gradient_step_m}
+    All fields optional — unset fields keep current config values.
+    """
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+
+    # Validate mode
+    mode = body.get("mode")
+    if mode and mode not in ("wifi", "sdr"):
+        return JSONResponse({"error": "mode must be 'wifi' or 'sdr'"}, status_code=400)
+
+    # Validate BSSID format if provided
+    bssid = body.get("target_bssid", "").strip()
+    if mode == "wifi" and not bssid:
+        return JSONResponse({"error": "target_bssid required for wifi mode"}, status_code=400)
+    if bssid and len(bssid) != 17:
+        return JSONResponse({"error": "target_bssid must be MAC format AA:BB:CC:DD:EE:FF"}, status_code=400)
+
+    # Validate freq if SDR
+    freq = body.get("target_freq_mhz")
+    if freq is not None:
+        try:
+            freq = float(freq)
+            if not (1.0 <= freq <= 6000.0):
+                return JSONResponse({"error": "target_freq_mhz must be 1-6000"}, status_code=400)
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "target_freq_mhz must be a number"}, status_code=400)
+
+    # Validate search pattern
+    pattern = body.get("search_pattern")
+    if pattern and pattern not in ("lawnmower", "spiral"):
+        return JSONResponse({"error": "search_pattern must be 'lawnmower' or 'spiral'"}, status_code=400)
+
+    # Validate numeric fields
+    for field, lo, hi in [
+        ("search_area_m", 10.0, 2000.0),
+        ("search_spacing_m", 2.0, 200.0),
+        ("search_alt_m", 3.0, 120.0),
+        ("rssi_threshold_dbm", -100.0, -10.0),
+        ("rssi_converge_dbm", -90.0, 0.0),
+        ("gradient_step_m", 1.0, 50.0),
+    ]:
+        val = body.get(field)
+        if val is not None:
+            try:
+                val = float(val)
+                if not (lo <= val <= hi):
+                    return JSONResponse(
+                        {"error": f"{field} must be {lo}-{hi}"}, status_code=400,
+                    )
+            except (TypeError, ValueError):
+                return JSONResponse({"error": f"{field} must be a number"}, status_code=400)
+
+    cb = stream_state.get_callback("on_rf_start")
+    if cb:
+        result = cb(body)
+        if result:
+            _audit(request, "rf_hunt_start", target=str(body.get("mode", "wifi")))
+            return {"status": "ok", "message": "RF hunt started"}
+        _audit(request, "rf_hunt_start", outcome="failed")
+        return JSONResponse(
+            {"error": "RF hunt failed to start — check Kismet connection and GPS fix"},
+            status_code=503,
+        )
+    _audit(request, "rf_hunt_start", outcome="unavailable")
+    return JSONResponse({"error": "RF homing not configured"}, status_code=503)
+
+
+@app.post("/api/rf/stop")
+async def api_rf_stop(request: Request, authorization: Optional[str] = Header(None)):
+    """Stop an active RF hunt."""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    cb = stream_state.get_callback("on_rf_stop")
+    if cb:
+        cb()
+        _audit(request, "rf_hunt_stop")
+        return {"status": "ok", "message": "RF hunt stopped"}
+    _audit(request, "rf_hunt_stop", outcome="unavailable")
+    return JSONResponse({"error": "RF homing not configured"}, status_code=503)
+
+
 @app.post("/api/pipeline/stop")
 async def api_pipeline_stop(request: Request, authorization: Optional[str] = Header(None)):
     """Gracefully stop the pipeline and shut down."""
