@@ -749,11 +749,15 @@
                 document.getElementById('gps-fix').textContent = s.gps_fix !== undefined ? s.gps_fix + 'D' : '--';
                 document.getElementById('gps-pos').textContent = s.position || '';
 
-                document.getElementById('conn-status').className = 'status-pill live';
-                document.getElementById('conn-status').textContent = 'LIVE';
+                if (!isPaused) {
+                    document.getElementById('conn-status').className = 'status-pill live';
+                    document.getElementById('conn-status').textContent = 'LIVE';
+                }
             } catch {
-                document.getElementById('conn-status').className = 'status-pill offline';
-                document.getElementById('conn-status').textContent = 'OFFLINE';
+                if (!isPaused) {
+                    document.getElementById('conn-status').className = 'status-pill offline';
+                    document.getElementById('conn-status').textContent = 'OFFLINE';
+                }
             }
         }
 
