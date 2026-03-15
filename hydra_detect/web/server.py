@@ -103,6 +103,7 @@ class StreamState:
         self._on_stop_command: Optional[Callable] = None
         self._on_pause_command: Optional[Callable] = None
         self._on_resume_command: Optional[Callable] = None
+        self._on_engine_change: Optional[Callable] = None
 
         # Current runtime config (readable by web UI)
         self.runtime_config: Dict[str, Any] = {
@@ -168,6 +169,7 @@ class StreamState:
         on_stop_command: Optional[Callable] = None,
         on_pause_command: Optional[Callable] = None,
         on_resume_command: Optional[Callable] = None,
+        on_engine_change: Optional[Callable] = None,
     ) -> None:
         with self._lock:
             self._on_prompts_change = on_prompts_change
@@ -181,6 +183,7 @@ class StreamState:
             self._on_stop_command = on_stop_command
             self._on_pause_command = on_pause_command
             self._on_resume_command = on_resume_command
+            self._on_engine_change = on_engine_change
 
     def get_callback(self, name: str) -> Optional[Callable]:
         """Safely retrieve a callback by name."""
@@ -394,6 +397,27 @@ async def api_recent_detections():
     if cb:
         return cb()
     return []
+
+
+@app.post("/api/config/engine")
+async def api_set_engine(request: Request, authorization: Optional[str] = Header(None)):
+    """Switch detector engine at runtime (yolo or nanoowl)."""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    engine = body.get("engine", "").strip().lower()
+    if engine not in ("yolo", "nanoowl"):
+        return JSONResponse({"error": "engine must be 'yolo' or 'nanoowl'"}, status_code=400)
+    cb = stream_state.get_callback("_on_engine_change")
+    if cb:
+        success = cb(engine)
+        if success:
+            _audit(request, "set_engine", target=engine)
+            return {"status": "ok", "engine": engine}
+        _audit(request, "set_engine", target=engine, outcome="failed")
+        return JSONResponse({"error": "Engine switch failed"}, status_code=500)
+    return JSONResponse({"error": "Engine change not available"}, status_code=503)
 
 
 @app.post("/api/pipeline/stop")

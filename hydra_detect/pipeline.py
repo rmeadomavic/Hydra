@@ -233,6 +233,7 @@ class Pipeline:
                 on_stop_command=self._handle_stop_command,
                 on_pause_command=self._handle_pause_command,
                 on_resume_command=self._handle_resume_command,
+                on_engine_change=self._handle_engine_change,
             )
 
             stream_state.update_stats(
@@ -519,6 +520,56 @@ class Pipeline:
             }
             for t in result
         ]
+
+    def _handle_engine_change(self, engine: str) -> bool:
+        """Switch detector engine at runtime. Pauses pipeline during swap."""
+        engine = engine.lower()
+        current = self._cfg.get("detector", "engine", fallback="yolo").lower()
+        if engine == current:
+            return True
+
+        if engine not in ("yolo", "nanoowl"):
+            logger.warning("Unknown engine: %s", engine)
+            return False
+
+        logger.info("Switching detector engine: %s -> %s", current, engine)
+        self._paused = True
+
+        try:
+            self._detector.unload()
+            self._cfg.set("detector", "engine", engine)
+            self._detector = _build_detector(self._cfg)
+            self._detector.load()
+
+            # Update runtime config for web UI
+            if engine == "nanoowl":
+                prompts = [
+                    p.strip()
+                    for p in self._cfg.get(
+                        "detector", "nanoowl_prompts", fallback="person"
+                    ).split(",")
+                ]
+                threshold = self._cfg.getfloat("detector", "nanoowl_threshold", fallback=0.3)
+            else:
+                prompts = []
+                threshold = self._cfg.getfloat("detector", "yolo_confidence", fallback=0.45)
+
+            stream_state.update_runtime_config({"prompts": prompts, "threshold": threshold})
+            stream_state.update_stats(detector=engine)
+            logger.info("Detector engine switched to: %s", engine)
+            return True
+        except Exception as exc:
+            logger.error("Engine switch failed: %s — reverting to YOLO", exc)
+            self._cfg.set("detector", "engine", "yolo")
+            self._detector = _build_detector(self._cfg)
+            try:
+                self._detector.load()
+            except Exception:
+                logger.critical("Failed to load fallback YOLO detector")
+            stream_state.update_stats(detector="yolo")
+            return False
+        finally:
+            self._paused = False
 
     def _handle_stop_command(self) -> None:
         """Stop the pipeline gracefully from the web UI."""

@@ -4,452 +4,632 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HYDRA DETECT — SORCC</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --ogt-green: #385723;
+            --ogt-green-dark: #2a4118;
+            --ogt-muted: #A6BC92;
+            --ogt-warm: #D8E2D0;
+            --ogt-light: #EFF5EB;
+            --panel-bg: #0c0c0c;
+            --sidebar-bg: #141414;
+            --card-bg: #1c1c1c;
+            --card-border: #262626;
+            --text-primary: #e8e8e8;
+            --text-secondary: #888;
+            --text-dim: #555;
+            --danger: #c53030;
+            --danger-bg: #2a1010;
+            --warning: #b45309;
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Segoe UI', system-ui, sans-serif;
-            background: #1a1a1a;
-            color: #E6E6E6;
+            font-family: 'Barlow', 'Segoe UI', system-ui, sans-serif;
+            background: var(--panel-bg);
+            color: var(--text-primary);
+            line-height: 1.4;
+            overflow: hidden;
         }
+
+        /* ── HEADER ───────────────────────────────────────── */
         .header {
-            background: #385723;
-            padding: 12px 24px;
+            background: linear-gradient(135deg, var(--ogt-green) 0%, var(--ogt-green-dark) 100%);
+            height: 50px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            border-bottom: 2px solid #A6BC92;
+            padding: 0 20px;
+            position: relative;
+            z-index: 10;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.4);
         }
-        .header h1 {
-            font-size: 1.3rem;
-            color: #FFFFFF;
+        .header::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--ogt-muted) 0%, transparent 50%, var(--ogt-muted) 100%);
+            opacity: 0.6;
+        }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .sorcc-badge {
+            width: 34px;
+            height: 34px;
+            flex-shrink: 0;
+        }
+        .header-text h1 {
+            font-family: 'Barlow Condensed', 'Barlow', sans-serif;
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 0.08em;
+            line-height: 1;
+        }
+        .header-text .org {
+            font-size: 0.6rem;
+            color: var(--ogt-warm);
+            letter-spacing: 0.04em;
+            font-weight: 500;
+            margin-top: 1px;
+        }
+        .status-pill {
+            font-family: 'Barlow Condensed', sans-serif;
+            font-size: 0.7rem;
+            padding: 3px 12px;
+            border-radius: 2px;
             font-weight: 600;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
         }
-        .header .subtitle {
-            font-size: 0.75rem;
-            color: #A6BC92;
-            font-weight: 400;
+        .status-pill.live {
+            background: var(--ogt-muted);
+            color: var(--ogt-green-dark);
         }
-        .header .status {
-            font-size: 0.85rem;
-            padding: 4px 12px;
-            border-radius: 12px;
-            background: #A6BC92;
-            color: #385723;
-            font-weight: 600;
+        .status-pill.offline {
+            background: var(--danger);
+            color: #fff;
         }
-        .header .status.offline {
-            background: #3a1a1a;
-            color: #f87171;
-        }
+
+        /* ── LAYOUT ───────────────────────────────────────── */
         .main {
             display: flex;
-            height: calc(100vh - 52px);
+            height: calc(100vh - 50px - 22px); /* header + footer */
         }
         .video-panel {
             flex: 1;
-            display: flex;
-            flex-direction: column;
             background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
         }
         .video-panel img {
-            flex: 1;
-            max-width: 100%;
+            width: 100%;
+            height: 100%;
             object-fit: contain;
         }
+
+        /* ── SIDEBAR ──────────────────────────────────────── */
         .sidebar {
-            width: 320px;
-            background: #222222;
-            border-left: 2px solid #385723;
-            padding: 16px;
+            width: 310px;
+            background: var(--sidebar-bg);
+            border-left: 1px solid var(--card-border);
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            position: relative;
         }
-        .sidebar h2 {
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: #A6BC92;
-            margin-bottom: 8px;
+        /* Hex pattern overlay */
+        .sidebar::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.03;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='100' viewBox='0 0 56 100'%3E%3Cpath d='M28 66L0 50L0 16L28 0L56 16L56 50L28 66ZM28 100L0 84L0 50L28 34L56 50L56 84L28 100Z' fill='none' stroke='%23A6BC92' stroke-width='1'/%3E%3C/svg%3E");
+            background-size: 42px 75px;
         }
-        .stat-card {
-            background: #2a2a2a;
-            border-radius: 8px;
-            padding: 12px;
-            border: 1px solid #333;
+        /* Green top edge glow */
+        .sidebar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 80px;
+            background: linear-gradient(180deg, rgba(56,87,35,0.08) 0%, transparent 100%);
+            pointer-events: none;
         }
-        .stat-card .label {
+
+        .sidebar-section {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--card-border);
+            position: relative;
+            z-index: 1;
+        }
+        .sidebar-section:last-child { border-bottom: none; }
+
+        .section-label {
+            font-family: 'Barlow Condensed', sans-serif;
             font-size: 0.7rem;
-            color: #BFBFBF;
             text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--ogt-muted);
+            font-weight: 600;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
-        .stat-card .value {
-            font-size: 1.4rem;
-            font-weight: 700;
-            color: #EFF5EB;
-            margin-top: 2px;
+        .section-label::before {
+            content: '';
+            width: 3px;
+            height: 12px;
+            background: var(--ogt-green);
+            border-radius: 1px;
+            flex-shrink: 0;
         }
-        .stat-card .value.highlight { color: #A6BC92; }
-        .stat-row {
+
+        /* ── STAT GRID ────────────────────────────────────── */
+        .stat-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 8px;
+            gap: 5px;
         }
+        .stat-grid.three-col { grid-template-columns: 1fr 1fr 1fr; }
+        .stat {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 3px;
+            padding: 7px 9px;
+        }
+        .stat-label {
+            font-family: 'Barlow Condensed', sans-serif;
+            font-size: 0.58rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        .stat-value {
+            font-family: 'Barlow Condensed', sans-serif;
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-top: 1px;
+            line-height: 1.1;
+        }
+        .stat-value.accent { color: var(--ogt-muted); }
+        .stat-value.small { font-size: 0.85rem; font-family: 'Barlow', sans-serif; font-weight: 600; }
+
+        /* ── BADGES ────────────────────────────────────────── */
         .badge {
             display: inline-block;
-            padding: 3px 10px;
-            border-radius: 10px;
-            font-size: 0.75rem;
+            padding: 2px 8px;
+            border-radius: 2px;
+            font-family: 'Barlow Condensed', sans-serif;
+            font-size: 0.65rem;
             font-weight: 600;
+            letter-spacing: 0.06em;
         }
-        .badge.on { background: #385723; color: #EFF5EB; }
-        .badge.off { background: #3a1a1a; color: #f87171; }
+        .badge.on { background: var(--ogt-green); color: var(--ogt-warm); }
+        .badge.off { background: var(--danger-bg); color: var(--danger); border: 1px solid #3a1a1a; }
 
-        /* Controls */
-        .control-group { margin-bottom: 4px; }
-        .control-group label {
-            display: block;
-            font-size: 0.75rem;
-            color: #BFBFBF;
-            text-transform: uppercase;
-            margin-bottom: 4px;
-        }
-        textarea, input[type="text"] {
-            width: 100%;
-            background: #2a2a2a;
-            border: 1px solid #444;
-            color: #e2e8f0;
-            border-radius: 6px;
-            padding: 8px;
-            font-family: monospace;
-            font-size: 0.85rem;
-            resize: vertical;
-        }
-        textarea:focus, input:focus {
-            outline: none;
-            border-color: #A6BC92;
-        }
-        input[type="range"] {
-            width: 100%;
-            accent-color: #A6BC92;
-        }
-        .range-value {
-            font-size: 1.1rem;
-            font-weight: 700;
-            color: #A6BC92;
-        }
+        /* ── BUTTONS ──────────────────────────────────────── */
         button {
-            padding: 8px 16px;
+            font-family: 'Barlow Condensed', sans-serif;
+            padding: 7px 14px;
             border: none;
-            border-radius: 6px;
-            font-size: 0.85rem;
+            border-radius: 2px;
+            font-size: 0.75rem;
             font-weight: 600;
             cursor: pointer;
-            transition: background 0.2s;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            transition: all 0.15s ease;
         }
-        .btn-primary {
-            background: #385723;
-            color: #FFFFFF;
-        }
-        .btn-primary:hover { background: #2a4319; }
-        .btn-warning {
-            background: #f59e0b;
-            color: #0a0e17;
-        }
-        .btn-warning:hover { background: #d97706; }
-        .btn-sm { padding: 6px 12px; font-size: 0.75rem; }
+        button:hover { filter: brightness(1.15); }
+        button:active { transform: scale(0.98); }
+        button:disabled { opacity: 0.35; cursor: default; filter: none; transform: none; }
+        .btn-primary { background: var(--ogt-green); color: #fff; }
+        .btn-warning { background: var(--warning); color: #fff; }
+        .btn-danger { background: var(--danger); color: #fff; }
+        .btn-neutral { background: #2a2a2a; color: #aaa; border: 1px solid #333; }
+        .btn-full { width: 100%; }
+        .btn-row { display: flex; gap: 5px; }
+        .btn-row.grid { display: grid; grid-template-columns: 1fr 1fr; }
 
-        /* Detection log */
-        .det-log {
-            max-height: 200px;
-            overflow-y: auto;
-            font-size: 0.75rem;
-            font-family: monospace;
-            background: #1a1a1a;
-            border-radius: 6px;
-            padding: 8px;
+        /* ── FORM CONTROLS ────────────────────────────────── */
+        .field-label {
+            font-family: 'Barlow Condensed', sans-serif;
+            font-size: 0.62rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-secondary);
+            font-weight: 500;
+            margin-bottom: 4px;
         }
-        .det-entry {
-            padding: 3px 0;
-            border-bottom: 1px solid #333;
+        .field-note {
+            font-size: 0.55rem;
+            color: var(--text-dim);
+            font-weight: 400;
+            text-transform: none;
+            letter-spacing: 0;
         }
-        .det-entry .det-label {
-            color: #A6BC92;
-            font-weight: 600;
+        textarea {
+            width: 100%;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            color: var(--text-primary);
+            border-radius: 2px;
+            padding: 6px 8px;
+            font-family: 'JetBrains Mono', 'Consolas', monospace;
+            font-size: 0.78rem;
+            resize: vertical;
         }
-        .det-entry .det-conf {
-            color: #A6BC92;
+        textarea:focus { outline: none; border-color: var(--ogt-green); box-shadow: 0 0 0 1px rgba(56,87,35,0.3); }
+        textarea:disabled { opacity: 0.35; }
+        input[type="range"] {
+            width: 100%;
+            accent-color: var(--ogt-green);
+            margin-top: 2px;
         }
-        .det-entry .det-time {
-            color: #BFBFBF;
-        }
-        .det-entry .det-pos {
-            color: #f59e0b;
+        .range-inline { display: flex; align-items: center; gap: 8px; }
+        .range-inline input { flex: 1; }
+        .range-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--ogt-muted);
+            min-width: 34px;
+            text-align: right;
         }
 
-        /* Target controls */
-        .target-section { margin-top: 0; }
+        /* ── TRACK LIST ───────────────────────────────────── */
         .track-list {
-            max-height: 140px;
+            max-height: 110px;
             overflow-y: auto;
-            background: #1a1a1a;
-            border-radius: 6px;
-            padding: 4px;
+            background: var(--panel-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 2px;
+            margin-bottom: 8px;
         }
         .track-item {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 6px 8px;
-            border-radius: 4px;
+            padding: 5px 8px;
             cursor: pointer;
-            font-size: 0.8rem;
-            border-bottom: 1px solid #333;
+            font-size: 0.75rem;
+            border-bottom: 1px solid var(--card-border);
+            transition: background 0.1s;
         }
-        .track-item:hover { background: #2a2a2a; }
-        .track-item.selected { background: #1a3a2a; border-left: 3px solid #4ade80; }
-        .track-item.strike-selected { background: #3a1a1a; border-left: 3px solid #ef4444; }
-        .track-item .tid { color: #A6BC92; font-weight: 700; margin-right: 6px; }
-        .track-item .tlabel { color: #e2e8f0; }
-        .track-item .tconf { color: #BFBFBF; font-size: 0.7rem; }
-        .target-btns {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 6px;
-            margin-top: 8px;
+        .track-item:last-child { border-bottom: none; }
+        .track-item:hover { background: #1a1a1a; }
+        .track-item.selected {
+            background: rgba(56,87,35,0.2);
+            border-left: 2px solid var(--ogt-muted);
         }
-        .btn-danger {
-            background: #ef4444;
-            color: #fff;
+        .track-item .tid {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--ogt-muted);
+            font-weight: 700;
+            font-size: 0.7rem;
+            margin-right: 5px;
         }
-        .btn-danger:hover { background: #dc2626; }
-        .btn-success {
-            background: #385723;
-            color: #FFFFFF;
+        .track-item .tlabel { color: #ccc; font-weight: 500; }
+        .track-item .tconf {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-dim);
+            font-size: 0.65rem;
         }
-        .btn-success:hover { background: #2a4319; }
-        .btn-ghost {
-            background: #333;
-            color: #E6E6E6;
+        .track-empty {
+            color: var(--text-dim);
+            padding: 10px;
+            font-size: 0.7rem;
+            text-align: center;
         }
-        .btn-ghost:hover { background: #444; }
+
+        /* ── LOCK INDICATOR ───────────────────────────────── */
         .lock-indicator {
-            padding: 6px 10px;
-            border-radius: 6px;
-            font-size: 0.8rem;
+            padding: 5px 10px;
+            border-radius: 2px;
+            font-family: 'Barlow Condensed', sans-serif;
+            font-size: 0.75rem;
             font-weight: 600;
             text-align: center;
             margin-bottom: 8px;
+            letter-spacing: 0.06em;
         }
         .lock-indicator.tracking {
-            background: #1a3a2a;
-            color: #A6BC92;
-            border: 1px solid #4ade80;
+            background: rgba(56,87,35,0.15);
+            color: var(--ogt-muted);
+            border: 1px solid var(--ogt-green);
         }
         .lock-indicator.strike-active {
-            background: #3a1a1a;
+            background: var(--danger-bg);
             color: #ef4444;
-            border: 1px solid #ef4444;
-            animation: pulse-red 1s infinite;
+            border: 1px solid var(--danger);
+            animation: pulse 1.5s ease-in-out infinite;
         }
-        @keyframes pulse-red {
+        @keyframes pulse {
             0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
+            50% { opacity: 0.55; }
         }
 
-        /* Strike confirmation modal */
+        /* ── DETECTION LOG ────────────────────────────────── */
+        .det-log {
+            max-height: 140px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.68rem;
+            background: var(--panel-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 2px;
+            padding: 5px 7px;
+        }
+        .det-entry {
+            padding: 2px 0;
+            border-bottom: 1px solid #1a1a1a;
+            display: flex;
+            gap: 6px;
+            align-items: baseline;
+        }
+        .det-entry:last-child { border-bottom: none; }
+        .det-time { color: var(--text-dim); font-size: 0.62rem; }
+        .det-label { color: var(--ogt-muted); font-weight: 600; }
+        .det-conf { color: var(--text-secondary); }
+        .det-pos { color: var(--warning); }
+
+        /* ── MODAL ────────────────────────────────────────── */
         .modal-overlay {
             display: none;
             position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.8);
+            inset: 0;
+            background: rgba(0,0,0,0.88);
             z-index: 1000;
             align-items: center;
             justify-content: center;
         }
         .modal-overlay.active { display: flex; }
         .modal {
-            background: #131a2b;
-            border: 2px solid #ef4444;
-            border-radius: 12px;
+            background: #1a1a1a;
+            border: 1px solid var(--danger);
+            border-radius: 4px;
             padding: 24px;
-            max-width: 420px;
+            max-width: 400px;
             width: 90%;
             text-align: center;
         }
         .modal h3 {
+            font-family: 'Barlow Condensed', sans-serif;
             color: #ef4444;
-            font-size: 1.2rem;
+            font-size: 1.1rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
             margin-bottom: 12px;
         }
-        .modal p {
-            color: #c8d6e5;
-            font-size: 0.9rem;
-            margin-bottom: 8px;
-        }
-        .modal .warning-text {
-            color: #f59e0b;
+        .modal p { color: #bbb; font-size: 0.85rem; margin-bottom: 8px; }
+        .modal .warning-text { color: var(--warning); font-size: 0.75rem; margin-bottom: 16px; }
+        .modal-btns { display: flex; gap: 10px; justify-content: center; }
+
+        /* ── SELECT ────────────────────────────────────────── */
+        select {
+            width: 100%;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            color: var(--text-primary);
+            border-radius: 2px;
+            padding: 6px 8px;
+            font-family: 'Barlow', sans-serif;
             font-size: 0.8rem;
-            margin-bottom: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
         }
-        .modal-btns {
-            display: flex;
-            gap: 12px;
-            justify-content: center;
+        select:focus { outline: none; border-color: var(--ogt-green); }
+        .prompts-section { transition: max-height 0.3s ease, opacity 0.3s ease; overflow: hidden; }
+        .prompts-section.hidden { max-height: 0; opacity: 0; margin: 0; padding: 0; }
+        .prompts-section.visible { max-height: 200px; opacity: 1; }
+
+        /* ── FOOTER ───────────────────────────────────────── */
+        .footer-bar {
+            background: var(--ogt-muted);
+            text-align: center;
+            padding: 3px 0;
+            font-family: 'Barlow Condensed', sans-serif;
+            font-size: 0.62rem;
+            font-weight: 700;
+            color: var(--ogt-green-dark);
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
         }
+
+        /* ── SCROLLBAR ────────────────────────────────────── */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+        ::-webkit-scrollbar-thumb:hover { background: #383838; }
     </style>
 </head>
 <body>
     <div class="header">
-        <div>
-            <h1>HYDRA DETECT v2.0 <span class="subtitle">| SORCC — Oak Grove Technologies</span></h1>
+        <div class="header-left">
+            <!-- SORCC Diamond Badge SVG -->
+            <svg class="sorcc-badge" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                <g transform="rotate(45 50 50)">
+                    <rect x="18" y="18" width="64" height="64" rx="3" fill="none" stroke="#D8E2D0" stroke-width="2.5"/>
+                    <rect x="22" y="22" width="56" height="56" rx="2" fill="#D8E2D0"/>
+                </g>
+                <!-- Drone silhouette top -->
+                <g transform="translate(50,22)" fill="var(--ogt-green-dark)" opacity="0.7">
+                    <line x1="-8" y1="0" x2="8" y2="0" stroke="var(--ogt-green-dark)" stroke-width="1.2"/>
+                    <circle cx="-8" cy="0" r="2.5" fill="none" stroke="var(--ogt-green-dark)" stroke-width="0.8"/>
+                    <circle cx="8" cy="0" r="2.5" fill="none" stroke="var(--ogt-green-dark)" stroke-width="0.8"/>
+                    <line x1="0" y1="-2" x2="0" y2="2" stroke="var(--ogt-green-dark)" stroke-width="1"/>
+                    <circle cx="0" cy="0" r="1.2"/>
+                </g>
+                <!-- SORCC text -->
+                <text x="50" y="50" text-anchor="middle" font-family="'Barlow Condensed',sans-serif" font-weight="700"
+                      font-size="14" fill="var(--ogt-green-dark)" letter-spacing="1.5">SORCC</text>
+                <text x="50" y="60" text-anchor="middle" font-family="'Barlow Condensed',sans-serif" font-weight="500"
+                      font-size="4.5" fill="var(--ogt-green-dark)" letter-spacing="0.3">SPECIAL OPERATIONS ROBOTICS</text>
+                <text x="50" y="65" text-anchor="middle" font-family="'Barlow Condensed',sans-serif" font-weight="500"
+                      font-size="4.5" fill="var(--ogt-green-dark)" letter-spacing="0.3">CAPABILITY COURSE</text>
+                <!-- Vehicle silhouette bottom -->
+                <g transform="translate(50,76)" fill="var(--ogt-green-dark)" opacity="0.6">
+                    <rect x="-7" y="-2" width="14" height="3" rx="0.5"/>
+                    <circle cx="-5" cy="2" r="1.8" fill="none" stroke="var(--ogt-green-dark)" stroke-width="0.7"/>
+                    <circle cx="5" cy="2" r="1.8" fill="none" stroke="var(--ogt-green-dark)" stroke-width="0.7"/>
+                </g>
+            </svg>
+            <div class="header-text">
+                <h1>HYDRA DETECT</h1>
+                <div class="org">SORCC / Oak Grove Technologies</div>
+            </div>
         </div>
-        <span class="status" id="conn-status">LIVE</span>
+        <span class="status-pill live" id="conn-status">LIVE</span>
     </div>
+
     <div class="main">
         <div class="video-panel">
             <img id="stream" src="/stream.mjpeg" alt="Video Stream">
         </div>
+
         <div class="sidebar">
-            <!-- Pipeline Stats -->
-            <div>
-                <h2>Pipeline</h2>
-                <div class="stat-card">
-                    <div class="label">FPS</div>
-                    <div class="value highlight" id="fps">--</div>
+            <!-- Pipeline -->
+            <div class="sidebar-section">
+                <div class="section-label">Pipeline</div>
+                <div class="stat-grid three-col">
+                    <div class="stat">
+                        <div class="stat-label">FPS</div>
+                        <div class="stat-value accent" id="fps">--</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Inference</div>
+                        <div class="stat-value" id="inference">--</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Tracks</div>
+                        <div class="stat-value" id="tracks">--</div>
+                    </div>
                 </div>
-                <div class="stat-row" style="margin-top:8px;">
-                    <div class="stat-card">
-                        <div class="label">Inference</div>
-                        <div class="value" id="inference">--</div>
+                <div class="stat-grid" style="margin-top:5px;">
+                    <div class="stat">
+                        <div class="stat-label">Total Hits</div>
+                        <div class="stat-value small" id="total-det">--</div>
                     </div>
-                    <div class="stat-card">
-                        <div class="label">Tracks</div>
-                        <div class="value" id="tracks">--</div>
-                    </div>
-                </div>
-                <div class="stat-row" style="margin-top:8px;">
-                    <div class="stat-card">
-                        <div class="label">Total Hits</div>
-                        <div class="value" id="total-det">--</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="label">Engine</div>
-                        <div class="value" id="detector" style="font-size:0.9rem;">--</div>
+                    <div class="stat">
+                        <div class="stat-label">Engine</div>
+                        <div class="stat-value small" id="detector">--</div>
                     </div>
                 </div>
             </div>
 
             <!-- Vehicle Link -->
-            <div>
-                <h2>Vehicle Link</h2>
-                <div class="stat-card">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <div>
-                            <div class="label">MAVLink</div>
-                            <span class="badge off" id="mav-badge">DISCONNECTED</span>
-                        </div>
-                        <div>
-                            <div class="label">GPS Fix</div>
-                            <span id="gps-fix" style="font-weight:700;">--</span>
-                        </div>
+            <div class="sidebar-section">
+                <div class="section-label">Vehicle Link</div>
+                <div class="stat-grid">
+                    <div class="stat">
+                        <div class="stat-label">MAVLink</div>
+                        <span class="badge off" id="mav-badge">DISCONNECTED</span>
                     </div>
-                    <div id="gps-pos" style="font-family:monospace; font-size:0.75rem; color:#f59e0b; margin-top:6px;"></div>
+                    <div class="stat">
+                        <div class="stat-label">GPS Fix</div>
+                        <div class="stat-value small" id="gps-fix">--</div>
+                    </div>
                 </div>
-                <button class="btn-warning btn-sm" style="margin-top:8px; width:100%;" onclick="commandLoiter()">
-                    COMMAND LOITER / HOLD
+                <div id="gps-pos" style="font-family:'JetBrains Mono',monospace; font-size:0.68rem; color:var(--warning); margin-top:4px;"></div>
+                <button class="btn-warning btn-full" style="margin-top:8px;" onclick="commandLoiter()">
+                    Command Loiter / Hold
                 </button>
             </div>
 
             <!-- Target Control -->
-            <div class="target-section">
-                <h2>Target Control</h2>
+            <div class="sidebar-section">
+                <div class="section-label">Target Control</div>
                 <div id="lock-indicator" style="display:none;" class="lock-indicator"></div>
-                <div class="stat-card">
-                    <div class="label">Active Tracks (select target)</div>
-                    <div class="track-list" id="track-list">
-                        <div style="color:#6b7fa3; padding:8px; font-size:0.75rem;">No tracks</div>
-                    </div>
+                <div class="field-label">Active Tracks</div>
+                <div class="track-list" id="track-list">
+                    <div class="track-empty">No tracks</div>
                 </div>
-                <div class="target-btns">
-                    <button class="btn-success btn-sm" id="btn-track" onclick="lockTarget('track')" disabled>
-                        KEEP IN FRAME
-                    </button>
-                    <button class="btn-danger btn-sm" id="btn-strike" onclick="showStrikeConfirm()" disabled>
-                        STRIKE
-                    </button>
-                    <button class="btn-ghost btn-sm" id="btn-unlock" onclick="unlockTarget()" style="grid-column: span 2;" disabled>
-                        RELEASE LOCK
-                    </button>
+                <div class="btn-row grid">
+                    <button class="btn-primary" id="btn-track" onclick="lockTarget('track')" disabled>Keep in Frame</button>
+                    <button class="btn-danger" id="btn-strike" onclick="showStrikeConfirm()" disabled>Strike</button>
                 </div>
-            </div>
-
-            <!-- Strike Confirmation Modal -->
-            <div class="modal-overlay" id="strike-modal">
-                <div class="modal">
-                    <h3>CONFIRM STRIKE</h3>
-                    <p>This will command the vehicle to navigate directly toward target
-                       <strong id="strike-target-label">--</strong>.</p>
-                    <p class="warning-text">
-                        The vehicle will switch to GUIDED mode and drive/fly toward the
-                        estimated target position. The operator retains override authority
-                        via the GCS (Mission Planner) at all times.
-                    </p>
-                    <div class="modal-btns">
-                        <button class="btn-ghost" onclick="hideStrikeConfirm()">CANCEL</button>
-                        <button class="btn-danger" onclick="confirmStrike()">EXECUTE STRIKE</button>
-                    </div>
-                </div>
+                <button class="btn-neutral btn-full" id="btn-unlock" onclick="unlockTarget()" style="margin-top:5px;" disabled>Release Lock</button>
             </div>
 
             <!-- Detection Config -->
-            <div>
-                <h2>Detection Config</h2>
-                <div class="stat-card">
-                    <div class="control-group" id="prompts-group">
-                        <label>Prompts <span id="prompts-engine-note" style="font-size:0.65rem; color:#BFBFBF;">(NanoOWL only)</span></label>
-                        <textarea id="prompts-input" rows="2" placeholder="person, rifle, boat"></textarea>
-                    </div>
-                    <button class="btn-primary btn-sm" id="btn-prompts" style="margin-top:6px;" onclick="updatePrompts()">
-                        Update Prompts
-                    </button>
-                    <div class="control-group" style="margin-top:12px;">
-                        <label>Confidence Threshold: <span class="range-value" id="thresh-val">0.45</span></label>
-                        <input type="range" id="thresh-slider" min="0.05" max="0.95" step="0.05" value="0.45"
-                               oninput="document.getElementById('thresh-val').textContent=this.value">
-                    </div>
-                    <button class="btn-primary btn-sm" style="margin-top:6px;" onclick="updateThreshold()">
-                        Apply Threshold
-                    </button>
+            <div class="sidebar-section">
+                <div class="section-label">Detection Config</div>
+                <div class="field-label">Engine</div>
+                <select id="engine-select" onchange="switchEngine(this.value)">
+                    <option value="yolo">YOLO (Fixed Classes)</option>
+                    <option value="nanoowl">NanoOWL (Open Vocabulary)</option>
+                </select>
+                <div class="prompts-section hidden" id="prompts-section" style="margin-top:10px;">
+                    <div class="field-label">Prompts <span class="field-note">(comma-separated)</span></div>
+                    <textarea id="prompts-input" rows="2" placeholder="person, rifle, boat"></textarea>
+                    <button class="btn-primary" id="btn-prompts" style="margin-top:6px;" onclick="updatePrompts()">Update Prompts</button>
                 </div>
+                <div class="field-label" style="margin-top:10px;">Confidence Threshold</div>
+                <div class="range-inline">
+                    <input type="range" id="thresh-slider" min="0.05" max="0.95" step="0.05" value="0.45"
+                           oninput="document.getElementById('thresh-val').textContent=this.value">
+                    <span class="range-val" id="thresh-val">0.45</span>
+                </div>
+                <button class="btn-primary" style="margin-top:6px;" onclick="updateThreshold()">Apply</button>
             </div>
 
             <!-- Detection Log -->
-            <div>
-                <h2>Detection Log</h2>
+            <div class="sidebar-section">
+                <div class="section-label">Detection Log</div>
                 <div class="det-log" id="det-log">
-                    <div style="color:#6b7fa3;">Waiting for detections...</div>
+                    <div class="track-empty">Waiting for detections...</div>
                 </div>
             </div>
 
             <!-- Pipeline Controls -->
-            <div>
-                <h2>Pipeline Controls</h2>
-                <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                    <button class="btn-warning btn-sm" id="btn-pause" onclick="togglePause()">
-                        PAUSE
-                    </button>
-                    <button class="btn-danger btn-sm" onclick="stopPipeline()">
-                        STOP &amp; SHUTDOWN
-                    </button>
+            <div class="sidebar-section">
+                <div class="btn-row">
+                    <button class="btn-warning" id="btn-pause" onclick="togglePause()">Pause</button>
+                    <button class="btn-danger" onclick="stopPipeline()">Stop</button>
                 </div>
             </div>
         </div>
     </div>
 
+    <div class="footer-bar">UNCLASSIFIED</div>
+
+    <!-- Strike Confirmation Modal -->
+    <div class="modal-overlay" id="strike-modal">
+        <div class="modal">
+            <h3>CONFIRM STRIKE</h3>
+            <p>Command vehicle toward target <strong id="strike-target-label">--</strong>.</p>
+            <p class="warning-text">
+                Vehicle switches to GUIDED mode. Operator retains override via GCS at all times.
+            </p>
+            <div class="modal-btns">
+                <button class="btn-neutral" onclick="hideStrikeConfirm()">Cancel</button>
+                <button class="btn-danger" onclick="confirmStrike()">Execute Strike</button>
+            </div>
+        </div>
+    </div>
+
     <script>
-        // Fetch and display pipeline stats
         async function updateStats() {
             try {
                 const resp = await fetch('/api/stats');
@@ -458,23 +638,19 @@
                 document.getElementById('inference').textContent = s.inference_ms.toFixed(1) + ' ms';
                 document.getElementById('tracks').textContent = s.active_tracks;
                 document.getElementById('total-det').textContent = s.total_detections;
+
                 const engine = (s.detector || 'n/a').toUpperCase();
                 document.getElementById('detector').textContent = engine;
 
-                // Disable prompts for YOLO (fixed classes, not open-vocabulary)
-                const promptsInput = document.getElementById('prompts-input');
-                const btnPrompts = document.getElementById('btn-prompts');
-                const promptsNote = document.getElementById('prompts-engine-note');
+                // Sync engine selector and show/hide prompts
+                const engineSelect = document.getElementById('engine-select');
+                const promptsSection = document.getElementById('prompts-section');
                 if (engine === 'YOLO') {
-                    promptsInput.disabled = true;
-                    promptsInput.placeholder = 'YOLO uses fixed COCO classes (not configurable)';
-                    btnPrompts.disabled = true;
-                    promptsNote.textContent = '(YOLO — fixed classes, not configurable)';
-                } else {
-                    promptsInput.disabled = false;
-                    promptsInput.placeholder = 'person, rifle, boat';
-                    btnPrompts.disabled = false;
-                    promptsNote.textContent = '(NanoOWL — open vocabulary)';
+                    engineSelect.value = 'yolo';
+                    promptsSection.className = 'prompts-section hidden';
+                } else if (engine === 'NANOOWL') {
+                    engineSelect.value = 'nanoowl';
+                    promptsSection.className = 'prompts-section visible';
                 }
 
                 const mavBadge = document.getElementById('mav-badge');
@@ -489,15 +665,14 @@
                 document.getElementById('gps-fix').textContent = s.gps_fix !== undefined ? s.gps_fix + 'D' : '--';
                 document.getElementById('gps-pos').textContent = s.position || '';
 
-                document.getElementById('conn-status').className = 'status';
+                document.getElementById('conn-status').className = 'status-pill live';
                 document.getElementById('conn-status').textContent = 'LIVE';
             } catch {
-                document.getElementById('conn-status').className = 'status offline';
+                document.getElementById('conn-status').className = 'status-pill offline';
                 document.getElementById('conn-status').textContent = 'OFFLINE';
             }
         }
 
-        // Load initial config
         async function loadConfig() {
             try {
                 const resp = await fetch('/api/config');
@@ -509,103 +684,70 @@
                     document.getElementById('thresh-slider').value = cfg.threshold;
                     document.getElementById('thresh-val').textContent = cfg.threshold;
                 }
-            } catch (e) {
-                console.warn('Failed to load config:', e);
-            }
+            } catch (e) { console.warn('Failed to load config:', e); }
         }
 
-        // Fetch recent detections
         async function updateDetections() {
             try {
                 const resp = await fetch('/api/detections');
                 const dets = await resp.json();
                 if (!dets || dets.length === 0) return;
-
                 const log = document.getElementById('det-log');
                 log.innerHTML = '';
-                // Show newest first
                 for (let i = dets.length - 1; i >= 0; i--) {
                     const d = dets[i];
                     const time = d.timestamp ? d.timestamp.split('T')[1].split('.')[0] : '';
-                    const pos = (d.lat !== null && d.lon !== null)
-                        ? ` ${d.lat.toFixed(5)},${d.lon.toFixed(5)}`
-                        : '';
                     const div = document.createElement('div');
                     div.className = 'det-entry';
-                    const timeSpan = document.createElement('span');
-                    timeSpan.className = 'det-time';
-                    timeSpan.textContent = time;
-                    const labelSpan = document.createElement('span');
-                    labelSpan.className = 'det-label';
-                    labelSpan.textContent = ' ' + d.label + ' ';
-                    const confSpan = document.createElement('span');
-                    confSpan.className = 'det-conf';
-                    confSpan.textContent = (d.confidence * 100).toFixed(0) + '%';
-                    div.appendChild(timeSpan);
-                    div.appendChild(labelSpan);
-                    div.appendChild(confSpan);
-                    if (pos) {
-                        const posSpan = document.createElement('span');
-                        posSpan.className = 'det-pos';
-                        posSpan.textContent = ' ' + pos;
-                        div.appendChild(posSpan);
+                    const ts = document.createElement('span');
+                    ts.className = 'det-time'; ts.textContent = time;
+                    const lb = document.createElement('span');
+                    lb.className = 'det-label'; lb.textContent = d.label;
+                    const cf = document.createElement('span');
+                    cf.className = 'det-conf'; cf.textContent = (d.confidence * 100).toFixed(0) + '%';
+                    div.appendChild(ts); div.appendChild(lb); div.appendChild(cf);
+                    if (d.lat !== null && d.lon !== null) {
+                        const ps = document.createElement('span');
+                        ps.className = 'det-pos';
+                        ps.textContent = d.lat.toFixed(5) + ',' + d.lon.toFixed(5);
+                        div.appendChild(ps);
                     }
                     log.appendChild(div);
                 }
-            } catch (e) {
-                // ignore
-            }
+            } catch (e) {}
         }
 
-        // Runtime config updates
         async function updatePrompts() {
             const raw = document.getElementById('prompts-input').value;
             const prompts = raw.split(',').map(s => s.trim()).filter(s => s);
             if (prompts.length === 0) return;
             try {
-                const resp = await fetch('/api/config/prompts', {
+                await fetch('/api/config/prompts', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({prompts})
                 });
-                const result = await resp.json();
-                if (result.status === 'ok') {
-                    console.log('Prompts updated:', result.prompts);
-                }
-            } catch (e) {
-                console.error('Failed to update prompts:', e);
-            }
+            } catch (e) { console.error('Failed to update prompts:', e); }
         }
 
         async function updateThreshold() {
             const threshold = parseFloat(document.getElementById('thresh-slider').value);
             try {
-                const resp = await fetch('/api/config/threshold', {
+                await fetch('/api/config/threshold', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({threshold})
                 });
-                const result = await resp.json();
-                if (result.status === 'ok') {
-                    console.log('Threshold updated:', result.threshold);
-                }
-            } catch (e) {
-                console.error('Failed to update threshold:', e);
-            }
+            } catch (e) { console.error('Failed to update threshold:', e); }
         }
 
         async function commandLoiter() {
-            if (!confirm('Command vehicle to LOITER/HOLD at current position?')) return;
-            try {
-                const resp = await fetch('/api/vehicle/loiter', {method: 'POST'});
-                const result = await resp.json();
-                console.log('Loiter command:', result);
-            } catch (e) {
-                console.error('Failed to send loiter command:', e);
-            }
+            if (!confirm('Command vehicle to LOITER/HOLD?')) return;
+            try { await fetch('/api/vehicle/loiter', {method: 'POST'}); }
+            catch (e) { console.error('Loiter failed:', e); }
         }
 
-        // ── Target control ────────────────────────────────────
+        // ── Target control ────────────────────────────────
         let selectedTrackId = null;
         let selectedTrackLabel = '';
 
@@ -614,36 +756,27 @@
                 const resp = await fetch('/api/tracks');
                 const tracks = await resp.json();
                 const list = document.getElementById('track-list');
-
                 if (!tracks || tracks.length === 0) {
-                    list.innerHTML = '<div style="color:#6b7fa3; padding:8px; font-size:0.75rem;">No tracks</div>';
+                    list.innerHTML = '<div class="track-empty">No tracks</div>';
                     return;
                 }
-
                 list.innerHTML = '';
                 for (const t of tracks) {
                     const div = document.createElement('div');
                     div.className = 'track-item' + (t.track_id === selectedTrackId ? ' selected' : '');
-                    const infoSpan = document.createElement('span');
-                    const tidSpan = document.createElement('span');
-                    tidSpan.className = 'tid';
-                    tidSpan.textContent = '#' + t.track_id;
-                    const tlabelSpan = document.createElement('span');
-                    tlabelSpan.className = 'tlabel';
-                    tlabelSpan.textContent = t.label;
-                    infoSpan.appendChild(tidSpan);
-                    infoSpan.appendChild(tlabelSpan);
-                    const confSpan = document.createElement('span');
-                    confSpan.className = 'tconf';
-                    confSpan.textContent = (t.confidence * 100).toFixed(0) + '%';
-                    div.appendChild(infoSpan);
-                    div.appendChild(confSpan);
+                    const info = document.createElement('span');
+                    const tid = document.createElement('span');
+                    tid.className = 'tid'; tid.textContent = '#' + t.track_id;
+                    const tl = document.createElement('span');
+                    tl.className = 'tlabel'; tl.textContent = t.label;
+                    info.appendChild(tid); info.appendChild(tl);
+                    const tc = document.createElement('span');
+                    tc.className = 'tconf'; tc.textContent = (t.confidence * 100).toFixed(0) + '%';
+                    div.appendChild(info); div.appendChild(tc);
                     div.onclick = () => selectTrack(t.track_id, t.label);
                     list.appendChild(div);
                 }
-            } catch (e) {
-                // ignore
-            }
+            } catch (e) {}
         }
 
         function selectTrack(trackId, label) {
@@ -651,11 +784,6 @@
             selectedTrackLabel = label;
             document.getElementById('btn-track').disabled = false;
             document.getElementById('btn-strike').disabled = false;
-            // Re-render list to show selection
-            document.querySelectorAll('.track-item').forEach(el => {
-                el.classList.remove('selected');
-            });
-            // Find and highlight
             updateTracks();
         }
 
@@ -672,23 +800,18 @@
                     document.getElementById('btn-unlock').disabled = false;
                     updateLockIndicator();
                 }
-            } catch (e) {
-                console.error('Lock failed:', e);
-            }
+            } catch (e) { console.error('Lock failed:', e); }
         }
 
         async function unlockTarget() {
             try {
                 await fetch('/api/target/unlock', {method: 'POST'});
-                selectedTrackId = null;
-                selectedTrackLabel = '';
+                selectedTrackId = null; selectedTrackLabel = '';
                 document.getElementById('btn-track').disabled = true;
                 document.getElementById('btn-strike').disabled = true;
                 document.getElementById('btn-unlock').disabled = true;
                 document.getElementById('lock-indicator').style.display = 'none';
-            } catch (e) {
-                console.error('Unlock failed:', e);
-            }
+            } catch (e) { console.error('Unlock failed:', e); }
         }
 
         function showStrikeConfirm() {
@@ -697,7 +820,6 @@
                 `#${selectedTrackId} (${selectedTrackLabel})`;
             document.getElementById('strike-modal').classList.add('active');
         }
-
         function hideStrikeConfirm() {
             document.getElementById('strike-modal').classList.remove('active');
         }
@@ -716,37 +838,53 @@
                     document.getElementById('btn-unlock').disabled = false;
                     updateLockIndicator();
                 }
-            } catch (e) {
-                console.error('Strike failed:', e);
-            }
+            } catch (e) { console.error('Strike failed:', e); }
         }
 
         async function updateLockIndicator() {
             try {
                 const resp = await fetch('/api/target');
                 const lock = await resp.json();
-                const indicator = document.getElementById('lock-indicator');
+                const el = document.getElementById('lock-indicator');
                 if (lock.locked) {
-                    indicator.style.display = 'block';
+                    el.style.display = 'block';
                     if (lock.mode === 'strike') {
-                        indicator.className = 'lock-indicator strike-active';
-                        indicator.textContent = `STRIKE: #${lock.track_id} ${lock.label || ''}`;
+                        el.className = 'lock-indicator strike-active';
+                        el.textContent = `STRIKE: #${lock.track_id} ${lock.label || ''}`;
                     } else {
-                        indicator.className = 'lock-indicator tracking';
-                        indicator.textContent = `TRACKING: #${lock.track_id} ${lock.label || ''}`;
+                        el.className = 'lock-indicator tracking';
+                        el.textContent = `TRACKING: #${lock.track_id} ${lock.label || ''}`;
                     }
                     document.getElementById('btn-unlock').disabled = false;
                 } else {
-                    indicator.style.display = 'none';
+                    el.style.display = 'none';
                 }
-            } catch (e) {
-                // ignore
-            }
+            } catch (e) {}
         }
 
-        // ── Pipeline controls ─────────────────────────────────
-        let isPaused = false;
+        // ── Engine switch ──────────────────────────────────
+        async function switchEngine(engine) {
+            const sel = document.getElementById('engine-select');
+            sel.disabled = true;
+            try {
+                const resp = await fetch('/api/config/engine', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({engine})
+                });
+                const result = await resp.json();
+                if (result.status !== 'ok') {
+                    alert('Engine switch failed: ' + (result.error || 'unknown error'));
+                }
+            } catch (e) {
+                console.error('Engine switch failed:', e);
+                alert('Engine switch failed');
+            }
+            sel.disabled = false;
+        }
 
+        // ── Pipeline controls ─────────────────────────────
+        let isPaused = false;
         async function togglePause() {
             isPaused = !isPaused;
             try {
@@ -756,26 +894,20 @@
                     body: JSON.stringify({paused: isPaused})
                 });
                 const btn = document.getElementById('btn-pause');
-                btn.textContent = isPaused ? 'RESUME' : 'PAUSE';
-                btn.className = isPaused ? 'btn-success btn-sm' : 'btn-warning btn-sm';
-            } catch (e) {
-                console.error('Pause/resume failed:', e);
-                isPaused = !isPaused;
-            }
+                btn.textContent = isPaused ? 'Resume' : 'Pause';
+                btn.className = isPaused ? 'btn-primary' : 'btn-warning';
+            } catch (e) { console.error('Pause failed:', e); isPaused = !isPaused; }
         }
 
         async function stopPipeline() {
-            if (!confirm('Stop the pipeline and shut down Hydra Detect?')) return;
+            if (!confirm('Stop Hydra Detect?')) return;
             try {
                 await fetch('/api/pipeline/stop', {method: 'POST'});
-                document.getElementById('conn-status').className = 'status offline';
+                document.getElementById('conn-status').className = 'status-pill offline';
                 document.getElementById('conn-status').textContent = 'STOPPED';
-            } catch (e) {
-                console.error('Stop failed:', e);
-            }
+            } catch (e) { console.error('Stop failed:', e); }
         }
 
-        // Polling intervals
         setInterval(updateStats, 1000);
         setInterval(updateDetections, 2000);
         setInterval(updateTracks, 500);
