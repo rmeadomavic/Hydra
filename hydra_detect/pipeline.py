@@ -133,19 +133,30 @@ def _set_power_mode(mode_id: int) -> dict:
     return result
 
 
-def _list_models(models_dir: str = "/models") -> list[dict]:
-    """List available YOLO model files in the models directory."""
+def _list_models(*model_dirs: str) -> list[dict]:
+    """List available YOLO model files across one or more directories.
+
+    Searches each directory for .pt, .engine, and .onnx files.
+    Deduplicates by filename (first directory wins).
+    """
     import glob
     models: list[dict] = []
-    for pattern in ("*.pt", "*.engine", "*.onnx"):
-        for path in sorted(glob.glob(f"{models_dir}/{pattern}")):
-            name = Path(path).name
-            size_mb = round(Path(path).stat().st_size / (1024 * 1024), 1)
-            models.append({"name": name, "path": path, "size_mb": size_mb})
+    seen_names: set[str] = set()
+    for models_dir in model_dirs:
+        if not Path(models_dir).is_dir():
+            continue
+        for pattern in ("*.pt", "*.engine", "*.onnx"):
+            for path in sorted(glob.glob(f"{models_dir}/{pattern}")):
+                name = Path(path).name
+                if name in seen_names:
+                    continue
+                seen_names.add(name)
+                size_mb = round(Path(path).stat().st_size / (1024 * 1024), 1)
+                models.append({"name": name, "path": path, "size_mb": size_mb})
     return models
 
 
-def _build_detector(cfg: configparser.ConfigParser) -> YOLODetector:
+def _build_detector(cfg: configparser.ConfigParser, models_dir: Path | None = None) -> YOLODetector:
     """Build a YOLO detector from config."""
     classes_raw = cfg.get("detector", "yolo_classes", fallback="")
     classes = None
@@ -161,9 +172,14 @@ def _build_detector(cfg: configparser.ConfigParser) -> YOLODetector:
                          classes_raw)
             classes = None
     model_name = cfg.get("detector", "yolo_model", fallback="yolov8n.pt")
-    # Prefer models from the mounted /models directory
-    models_path = Path("/models") / model_name
-    model_path = str(models_path) if models_path.exists() else model_name
+    # Search for the model in /models (Docker), then local models/, then bare name
+    model_path = model_name
+    for candidate_dir in [Path("/models"), models_dir]:
+        if candidate_dir is not None:
+            candidate = candidate_dir / model_name
+            if candidate.exists():
+                model_path = str(candidate)
+                break
     return YOLODetector(
         model_path=model_path,
         confidence=cfg.getfloat("detector", "yolo_confidence", fallback=0.45),
@@ -178,6 +194,9 @@ class Pipeline:
         self._cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
         self._cfg.read(config_path)
 
+        # Models directory: prefer /models (Docker mount), fall back to ./models
+        self._models_dir = Path(config_path).resolve().parent / "models"
+
         # Camera
         self._camera = Camera(
             source=self._cfg.get("camera", "source", fallback="0"),
@@ -187,7 +206,7 @@ class Pipeline:
         )
 
         # Detector
-        self._detector = _build_detector(self._cfg)
+        self._detector = _build_detector(self._cfg, self._models_dir)
 
         # Tracker
         self._tracker = ByteTracker(
@@ -255,7 +274,7 @@ class Pipeline:
         self._paused = False
         self._total_detections = 0
         self._frame_count = 0
-        self._jetson_stats: dict = {}
+        self._jetson_stats: dict = _read_jetson_stats()
         self._init_target_state()
 
     def _init_target_state(self) -> None:
@@ -641,7 +660,7 @@ class Pipeline:
 
     def _get_models(self) -> list[dict]:
         """Return available YOLO model files with current marked."""
-        models = _list_models("/models")
+        models = _list_models("/models", str(self._models_dir))
         current = Path(self._detector.model_path).name
         for m in models:
             m["active"] = m["name"] == current
@@ -649,11 +668,13 @@ class Pipeline:
 
     def _handle_model_switch(self, model_name: str) -> bool:
         """Switch YOLO model at runtime."""
-        model_path = f"/models/{model_name}"
-        if not Path(model_path).exists():
-            logger.error("Model not found: %s", model_path)
-            return False
-        return self._detector.switch_model(model_path)
+        # Search /models (Docker), then local models/
+        for candidate_dir in [Path("/models"), self._models_dir]:
+            candidate = candidate_dir / model_name
+            if candidate.exists():
+                return self._detector.switch_model(str(candidate))
+        logger.error("Model not found: %s", model_name)
+        return False
 
     def _handle_stop_command(self) -> None:
         """Stop the pipeline gracefully from the web UI."""

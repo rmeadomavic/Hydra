@@ -81,6 +81,14 @@ else
   fail "config.ini not found"
 fi
 
+# Check for model files
+MODEL_DIR="$(dirname "$0")/../models"
+if [ -d "$MODEL_DIR" ] && ls "$MODEL_DIR"/*.pt "$MODEL_DIR"/*.engine "$MODEL_DIR"/*.onnx >/dev/null 2>&1; then
+  ok "Model files found in models/"
+else
+  warn "No model files found in models/. Download one: wget -P models https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8s.pt"
+fi
+
 echo
 echo "Summary: PASS=$PASS WARN=$WARN FAIL=$FAIL"
 if [ "$FAIL" -gt 0 ]; then

@@ -29,13 +29,17 @@ Camera ─> Detector (YOLO) ─> ByteTrack ─> MAVLink Alerts
 # Grab the code
 git clone https://github.com/rmeadomavic/Hydra.git
 cd Hydra
-pip install -r requirements.txt
+sudo pip install -r requirements.txt
+
+# Download a YOLO model into the models directory
+mkdir -p models
+wget -P models https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8s.pt
 
 # Point it at your hardware
-vim config.ini
+nano config.ini
 
 # Fire it up
-python -m hydra_detect --config config.ini
+sudo python -m hydra_detect --config config.ini
 ```
 
 Then open **http://localhost:8080** in a browser — that's your operator dashboard.
@@ -171,7 +175,7 @@ Everything lives in `config.ini`. Here's the full reference:
 ### [camera]
 | Key | Default | What It Does |
 |-----|---------|--------------|
-| `source` | `0` | Camera source — device index (`0`), RTSP URL, GStreamer pipeline, or file path |
+| `source` | `auto` | Camera source — `auto` picks the first webcam, or use device index (`0`, `2`), RTSP URL, GStreamer pipeline, or file path |
 | `width` | `640` | Capture width in pixels |
 | `height` | `480` | Capture height in pixels |
 | `fps` | `30` | Target frame rate |

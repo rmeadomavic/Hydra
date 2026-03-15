@@ -23,6 +23,47 @@ def _get_device_name(idx: int) -> str:
         return f"Video {idx}"
 
 
+def _is_capture_device(idx: int) -> bool:
+    """Check if a /dev/video device supports video capture (not metadata/output).
+
+    Reads the V4L2 device_caps from sysfs. Bit 0 of device_caps indicates
+    VIDEO_CAPTURE capability. On Jetson, /dev/video0 and /dev/video1 are
+    often HDMI output or metadata nodes, not real cameras.
+    """
+    try:
+        caps_path = f"/sys/class/video4linux/video{idx}/device/video4linux/video{idx}/dev"
+        # More reliable: check if the device name looks like a real camera
+        name = _get_device_name(idx).lower()
+        # Filter out metadata companion devices (odd-numbered V4L2 nodes)
+        # and devices with generic "USB Video" names that are often HDMI capture
+        if any(kw in name for kw in ("webcam", "camera", "cam", "c270", "c920", "c922", "brio")):
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def find_default_camera() -> int:
+    """Find the first real webcam device index, falling back to 0.
+
+    On Jetson boards, /dev/video0 is often an HDMI capture/output device.
+    This function prefers devices whose V4L2 name contains common camera
+    keywords (webcam, camera, c270, etc.) over generic "USB Video" devices.
+    """
+    devices = sorted(glob.glob("/dev/video*"))
+    # First pass: look for known webcam names
+    for dev in devices:
+        try:
+            idx = int(dev.replace("/dev/video", ""))
+        except ValueError:
+            continue
+        if _is_capture_device(idx):
+            logger.info("Auto-detected webcam: /dev/video%d (%s)", idx, _get_device_name(idx))
+            return idx
+    # Fallback to device 0
+    return 0
+
+
 def list_video_sources(current_source: int | str | None = None) -> list[dict]:
     """Enumerate available /dev/video* devices and identify them.
 
@@ -74,12 +115,15 @@ class Camera:
 
     def __init__(
         self,
-        source: str | int = 0,
+        source: str | int = "auto",
         width: int = 640,
         height: int = 480,
         fps: int = 30,
     ):
-        self._source = int(source) if str(source).isdigit() else source
+        if str(source).lower() == "auto":
+            self._source = find_default_camera()
+        else:
+            self._source = int(source) if str(source).isdigit() else source
         self._width = width
         self._height = height
         self._fps = fps
