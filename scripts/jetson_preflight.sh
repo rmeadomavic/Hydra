@@ -24,6 +24,13 @@ echo "Hydra Detect Jetson preflight"
 echo "============================="
 
 check_cmd python3 "python3 is installed"
+
+if python3 -m pip --version >/dev/null 2>&1; then
+  ok "pip is installed"
+else
+  fail "pip is not installed. Run: sudo apt install -y python3-pip"
+fi
+
 check_cmd nvpmodel "nvpmodel utility is available"
 check_cmd tegrastats "tegrastats utility is available"
 check_cmd systemctl "systemctl is available"

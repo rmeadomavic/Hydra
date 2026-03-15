@@ -26,10 +26,13 @@ Camera ─> Detector (YOLO) ─> ByteTrack ─> MAVLink Alerts
 ## Getting Started
 
 ```bash
+# Install pip (not included on fresh JetPack installs)
+sudo apt update && sudo apt install -y python3-pip
+
 # Grab the code
 git clone https://github.com/rmeadomavic/Hydra.git
 cd Hydra
-sudo pip install -r requirements.txt
+sudo pip3 install -r requirements.txt
 
 # Download a YOLO model into the models directory
 mkdir -p models
@@ -39,7 +42,7 @@ wget -P models https://github.com/ultralytics/assets/releases/download/v8.2.0/yo
 nano config.ini
 
 # Fire it up
-sudo python -m hydra_detect --config config.ini
+sudo python3 -m hydra_detect --config config.ini
 ```
 
 Then open **http://localhost:8080** in a browser — that's your operator dashboard.
