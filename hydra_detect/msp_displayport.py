@@ -260,16 +260,21 @@ class MspDisplayPort:
     def _format_gps_line(self, data: MspOsdData) -> str:
         """Format the GPS position string for row 17, left side.
 
-        Uses MGRS if the mgrs module is available, otherwise lat/lon.
+        Shows decimal lat/lon by default.  If the ``mgrs`` module is
+        available the MGRS grid reference is appended after the coordinates,
+        space permitting.
         """
         if data.gps_lat is None or data.gps_lon is None:
             return "NO GPS"
+        latlon = f"{data.gps_lat:.5f},{data.gps_lon:.5f}"
         try:
             import mgrs
             m = mgrs.MGRS()
-            return m.toMGRS(data.gps_lat, data.gps_lon)
+            grid = m.toMGRS(data.gps_lat, data.gps_lon)
+            combined = f"{latlon} {grid}"
+            return combined[:self._cols]
         except Exception:
-            return f"{data.gps_lat:.5f},{data.gps_lon:.5f}"
+            return latlon
 
     def _format_det_line(self, data: MspOsdData) -> str:
         """Format the most recent detection for row 17, right-aligned."""
