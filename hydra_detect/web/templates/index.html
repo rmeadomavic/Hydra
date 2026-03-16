@@ -839,7 +839,7 @@
                     mavBadge.textContent = 'DISCONNECTED';
                 }
 
-                document.getElementById('gps-fix').textContent = s.gps_fix !== undefined ? s.gps_fix + 'D' : '--';
+                document.getElementById('gps-fix').textContent = (!s.mavlink || s.gps_fix === undefined) ? '--' : (s.gps_fix === 0 ? 'No Fix' : s.gps_fix + 'D');
                 document.getElementById('gps-pos').textContent = s.position || '';
 
                 if (!isPaused) {

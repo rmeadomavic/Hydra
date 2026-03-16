@@ -35,6 +35,9 @@ Kismet (WiFi/SDR) ─> RF Hunt Controller ─> RSSI Gradient Ascent ─> MAVLink
 # Install pip (not included on fresh JetPack installs)
 sudo apt update && sudo apt install -y python3-pip
 
+# Allow serial access to the flight controller (one-time, then log out/in)
+sudo usermod -aG dialout $USER
+
 # Grab the code
 git clone https://github.com/rmeadomavic/Hydra.git
 cd Hydra

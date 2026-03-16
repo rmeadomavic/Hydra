@@ -1,0 +1,69 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "Hydra Detect",
+  "theme": "quill",
+  "colors": {
+    "primary": "#385723",
+    "light": "#6B8E4E",
+    "dark": "#2D4A1C",
+    "background": {
+      "dark": "#1a1a1a"
+    }
+  },
+  "logo": {
+    "dark": "/images/logo-dark.svg",
+    "light": "/images/logo-light.svg"
+  },
+  "favicon": "/images/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting started",
+            "pages": ["introduction", "quickstart"]
+          },
+          {
+            "group": "Setup guides",
+            "pages": [
+              "setup/jetson-flash",
+              "setup/jetson-docker",
+              "setup/pixhawk",
+              "setup/hdzero-osd"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/dashboard",
+              "features/target-control",
+              "features/autonomous-strike",
+              "features/rf-homing",
+              "features/fpv-osd",
+              "features/post-mission-review"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/configuration",
+              "reference/api",
+              "reference/vehicles"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/rmeadomavic/Hydra"
+    }
+  }
+}

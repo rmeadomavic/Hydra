@@ -1,11 +1,16 @@
-# Hydra Detect — Jetson Orin Nano Setup Guide (Docker)
+---
+title: "Install Hydra (Docker)"
+description: "Install Hydra Detect from GitHub onto a fresh NVIDIA Jetson Orin Nano using Docker."
+sidebarTitle: "Docker install"
+icon: "docker"
+---
 
 This guide walks through installing Hydra Detect from GitHub onto a fresh
 NVIDIA Jetson Orin Nano using Docker. Written for students and instructors
 to reproduce the setup.
 
 For initial JetPack flashing and OS setup, see
-[jetson-initial-setup.md](jetson-initial-setup.md) first.
+[Jetson flash](/setup/jetson-flash) first.
 
 ## Prerequisites
 
@@ -15,7 +20,9 @@ For initial JetPack flashing and OS setup, see
 - GitHub access to the Hydra repo
 - USB camera (or RTSP/file source configured in `config.ini`)
 
-## 1. Verify Your Jetson Environment
+<Steps>
+
+<Step title="Verify your Jetson environment">
 
 ```bash
 # Check L4T version
@@ -37,7 +44,9 @@ sudo usermod -aG dialout $USER
 dpkg -l | grep nvidia-container-toolkit
 ```
 
-## 2. Clone the Hydra Repo
+</Step>
+
+<Step title="Clone the Hydra repo">
 
 ```bash
 cd ~
@@ -45,11 +54,13 @@ git clone https://github.com/rmeadomavic/Hydra.git
 cd Hydra
 ```
 
-## 3. Pull the Base Image
+</Step>
+
+<Step title="Pull the base image">
 
 Hydra's Dockerfile uses `dustynv/l4t-pytorch:r36.4.0` as its base image.
 This is a ~6 GB download from Docker Hub that includes PyTorch, CUDA-enabled
-OpenCV, and TensorRT — everything the detector needs.
+OpenCV, and TensorRT -- everything the detector needs.
 
 ```bash
 docker pull dustynv/l4t-pytorch:r36.4.0
@@ -57,10 +68,13 @@ docker pull dustynv/l4t-pytorch:r36.4.0
 
 This will take several minutes depending on your internet speed.
 
-> **Note:** The r36.4.0 image works on R36.4.7 (JetPack 6.2.1) hosts
-> without issues.
+<Note>
+The r36.4.0 image works on R36.4.7 (JetPack 6.2.1) hosts without issues.
+</Note>
 
-## 4. Build the Hydra Detect Image
+</Step>
+
+<Step title="Build the Hydra Detect image">
 
 ```bash
 cd ~/Hydra
@@ -70,26 +84,30 @@ docker build --network=host -t hydra-detect:latest .
 Use `--network=host` to ensure DNS resolution works during the build.
 The build takes about 2 minutes.
 
-> **What the Dockerfile handles automatically:**
->
-> The l4t-pytorch base image already includes opencv-contrib-python (CUDA),
-> numpy 1.x, and PyTorch. The Dockerfile:
->
-> 1. **Overrides `PIP_INDEX_URL`** — the base image sets it to
->    `pypi.jetson-ai-lab.dev` (via env var), which can't resolve DNS during
->    Docker build. The Dockerfile resets it to `pypi.org`.
-> 2. **Installs ultralytics/supervision with `--no-deps`** — both packages
->    depend on `opencv-python`, which would overwrite the base image's
->    CUDA-enabled `opencv-contrib-python` and break `cv2` imports.
-> 3. **Pins numpy to <2** — the base image's OpenCV was compiled against
->    numpy 1.x. Letting pip upgrade to numpy 2.x causes
->    `_ARRAY_API not found` crashes.
->
-> You will see pip warnings about `opencv-python` not being installed —
-> this is expected and safe to ignore. The CUDA-enabled OpenCV from the
-> base image is what Hydra uses.
+<Tip>
+**What the Dockerfile handles automatically:**
 
-## 5. Configure
+The l4t-pytorch base image already includes opencv-contrib-python (CUDA),
+numpy 1.x, and PyTorch. The Dockerfile:
+
+1. **Overrides `PIP_INDEX_URL`** -- the base image sets it to
+   `pypi.jetson-ai-lab.dev` (via env var), which can't resolve DNS during
+   Docker build. The Dockerfile resets it to `pypi.org`.
+2. **Installs ultralytics/supervision with `--no-deps`** -- both packages
+   depend on `opencv-python`, which would overwrite the base image's
+   CUDA-enabled `opencv-contrib-python` and break `cv2` imports.
+3. **Pins numpy to &lt;2** -- the base image's OpenCV was compiled against
+   numpy 1.x. Letting pip upgrade to numpy 2.x causes
+   `_ARRAY_API not found` crashes.
+
+You will see pip warnings about `opencv-python` not being installed --
+this is expected and safe to ignore. The CUDA-enabled OpenCV from the
+base image is what Hydra uses.
+</Tip>
+
+</Step>
+
+<Step title="Configure">
 
 Edit `config.ini` before running. Key settings to verify:
 
@@ -103,18 +121,24 @@ nano config.ini
 | `connection_string` | `[mavlink]` | `/dev/ttyACM0` or UDP endpoint |
 | `enabled` | `[mavlink]` | Set `false` if no flight controller connected |
 
-> **Tip:** YOLO (yolov8n) downloads its model automatically on first run
-> (~6 MB). No manual model setup required.
+<Tip>
+YOLO (yolov8n) downloads its model automatically on first run
+(~6 MB). No manual model setup required.
+</Tip>
 
-## 6. Run Hydra Detect
+</Step>
 
-**Important:** Always use `--runtime nvidia` — without it, OpenCV will
-crash with `libwayland-cursor.so.0: file too short` because the container
-needs the host's NVIDIA libraries mounted in.
+<Step title="Run Hydra Detect">
 
-### Quick test run (no MAVLink)
+<Warning>
+Always use `--runtime nvidia` -- without it, OpenCV will crash with
+`libwayland-cursor.so.0: file too short` because the container needs the
+host's NVIDIA libraries mounted in.
+</Warning>
 
-```bash
+<CodeGroup>
+
+```bash Quick test run (no MAVLink)
 docker run --rm --privileged --runtime nvidia \
   --device /dev/video0:/dev/video0 \
   --device /dev/video2:/dev/video2 \
@@ -128,9 +152,7 @@ docker run --rm --privileged --runtime nvidia \
   hydra-detect:latest
 ```
 
-### Full run with MAVLink and persistent data
-
-```bash
+```bash Full run with MAVLink
 docker run --rm --privileged --runtime nvidia \
   --device /dev/video0:/dev/video0 \
   --device /dev/video2:/dev/video2 \
@@ -147,18 +169,22 @@ docker run --rm --privileged --runtime nvidia \
   hydra-detect:latest
 ```
 
-> **Volume mount explanation:**
-> - `nvpmodel` / `jetson_clocks` — lets the dashboard control Jetson power modes
-> - `models/` — drop YOLO `.pt` files here to switch models from the dashboard
-> - `output_data/` — detection logs and image snapshots persist outside the container
+</CodeGroup>
 
-### Access the web dashboard
+<Note>
+**Volume mount explanation:**
+- `nvpmodel` / `jetson_clocks` -- lets the dashboard control Jetson power modes
+- `models/` -- drop YOLO `.pt` files here to switch models from the dashboard
+- `output_data/` -- detection logs and image snapshots persist outside the container
+</Note>
+
+**Access the web dashboard**
 
 Open a browser to `http://<jetson-ip>:8080`
 
 You should see a live camera feed with detection bounding boxes overlaid.
 
-### Expected startup log
+**Expected startup log**
 
 A healthy startup looks like this:
 
@@ -172,10 +198,12 @@ Camera opened: 0 (640x480 @ 30 fps)
 Web UI started at http://0.0.0.0:8080
 ```
 
-You will also see some Argus/GStreamer warnings — these are harmless
+You will also see some Argus/GStreamer warnings -- these are harmless
 (OpenCV tries CSI camera first, then falls back to USB).
 
-## 7. Run as a System Service (Optional)
+</Step>
+
+<Step title="Run as a system service (optional)">
 
 To start Hydra Detect automatically on boot:
 
@@ -190,22 +218,31 @@ sudo systemctl status hydra-detect
 sudo journalctl -u hydra-detect -f
 ```
 
-## 8. Verify with Preflight Check
+</Step>
+
+<Step title="Verify with preflight check">
 
 ```bash
 # Run inside the repo directory
 bash scripts/jetson_preflight.sh
 ```
 
+</Step>
+
+</Steps>
+
 ## Troubleshooting
 
-### Docker permission denied
+<AccordionGroup>
+
+<Accordion title="Docker permission denied">
 ```
 Got permission denied while trying to connect to the Docker daemon socket
 ```
 **Fix:** `sudo usermod -aG docker $USER` then log out/in.
+</Accordion>
 
-### MAVLink permission denied on serial port
+<Accordion title="MAVLink permission denied on serial port">
 ```
 MAVLink connection failed: [Errno 13] Permission denied: '/dev/ttyACM0'
 ```
@@ -214,8 +251,9 @@ MAVLink connection failed: [Errno 13] Permission denied: '/dev/ttyACM0'
 sudo usermod -aG dialout $USER
 ```
 Then log out and back in. The preflight script (`scripts/jetson_preflight.sh`) checks for this.
+</Accordion>
 
-### NVIDIA runtime not found
+<Accordion title="NVIDIA runtime not found">
 ```
 docker: Error response from daemon: unknown or invalid runtime name: nvidia
 ```
@@ -225,16 +263,18 @@ sudo apt-get update
 sudo apt-get install -y nvidia-container-toolkit
 sudo systemctl restart docker
 ```
+</Accordion>
 
-### OpenCV crash: libwayland-cursor.so.0 file too short
+<Accordion title="OpenCV crash: libwayland-cursor.so.0 file too short">
 ```
 ImportError: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-cursor.so.0: file too short
 ```
 **Fix:** You forgot `--runtime nvidia` in your `docker run` command. The
 NVIDIA container runtime mounts the correct host GPU libraries into the
 container. Without it, stale library stubs inside the image cause crashes.
+</Accordion>
 
-### CUDA out of memory
+<Accordion title="CUDA out of memory">
 ```
 NVML_SUCCESS == r INTERNAL ASSERT FAILED at CUDACachingAllocator.cpp
 ```
@@ -247,23 +287,26 @@ sudo swapon /swapfile
 # Make permanent:
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
+</Accordion>
 
-### numpy 2.x / _ARRAY_API error
+<Accordion title="numpy 2.x / _ARRAY_API error">
 ```
 A module that was compiled using NumPy 1.x cannot be run in NumPy 2.x
 ```
 **Fix:** Already handled in the Dockerfile. If you see this after modifying
 `requirements.txt`, make sure numpy is pinned to `<2.0`.
+</Accordion>
 
-### pip DNS failure during build
+<Accordion title="pip DNS failure during build">
 ```
 Failed to establish a new connection: Name or service not known
 ```
-for `pypi.jetson-ai-lab.dev` — **Fix:** Already handled in the Dockerfile
+for `pypi.jetson-ai-lab.dev` -- **Fix:** Already handled in the Dockerfile
 (`PIP_INDEX_URL` override). If you see this, make sure you're using the
 current Dockerfile and building with `--network=host`.
+</Accordion>
 
-### Port already allocated
+<Accordion title="Port already allocated">
 ```
 Bind for 0.0.0.0:8080 failed: port is already allocated
 ```
@@ -271,32 +314,38 @@ Bind for 0.0.0.0:8080 failed: port is already allocated
 ```bash
 docker kill $(docker ps -q --filter "publish=8080")
 ```
+</Accordion>
 
-### Camera not detected
+<Accordion title="Camera not detected">
 ```bash
 ls -la /dev/video*
 # If empty, check USB connection or CSI ribbon cable
 v4l2-ctl --list-devices
 ```
+</Accordion>
 
-### Argus/GStreamer warnings (safe to ignore)
+<Accordion title="Argus/GStreamer warnings (safe to ignore)">
 ```
 (Argus) Error FileOperationFailed: Connecting to nvargus-daemon failed
 GStreamer: pipeline have not been created
 ```
 These appear because OpenCV tries CSI camera access first, then falls
 back to USB V4L2. They do not affect camera capture.
+</Accordion>
 
-### NvMap errors (safe to ignore)
+<Accordion title="NvMap errors (safe to ignore)">
 ```
 NvMapMemAllocInternalTagged: 1075072515 error 12
 ```
 These are CUDA memory allocator messages on Jetson, not fatal errors.
 They appear during GPU initialization and are normal.
+</Accordion>
+
+</AccordionGroup>
 
 ---
 
-## Summary of Issues Encountered During Setup
+## Summary of issues encountered during setup
 
 This guide was built by doing the actual install and documenting every
 problem. Here's the full list of issues hit and resolved:

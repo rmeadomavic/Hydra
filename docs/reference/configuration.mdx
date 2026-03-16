@@ -1,0 +1,117 @@
+---
+title: "Configuration reference"
+sidebarTitle: "Configuration"
+icon: "gear"
+description: "Complete config.ini reference for all Hydra Detect settings"
+---
+
+<Note>
+All settings live in `config.ini`. Restart the service after changes. Some settings (confidence threshold, prompts) can be changed at runtime from the web dashboard.
+</Note>
+
+## [camera]
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `source` | `auto` | Camera source — `auto` picks the first webcam, or use device index (`0`, `2`), RTSP URL, GStreamer pipeline, or file path |
+| `width` | `640` | Capture width in pixels |
+| `height` | `480` | Capture height in pixels |
+| `fps` | `30` | Target frame rate |
+| `hfov_deg` | `60.0` | Horizontal field of view in degrees (used to estimate target bearing) |
+
+## [detector]
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `yolo_model` | `yolov8n.pt` | YOLO model file (auto-downloads on first run) |
+| `yolo_confidence` | `0.45` | Confidence threshold — lower catches more, higher reduces false positives |
+| `yolo_classes` | *(all)* | Comma-separated COCO class IDs to detect (empty = everything) |
+
+## [tracker]
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `track_thresh` | `0.5` | Minimum confidence to start a new track |
+| `track_buffer` | `30` | Frames to keep a lost track alive before dropping it |
+| `match_thresh` | `0.8` | IoU threshold for matching detections to existing tracks |
+
+## [mavlink]
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `enabled` | `true` | Turn MAVLink on or off |
+| `connection_string` | `/dev/ttyACM0` | Serial device or `udp:127.0.0.1:14550` |
+| `baud` | `115200` | Serial baud rate |
+| `source_system` | `1` | MAVLink system ID |
+| `min_gps_fix` | `3` | Minimum GPS fix type required (3 = 3D fix) |
+| `alert_statustext` | `true` | Send detection alerts as STATUSTEXT messages |
+| `alert_interval_sec` | `5.0` | Minimum seconds between repeat alerts for the same object class |
+| `severity` | `2` | MAVLink severity level (0=Emergency through 7=Debug) |
+| `auto_loiter_on_detect` | `false` | Automatically switch to LOITER when something is detected |
+| `guided_roi_on_detect` | `false` | Automatically point the gimbal at detections |
+| `strike_distance_m` | `20.0` | How far ahead (metres) to project the strike waypoint |
+
+## [web]
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `enabled` | `true` | Turn the web dashboard on or off |
+| `host` | `0.0.0.0` | Bind address |
+| `port` | `8080` | HTTP port |
+| `mjpeg_quality` | `70` | JPEG quality for the video stream (1-100) |
+
+## [osd]
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `enabled` | `false` | Turn FPV OSD overlay on or off (needs MAVLink + FC with OSD chip) |
+| `mode` | `statustext` | `statustext` (simple) or `named_value` (needs Lua script on FC) |
+| `update_interval` | `0.2` | Seconds between OSD updates — lower is snappier but chattier on the MAVLink bus |
+
+## [autonomous]
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `enabled` | `false` | Enable autonomous strike controller |
+| `geofence_lat` | `0.0` | Circle geofence center latitude |
+| `geofence_lon` | `0.0` | Circle geofence center longitude |
+| `geofence_radius_m` | `100.0` | Circle geofence radius in metres |
+| `geofence_polygon` | *(empty)* | Polygon geofence as `lat,lon;lat,lon;...` (overrides circle) |
+| `min_confidence` | `0.85` | Minimum detection confidence for auto-strike |
+| `min_track_frames` | `5` | Consecutive frames a target must be tracked |
+| `allowed_classes` | *(all)* | Comma-separated class labels allowed for auto-strike |
+| `strike_cooldown_sec` | `30.0` | Seconds between autonomous strikes |
+| `allowed_vehicle_modes` | `AUTO` | Vehicle must be in one of these modes |
+
+## [rf_homing]
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `enabled` | `false` | Enable RF source localization |
+| `mode` | `wifi` | `wifi` (hunt by BSSID) or `sdr` (hunt by frequency) |
+| `target_bssid` | *(empty)* | MAC address to locate (WiFi mode) |
+| `target_freq_mhz` | `915.0` | Frequency in MHz to locate (SDR mode) |
+| `kismet_host` | `http://localhost:2501` | Kismet REST API URL |
+| `kismet_user` | `kismet` | Kismet username |
+| `kismet_pass` | `kismet` | Kismet password |
+| `search_pattern` | `lawnmower` | Search pattern: `lawnmower` or `spiral` |
+| `search_area_m` | `100.0` | Search area size in metres |
+| `search_spacing_m` | `20.0` | Grid spacing between search legs |
+| `search_alt_m` | `15.0` | Search altitude in metres |
+| `rssi_threshold_dbm` | `-80.0` | RSSI level to switch from search to homing |
+| `rssi_converge_dbm` | `-40.0` | RSSI level to declare source found |
+| `gradient_step_m` | `5.0` | Step size for gradient ascent |
+| `poll_interval_sec` | `0.5` | RSSI polling interval |
+| `arrival_tolerance_m` | `3.0` | Distance to consider a waypoint reached |
+
+## [logging]
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `log_dir` | `/data/logs` | Where detection logs go |
+| `log_format` | `jsonl` | Log format: `csv` or `jsonl` |
+| `save_images` | `true` | Save full-frame JPEG snapshots when something is detected |
+| `image_dir` | `/data/images` | Where snapshots go |
+| `image_quality` | `90` | JPEG quality for snapshots |
+| `save_crops` | `false` | Save cropped images of detected objects |
+| `crop_dir` | `/data/crops` | Where cropped images go |

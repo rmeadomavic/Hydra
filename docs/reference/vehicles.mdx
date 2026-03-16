@@ -1,0 +1,60 @@
+---
+title: "Vehicle compatibility"
+sidebarTitle: "Vehicles"
+icon: "ship"
+description: "Supported ArduPilot vehicle types and how Hydra interacts with each"
+---
+
+Hydra works with any ArduPilot vehicle that supports `GUIDED` mode. The system automatically adapts its behavior based on the vehicle type reported over MAVLink.
+
+<Tip>
+Hydra auto-detects whether to use `LOITER` or `HOLD` based on the vehicle's mode mapping. You do not need to configure this manually.
+</Tip>
+
+<CardGroup cols={2}>
+
+<Card title="Drones" icon="helicopter">
+  **ArduCopter**
+
+  - **Hold position:** `LOITER` mode
+  - **Tracking:** `CONDITION_YAW` to keep targets centered in the camera
+  - **Strike:** `GUIDED` mode with `SET_POSITION_TARGET_GLOBAL_INT`
+  - Works best with a gimbal for ROI targeting (`guided_roi_on_detect`)
+</Card>
+
+<Card title="Boats" icon="sailboat">
+  **ArduRover (boat mode)**
+
+  - **Hold position:** `HOLD` mode
+  - **Tracking:** Yaw commands steer the rudder
+  - **Strike:** `GUIDED` mode drives toward the target
+  - Tune `strike_distance_m` in `[mavlink]` for your water speed
+</Card>
+
+<Card title="Rovers" icon="truck-monster">
+  **ArduRover**
+
+  - **Hold position:** `HOLD` mode
+  - **Tracking:** Yaw commands turn the vehicle
+  - **Strike:** `GUIDED` mode drives toward the target
+  - Make sure there is a clear path before sending a strike
+</Card>
+
+<Card title="Other ArduPilot" icon="microchip">
+  **Any vehicle with GUIDED support**
+
+  - If it supports `GUIDED` mode and `CONDITION_YAW`, Hydra will work with it
+  - The system auto-detects whether to use `LOITER` or `HOLD` from the vehicle's mode mapping
+  - Test with hold-position commands before using strike
+</Card>
+
+</CardGroup>
+
+## Mode summary
+
+| Vehicle type | Hold mode | Yaw control | Strike mode |
+|-------------|-----------|-------------|-------------|
+| ArduCopter (drone) | `LOITER` | `CONDITION_YAW` | `GUIDED` |
+| ArduRover boat mode | `HOLD` | Rudder via yaw | `GUIDED` |
+| ArduRover (ground) | `HOLD` | Steering via yaw | `GUIDED` |
+| Other ArduPilot | `LOITER` or `HOLD` (auto) | `CONDITION_YAW` | `GUIDED` |

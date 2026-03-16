@@ -78,6 +78,12 @@ else
   warn "No telemetry serial device found (/dev/ttyACM0 or /dev/ttyUSB0)"
 fi
 
+if id -nG | rg -qw dialout; then
+  ok "User is in dialout group (serial access)"
+else
+  warn "User is NOT in dialout group. Run: sudo usermod -aG dialout \$USER && logout"
+fi
+
 if [ -r config.ini ]; then
   if rg -q "^yolo_model\s*=" config.ini; then
     ok "config.ini detector model is configured"
