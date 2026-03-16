@@ -66,6 +66,33 @@ audit_log = logging.getLogger("hydra.audit")
 MAX_PROMPTS = 20
 MAX_PROMPT_LENGTH = 200
 
+TACTICAL_CATEGORIES = {
+    "Personnel":        ["person", "soldier", "combatant", "civilian"],
+    "Ground Vehicles":  ["car", "motorcycle", "truck", "bus", "bicycle", "train", "tank", "apc", "humvee"],
+    "Watercraft/Air":   ["boat", "airplane", "drone", "uav", "helicopter", "ship"],
+    "Carried Equipment":["backpack", "suitcase", "handbag", "cell phone", "laptop", "radio"],
+    "Animals":          ["dog", "horse", "bird", "cow", "sheep", "cat", "elephant", "bear", "zebra", "giraffe"],
+    "Potential Weapons": ["knife", "scissors", "baseball bat", "rifle", "pistol", "rpg"],
+    "Concealment":      ["umbrella", "kite"],
+    "Containers":       ["bottle", "cup", "bowl"],
+    "Landmarks":        ["fire hydrant", "stop sign", "traffic light", "bench", "chair"],
+}
+
+
+def _categorize_classes(all_classes: list[str]) -> dict[str, list[str]]:
+    """Group class names into tactical categories. Unmatched go to 'Other'."""
+    result: Dict[str, List[str]] = {}
+    categorized: set[str] = set()
+    for cat_name, cat_classes in TACTICAL_CATEGORIES.items():
+        matched = [c for c in all_classes if c in cat_classes]
+        if matched:
+            result[cat_name] = matched
+            categorized.update(matched)
+    other = [c for c in all_classes if c not in categorized]
+    if other:
+        result["Other"] = other
+    return result
+
 
 def _audit(request: Request, action: str, target: str = "", outcome: str = "ok") -> None:
     """Log a control action for accountability."""
@@ -241,6 +268,47 @@ async def api_set_threshold(request: Request, authorization: Optional[str] = Hea
         return {"status": "ok", "threshold": threshold_val}
     _audit(request, "set_threshold", outcome="unavailable")
     return JSONResponse({"error": "threshold change not available"}, status_code=400)
+
+
+@app.get("/api/config/alert-classes")
+async def api_get_alert_classes():
+    """Return current alert class filter and available classes."""
+    cb = stream_state.get_callback("get_class_names")
+    all_classes = cb() if cb else []
+    config = stream_state.get_runtime_config()
+    alert_classes = config.get("alert_classes", [])
+    return {
+        "alert_classes": alert_classes,
+        "all_classes": all_classes,
+        "categories": _categorize_classes(all_classes),
+    }
+
+
+@app.post("/api/config/alert-classes")
+async def api_set_alert_classes(request: Request, authorization: Optional[str] = Header(None)):
+    """Update alert class filter. Body: {"classes": ["person", "car"]} or {"classes": []} for all."""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    classes = body.get("classes")
+    if not isinstance(classes, list):
+        return JSONResponse({"error": "classes must be a list"}, status_code=400)
+    if classes:
+        cb = stream_state.get_callback("get_class_names")
+        valid_classes = set(cb()) if cb else set()
+        for c in classes:
+            if not isinstance(c, str):
+                return JSONResponse({"error": "each class must be a string"}, status_code=400)
+            if valid_classes and c not in valid_classes:
+                return JSONResponse({"error": f"unknown class: {c}"}, status_code=400)
+    cb = stream_state.get_callback("on_alert_classes_change")
+    if cb:
+        cb(classes)
+        _audit(request, "set_alert_classes", target=str(len(classes)))
+        return {"status": "ok", "classes": classes}
+    _audit(request, "set_alert_classes", outcome="unavailable")
+    return JSONResponse({"error": "alert class filter not available"}, status_code=503)
 
 
 @app.post("/api/vehicle/loiter")
