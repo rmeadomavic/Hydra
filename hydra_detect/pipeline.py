@@ -219,6 +219,14 @@ class Pipeline:
             match_thresh=self._cfg.getfloat("tracker", "match_thresh", fallback=0.8),
         )
 
+        # Alert class filter (shared with MAVLink and overlay)
+        alert_classes_raw = self._cfg.get("mavlink", "alert_classes", fallback="")
+        alert_classes = None
+        if alert_classes_raw.strip():
+            alert_classes = {c.strip() for c in alert_classes_raw.split(",") if c.strip()}
+            alert_classes = alert_classes or None
+        self._alert_classes = alert_classes
+
         # MAVLink
         self._mavlink: Optional[MAVLinkIO] = None
         if self._cfg.getboolean("mavlink", "enabled", fallback=False):
@@ -242,6 +250,7 @@ class Pipeline:
                 guided_roi=self._cfg.getboolean(
                     "mavlink", "guided_roi_on_detect", fallback=False
                 ),
+                alert_classes=alert_classes,
             )
 
         # FPV OSD overlay (requires MAVLink and FC with OSD chip)
@@ -320,6 +329,19 @@ class Pipeline:
                 )
             else:
                 logger.warning("RF homing requires MAVLink — skipping")
+
+        # Geo-tracking for GCS map markers
+        self._geo_tracker = None
+        if (
+            self._mavlink is not None
+            and self._cfg.getboolean("mavlink", "geo_tracking", fallback=True)
+        ):
+            from .geo_tracking import GeoTracker
+            self._geo_tracker = GeoTracker(
+                self._mavlink,
+                camera_hfov_deg=self._cfg.getfloat("camera", "hfov_deg", fallback=60.0),
+            )
+            logger.info("Geo-tracking enabled (CAMERA_TRACKING_GEO_STATUS)")
 
         # Logger
         self._det_logger = DetectionLogger(
@@ -408,6 +430,7 @@ class Pipeline:
                 "auto_loiter": self._cfg.getboolean(
                     "mavlink", "auto_loiter_on_detect", fallback=False
                 ),
+                "alert_classes": list(self._alert_classes) if self._alert_classes else [],
             })
 
             # Wire runtime config callbacks
@@ -433,6 +456,9 @@ class Pipeline:
                 get_rf_status=self._get_rf_status,
                 on_rf_start=self._handle_rf_start,
                 on_rf_stop=self._handle_rf_stop,
+                on_set_mode_command=self._handle_set_mode_command,
+                on_alert_classes_change=self._handle_alert_classes_change,
+                get_class_names=self._detector.get_class_names,
             )
 
             stream_state.update_stats(
@@ -496,6 +522,14 @@ class Pipeline:
                 if self._mavlink.auto_loiter:
                     self._mavlink.command_loiter()
 
+            # Geo-tracking map markers
+            if self._geo_tracker is not None:
+                self._geo_tracker.send(
+                    track_result,
+                    alert_classes=self._alert_classes,
+                    locked_track_id=current_lock_id,
+                )
+
             # Autonomous strike evaluation
             if self._autonomous is not None and self._mavlink is not None:
                 self._autonomous.evaluate(
@@ -532,7 +566,7 @@ class Pipeline:
                         self._lock_mode = None
                     if self._mavlink is not None:
                         self._mavlink.send_statustext(
-                            f"TGT LOST: #{current_lock_id} — lock released"
+                            f"TGT LOST: #{current_lock_id} — lock released", severity=4
                         )
 
             # Log with GPS data
@@ -550,6 +584,7 @@ class Pipeline:
                 fps=fps,
                 locked_track_id=render_lock_id,
                 lock_mode=render_lock_mode,
+                alert_classes=self._alert_classes,
             )
 
             # FPV OSD update (sends to FC onboard OSD chip via MAVLink)
@@ -573,6 +608,14 @@ class Pipeline:
                     "camera_source": str(self._camera.source),
                 }
                 if self._mavlink is not None:
+                    telem = self._mavlink.get_telemetry()
+                    stats_update["vehicle_mode"] = telem.get("vehicle_mode")
+                    stats_update["armed"] = telem.get("armed", False)
+                    stats_update["battery_v"] = telem.get("battery_v")
+                    stats_update["battery_pct"] = telem.get("battery_pct")
+                    stats_update["groundspeed"] = telem.get("groundspeed")
+                    stats_update["altitude_m"] = telem.get("altitude")
+                    stats_update["heading_deg"] = telem.get("heading")
                     gps_data = self._mavlink.get_gps()
                     stats_update["gps_fix"] = gps_data.get("fix", 0)
                     stats_update["position"] = self._mavlink.get_position_string()
@@ -620,6 +663,33 @@ class Pipeline:
                     logger.info("Manual LOITER command from web UI.")
                     return
 
+    _ALLOWED_MODES = {"AUTO", "RTL", "LOITER", "HOLD", "GUIDED"}
+
+    def _handle_set_mode_command(self, mode: str) -> bool:
+        """Set vehicle flight mode from web UI."""
+        if mode not in self._ALLOWED_MODES:
+            logger.warning("Mode %s not in allowlist.", mode)
+            return False
+        if self._mavlink is None:
+            return False
+        success = self._mavlink.set_mode(mode)
+        if success:
+            self._mavlink.send_statustext(f"MODE CMD: {mode}", severity=5)
+        return success
+
+    def _handle_alert_classes_change(self, classes: list[str]) -> None:
+        """Update alert class filter from web UI."""
+        if not classes:
+            self._alert_classes = None
+        else:
+            self._alert_classes = set(classes)
+        if self._mavlink is not None:
+            self._mavlink.alert_classes = self._alert_classes
+        stream_state.update_runtime_config({
+            "alert_classes": classes,
+        })
+        logger.info("Alert classes updated: %s", classes or "ALL")
+
     def _handle_target_lock(self, track_id: int, mode: str = "track") -> bool:
         """Lock onto a tracked object for keep-in-frame or strike."""
         with self._state_lock:
@@ -636,7 +706,7 @@ class Pipeline:
             )
             if self._mavlink is not None:
                 self._mavlink.send_statustext(
-                    f"TGT LOCK: #{track_id} {t.label} [{mode.upper()}]"
+                    f"TGT LOCK: #{track_id} {t.label} [{mode.upper()}]", severity=5
                 )
             return True
 
@@ -649,7 +719,7 @@ class Pipeline:
         if prev_id is not None:
             logger.info("Target UNLOCKED: #%d", prev_id)
             if self._mavlink is not None:
-                self._mavlink.send_statustext("TGT LOCK RELEASED")
+                self._mavlink.send_statustext("TGT LOCK RELEASED", severity=5)
                 self._mavlink.clear_roi()
 
     def _handle_strike_command(self, track_id: int) -> bool:
