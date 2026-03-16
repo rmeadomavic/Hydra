@@ -41,7 +41,7 @@ alert_classes =             ; Comma-separated class labels (empty = all)
 
 ### Backend — `pipeline.py`
 - Parse `alert_classes` from config: split comma-separated string into `set[str]`, empty string → `None`.
-- Pass to `MAVLinkIO` constructor.
+- Add `alert_classes=` parameter to the `MAVLinkIO(...)` constructor call in `Pipeline.__init__` (currently missing — the `mavlink_io.py` parameter exists but is not wired from pipeline).
 - New callback `on_alert_classes_change(classes: list[str])`:
   - Empty list → `None` (all classes).
   - Non-empty → `set(classes)`.
@@ -53,6 +53,7 @@ alert_classes =             ; Comma-separated class labels (empty = all)
 - `draw_tracks()` accepts optional `alert_classes: set[str] | None`.
 - Tracks with labels NOT in `alert_classes` render with reduced opacity (alpha ~0.35) — still visible, but visually de-emphasized.
 - Tracks with labels IN `alert_classes` (or when `alert_classes` is None) render normally.
+- Implementation note: `cv2` drawing functions don't support per-element alpha natively. Use `cv2.addWeighted` with a separate overlay layer for dimmed tracks. Keep it simple — draw dimmed tracks first, blend once, then draw full-opacity tracks on top.
 
 ### Web API — `server.py`
 - `GET /api/config/alert-classes`:
@@ -73,7 +74,7 @@ alert_classes =             ; Comma-separated class labels (empty = all)
 - When all boxes are checked (or none via "All"), sends empty list (= all classes).
 
 ### Static COCO Class List
-Hardcoded in `server.py` as a module-level constant:
+Hardcoded in `server.py` as a module-level constant. This covers the standard YOLOv8 COCO model. Custom models with different class sets would need a separate mechanism (e.g., reading from the model's `names` dict at startup), but that is out of scope for this spec.
 ```python
 COCO_CLASSES = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train",
@@ -105,7 +106,7 @@ Show live vehicle state (mode, armed, battery, speed, altitude, heading) in the 
 - `MAV_DATA_STREAM_EXTENDED_STATUS` at 2 Hz → provides SYS_STATUS.
 - `MAV_DATA_STREAM_EXTRA1` at 2 Hz → provides VFR_HUD.
 
-**New telemetry dict** alongside `_gps`, protected by `_gps_lock`:
+**New telemetry dict** alongside `_gps`, protected by `_gps_lock` (reusing the existing lock since both dicts are updated in the same listener thread and the lock is never held for expensive operations):
 ```python
 self._telemetry: Dict[str, Any] = {
     "armed": False,
@@ -118,17 +119,20 @@ self._telemetry: Dict[str, Any] = {
 ```
 
 **Message parsing** in `_gps_listener` (which already handles HEARTBEAT, GLOBAL_POSITION_INT, GPS_RAW_INT):
-- Add `SYS_STATUS` and `VFR_HUD` to the `recv_match` type list.
-- HEARTBEAT: extract `armed` from `base_mode & MAV_MODE_FLAG_SAFETY_ARMED`.
+- Add `SYS_STATUS` and `VFR_HUD` to the `recv_match` type list in `_gps_listener` only. The `_command_listener` thread is left unchanged — it only handles COMMAND_LONG and NAMED_VALUE_INT. All new message types go through `_gps_listener` to avoid recv_match contention on the same connection.
+- HEARTBEAT (already handled): additionally extract `armed` from `base_mode & MAV_MODE_FLAG_SAFETY_ARMED`.
 - SYS_STATUS: `voltage_battery` (mV → V, divide by 1000), `battery_remaining` (%).
 - VFR_HUD: `groundspeed` (m/s), `alt` (m AGL), `heading` (degrees).
 
 **New method:**
 ```python
 def get_telemetry(self) -> Dict[str, Any]:
-    """Return merged GPS + telemetry + mode state (thread-safe)."""
+    """Return merged GPS + telemetry + vehicle mode state (thread-safe)."""
 ```
-Returns a single dict combining: GPS data, telemetry data, vehicle mode, armed state.
+Returns a single dict combining:
+- All `_gps` keys (`lat`, `lon`, `alt`, `fix`, `hdg`)
+- All `_telemetry` keys (`armed`, `battery_v`, `battery_pct`, `groundspeed`, `altitude`, `heading`)
+- `vehicle_mode` from `get_vehicle_mode()` (the existing `_vehicle_mode` string parsed from HEARTBEAT)
 
 ### Backend — `pipeline.py`
 - In the stats update block (runs every frame), call `get_telemetry()` and merge into `stream_state.stats`.
@@ -160,7 +164,7 @@ Give operators AUTO, RTL, and LOITER buttons so they can resume a mission or ret
   ```python
   def _handle_set_mode_command(self, mode: str) -> bool:
   ```
-- Validates `mode` against allowlist: `{"AUTO", "RTL", "LOITER", "HOLD", "GUIDED"}`.
+- Validates `mode` against allowlist: `{"AUTO", "RTL", "LOITER", "HOLD", "GUIDED"}`. The allowlist is broader than the 3 UI buttons because HOLD is the Rover equivalent of LOITER, and GUIDED is used by the strike command. The API should accept all valid modes even if the UI only exposes three buttons.
 - Calls `self._mavlink.set_mode(mode)`.
 - On success, sends `self._mavlink.send_statustext(f"MODE CMD: {mode}", severity=5)`.
 - Returns bool success.
@@ -192,7 +196,7 @@ Client-side only — no backend changes beyond Features 2 and 3.
 
 - When a mode button is clicked and the API call succeeds, the mode badge flashes a "SENDING..." state with a CSS pulse animation.
 - On the next `/api/stats` poll (within ~1 second), the badge updates to the actual vehicle mode from HEARTBEAT.
-- If the mode didn't change after 3 seconds, the badge returns to the current mode (implicit failure — operator can see it didn't work).
+- If the mode didn't change after 3 seconds, briefly flash the badge red (CSS `failed` class, 1-second duration) before reverting to the current mode. This makes failure visible without requiring a toast/popup.
 
 ### Web UI — `index.html`
 - JS: after successful `POST /api/vehicle/mode`, set badge text to `"{MODE}..."` with a `sending` CSS class.
@@ -210,11 +214,12 @@ Use MAVLink severity levels so different message types show with appropriate col
 
 | Call Site | File | Current Severity | New Severity | MP Color |
 |---|---|---|---|---|
-| `alert_detection()` | `mavlink_io.py` | `self._severity` (config=2) | 6 (INFO) | Green |
-| Target lock STATUSTEXT | `pipeline.py` | default | 5 (NOTICE) | Blue/white |
-| Target lost STATUSTEXT | `pipeline.py` | default | 4 (WARNING) | Yellow |
+| `alert_detection()` | `mavlink_io.py` | 2 (CRITICAL, from config) | 6 (INFO) | Green |
+| Target lock `TGT LOCK:` | `pipeline.py` | 2 (CRITICAL, config fallback) | 5 (NOTICE) | Blue/white |
+| Target lock released `TGT LOCK RELEASED` | `pipeline.py` | 2 (CRITICAL, config fallback) | 5 (NOTICE) | Blue/white |
+| Target lost `TGT LOST:` | `pipeline.py` | 2 (CRITICAL, config fallback) | 4 (WARNING) | Yellow |
 | Strike GUIDED waypoint | `mavlink_io.py` | 2 (hardcoded) | 1 (ALERT) | Red |
-| Mode command STATUSTEXT | `pipeline.py` | not sent | 5 (NOTICE) | Blue/white |
+| Mode command | `pipeline.py` | not sent currently | 5 (NOTICE) | Blue/white |
 
 ### Config Impact
 - The `severity` setting in config.ini becomes the fallback for `send_statustext()` calls that don't specify an explicit severity.
@@ -233,6 +238,7 @@ Send tracked target positions as MAVLink CAMERA_TRACKING_GEO_STATUS messages so 
 ```ini
 geo_tracking = true         ; Send CAMERA_TRACKING_GEO_STATUS for GCS map markers
 ```
+Default is `true` (intentional). The message is harmless per MAVLink spec — GCS that don't understand it silently ignore it. This aligns with the guiding principle of "current behavior plus new capabilities" with no operator action required.
 
 ### New File — `hydra_detect/geo_tracking.py`
 
@@ -241,7 +247,7 @@ class GeoTracker:
     """Sends CAMERA_TRACKING_GEO_STATUS for GCS map integration."""
 
     def __init__(self, mavlink_io: MAVLinkIO, camera_hfov_deg: float = 60.0)
-    def send(self, tracks, alert_classes, locked_track_id, approach_distance_m) -> None
+    def send(self, tracks, alert_classes, locked_track_id) -> None
 ```
 
 **`send()` logic:**
@@ -250,7 +256,7 @@ class GeoTracker:
    - If a track is locked → use that track.
    - Otherwise → highest-confidence track whose label is in `alert_classes`.
    - If no qualifying tracks → don't send.
-3. Compute lat/lon via `mavlink_io.estimate_target_position()` (already exists).
+3. Estimate target distance from altitude and camera vertical FoV (rough ground-plane projection: `alt / tan(vfov/2)` as a baseline distance). Then compute lat/lon via `mavlink_io.estimate_target_position()` using this estimated distance instead of `strike_distance_m`. Note: without range data this is an approximation — the map marker shows the bearing correctly but the distance is estimated from altitude geometry. This is fundamentally better than using `strike_distance_m` (which is a fixed 20m approach distance, not a target distance estimate).
 4. Encode and send `CAMERA_TRACKING_GEO_STATUS` (message ID 275):
    - `tracking_status`: 1 (TRACKING_ACTIVE) if locked, 2 (TRACKING_SEARCHING) otherwise.
    - `lat`: int32, degE7.
@@ -269,7 +275,7 @@ class GeoTracker:
 ### Integration — `pipeline.py`
 - Import `GeoTracker`.
 - Instantiate in `__init__` if MAVLink enabled and `geo_tracking = true`.
-- Call `geo_tracker.send()` in `_run_loop()` after the tracking step, passing current tracks, alert_classes, locked_track_id, and `strike_distance_m`.
+- Call `geo_tracker.send()` in `_run_loop()` after the tracking step, passing current tracks, alert_classes, and locked_track_id.
 
 ### GCS Compatibility
 - QGroundControl: renders natively on map.
