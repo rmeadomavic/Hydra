@@ -7,9 +7,12 @@ It runs on an NVIDIA Jetson (or really any Linux box with a camera and a MAVLink
 ```
 Camera ─> Detector (YOLO) ─> ByteTrack ─> MAVLink Alerts
                                                    ─> Target Lock / Strike
+                                                   ─> Autonomous Strike Controller
                                                    ─> FPV OSD (via FC OSD chip)
                                                    ─> Web Dashboard (MJPEG)
                                                    ─> Detection Logger
+
+Kismet (WiFi/SDR) ─> RF Hunt Controller ─> RSSI Gradient Ascent ─> MAVLink Nav
 ```
 
 ## What Can It Do?
@@ -22,6 +25,9 @@ Camera ─> Detector (YOLO) ─> ByteTrack ─> MAVLink Alerts
 - **Log everything** — timestamps, GPS, confidence scores, and optional image snapshots
 - **Show up on your goggles** — detection data overlaid on your FPV feed through the flight controller's OSD chip
 - **Stream to a browser** — live annotated video over MJPEG, accessible from any device on the network
+- **Hunt RF sources** — locate WiFi APs or SDR signals using Kismet RSSI + gradient ascent navigation
+- **Auto-engage targets** — autonomous strike controller with geofencing, class whitelists, and cooldown timers
+- **Review missions** — post-flight web map with detection overlays, track trails, and confidence filters
 
 ## Getting Started
 
@@ -171,6 +177,68 @@ mode = statustext
 
 **Running HDZero?** Check out the [HDZero OSD setup guide](docs/hdzero-osd-setup.md) for MSP DisplayPort wiring and parameters.
 
+### Autonomous Strike
+
+The autonomous controller can auto-engage targets that meet all qualification criteria simultaneously. This is off by default and requires explicit configuration.
+
+All criteria must pass before a strike is initiated:
+1. Controller is enabled in `config.ini`
+2. Vehicle is in an allowed mode (e.g. `AUTO`)
+3. Vehicle GPS is inside the configured geofence (circle or polygon)
+4. No strike in cooldown period
+5. A tracked target matches: class in whitelist, confidence above threshold, tracked for N consecutive frames
+
+```ini
+[autonomous]
+enabled = true
+geofence_lat = 34.05
+geofence_lon = -118.25
+geofence_radius_m = 200.0
+min_confidence = 0.85
+min_track_frames = 5
+allowed_classes = mine, buoy
+strike_cooldown_sec = 30.0
+allowed_vehicle_modes = AUTO
+```
+
+All autonomous actions are logged to the `hydra.audit` logger for accountability.
+
+### RF Homing
+
+Hydra can autonomously locate RF signal sources using RSSI gradient ascent. This requires [Kismet](https://www.kismetwireless.net/) running on the companion computer with a monitor-mode WiFi adapter or RTL-SDR dongle.
+
+The RF hunt runs as a background thread with a state machine: `IDLE -> SEARCHING -> HOMING -> CONVERGED`.
+
+- **WiFi mode** — hunts a specific BSSID (MAC address) via Kismet's WiFi device list
+- **SDR mode** — hunts a specific frequency via Kismet's RTL-SDR data source
+
+```ini
+[rf_homing]
+enabled = true
+mode = wifi
+target_bssid = AA:BB:CC:DD:EE:FF
+kismet_host = http://localhost:2501
+search_pattern = lawnmower
+search_area_m = 100.0
+rssi_threshold_dbm = -80.0
+rssi_converge_dbm = -40.0
+```
+
+The web dashboard provides a full RF hunt interface — configure parameters, start/stop hunts, and monitor RSSI readings and hunt state in real time.
+
+### Post-Mission Review
+
+After a mission, use the review tool to visualize detection data on a map:
+
+```bash
+# Export to a standalone HTML file with embedded map
+python -m hydra_detect.review_export /data/logs/detections.jsonl -o report.html
+
+# Or view directly from the web dashboard at /review
+```
+
+The review page shows detection markers on an OpenStreetMap with track trails, confidence filters, and class filtering.
+
 ## Configuration
 
 Everything lives in `config.ini`. Here's the full reference:
@@ -228,6 +296,40 @@ Everything lives in `config.ini`. Here's the full reference:
 | `mode` | `statustext` | `statustext` (simple) or `named_value` (needs Lua script on FC) |
 | `update_interval` | `0.2` | Seconds between OSD updates — lower is snappier but chattier on the MAVLink bus |
 
+### [autonomous]
+| Key | Default | What It Does |
+|-----|---------|--------------|
+| `enabled` | `false` | Enable autonomous strike controller |
+| `geofence_lat` | `0.0` | Circle geofence center latitude |
+| `geofence_lon` | `0.0` | Circle geofence center longitude |
+| `geofence_radius_m` | `100.0` | Circle geofence radius in metres |
+| `geofence_polygon` | *(empty)* | Polygon geofence as `lat,lon;lat,lon;...` (overrides circle) |
+| `min_confidence` | `0.85` | Minimum detection confidence for auto-strike |
+| `min_track_frames` | `5` | Consecutive frames a target must be tracked |
+| `allowed_classes` | *(all)* | Comma-separated class labels allowed for auto-strike |
+| `strike_cooldown_sec` | `30.0` | Seconds between autonomous strikes |
+| `allowed_vehicle_modes` | `AUTO` | Vehicle must be in one of these modes |
+
+### [rf_homing]
+| Key | Default | What It Does |
+|-----|---------|--------------|
+| `enabled` | `false` | Enable RF source localization |
+| `mode` | `wifi` | `wifi` (hunt by BSSID) or `sdr` (hunt by frequency) |
+| `target_bssid` | *(empty)* | MAC address to locate (WiFi mode) |
+| `target_freq_mhz` | `915.0` | Frequency in MHz to locate (SDR mode) |
+| `kismet_host` | `http://localhost:2501` | Kismet REST API URL |
+| `kismet_user` | `kismet` | Kismet username |
+| `kismet_pass` | `kismet` | Kismet password |
+| `search_pattern` | `lawnmower` | Search pattern: `lawnmower` or `spiral` |
+| `search_area_m` | `100.0` | Search area size in metres |
+| `search_spacing_m` | `20.0` | Grid spacing between search legs |
+| `search_alt_m` | `15.0` | Search altitude in metres |
+| `rssi_threshold_dbm` | `-80.0` | RSSI level to switch from search to homing |
+| `rssi_converge_dbm` | `-40.0` | RSSI level to declare source found |
+| `gradient_step_m` | `5.0` | Step size for gradient ascent |
+| `poll_interval_sec` | `0.5` | RSSI polling interval |
+| `arrival_tolerance_m` | `3.0` | Distance to consider a waypoint reached |
+
 ### [logging]
 | Key | Default | What It Does |
 |-----|---------|--------------|
@@ -261,17 +363,28 @@ Hydra/
     osd.py                            # FPV OSD overlay via MAVLink
     mavlink_io.py                     # MAVLink connection, alerts, vehicle commands
     detection_logger.py               # CSV/JSONL logging with image snapshots
+    autonomous.py                     # Geofenced autonomous strike controller
+    review_export.py                  # Post-mission review — CLI + standalone HTML export
 
     detectors/
       __init__.py
       base.py                         # Abstract detector interface
       yolo_detector.py                # YOLOv8/v11 via ultralytics
 
+    rf/
+      __init__.py
+      hunt.py                         # RF hunt state machine (IDLE→SEARCHING→HOMING→CONVERGED)
+      kismet_client.py                # Kismet REST API client for RSSI polling
+      navigator.py                    # Waypoint navigation for search patterns
+      search.py                       # Lawnmower and spiral search pattern generators
+      signal.py                       # RSSI filtering and gradient analysis
+
     web/
       __init__.py
       server.py                       # FastAPI — REST API + MJPEG stream
       templates/
-        index.html                    # Operator dashboard
+        index.html                    # Operator dashboard (includes RF hunt UI)
+        review.html                   # Post-mission review map
 ```
 
 ## API Reference
@@ -291,6 +404,14 @@ Hydra/
 | `POST` | `/api/target/unlock` | Release target lock |
 | `POST` | `/api/target/strike` | Send strike command (`{"track_id": 5, "confirm": true}`) |
 | `POST` | `/api/vehicle/loiter` | Command vehicle to hold position |
+| `GET` | `/api/rf/status` | Current RF hunt state and RSSI readings |
+| `POST` | `/api/rf/start` | Start an RF hunt with given parameters |
+| `POST` | `/api/rf/stop` | Stop the active RF hunt |
+| `GET` | `/review` | Post-mission review map page |
+| `GET` | `/api/review/logs` | List available detection log files |
+| `GET` | `/api/review/log/{filename}` | Parse and return detection data from a log file |
+| `POST` | `/api/pipeline/stop` | Gracefully stop the pipeline |
+| `POST` | `/api/pipeline/pause` | Pause or resume detection (`{"paused": true}`) |
 
 ## Vehicle Compatibility
 
@@ -311,3 +432,5 @@ Hydra/
 - [pymavlink](https://github.com/ArduPilot/pymavlink) + pyserial
 - FastAPI + uvicorn
 - Optional: `mgrs` for military grid coordinates
+- Optional: `requests` (for Kismet REST API in RF homing mode)
+- Optional: [Kismet](https://www.kismetwireless.net/) (for RF source localization)

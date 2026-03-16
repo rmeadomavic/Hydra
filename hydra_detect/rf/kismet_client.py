@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
-
 import requests
 
 logger = logging.getLogger(__name__)
@@ -87,11 +85,13 @@ class KismetClient:
         try:
             r = self._session.get(
                 f"{self._host}/devices/summary/devices.json",
-                params={"KISMET": '{"fields": ['
+                params={
+                    "KISMET": '{"fields": ['
                     '"kismet.device.base.signal/kismet.common.signal.last_signal",'
                     '"kismet.device.base.frequency",'
                     '"kismet.device.base.last_time"'
-                    ']}'},
+                    ']}'
+                },
                 timeout=self._timeout,
             )
             if r.status_code != 200:

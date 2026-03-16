@@ -99,6 +99,7 @@ class TestRFStartEndpoint:
 
     def test_start_sdr_valid(self, client):
         received = {}
+
         def on_start(params):
             received.update(params)
             return True

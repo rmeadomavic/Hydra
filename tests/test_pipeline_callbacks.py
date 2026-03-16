@@ -104,9 +104,12 @@ class TestTargetLock:
 
 class TestStrikeCommand:
     def test_strike_no_mavlink(self):
+        """Without MAVLink, strike sets visual lock and returns True (visual-only mode)."""
         p = _make_pipeline()
         p._last_track_result = _sample_track(track_id=3)
-        assert p._handle_strike_command(3) is False
+        assert p._handle_strike_command(3) is True
+        assert p._locked_track_id == 3
+        assert p._lock_mode == "strike"
 
     def test_strike_no_tracks(self):
         p = _make_pipeline()

@@ -180,6 +180,44 @@ async def api_get_config():
     return stream_state.get_runtime_config()
 
 
+@app.post("/api/config/prompts")
+async def api_set_prompts(request: Request, authorization: Optional[str] = Header(None)):
+    """Update detection prompt labels at runtime.
+
+    Body: {"prompts": ["person", "car", "dog"]}
+    """
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    prompts = body.get("prompts")
+    if not isinstance(prompts, list):
+        return JSONResponse({"error": "prompts must be a list"}, status_code=400)
+    if len(prompts) == 0:
+        return JSONResponse({"error": "prompts list must not be empty"}, status_code=400)
+    if len(prompts) > MAX_PROMPTS:
+        return JSONResponse(
+            {"error": f"max {MAX_PROMPTS} prompts allowed"}, status_code=400,
+        )
+    cleaned: List[str] = []
+    for p in prompts:
+        if not isinstance(p, str):
+            return JSONResponse({"error": "each prompt must be a string"}, status_code=400)
+        p = p.strip()
+        if not p:
+            return JSONResponse({"error": "prompts must not be empty or blank"}, status_code=400)
+        cleaned.append(p[:MAX_PROMPT_LENGTH])
+
+    cb = stream_state.get_callback("on_prompts_change")
+    if cb:
+        cb(cleaned)
+        _audit(request, "set_prompts", target=str(len(cleaned)))
+        return {"status": "ok", "prompts": cleaned}
+    # Store even without callback — allows web UI to track prompts
+    _audit(request, "set_prompts", target=str(len(cleaned)))
+    return {"status": "ok", "prompts": cleaned}
+
+
 @app.post("/api/config/threshold")
 async def api_set_threshold(request: Request, authorization: Optional[str] = Header(None)):
     """Update detection confidence threshold at runtime."""
