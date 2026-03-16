@@ -105,6 +105,9 @@ class GeoTracker:
                 vel_e=nan,
                 vel_d=nan,
                 hdg=nan,
+                vel_acc=nan,
+                dist=nan,
+                hdg_acc=nan,
             )
             self._mav._mav.mav.send(msg, force_mavlink1=False)
             logger.debug("GEO_STATUS sent: %.6f, %.6f (locked=%s)", lat, lon, is_locked)
