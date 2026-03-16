@@ -184,6 +184,203 @@ HDZero video, QGroundControl on Steam Deck, and SDR integration.
 
 ---
 
+## 7. OSD Overlay Testing (FPV Goggles)
+
+**Goal:** Verify Hydra detection data appears in FPV goggles via FC OSD.
+
+See `docs/hdzero-osd-setup.md` for full wiring details.
+
+### STATUSTEXT Mode (simplest, default)
+
+- [ ] Set `[osd] mode = statustext` in config.ini
+- [ ] Verify text appears in OSD message panel on goggles
+- [ ] Note: **NOT compatible with Pixhawk 6C** (no OSD chip) — need Matek H743,
+      SpeedyBee F405-Wing, or similar FC with AT7456E/MAX7456
+- [ ] Measure OSD update latency (should be <200ms)
+
+### NAMED_VALUE Mode (richer data, requires Lua)
+
+- [ ] Copy `scripts/hydra_osd.lua` to FC SD card (`APM/scripts/`)
+- [ ] Set FC params: `SCR_ENABLE=1`, `SCR_HEAP_SIZE=65536`, `OSD_TYPE=1`, `OSD1_ENABLE=1`
+- [ ] Verify OSD displays: track count, FPS, inference time, locked track ID
+- [ ] Test "HYDRA: NO LINK" warning when Jetson stops sending for >3s
+- [ ] Test "HYDRA: WAITING" before first data arrives
+
+### HDZero MSP DisplayPort
+
+- [ ] Wire FC UART TX → HDZero VTX RX for MSP OSD
+- [ ] Set `OSD_TYPE = 3` (MSP DisplayPort)
+- [ ] Verify OSD composites onto digital video feed
+- [ ] Test with different VTX firmware versions
+
+### Pass Criteria
+- Detection data visible in goggles within 200ms of detection
+- OSD survives Hydra disconnect/reconnect gracefully
+
+---
+
+## 8. Autonomous Strike Safety Validation
+
+**Goal:** Verify all autonomous strike safeguards work on real hardware.
+
+This is the most dangerous feature — every criterion must be tested independently.
+
+### Qualification Chain (ALL must pass for a strike)
+
+- [ ] Controller enabled in config.ini (`enabled = true`)
+- [ ] Vehicle in allowed mode (default: AUTO only)
+- [ ] Vehicle inside geofence
+  - [ ] Circle mode: test haversine distance at center, edge, and outside
+  - [ ] Polygon mode: test ray-casting with 4-vertex square geofence
+- [ ] No cooldown active (`strike_cooldown_sec`)
+- [ ] Target class in whitelist (`allowed_classes`)
+- [ ] Confidence above threshold (default 0.85)
+- [ ] Track seen for N consecutive frames (`min_track_frames`, default 5)
+
+### Negative Tests (each should block a strike)
+
+- [ ] Disable controller → no strike
+- [ ] Switch to MANUAL mode → no strike
+- [ ] Drive outside geofence → no strike
+- [ ] Trigger during cooldown → no strike
+- [ ] Target class not in whitelist (e.g., "person") → no strike
+- [ ] Confidence 0.70 (below 0.85) → no strike
+- [ ] Track only 3 frames (below min 5) → no strike
+
+### Audit Logging
+
+- [ ] Verify `hydra.audit` logger captures all strike decisions
+- [ ] Format includes: timestamp, track_id, label, confidence, frames, vehicle mode, position
+
+### Pass Criteria
+- Every safeguard independently blocks strikes when it should
+- Audit log captures full context for every decision
+- No false strikes possible when any single criterion fails
+
+---
+
+## 9. Detection Logging & Review
+
+**Goal:** Verify detection logs are complete and exportable for post-mission review.
+
+### Log Format
+
+- [ ] JSONL mode: each line is valid JSON (`python -m json.tool`)
+- [ ] CSV mode: headers present, consistent column count
+- [ ] Logs saved to `log_dir` with timestamped filenames
+
+### Image Snapshots
+
+- [ ] `save_images = true` — full-frame JPEG at configured quality
+- [ ] Inspect file size and quality (default 90%)
+- [ ] Verify bounding boxes overlaid on saved images
+- [ ] `save_crops = true` — cropped object images saved separately
+  - [ ] Verify crop dimensions match track bounding box
+  - [ ] Test crop for objects near frame edges (no overflow)
+
+### GPS Geo-tagging
+
+- [ ] Detection logs include `lat`, `lon`, `alt` from MAVLink GPS
+- [ ] Test with no GPS fix — should log null/NaN, not crash
+
+### Review Export
+
+- [ ] `python -m hydra_detect.review_export /path/to/detections.jsonl -o report.html`
+- [ ] Verify standalone HTML works offline
+- [ ] Test with large log files (10000+ detections)
+
+### Pass Criteria
+- All log formats parseable and complete
+- Images readable and correctly annotated
+- GPS coordinates present when fix is available
+
+---
+
+## 10. Jetson Power & Performance Profiling
+
+**Goal:** Characterize performance envelope across power modes.
+
+### Power Modes
+
+- [ ] Check current mode: `sudo nvpmodel -q`
+- [ ] Test each available mode (5W, 10W, 15W, MAXN):
+  - [ ] Measure detection FPS in each mode
+  - [ ] Measure GPU temp at steady state
+  - [ ] Note which mode drops below 5 FPS (unacceptable)
+- [ ] Verify `jetson_clocks` is running: `sudo jetson_clocks`
+
+### Thermal Zones
+
+- [ ] Monitor CPU temp: `/sys/devices/virtual/thermal/thermal_zone0/temp`
+- [ ] Monitor GPU temp: `/sys/devices/virtual/thermal/thermal_zone1/temp`
+- [ ] Run 30+ minute detection, log temps every 10s
+- [ ] Identify throttle point (~80°C on Orin Nano)
+
+### YOLO Model Size Impact
+
+- [ ] Test yolov8n (fastest, ~6MB) — baseline FPS
+- [ ] Test yolov8s (balanced) — FPS delta
+- [ ] Test yolov8m (heavier) — FPS delta, memory impact
+- [ ] Document model-size vs FPS vs temperature tradeoffs
+
+### Pass Criteria
+- FPS ≥5 sustained in MAXN mode with yolov8n
+- Temperature stays below 85°C (or degrades gracefully)
+- No OOM with any tested model on 8GB Jetson
+
+---
+
+## 11. Web API & Dashboard Under Load
+
+**Goal:** Verify web interface doesn't degrade detection performance.
+
+### MJPEG Stream
+
+- [ ] Open `/stream.mjpeg` in browser during detection
+- [ ] Measure stream latency (object in frame → visible on dashboard)
+- [ ] Test from multiple clients simultaneously (Steam Deck + laptop)
+- [ ] Verify no dropped frames under load
+
+### API Endpoints
+
+- [ ] `/api/stats` — data updates in near real-time
+- [ ] `/api/camera/sources` — lists available video devices correctly
+- [ ] `/api/review/logs` — lists all detection log files
+- [ ] `/api/review/log/{filename}` — parses JSONL and CSV correctly
+
+### Security
+
+- [ ] If `api_token` is set, mutation endpoints reject unauthenticated requests
+- [ ] Read-only endpoints (`/api/stats`, `/stream.mjpeg`) work without auth
+- [ ] Path traversal protection on log file endpoints
+
+### Pass Criteria
+- Dashboard + API access doesn't drop detection FPS below 5
+- All endpoints return correct data
+- Auth enforced on control endpoints when token is set
+
+---
+
+## 12. Preflight & Docker Validation
+
+**Goal:** Verify deployment tooling works before field testing.
+
+- [ ] Run `bash scripts/jetson_preflight.sh` — all checks PASS (0 FAILs)
+  - Python, pip, NVIDIA utilities, OpenCV, FastAPI
+  - Camera device, serial device, dialout group
+  - config.ini present, model files exist
+- [ ] Verify Docker device passthrough works for all devices simultaneously:
+  - `--device /dev/video0` (camera)
+  - `--device /dev/ttyTHS1` (UART to Pixhawk)
+  - `--device /dev/bus/usb` (SDR if enabled)
+- [ ] Test `sudo systemctl restart hydra-detect` — port 8080 available within 5s
+- [ ] Verify fail-safe defaults in config.ini:
+  - `[autonomous] enabled = false`
+  - `[osd] enabled = false`
+  - `[rf_homing] enabled = false`
+
+---
+
 ## Notes & Observations
 
 _Use this section to record findings during testing._
