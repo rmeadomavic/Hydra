@@ -30,8 +30,11 @@ Let operators control which detection classes send STATUSTEXT alerts to the GCS,
 ### Config
 `config.ini` `[mavlink]` section:
 ```ini
-alert_classes =             ; Comma-separated class labels (empty = all)
-                            ; e.g. person, car, truck, boat
+alert_classes = person, car, motorcycle, truck, bus, boat, bicycle, airplane,
+                backpack, suitcase, handbag, cell phone, laptop, dog, horse,
+                knife, scissors, baseball bat, bottle, umbrella
+; Comma-separated class labels to alert on (empty = all detected classes).
+; Labels must match the loaded model. Unknown labels are silently ignored.
 ```
 
 ### Backend — `mavlink_io.py`
@@ -57,41 +60,80 @@ alert_classes =             ; Comma-separated class labels (empty = all)
 
 ### Web API — `server.py`
 - `GET /api/config/alert-classes`:
-  - Returns `{"alert_classes": ["person", "car"], "all_classes": ["person", "bicycle", ...]}`.
-  - `all_classes` is the static list of 80 COCO class names.
+  - Returns `{"alert_classes": ["person", "car"], "all_classes": ["person", "bicycle", ...], "categories": {...}}`.
+  - `all_classes` is the live class list from the loaded detector model (see below).
+  - `categories` groups classes into tactical categories (see UI section).
   - `alert_classes` is empty list when set to all (None internally).
 - `POST /api/config/alert-classes`:
   - Body: `{"classes": ["person", "car"]}` or `{"classes": []}` for all.
-  - Validates each class is a string.
+  - Validates each class is a string that exists in the current model's class list. Unknown class names are rejected with an error.
   - Auth check, audit log.
 
 ### Web UI — `index.html`
 - New "Alert Classes" subsection in the Detection Config sidebar section.
-- Scrollable checklist (~120px max-height) with all 80 COCO class names, each with a checkbox.
-- "All" button (checks all) and "Clear" button (unchecks all) at top.
+- Scrollable checklist (~160px max-height) with classes grouped by tactical category.
+- Category headers are collapsible. "Other" category is collapsed by default.
+- Checkbox per class. "All" and "Clear" buttons at top.
 - "Apply" button sends the current selection via `POST /api/config/alert-classes`.
 - On page load, fetches current config and checks matching boxes.
 - When all boxes are checked (or none via "All"), sends empty list (= all classes).
+- When the model is swapped at runtime, the class list refreshes automatically (re-fetch from API).
 
-### Static COCO Class List
-Hardcoded in `server.py` as a module-level constant. This covers the standard YOLOv8 COCO model. Custom models with different class sets would need a separate mechanism (e.g., reading from the model's `names` dict at startup), but that is out of scope for this spec.
+### Dynamic Class List (replaces hardcoded COCO list)
+
+The class list comes from the loaded YOLO model at runtime, not a hardcoded constant.
+
+**Backend — `yolo_detector.py`:**
+- New method `get_class_names() -> list[str]`:
+  ```python
+  def get_class_names(self) -> list[str]:
+      if self._model is None:
+          return []
+      return list(self._model.names.values())
+  ```
+  The ultralytics YOLO model object has a `.names` dict mapping `{class_id: label}`.
+
+**Backend — `pipeline.py`:**
+- New callback `get_class_names` wired to `stream_state`, returns `self._detector.get_class_names()`.
+- After a model switch (`_handle_model_switch`), the class list updates automatically since it reads from the live model.
+- If the current `alert_classes` contains labels not in the new model, those labels are silently dropped (no error — the filter just won't match anything that doesn't exist).
+
+**Backend — `server.py`:**
+- `GET /api/config/alert-classes` calls the `get_class_names` callback to get `all_classes`.
+- No hardcoded `COCO_CLASSES` constant.
+- Category grouping is done server-side using a known-categories map. Classes that don't match any known category go into "Other."
+
+### Tactical Category Grouping
+
+Server-side mapping applied to whatever class list the model provides. Known categories for common class names:
+
 ```python
-COCO_CLASSES = [
-    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train",
-    "truck", "boat", "traffic light", "fire hydrant", "stop sign",
-    "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep",
-    "cow", "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella",
-    "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard",
-    "sports ball", "kite", "baseball bat", "baseball glove", "skateboard",
-    "surfboard", "tennis racket", "bottle", "wine glass", "cup", "fork",
-    "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange",
-    "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair",
-    "couch", "potted plant", "dining table", "toilet", "tv", "laptop",
-    "mouse", "remote", "keyboard", "cell phone", "microwave", "oven",
-    "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors",
-    "teddy bear", "hair drier", "toothbrush",
-]
+TACTICAL_CATEGORIES = {
+    "Personnel":        ["person", "soldier", "combatant", "civilian"],
+    "Ground Vehicles":  ["car", "motorcycle", "truck", "bus", "bicycle", "train", "tank", "apc", "humvee"],
+    "Watercraft/Air":   ["boat", "airplane", "drone", "uav", "helicopter", "ship"],
+    "Carried Equipment":["backpack", "suitcase", "handbag", "cell phone", "laptop", "radio"],
+    "Animals":          ["dog", "horse", "bird", "cow", "sheep", "cat", "elephant", "bear", "zebra", "giraffe"],
+    "Potential Weapons": ["knife", "scissors", "baseball bat", "rifle", "pistol", "rpg"],
+    "Concealment":      ["umbrella", "kite"],
+    "Containers":       ["bottle", "cup", "bowl"],
+    "Landmarks":        ["fire hydrant", "stop sign", "traffic light", "bench", "chair"],
+}
 ```
+
+- Only categories that have at least one matching class in the loaded model are shown.
+- Classes not matching any category go into "Other" (collapsed by default).
+- This works for COCO models (person, car, truck, etc.) AND military-trained models (soldier, rifle, tank, UAV, etc.) with the same code.
+
+### Default `alert_classes` in config.ini
+
+```ini
+alert_classes = person, car, motorcycle, truck, bus, boat, bicycle, airplane,
+                backpack, suitcase, handbag, cell phone, laptop, dog, horse,
+                knife, scissors, baseball bat, bottle, umbrella
+```
+
+This is the default for a COCO model. When a military model is loaded, the operator should update the filter via the web UI (or clear to all). Labels that don't exist in the loaded model are silently ignored.
 
 ---
 
@@ -288,11 +330,12 @@ class GeoTracker:
 
 | File | Changes |
 |---|---|
-| `config.ini` | Add `alert_classes`, `geo_tracking` settings |
+| `config.ini` | Add `alert_classes` (with tactical defaults), `geo_tracking` settings |
 | `hydra_detect/mavlink_io.py` | Alert class filter, telemetry dict, extra data streams, severity overrides |
 | `hydra_detect/pipeline.py` | Wire new callbacks, parse new config, integrate GeoTracker, pass alert_classes to overlay, telemetry to stats |
-| `hydra_detect/web/server.py` | New endpoints: alert-classes GET/POST, vehicle/mode POST. COCO_CLASSES constant. |
-| `hydra_detect/web/templates/index.html` | Class filter checkboxes, telemetry display, mode buttons, command feedback animations |
+| `hydra_detect/detectors/yolo_detector.py` | New `get_class_names()` method |
+| `hydra_detect/web/server.py` | New endpoints: alert-classes GET/POST, vehicle/mode POST. TACTICAL_CATEGORIES map. |
+| `hydra_detect/web/templates/index.html` | Class filter checkboxes with categories, telemetry display, mode buttons, command feedback animations |
 | `hydra_detect/overlay.py` | Dimmed rendering for non-alert-class tracks |
 
 ## New Files
