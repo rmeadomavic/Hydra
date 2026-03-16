@@ -23,53 +23,112 @@ def _get_device_name(idx: int) -> str:
         return f"Video {idx}"
 
 
-def _is_capture_device(idx: int) -> bool:
-    """Check if a /dev/video device supports video capture (not metadata/output).
+# Keywords that identify webcams (preferred) and capture cards (fallback).
+_WEBCAM_KEYWORDS = ("webcam", "c270", "c920", "c922", "brio", "lifecam")
+_CAPTURE_KEYWORDS = (
+    "usb video", "av to usb", "hdmi to usb", "capture", "uvc",
+    "easycap", "macrosilicon", "elgato",
+)
+# Keywords that indicate non-capture V4L2 nodes (metadata, output, codecs).
+_REJECT_KEYWORDS = ("metadata", "output", "codec", "decoder", "encoder")
 
-    Reads the V4L2 device_caps from sysfs. Bit 0 of device_caps indicates
-    VIDEO_CAPTURE capability. On Jetson, /dev/video0 and /dev/video1 are
-    often HDMI output or metadata nodes, not real cameras.
+
+def _classify_device(idx: int) -> str:
+    """Classify a V4L2 device by its sysfs name.
+
+    Returns:
+        "webcam"  — known camera (preferred for auto-detect)
+        "capture" — USB capture card / HDMI dongle (valid source)
+        "unknown" — unrecognised device (may still work)
+        "reject"  — metadata node, encoder, or output device
     """
-    try:
-        caps_path = f"/sys/class/video4linux/video{idx}/device/video4linux/video{idx}/dev"
-        # More reliable: check if the device name looks like a real camera
-        name = _get_device_name(idx).lower()
-        # Filter out metadata companion devices (odd-numbered V4L2 nodes)
-        # and devices with generic "USB Video" names that are often HDMI capture
-        if any(kw in name for kw in ("webcam", "camera", "cam", "c270", "c920", "c922", "brio")):
-            return True
-        return False
-    except Exception:
-        return False
+    name = _get_device_name(idx).lower()
+    if any(kw in name for kw in _REJECT_KEYWORDS):
+        return "reject"
+    if any(kw in name for kw in _WEBCAM_KEYWORDS):
+        return "webcam"
+    # "camera" is checked separately — it's common in webcam names but could
+    # also appear in other contexts, so we check it after reject keywords.
+    if "camera" in name:
+        return "webcam"
+    if any(kw in name for kw in _CAPTURE_KEYWORDS):
+        return "capture"
+    return "unknown"
+
+
+def _is_capture_device(idx: int) -> bool:
+    """Check if a /dev/video device is a usable video source.
+
+    Returns True for webcams and USB capture cards (CVBS/HDMI dongles).
+    Returns False for metadata nodes, encoders, and output devices.
+    """
+    return _classify_device(idx) in ("webcam", "capture")
 
 
 def find_default_camera() -> int:
-    """Find the first real webcam device index, falling back to 0.
+    """Find the best video device index, falling back to 0.
 
-    On Jetson boards, /dev/video0 is often an HDMI capture/output device.
-    This function prefers devices whose V4L2 name contains common camera
-    keywords (webcam, camera, c270, etc.) over generic "USB Video" devices.
+    Priority order:
+    1. Known webcams (Logitech C270/C920, etc.)
+    2. USB capture cards (CVBS/HDMI dongles for FPV feeds like HDZero)
+    3. Any device that OpenCV can open and read a frame from
+    4. Device index 0 as last resort
     """
     devices = sorted(glob.glob("/dev/video*"))
-    # First pass: look for known webcam names
+    webcams: list[int] = []
+    captures: list[int] = []
+    unknowns: list[int] = []
+
     for dev in devices:
         try:
             idx = int(dev.replace("/dev/video", ""))
         except ValueError:
             continue
-        if _is_capture_device(idx):
-            logger.info("Auto-detected webcam: /dev/video%d (%s)", idx, _get_device_name(idx))
-            return idx
-    # Fallback to device 0
+        kind = _classify_device(idx)
+        if kind == "webcam":
+            webcams.append(idx)
+        elif kind == "capture":
+            captures.append(idx)
+        elif kind == "unknown":
+            unknowns.append(idx)
+
+    # Prefer webcams, then capture cards
+    for idx in webcams:
+        logger.info("Auto-detected webcam: /dev/video%d (%s)", idx, _get_device_name(idx))
+        return idx
+    for idx in captures:
+        logger.info("Auto-detected capture card: /dev/video%d (%s)", idx, _get_device_name(idx))
+        return idx
+
+    # Last resort: probe unknown devices with OpenCV
+    for idx in unknowns:
+        try:
+            cap = cv2.VideoCapture(idx)
+            if cap.isOpened():
+                ok, _ = cap.read()
+                cap.release()
+                if ok:
+                    logger.info(
+                        "Auto-detected video source: /dev/video%d (%s)",
+                        idx, _get_device_name(idx),
+                    )
+                    return idx
+            else:
+                cap.release()
+        except Exception:
+            pass
+
+    logger.warning("No camera auto-detected, falling back to /dev/video0")
     return 0
 
 
 def list_video_sources(current_source: int | str | None = None) -> list[dict]:
     """Enumerate available /dev/video* devices and identify them.
 
-    Returns a list of dicts with 'index', 'device', and 'name' keys.
-    Skips devices that can't be opened or read (metadata nodes, etc.),
-    but always includes ``current_source`` since it's locked by the pipeline.
+    Returns a list of dicts with 'index', 'device', 'name', and 'type' keys.
+    Type is one of: "webcam", "capture", "unknown".
+    Skips metadata/output nodes. Always includes ``current_source`` since
+    it's locked by the pipeline and can't be test-opened.
     """
     sources: list[dict] = []
     seen: set[int] = set()
@@ -79,10 +138,14 @@ def list_video_sources(current_source: int | str | None = None) -> list[dict]:
     if current_source is not None:
         try:
             cur_idx = int(current_source)
+            kind = _classify_device(cur_idx)
+            if kind == "reject":
+                kind = "unknown"
             sources.append({
                 "index": cur_idx,
                 "device": f"/dev/video{cur_idx}",
                 "name": _get_device_name(cur_idx),
+                "type": kind,
             })
             seen.add(cur_idx)
         except (TypeError, ValueError):
@@ -95,6 +158,9 @@ def list_video_sources(current_source: int | str | None = None) -> list[dict]:
             continue
         if idx in seen:
             continue
+        kind = _classify_device(idx)
+        if kind == "reject":
+            continue
         # Try opening briefly to check if it's a real capture device
         cap = cv2.VideoCapture(idx)
         if not cap.isOpened():
@@ -105,7 +171,12 @@ def list_video_sources(current_source: int | str | None = None) -> list[dict]:
         cap.release()
         if not ok:
             continue
-        sources.append({"index": idx, "device": dev, "name": _get_device_name(idx)})
+        sources.append({
+            "index": idx,
+            "device": dev,
+            "name": _get_device_name(idx),
+            "type": kind,
+        })
         seen.add(idx)
     return sources
 

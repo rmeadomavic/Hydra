@@ -48,27 +48,69 @@ HDZero video, QGroundControl on Steam Deck, and SDR integration.
 
 ---
 
-## 2. HDZero Video Input to Jetson
+## 2. Camera & Video Setup
 
-**Goal:** Use HDZero FPV link as camera source for detection pipeline.
+**Goal:** USB webcam for Hydra detection, HDZero for FPV + OSD overlay.
 
-### Tests
+### Why Two Cameras?
 
-- [ ] Identify HDZero VRX output type:
-  - Analog CVBS → USB UVC capture dongle needed
-  - HDMI out → HDMI-to-USB capture card needed
-- [ ] Connect VRX output to Jetson via capture device
-- [ ] Verify device appears: `v4l2-ctl --list-devices` → note `/dev/videoN` index
-- [ ] Set `source = <device_index>` in `config.ini`
+The HDZero Freestyle V2 + Nano 90 is a **fully digital** video system. The
+Nano 90 connects to the VTX via a proprietary digital link — there is no analog
+CVBS output pad on the Freestyle V2 to tap into. The firmware source
+([hd-zero/hdzero-vtx](https://github.com/hd-zero/hdzero-vtx)) confirms the
+Freestyle V2 does not include the TP9950 analog video decoder chip that some
+other HDZero VTXs use for legacy analog camera input.
+
+This means the HDZero feed **cannot be routed into the Jetson on-vehicle**.
+Instead, each camera serves a different role:
+
+| Camera | Purpose | Connection |
+|--------|---------|------------|
+| **USB webcam** (C270/C920) | Hydra detection source (Jetson processes this) | USB → Jetson |
+| **HDZero Nano 90** | Pilot FPV view + OSD overlay in goggles | Digital → Freestyle V2 VTX → Goggles/Monitor |
+
+The two cameras can be pointed independently — the webcam aims at the detection
+area while the Nano 90 gives the pilot a flight/navigation view.
+
+> **Future option:** An analog FPV system would make it easier to share one
+> camera for both detection and FPV (analog CVBS can be split to a USB capture
+> dongle). But analog FPV loses HDZero's digital quality and MSP OSD capability.
+
+### Hardware
+
+- **Detection camera:** USB webcam (Logitech C270 or C920)
+- **FPV camera:** HDZero Nano 90 → Freestyle V2 VTX
+- **FPV receivers:** HDZero Monitor, Goggles 1, Goggles 2
+- **OSD path:** Jetson → MAVLink → Pixhawk 6C → MSP DisplayPort → Freestyle V2 VTX → Goggles
+
+### Tests — USB Webcam (Detection Source)
+
+- [ ] Plug USB webcam into Jetson
+- [ ] Verify auto-detect: `source = auto` in config.ini → check logs for device name
 - [ ] Verify live video on web dashboard (`http://<jetson-ip>:8080`)
-- [ ] Measure capture latency (point camera at stopwatch, compare with dashboard)
-- [ ] Run detection pipeline — verify YOLO detects at HDZero resolution/framerate
-- [ ] Note FPS with HDZero vs USB webcam (benchmark comparison)
+- [ ] Run detection pipeline — verify YOLO detects at configured resolution
+- [ ] If both webcam and other V4L2 devices present, confirm auto-detect picks webcam
+- [ ] Test camera disconnect/reconnect — Hydra should reconnect with backoff, not crash
+- [ ] Check web API: `curl http://<jetson-ip>:8080/api/camera/sources`
+  - Webcam should appear with `"type": "webcam"`
+
+### Tests — HDZero FPV + OSD
+
+See [Section 7: OSD Overlay Testing](#7-osd-overlay-testing-fpv-goggles) for
+full OSD test plan. Quick validation:
+
+- [ ] Verify Nano 90 + Freestyle V2 video appears in goggles/monitor
+- [ ] Wire Pixhawk UART TX → Freestyle V2 VTX RX pad (MSP)
+- [ ] Set FC params: `OSD_TYPE=3`, `SERIALn_PROTOCOL=33`, `SERIALn_BAUD=115`
+- [ ] Set Hydra config: `[osd] enabled = true`, `mode = statustext`
+- [ ] Trigger a detection → verify OSD text appears in goggles
+- [ ] Test with HDZero powered off — Hydra should continue detecting, just no OSD
 
 ### Pass Criteria
-- Live video displays on web dashboard with no corruption
-- Detection pipeline sustains ≥5 FPS
-- Capture latency acceptable for use case (document measured value)
+- USB webcam auto-detected and producing detections at ≥5 FPS
+- HDZero FPV feed visible in goggles with OSD overlay
+- Camera disconnect handled gracefully (no crash, auto-reconnect)
+- Both systems run simultaneously without resource contention
 
 ---
 
@@ -194,8 +236,8 @@ See `docs/hdzero-osd-setup.md` for full wiring details.
 
 - [ ] Set `[osd] mode = statustext` in config.ini
 - [ ] Verify text appears in OSD message panel on goggles
-- [ ] Note: **NOT compatible with Pixhawk 6C** (no OSD chip) — need Matek H743,
-      SpeedyBee F405-Wing, or similar FC with AT7456E/MAX7456
+- [ ] Works with Pixhawk 6C via MSP DisplayPort (no MAX7456 chip needed) —
+      requires spare UART TX wired to Freestyle V2 VTX RX pad
 - [ ] Measure OSD update latency (should be <200ms)
 
 ### NAMED_VALUE Mode (richer data, requires Lua)
