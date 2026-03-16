@@ -6,6 +6,7 @@ import asyncio
 import datetime
 import hmac
 import logging
+import re
 import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -65,6 +66,7 @@ audit_log = logging.getLogger("hydra.audit")
 # Prompt constraints
 MAX_PROMPTS = 20
 MAX_PROMPT_LENGTH = 200
+BSSID_RE = re.compile(r"^[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}$")
 
 
 def _audit(request: Request, action: str, target: str = "", outcome: str = "ok") -> None:
@@ -208,6 +210,7 @@ async def api_set_prompts(request: Request, authorization: Optional[str] = Heade
             return JSONResponse({"error": "prompts must not be empty or blank"}, status_code=400)
         cleaned.append(p[:MAX_PROMPT_LENGTH])
 
+    stream_state.set_runtime_config("prompts", cleaned)
     cb = stream_state.get_callback("on_prompts_change")
     if cb:
         cb(cleaned)
@@ -500,7 +503,7 @@ async def api_rf_start(request: Request, authorization: Optional[str] = Header(N
     bssid = body.get("target_bssid", "").strip()
     if mode == "wifi" and not bssid:
         return JSONResponse({"error": "target_bssid required for wifi mode"}, status_code=400)
-    if bssid and len(bssid) != 17:
+    if bssid and not BSSID_RE.fullmatch(bssid):
         return JSONResponse({"error": "target_bssid must be MAC format AA:BB:CC:DD:EE:FF"}, status_code=400)
 
     # Validate freq if SDR
