@@ -17,7 +17,7 @@ def _reset_state():
     stream_state.target_lock = {"locked": False, "track_id": None, "mode": None, "label": None}
     stream_state.runtime_config = {"prompts": ["person"], "threshold": 0.25, "auto_loiter": False}
     # Clear callbacks
-    stream_state.set_callbacks()
+    stream_state._callbacks.clear()
     yield
 
 
@@ -70,6 +70,7 @@ class TestAuthEnforcement:
         ("POST", "/api/target/unlock", None),
         ("POST", "/api/target/strike", {"track_id": 1, "confirm": True}),
         ("POST", "/api/config/alert-classes", {"classes": ["person"]}),
+        ("POST", "/api/vehicle/mode", {"mode": "AUTO"}),
     ]
 
     def test_no_auth_when_disabled(self, client):
@@ -274,3 +275,32 @@ class TestAlertClassesEndpoints:
         )
         resp = client.post("/api/config/alert-classes", json={"classes": ["person", "INVALID"]})
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Vehicle mode endpoint
+# ---------------------------------------------------------------------------
+
+class TestVehicleModeEndpoint:
+    def test_set_mode_success(self, client):
+        called = {}
+        def on_mode(mode):
+            called["mode"] = mode
+            return True
+        stream_state.set_callbacks(on_set_mode_command=on_mode)
+        resp = client.post("/api/vehicle/mode", json={"mode": "AUTO"})
+        assert resp.status_code == 200
+        assert called["mode"] == "AUTO"
+
+    def test_set_mode_missing_mode(self, client):
+        resp = client.post("/api/vehicle/mode", json={})
+        assert resp.status_code == 400
+
+    def test_set_mode_no_callback(self, client):
+        resp = client.post("/api/vehicle/mode", json={"mode": "AUTO"})
+        assert resp.status_code == 503
+
+    def test_set_mode_failed(self, client):
+        stream_state.set_callbacks(on_set_mode_command=lambda m: False)
+        resp = client.post("/api/vehicle/mode", json={"mode": "AUTO"})
+        assert resp.status_code == 503

@@ -326,6 +326,28 @@ async def api_command_loiter(request: Request, authorization: Optional[str] = He
     return JSONResponse({"error": "MAVLink not connected"}, status_code=503)
 
 
+@app.post("/api/vehicle/mode")
+async def api_set_vehicle_mode(request: Request, authorization: Optional[str] = Header(None)):
+    """Set vehicle flight mode. Body: {"mode": "AUTO"}"""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    mode = body.get("mode")
+    if not mode or not isinstance(mode, str):
+        return JSONResponse({"error": "mode is required (string)"}, status_code=400)
+    cb = stream_state.get_callback("on_set_mode_command")
+    if cb:
+        success = cb(mode)
+        if success:
+            _audit(request, "set_mode", target=mode)
+            return {"status": "ok", "mode": mode}
+        _audit(request, "set_mode", target=mode, outcome="failed")
+        return JSONResponse({"error": f"Failed to set mode {mode}"}, status_code=503)
+    _audit(request, "set_mode", outcome="mavlink_disconnected")
+    return JSONResponse({"error": "MAVLink not connected"}, status_code=503)
+
+
 @app.get("/api/tracks")
 async def api_active_tracks():
     """Return currently active tracked objects (for target selection)."""
