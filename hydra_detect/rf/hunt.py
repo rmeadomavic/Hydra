@@ -13,6 +13,8 @@ Uses the shared MAVLinkIO for vehicle control and GPS.
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 import threading
 from enum import Enum
 from typing import Callable
@@ -24,6 +26,11 @@ from .signal import RSSIFilter
 
 logger = logging.getLogger(__name__)
 audit_log = logging.getLogger("hydra.audit")
+
+# Parameter bounds — prevents waypoint explosion or nonsensical config.
+_SEARCH_AREA_MIN, _SEARCH_AREA_MAX = 10.0, 2000.0
+_SEARCH_SPACING_MIN, _SEARCH_SPACING_MAX = 2.0, 200.0
+_SEARCH_ALT_MIN, _SEARCH_ALT_MAX = 3.0, 120.0
 
 
 class HuntState(Enum):
@@ -42,6 +49,30 @@ class RFHuntController:
     - Uses the shared MAVLinkIO instance for GPS reads and GUIDED commands
     - Runs in its own daemon thread so it doesn't block the detection loop
     - Reports status via callbacks and MAVLink STATUSTEXT
+
+    All public methods and properties are thread-safe: they can be called
+    from the web API thread while the hunt loop runs in the background.
+
+    Args:
+        mavlink: Shared MAVLinkIO instance for GPS and vehicle commands.
+        mode: ``"wifi"`` (hunt by BSSID) or ``"sdr"`` (hunt by frequency).
+        target_bssid: MAC address to locate (WiFi mode).
+        target_freq_mhz: Frequency in MHz to locate (SDR mode).
+        kismet_host: Kismet REST API base URL.
+        kismet_user: Kismet API username.
+        kismet_pass: Kismet API password.
+        search_pattern: ``"lawnmower"`` or ``"spiral"``.
+        search_area_m: Search area size in metres (10-2000).
+        search_spacing_m: Grid spacing between search legs (2-200).
+        search_alt_m: Search altitude in metres (3-120).
+        rssi_threshold_dbm: RSSI level to switch from search to homing.
+        rssi_converge_dbm: RSSI level to declare source found.
+        rssi_window: Number of samples for RSSI sliding window average.
+        gradient_step_m: Step size in metres for gradient ascent probes.
+        gradient_rotation_deg: Degrees to rotate after signal drops.
+        poll_interval_sec: Seconds between RSSI polls.
+        arrival_tolerance_m: Distance to consider a waypoint reached.
+        on_state_change: Optional callback invoked on state transitions.
     """
 
     def __init__(
@@ -79,9 +110,9 @@ class RFHuntController:
         self._target_bssid = target_bssid
         self._target_freq_mhz = target_freq_mhz
         self._search_pattern = search_pattern
-        self._search_area_m = search_area_m
-        self._search_spacing_m = search_spacing_m
-        self._search_alt_m = search_alt_m
+        self._search_area_m = max(_SEARCH_AREA_MIN, min(search_area_m, _SEARCH_AREA_MAX))
+        self._search_spacing_m = max(_SEARCH_SPACING_MIN, min(search_spacing_m, _SEARCH_SPACING_MAX))
+        self._search_alt_m = max(_SEARCH_ALT_MIN, min(search_alt_m, _SEARCH_ALT_MAX))
         self._rssi_threshold = rssi_threshold_dbm
         self._rssi_converge = rssi_converge_dbm
         self._poll_interval = poll_interval_sec
@@ -112,39 +143,47 @@ class RFHuntController:
 
     @property
     def state(self) -> HuntState:
+        """Current hunt state (thread-safe)."""
         with self._lock:
             return self._state
 
     @property
     def best_rssi(self) -> float:
-        return self._navigator.best_rssi
+        """Best RSSI reading seen so far in dBm (thread-safe)."""
+        return self._navigator.get_best_rssi()
 
     @property
     def best_position(self) -> tuple[float, float]:
-        return self._navigator.best_position
+        """(lat, lon) of the best RSSI reading (thread-safe)."""
+        return self._navigator.get_best_position()
 
     @property
     def sample_count(self) -> int:
-        return len(self._navigator.samples)
+        """Number of RSSI samples recorded (thread-safe)."""
+        return self._navigator.get_sample_count()
 
     def get_status(self) -> dict:
-        """Return current hunt status for the web UI."""
+        """Return current hunt status for the web UI (thread-safe)."""
+        best_rssi = self._navigator.get_best_rssi()
+        best_pos = self._navigator.get_best_position()
+        sample_count = self._navigator.get_sample_count()
         with self._lock:
             return {
                 "state": self._state.value,
                 "mode": self._mode,
                 "target": self._target_bssid or f"{self._target_freq_mhz} MHz",
-                "best_rssi": round(self._navigator.best_rssi, 1),
-                "best_lat": round(self._navigator.best_position[0], 7),
-                "best_lon": round(self._navigator.best_position[1], 7),
-                "samples": len(self._navigator.samples),
+                "best_rssi": round(best_rssi, 1),
+                "best_lat": round(best_pos[0], 7),
+                "best_lon": round(best_pos[1], 7),
+                "samples": sample_count,
                 "wp_progress": f"{self._wp_index}/{len(self._waypoints)}",
             }
 
     def start(self) -> bool:
         """Start the RF hunt in a background thread.
 
-        Returns False if prerequisites aren't met.
+        Returns False if prerequisites aren't met (no MAVLink, no Kismet,
+        no GPS fix).
         """
         if self._mavlink is None:
             logger.error("RF hunt requires MAVLink — aborting")
@@ -201,11 +240,14 @@ class RFHuntController:
         return True
 
     def stop(self) -> None:
-        """Stop the hunt."""
+        """Stop the hunt and wait for the background thread to finish."""
         self._stop_evt.set()
         if self._thread is not None:
-            self._thread.join(timeout=5)
+            self._thread.join(timeout=10)
+            if self._thread.is_alive():
+                logger.warning("RF hunt thread did not stop within timeout")
             self._thread = None
+        self._kismet.close()
         self._set_state(HuntState.ABORTED)
         audit_log.info("RF HUNT STOPPED by operator")
 
@@ -220,8 +262,8 @@ class RFHuntController:
             if self._on_state_change:
                 try:
                     self._on_state_change(new_state)
-                except Exception:
-                    pass
+                except (TypeError, ValueError) as exc:
+                    logger.warning("State change callback error: %s", exc)
 
     def _run_loop(self) -> None:
         """Main hunt loop — runs in background thread."""
@@ -237,11 +279,12 @@ class RFHuntController:
                 elif state in (HuntState.CONVERGED, HuntState.ABORTED):
                     break
                 self._stop_evt.wait(self._poll_interval)
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             logger.error("RF hunt loop error: %s", exc)
             self._set_state(HuntState.ABORTED)
-
-        self._report_results()
+        finally:
+            self._kismet.close()
+            self._report_results()
 
     def _poll_rssi(self) -> float | None:
         """Poll Kismet for current RSSI."""
@@ -337,10 +380,11 @@ class RFHuntController:
         self._last_rssi = smoothed
 
         if not cont:
-            blat, blon = self._navigator.best_position
+            blat, blon = self._navigator.get_best_position()
             self._mavlink.command_guided_to(blat, blon, alt)
             self._mavlink.send_statustext(
-                f"RF HUNT: Best {self._navigator.best_rssi:.0f}dBm", severity=2,
+                f"RF HUNT: Best {self._navigator.get_best_rssi():.0f}dBm",
+                severity=2,
             )
             self._set_state(HuntState.CONVERGED)
             return
@@ -349,7 +393,7 @@ class RFHuntController:
 
     def _do_lost(self) -> None:
         """Return to last known good position and re-search."""
-        blat, blon = self._navigator.best_position
+        blat, blon = self._navigator.get_best_position()
         lat, lon, alt = self._mavlink.get_lat_lon()
         if lat is None:
             return
@@ -374,27 +418,32 @@ class RFHuntController:
         self._set_state(HuntState.SEARCHING)
 
     def _report_results(self) -> None:
-        """Log final hunt results and dump sample CSV."""
-        samples = self._navigator.samples
+        """Log final hunt results and dump sample CSV atomically."""
+        samples = self._navigator.get_samples_copy()
+        best_rssi = self._navigator.get_best_rssi()
+        best_pos = self._navigator.get_best_position()
         audit_log.info(
             "RF HUNT RESULT: state=%s best_rssi=%.1f best_pos=(%.7f,%.7f) "
             "samples=%d",
-            self.state.value,
-            self._navigator.best_rssi,
-            self._navigator.best_position[0],
-            self._navigator.best_position[1],
-            len(samples),
+            self.state.value, best_rssi,
+            best_pos[0], best_pos[1], len(samples),
         )
-        if samples:
-            try:
-                csv_path = "/tmp/hydra_rf_hunt_samples.csv"
-                with open(csv_path, "w") as f:
-                    f.write("timestamp,lat,lon,alt,rssi_dbm\n")
-                    for s in samples:
-                        f.write(
-                            f"{s.timestamp:.3f},{s.lat:.7f},{s.lon:.7f},"
-                            f"{s.alt:.1f},{s.rssi_dbm:.1f}\n"
-                        )
-                logger.info("RF hunt samples saved: %s", csv_path)
-            except OSError as exc:
-                logger.warning("Failed to save RF samples: %s", exc)
+        if not samples:
+            return
+        # Atomic write: write to temp file then rename
+        csv_path = "/tmp/hydra_rf_hunt_samples.csv"
+        try:
+            fd, tmp_path = tempfile.mkstemp(
+                dir="/tmp", prefix="hydra_rf_", suffix=".csv",
+            )
+            with os.fdopen(fd, "w") as f:
+                f.write("timestamp,lat,lon,alt,rssi_dbm\n")
+                for s in samples:
+                    f.write(
+                        f"{s.timestamp:.3f},{s.lat:.7f},{s.lon:.7f},"
+                        f"{s.alt:.1f},{s.rssi_dbm:.1f}\n"
+                    )
+            os.replace(tmp_path, csv_path)
+            logger.info("RF hunt samples saved: %s (%d rows)", csv_path, len(samples))
+        except OSError as exc:
+            logger.warning("Failed to save RF samples: %s", exc)

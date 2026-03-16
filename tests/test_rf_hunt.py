@@ -63,6 +63,24 @@ class TestHuntInit:
         assert "915" in status["target"]
 
 
+class TestHuntInputValidation:
+    def test_search_area_clamped(self):
+        ctrl = _make_controller(search_area_m=99999.0)
+        assert ctrl._search_area_m == 2000.0
+
+    def test_search_area_min_clamped(self):
+        ctrl = _make_controller(search_area_m=1.0)
+        assert ctrl._search_area_m == 10.0
+
+    def test_search_spacing_clamped(self):
+        ctrl = _make_controller(search_spacing_m=0.5)
+        assert ctrl._search_spacing_m == 2.0
+
+    def test_search_alt_clamped(self):
+        ctrl = _make_controller(search_alt_m=999.0)
+        assert ctrl._search_alt_m == 120.0
+
+
 class TestHuntStart:
     @patch("hydra_detect.rf.hunt.KismetClient")
     def test_start_fails_without_mavlink(self, mock_kismet_cls):
@@ -195,10 +213,10 @@ class TestHuntCallbacks:
 
     def test_callback_exception_swallowed(self):
         def bad_cb(s):
-            raise RuntimeError("boom")
+            raise ValueError("boom")
 
         ctrl = _make_controller(on_state_change=bad_cb)
-        # Should not raise
+        # Should not raise — ValueError is caught
         ctrl._set_state(HuntState.SEARCHING)
         assert ctrl.state == HuntState.SEARCHING
 
