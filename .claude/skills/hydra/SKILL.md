@@ -23,8 +23,12 @@ stations via MAVLink.
 **Owner:** rmeadomavic
 **Repo:** https://github.com/rmeadomavic/Hydra
 **Hardware:** Jetson Orin Nano 8GB, Pixhawk 6C, SiK 915 MHz telemetry,
-HDZero FPV, USB cameras (Logitech C270/C920)
+HDZero FPV (Freestyle V2 VTX + Nano 90 cam + Monitor + Goggles 1 + Goggles 2),
+USB cameras (Logitech C270/C920)
 **GCS:** Mission Planner (primary), QGroundControl on Steam Deck (testing)
+**Video architecture:** USB webcam → Jetson (detection), HDZero Nano 90 → FPV
+(pilot view + OSD). Freestyle V2 is fully digital — no analog tap for Jetson.
+OSD via MSP DisplayPort: Pixhawk UART TX → VTX RX pad.
 
 ## Architecture
 

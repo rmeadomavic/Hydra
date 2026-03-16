@@ -48,60 +48,69 @@ HDZero video, QGroundControl on Steam Deck, and SDR integration.
 
 ---
 
-## 2. HDZero Video Input to Jetson
+## 2. Camera & Video Setup
 
-**Goal:** Use HDZero Nano 90 camera (via Freestyle V2 VTX) as detection source.
+**Goal:** USB webcam for Hydra detection, HDZero for FPV + OSD overlay.
+
+### Why Two Cameras?
+
+The HDZero Freestyle V2 + Nano 90 is a **fully digital** video system. The
+Nano 90 connects to the VTX via a proprietary digital link — there is no analog
+CVBS output pad on the Freestyle V2 to tap into. The firmware source
+([hd-zero/hdzero-vtx](https://github.com/hd-zero/hdzero-vtx)) confirms the
+Freestyle V2 does not include the TP9950 analog video decoder chip that some
+other HDZero VTXs use for legacy analog camera input.
+
+This means the HDZero feed **cannot be routed into the Jetson on-vehicle**.
+Instead, each camera serves a different role:
+
+| Camera | Purpose | Connection |
+|--------|---------|------------|
+| **USB webcam** (C270/C920) | Hydra detection source (Jetson processes this) | USB → Jetson |
+| **HDZero Nano 90** | Pilot FPV view + OSD overlay in goggles | Digital → Freestyle V2 VTX → Goggles/Monitor |
+
+The two cameras can be pointed independently — the webcam aims at the detection
+area while the Nano 90 gives the pilot a flight/navigation view.
+
+> **Future option:** An analog FPV system would make it easier to share one
+> camera for both detection and FPV (analog CVBS can be split to a USB capture
+> dongle). But analog FPV loses HDZero's digital quality and MSP OSD capability.
 
 ### Hardware
 
-- **Camera:** HDZero Nano 90
-- **VTX:** HDZero Freestyle V2 (has analog CVBS output pad)
-- **Capture path:** VTX CVBS output → USB UVC capture dongle → Jetson USB
-- **Receivers available:** HDZero Monitor, Goggles 1, Goggles 2
+- **Detection camera:** USB webcam (Logitech C270 or C920)
+- **FPV camera:** HDZero Nano 90 → Freestyle V2 VTX
+- **FPV receivers:** HDZero Monitor, Goggles 1, Goggles 2
+- **OSD path:** Jetson → MAVLink → Pixhawk 6C → MSP DisplayPort → Freestyle V2 VTX → Goggles
 
-### Wiring (on-vehicle)
+### Tests — USB Webcam (Detection Source)
 
-The Nano 90 feeds the Freestyle V2 VTX digitally. The VTX has a **CVBS analog
-output** pad — wire this to a cheap USB UVC capture dongle plugged into the
-Jetson. This lets Hydra process the same feed the pilot sees in goggles.
-
-| Source | Destination | Notes |
-|--------|-------------|-------|
-| VTX analog out (CVBS) | Capture dongle (yellow RCA / bare wire) | Video signal |
-| VTX GND | Capture dongle GND | Common ground |
-| Capture dongle USB | Jetson USB port | V4L2 device |
-
-### Tests
-
-- [ ] Wire VTX CVBS output to USB capture dongle
-- [ ] Plug dongle into Jetson USB port
-- [ ] Verify device appears: `v4l2-ctl --list-devices` → note `/dev/videoN` index
-  - Typical name: "USB Video", "AV TO USB2.0", or "Macrosilicon"
-- [ ] Verify auto-detect works: set `source = auto` in config.ini, start Hydra
-  - Check logs for "Auto-detected capture card: /dev/videoN"
-  - If webcam also connected, auto prefers webcam — set `source = N` to force
+- [ ] Plug USB webcam into Jetson
+- [ ] Verify auto-detect: `source = auto` in config.ini → check logs for device name
 - [ ] Verify live video on web dashboard (`http://<jetson-ip>:8080`)
-- [ ] Check web API device list: `curl http://<jetson-ip>:8080/api/camera/sources`
-  - Capture card should appear with `"type": "capture"`
-- [ ] Test runtime switching: webcam → capture card via web UI or API
-- [ ] Measure capture latency (point camera at stopwatch, compare with dashboard)
-- [ ] Run detection pipeline — verify YOLO detects at CVBS resolution (720x480)
-- [ ] Note FPS with HDZero capture vs USB webcam (benchmark comparison)
-- [ ] Test with HDZero powered off — Hydra should show reconnection warnings, not crash
+- [ ] Run detection pipeline — verify YOLO detects at configured resolution
+- [ ] If both webcam and other V4L2 devices present, confirm auto-detect picks webcam
+- [ ] Test camera disconnect/reconnect — Hydra should reconnect with backoff, not crash
+- [ ] Check web API: `curl http://<jetson-ip>:8080/api/camera/sources`
+  - Webcam should appear with `"type": "webcam"`
 
-### CVBS Signal Notes
+### Tests — HDZero FPV + OSD
 
-- CVBS from the Freestyle V2 is **NTSC 720×480 or PAL 720×576** (interlaced)
-- Most USB capture dongles deinterlace automatically
-- Hydra resizes to configured `width × height` (default 640×480), so resolution
-  difference shouldn't matter for detection
-- Image quality is lower than direct USB webcam — this is expected for analog
+See [Section 7: OSD Overlay Testing](#7-osd-overlay-testing-fpv-goggles) for
+full OSD test plan. Quick validation:
+
+- [ ] Verify Nano 90 + Freestyle V2 video appears in goggles/monitor
+- [ ] Wire Pixhawk UART TX → Freestyle V2 VTX RX pad (MSP)
+- [ ] Set FC params: `OSD_TYPE=3`, `SERIALn_PROTOCOL=33`, `SERIALn_BAUD=115`
+- [ ] Set Hydra config: `[osd] enabled = true`, `mode = statustext`
+- [ ] Trigger a detection → verify OSD text appears in goggles
+- [ ] Test with HDZero powered off — Hydra should continue detecting, just no OSD
 
 ### Pass Criteria
-- Live video displays on web dashboard with no corruption
-- Detection pipeline sustains ≥5 FPS with capture card source
-- Auto-detect or manual source selection works reliably
-- Capture latency acceptable for use case (document measured value)
+- USB webcam auto-detected and producing detections at ≥5 FPS
+- HDZero FPV feed visible in goggles with OSD overlay
+- Camera disconnect handled gracefully (no crash, auto-reconnect)
+- Both systems run simultaneously without resource contention
 
 ---
 
