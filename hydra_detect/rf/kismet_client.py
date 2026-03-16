@@ -65,8 +65,8 @@ class KismetClient:
                 return True
             logger.error("Kismet API returned %d", r.status_code)
             return False
-        except requests.ConnectionError:
-            logger.error("Cannot reach Kismet API at %s", self._host)
+        except requests.RequestException as exc:
+            logger.error("Cannot reach Kismet API at %s: %s", self._host, exc)
             return False
 
     # -- WiFi RSSI by BSSID ------------------------------------------------
