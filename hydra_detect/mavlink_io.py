@@ -58,6 +58,16 @@ class MAVLinkIO:
         self._gps_lock = threading.Lock()
         self._stop_evt = threading.Event()
 
+        # Vehicle telemetry (battery, speed, altitude — updated by _gps_listener)
+        self._telemetry: Dict[str, Any] = {
+            "armed": False,
+            "battery_v": None,
+            "battery_pct": None,
+            "groundspeed": None,
+            "altitude": None,
+            "heading": None,
+        }
+
         # Vehicle mode state (from HEARTBEAT)
         self._vehicle_mode: Optional[str] = None
         self._vehicle_mode_lock = threading.Lock()
@@ -113,6 +123,17 @@ class MAVLinkIO:
                 2,  # 2 Hz
                 1,  # start
             )
+            for stream_id in (
+                mavlink2.MAV_DATA_STREAM_EXTENDED_STATUS,
+                mavlink2.MAV_DATA_STREAM_EXTRA1,
+            ):
+                self._mav.mav.request_data_stream_send(
+                    self._mav.target_system,
+                    self._mav.target_component,
+                    stream_id,
+                    2,  # 2 Hz
+                    1,  # start
+                )
 
             # Start GPS listener thread
             self._stop_evt.clear()
@@ -147,7 +168,7 @@ class MAVLinkIO:
                 break
             try:
                 msg = self._mav.recv_match(
-                    type=["GLOBAL_POSITION_INT", "GPS_RAW_INT", "HEARTBEAT"],
+                    type=["GLOBAL_POSITION_INT", "GPS_RAW_INT", "HEARTBEAT", "SYS_STATUS", "VFR_HUD"],
                     timeout=1,
                 )
                 if msg is None:
@@ -162,14 +183,32 @@ class MAVLinkIO:
                 elif msg_type == "GPS_RAW_INT":
                     with self._gps_lock:
                         self._gps["fix"] = msg.fix_type
+                elif msg_type == "SYS_STATUS":
+                    with self._gps_lock:
+                        if msg.voltage_battery != 0xFFFF:
+                            self._telemetry["battery_v"] = round(msg.voltage_battery / 1000.0, 2)
+                        if msg.battery_remaining != -1:
+                            self._telemetry["battery_pct"] = msg.battery_remaining
+                elif msg_type == "VFR_HUD":
+                    with self._gps_lock:
+                        self._telemetry["groundspeed"] = round(msg.groundspeed, 1)
+                        self._telemetry["altitude"] = round(msg.alt, 1)
+                        self._telemetry["heading"] = round(msg.heading, 0)
                 elif msg_type == "HEARTBEAT":
                     # Skip GCS heartbeats (type 6 = MAV_TYPE_GCS)
                     if msg.type == 6:
                         continue
                     self._update_vehicle_mode(msg)
+                    self._update_armed_state(msg)
             except Exception as exc:
                 logger.warning("GPS listener error: %s", exc)
                 time.sleep(0.5)
+
+    def _update_armed_state(self, heartbeat_msg) -> None:
+        """Extract armed state from HEARTBEAT base_mode."""
+        armed = bool(heartbeat_msg.base_mode & 128)  # MAV_MODE_FLAG_SAFETY_ARMED
+        with self._gps_lock:
+            self._telemetry["armed"] = armed
 
     def _update_vehicle_mode(self, heartbeat_msg) -> None:
         """Extract flight mode name from a HEARTBEAT message."""
@@ -304,6 +343,15 @@ class MAVLinkIO:
         """Return current GPS state (thread-safe copy)."""
         with self._gps_lock:
             return dict(self._gps)
+
+    def get_telemetry(self) -> Dict[str, Any]:
+        """Return merged GPS + telemetry + vehicle mode (thread-safe)."""
+        with self._gps_lock:
+            result = dict(self._gps)
+            result.update(self._telemetry)
+        with self._vehicle_mode_lock:
+            result["vehicle_mode"] = self._vehicle_mode
+        return result
 
     @property
     def gps_fix_ok(self) -> bool:
