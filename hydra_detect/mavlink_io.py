@@ -431,7 +431,7 @@ class MAVLinkIO:
             msg = f"Detection: {label} {dtg}"
 
         if self._alert_statustext:
-            self.send_statustext(msg)
+            self.send_statustext(msg, severity=6)  # INFO — green in Mission Planner
             logger.info("Alert sent: %s", msg)
 
     # ------------------------------------------------------------------
@@ -595,7 +595,7 @@ class MAVLinkIO:
                 0, 0,               # yaw, yaw_rate (ignored)
             )
             logger.info("GUIDED to %.6f, %.6f alt=%.1fm", lat, lon, alt)
-            self.send_statustext(f"STRIKE: GUIDED to {lat:.5f},{lon:.5f}", severity=2)
+            self.send_statustext(f"STRIKE: GUIDED to {lat:.5f},{lon:.5f}", severity=1)  # ALERT — red in Mission Planner
             return True
 
         except Exception as exc:
