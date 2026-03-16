@@ -72,6 +72,28 @@ else
   warn "No /dev/video0 found (skip if using RTSP/file source)"
 fi
 
+# Check for USB capture dongles (CVBS-to-USB for analog FPV cameras)
+CAPTURE_FOUND=0
+for dev in /dev/video*; do
+  [ -e "$dev" ] || continue
+  idx="${dev#/dev/video}"
+  sysfs="/sys/class/video4linux/video${idx}/name"
+  if [ -r "$sysfs" ]; then
+    devname="$(cat "$sysfs" 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+    case "$devname" in
+      *capture*|*macrosilicon*|*"av to usb"*|*"usb video"*|*easycap*|*uvc*)
+        ok "USB capture dongle detected: $dev ($devname)"
+        CAPTURE_FOUND=1
+        ;;
+    esac
+  fi
+done
+if [ "$CAPTURE_FOUND" -eq 0 ]; then
+  warn "No USB capture dongle detected (only needed for analog FPV cameras)"
+fi
+
+check_cmd v4l2-ctl "v4l2-ctl is installed (v4l-utils, needed for analog cameras)"
+
 if [ -e /dev/ttyACM0 ] || [ -e /dev/ttyUSB0 ]; then
   ok "Telemetry serial device present"
 else

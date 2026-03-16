@@ -207,6 +207,8 @@ class Pipeline:
             width=self._cfg.getint("camera", "width", fallback=640),
             height=self._cfg.getint("camera", "height", fallback=480),
             fps=self._cfg.getint("camera", "fps", fallback=30),
+            source_type=self._cfg.get("camera", "source_type", fallback="auto"),
+            video_standard=self._cfg.get("camera", "video_standard", fallback="ntsc"),
         )
 
         # Detector
@@ -689,7 +691,8 @@ class Pipeline:
 
         # Estimate target GPS position
         approach_dist = self._cfg.getfloat("mavlink", "strike_distance_m", fallback=20.0)
-        camera_hfov = self._cfg.getfloat("camera", "hfov_deg", fallback=60.0)
+        _hfov_default = 120.0 if self._camera.source_type == "analog" else 60.0
+        camera_hfov = self._cfg.getfloat("camera", "hfov_deg", fallback=_hfov_default)
         target_pos = self._mavlink.estimate_target_position(
             error_x, approach_dist, camera_hfov
         )
