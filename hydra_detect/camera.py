@@ -1,9 +1,11 @@
-"""Camera abstraction — unified interface for USB, RTSP, and file sources."""
+"""Camera abstraction — unified interface for USB, RTSP, file, and analog sources."""
 
 from __future__ import annotations
 
 import glob
 import logging
+import shutil
+import subprocess
 import threading
 import time
 from typing import Optional
@@ -181,6 +183,73 @@ def list_video_sources(current_source: int | str | None = None) -> list[dict]:
     return sources
 
 
+# V4L2 video standard constants (from linux/videodev2.h)
+_V4L2_STD_NTSC: int = 0x0000B000
+_V4L2_STD_PAL: int = 0x000000FF
+
+
+def _have_v4l2ctl() -> bool:
+    """Return True if v4l2-ctl is available on PATH."""
+    return shutil.which("v4l2-ctl") is not None
+
+
+def _run_v4l2ctl(device: str, *args: str) -> str | None:
+    """Run a v4l2-ctl command, returning stdout or None on failure."""
+    cmd = ["v4l2-ctl", "-d", device, *args]
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout
+        logger.warning("v4l2-ctl %s failed (rc=%d): %s",
+                       " ".join(args), result.returncode, result.stderr.strip())
+    except FileNotFoundError:
+        logger.warning("v4l2-ctl not found — install v4l-utils for full analog support")
+    except subprocess.TimeoutExpired:
+        logger.warning("v4l2-ctl %s timed out", " ".join(args))
+    except OSError as exc:
+        logger.warning("v4l2-ctl error: %s", exc)
+    return None
+
+
+def _configure_analog_input(device: str, video_standard: str) -> None:
+    """Configure a V4L2 capture device for composite (CVBS) input.
+
+    Attempts to set the composite input and video standard via v4l2-ctl.
+    Logs warnings and continues gracefully if commands fail.
+    """
+    if not _have_v4l2ctl():
+        logger.warning(
+            "v4l2-ctl not installed — skipping analog input configuration. "
+            "Install with: sudo apt install v4l-utils"
+        )
+        return
+
+    # List available inputs for diagnostics
+    inputs_output = _run_v4l2ctl(device, "--list-inputs")
+    if inputs_output:
+        logger.info("V4L2 inputs for %s:\n%s", device, inputs_output.rstrip())
+
+    # Set composite input (typically input 0)
+    result = _run_v4l2ctl(device, "--set-input=0")
+    if result is not None:
+        logger.info("Set %s to composite input 0", device)
+
+    # Set video standard
+    std = video_standard.lower()
+    if std == "ntsc":
+        _run_v4l2ctl(device, f"--set-standard={_V4L2_STD_NTSC}")
+        logger.info("Set %s video standard to NTSC", device)
+    elif std == "pal":
+        _run_v4l2ctl(device, f"--set-standard={_V4L2_STD_PAL}")
+        logger.info("Set %s video standard to PAL", device)
+    elif std == "auto":
+        logger.info("Video standard set to auto — relying on dongle auto-detection")
+    else:
+        logger.warning("Unknown video_standard '%s', skipping", video_standard)
+
+
 class Camera:
     """Thread-safe camera capture with automatic reconnection."""
 
@@ -190,11 +259,32 @@ class Camera:
         width: int = 640,
         height: int = 480,
         fps: int = 30,
+        source_type: str = "auto",
+        video_standard: str = "ntsc",
     ):
-        if str(source).lower() == "auto":
-            self._source = find_default_camera()
+        self._source_type = source_type.lower()
+        self._video_standard = video_standard.lower()
+
+        if self._source_type in ("auto", "digital"):
+            # Existing behaviour — auto-detect or use explicit source
+            if str(source).lower() == "auto":
+                self._source = find_default_camera()
+            else:
+                self._source = int(source) if str(source).isdigit() else source
+        elif self._source_type == "analog":
+            # Analog: source must be a device index or /dev/videoX path
+            if str(source).lower() == "auto":
+                self._source = find_default_camera()
+            else:
+                self._source = int(source) if str(source).isdigit() else source
         else:
-            self._source = int(source) if str(source).isdigit() else source
+            logger.warning("Unknown source_type '%s', treating as auto", source_type)
+            self._source_type = "auto"
+            if str(source).lower() == "auto":
+                self._source = find_default_camera()
+            else:
+                self._source = int(source) if str(source).isdigit() else source
+
         self._width = width
         self._height = height
         self._fps = fps
@@ -206,21 +296,42 @@ class Camera:
         self._thread: Optional[threading.Thread] = None
 
     # ------------------------------------------------------------------
+    def _device_path(self) -> str:
+        """Return the /dev/videoX path for the current source."""
+        if isinstance(self._source, int):
+            return f"/dev/video{self._source}"
+        return str(self._source)
+
     def open(self) -> bool:
         """Open the capture device and start the grab thread."""
-        self._cap = cv2.VideoCapture(self._source)
+        if self._source_type == "analog":
+            # Configure V4L2 composite input before opening
+            _configure_analog_input(self._device_path(), self._video_standard)
+            # Force V4L2 backend for analog capture dongles
+            self._cap = cv2.VideoCapture(self._source, cv2.CAP_V4L2)
+        else:
+            self._cap = cv2.VideoCapture(self._source)
+
         if not self._cap.isOpened():
             logger.error("Cannot open camera source: %s", self._source)
             return False
 
         self._configure_and_start()
-        logger.info(
-            "Camera opened: %s (%dx%d @ %d fps)",
-            self._source,
-            self._width,
-            self._height,
-            self._fps,
-        )
+
+        # Log actual resolution after first configuration
+        actual_w = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if self._source_type == "analog":
+            std_label = self._video_standard.upper()
+            logger.info(
+                "Analog camera opened: %s (%dx%d @ %d fps, standard=%s)",
+                self._source, actual_w, actual_h, self._fps, std_label,
+            )
+        else:
+            logger.info(
+                "Camera opened: %s (%dx%d @ %d fps)",
+                self._source, actual_w, actual_h, self._fps,
+            )
         return True
 
     def close(self) -> None:
@@ -259,7 +370,13 @@ class Camera:
                 logger.warning("Reconnecting camera in %.1fs ...", backoff)
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 30.0)
-                self._cap = cv2.VideoCapture(self._source)
+                if self._source_type == "analog":
+                    _configure_analog_input(
+                        self._device_path(), self._video_standard,
+                    )
+                    self._cap = cv2.VideoCapture(self._source, cv2.CAP_V4L2)
+                else:
+                    self._cap = cv2.VideoCapture(self._source)
                 continue
 
             ok, frame = self._cap.read()
@@ -314,6 +431,10 @@ class Camera:
     @property
     def source(self) -> str | int:
         return self._source
+
+    @property
+    def source_type(self) -> str:
+        return self._source_type
 
     @property
     def width(self) -> int:
