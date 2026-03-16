@@ -251,16 +251,22 @@ class TestEvaluate:
         strike_cb = MagicMock(return_value=True)
         tracks = _make_tracks((1, "mine", 0.92))
 
-        # First strike succeeds
-        ctrl.evaluate(tracks, mav, MagicMock(return_value=True), strike_cb)
-        assert strike_cb.call_count == 1
+        # Use deterministic time to avoid flaky results
+        fake_time = [1000.0]
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(time, "monotonic", lambda: fake_time[0])
 
-        # Second strike blocked by cooldown
-        tracks2 = _make_tracks((2, "buoy", 0.95))
-        for _ in range(5):
-            ctrl.evaluate(tracks2, mav, MagicMock(return_value=True), strike_cb)
+            # First strike succeeds at t=1000
+            ctrl.evaluate(tracks, mav, MagicMock(return_value=True), strike_cb)
+            assert strike_cb.call_count == 1
 
-        assert strike_cb.call_count == 1  # Still just the first
+            # Second strike blocked by cooldown (only 10s later, need 100s)
+            fake_time[0] = 1010.0
+            tracks2 = _make_tracks((2, "buoy", 0.95))
+            for _ in range(5):
+                ctrl.evaluate(tracks2, mav, MagicMock(return_value=True), strike_cb)
+
+            assert strike_cb.call_count == 1  # Still just the first
 
     def test_no_gps_fix(self):
         ctrl = _make_controller()
