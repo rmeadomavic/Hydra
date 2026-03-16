@@ -50,24 +50,57 @@ HDZero video, QGroundControl on Steam Deck, and SDR integration.
 
 ## 2. HDZero Video Input to Jetson
 
-**Goal:** Use HDZero FPV link as camera source for detection pipeline.
+**Goal:** Use HDZero Nano 90 camera (via Freestyle V2 VTX) as detection source.
+
+### Hardware
+
+- **Camera:** HDZero Nano 90
+- **VTX:** HDZero Freestyle V2 (has analog CVBS output pad)
+- **Capture path:** VTX CVBS output → USB UVC capture dongle → Jetson USB
+- **Receivers available:** HDZero Monitor, Goggles 1, Goggles 2
+
+### Wiring (on-vehicle)
+
+The Nano 90 feeds the Freestyle V2 VTX digitally. The VTX has a **CVBS analog
+output** pad — wire this to a cheap USB UVC capture dongle plugged into the
+Jetson. This lets Hydra process the same feed the pilot sees in goggles.
+
+| Source | Destination | Notes |
+|--------|-------------|-------|
+| VTX analog out (CVBS) | Capture dongle (yellow RCA / bare wire) | Video signal |
+| VTX GND | Capture dongle GND | Common ground |
+| Capture dongle USB | Jetson USB port | V4L2 device |
 
 ### Tests
 
-- [ ] Identify HDZero VRX output type:
-  - Analog CVBS → USB UVC capture dongle needed
-  - HDMI out → HDMI-to-USB capture card needed
-- [ ] Connect VRX output to Jetson via capture device
+- [ ] Wire VTX CVBS output to USB capture dongle
+- [ ] Plug dongle into Jetson USB port
 - [ ] Verify device appears: `v4l2-ctl --list-devices` → note `/dev/videoN` index
-- [ ] Set `source = <device_index>` in `config.ini`
+  - Typical name: "USB Video", "AV TO USB2.0", or "Macrosilicon"
+- [ ] Verify auto-detect works: set `source = auto` in config.ini, start Hydra
+  - Check logs for "Auto-detected capture card: /dev/videoN"
+  - If webcam also connected, auto prefers webcam — set `source = N` to force
 - [ ] Verify live video on web dashboard (`http://<jetson-ip>:8080`)
+- [ ] Check web API device list: `curl http://<jetson-ip>:8080/api/camera/sources`
+  - Capture card should appear with `"type": "capture"`
+- [ ] Test runtime switching: webcam → capture card via web UI or API
 - [ ] Measure capture latency (point camera at stopwatch, compare with dashboard)
-- [ ] Run detection pipeline — verify YOLO detects at HDZero resolution/framerate
-- [ ] Note FPS with HDZero vs USB webcam (benchmark comparison)
+- [ ] Run detection pipeline — verify YOLO detects at CVBS resolution (720x480)
+- [ ] Note FPS with HDZero capture vs USB webcam (benchmark comparison)
+- [ ] Test with HDZero powered off — Hydra should show reconnection warnings, not crash
+
+### CVBS Signal Notes
+
+- CVBS from the Freestyle V2 is **NTSC 720×480 or PAL 720×576** (interlaced)
+- Most USB capture dongles deinterlace automatically
+- Hydra resizes to configured `width × height` (default 640×480), so resolution
+  difference shouldn't matter for detection
+- Image quality is lower than direct USB webcam — this is expected for analog
 
 ### Pass Criteria
 - Live video displays on web dashboard with no corruption
-- Detection pipeline sustains ≥5 FPS
+- Detection pipeline sustains ≥5 FPS with capture card source
+- Auto-detect or manual source selection works reliably
 - Capture latency acceptable for use case (document measured value)
 
 ---
@@ -194,8 +227,8 @@ See `docs/hdzero-osd-setup.md` for full wiring details.
 
 - [ ] Set `[osd] mode = statustext` in config.ini
 - [ ] Verify text appears in OSD message panel on goggles
-- [ ] Note: **NOT compatible with Pixhawk 6C** (no OSD chip) — need Matek H743,
-      SpeedyBee F405-Wing, or similar FC with AT7456E/MAX7456
+- [ ] Works with Pixhawk 6C via MSP DisplayPort (no MAX7456 chip needed) —
+      requires spare UART TX wired to Freestyle V2 VTX RX pad
 - [ ] Measure OSD update latency (should be <200ms)
 
 ### NAMED_VALUE Mode (richer data, requires Lua)
