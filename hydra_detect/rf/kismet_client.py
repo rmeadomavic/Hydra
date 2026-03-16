@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import requests
 
@@ -18,6 +17,17 @@ class KismetClient:
     - SDR: query by frequency — uses RTL-SDR (e.g. NESDR Smart R860) via rtl_433
 
     Kismet API: https://www.kismetwireless.net/docs/api/
+
+    Can be used as a context manager for automatic session cleanup::
+
+        with KismetClient(host="http://localhost:2501") as client:
+            rssi = client.get_wifi_rssi("AA:BB:CC:DD:EE:FF")
+
+    Args:
+        host: Kismet REST API base URL (must start with http:// or https://).
+        user: Kismet API username.
+        password: Kismet API password.
+        timeout: HTTP request timeout in seconds.
     """
 
     def __init__(
@@ -27,11 +37,22 @@ class KismetClient:
         password: str = "kismet",
         timeout: float = 2.0,
     ):
+        host = host.strip()
+        if not host.startswith(("http://", "https://")):
+            raise ValueError(
+                f"Kismet host must be an HTTP(S) URL, got: {host!r}"
+            )
         self._host = host.rstrip("/")
         self._timeout = timeout
         self._session = requests.Session()
         self._session.auth = (user, password)
         self._session.headers["Content-Type"] = "application/json"
+
+    def __enter__(self) -> KismetClient:
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
 
     def check_connection(self) -> bool:
         """Return True if Kismet API is reachable."""
@@ -82,16 +103,21 @@ class KismetClient:
         """Get signal strength for an SDR-detected device near *target_freq_mhz*.
 
         The NESDR Smart (R860) + LANA WB feed Kismet via rtl_433.
-        Covers ~25 MHz–1750 MHz (433 MHz ISM, 915 MHz Crossfire, etc.).
+        Covers ~25 MHz-1750 MHz (433 MHz ISM, 915 MHz Crossfire, etc.).
+
+        Kismet reports frequency in Hz (e.g. 915000000 for 915 MHz).
+        Values are normalised to MHz before comparison.
         """
         try:
             r = self._session.get(
                 f"{self._host}/devices/summary/devices.json",
-                params={"KISMET": '{"fields": ['
+                params={
+                    "KISMET": '{"fields": ['
                     '"kismet.device.base.signal/kismet.common.signal.last_signal",'
                     '"kismet.device.base.frequency",'
                     '"kismet.device.base.last_time"'
-                    ']}'},
+                    ']}'
+                },
                 timeout=self._timeout,
             )
             if r.status_code != 200:
@@ -100,8 +126,12 @@ class KismetClient:
             best: float | None = None
             for dev in devices:
                 freq = dev.get("kismet.device.base.frequency", 0)
-                # Kismet may report Hz or kHz depending on source
-                freq_mhz = freq / 1e6 if freq > 1e6 else freq / 1e3
+                # Kismet reports frequency in Hz. Normalise to MHz.
+                # Guard: values < 10_000 are already in MHz (manual config).
+                if freq > 10_000:
+                    freq_mhz = freq / 1e6
+                else:
+                    freq_mhz = float(freq)
                 if abs(freq_mhz - target_freq_mhz) > tolerance_mhz:
                     continue
                 signal = dev.get("kismet.device.base.signal", {})
@@ -130,4 +160,5 @@ class KismetClient:
         return None
 
     def close(self) -> None:
+        """Close the underlying HTTP session."""
         self._session.close()

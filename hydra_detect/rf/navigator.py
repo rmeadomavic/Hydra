@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
+from collections import deque
 
 from .search import offset_position
 from .signal import RSSISample
 
 logger = logging.getLogger(__name__)
+
+# Maximum RSSI samples to retain in memory (~80 bytes each).
+# At 2 Hz polling this covers ~2.8 hours of continuous hunt.
+_MAX_SAMPLES = 20_000
 
 
 class GradientNavigator:
@@ -18,9 +24,19 @@ class GradientNavigator:
     1. Record RSSI at current position.
     2. Fly *step_m* metres along current bearing.
     3. Record RSSI at new position.
-    4. If signal improved → keep this bearing.
-    5. If signal dropped → rotate by *rotation_deg* and retry.
-    6. If all directions tried → return to best-known position.
+    4. If signal improved -> keep this bearing.
+    5. If signal dropped -> rotate by *rotation_deg* and retry.
+    6. If all directions tried -> return to best-known position.
+
+    All public attributes and methods are thread-safe. The navigator state
+    is read from the web API thread and written from the hunt thread.
+
+    Args:
+        step_m: Distance in metres for each gradient probe.
+        rotation_deg: Degrees to rotate bearing after signal drops.
+        max_probes: Max direction changes before declaring exhaustion.
+        improve_threshold_dbm: Minimum dB improvement to count as progress.
+        converge_dbm: RSSI level at which to declare convergence.
     """
 
     def __init__(
@@ -37,28 +53,53 @@ class GradientNavigator:
         self._improve_threshold = improve_threshold_dbm
         self._converge_dbm = converge_dbm
 
+        self._lock = threading.Lock()
         self.bearing: float = 0.0
         self.probe_count: int = 0
         self.best_rssi: float = -100.0
         self.best_position: tuple[float, float] = (0.0, 0.0)
-        self.samples: list[RSSISample] = []
+        self.samples: deque[RSSISample] = deque(maxlen=_MAX_SAMPLES)
 
     def reset(self) -> None:
-        self.probe_count = 0
-        self.bearing = 0.0
+        """Reset probe state for re-search. Keeps sample history."""
+        with self._lock:
+            self.probe_count = 0
+            self.bearing = 0.0
 
     def record(self, rssi: float, lat: float, lon: float, alt: float) -> None:
-        """Record an RSSI measurement with GPS position."""
-        self.samples.append(RSSISample(
+        """Record an RSSI measurement with GPS position (thread-safe)."""
+        sample = RSSISample(
             rssi_dbm=rssi, lat=lat, lon=lon, alt=alt,
             timestamp=time.monotonic(),
-        ))
-        if rssi > self.best_rssi:
-            self.best_rssi = rssi
-            self.best_position = (lat, lon)
-            logger.info(
-                "New best RSSI: %.1f dBm at %.7f, %.7f", rssi, lat, lon,
-            )
+        )
+        with self._lock:
+            self.samples.append(sample)
+            if rssi > self.best_rssi:
+                self.best_rssi = rssi
+                self.best_position = (lat, lon)
+                logger.info(
+                    "New best RSSI: %.1f dBm at %.7f, %.7f", rssi, lat, lon,
+                )
+
+    def get_best_rssi(self) -> float:
+        """Return the best RSSI seen so far (thread-safe)."""
+        with self._lock:
+            return self.best_rssi
+
+    def get_best_position(self) -> tuple[float, float]:
+        """Return the (lat, lon) of the best RSSI reading (thread-safe)."""
+        with self._lock:
+            return self.best_position
+
+    def get_sample_count(self) -> int:
+        """Return the number of RSSI samples recorded (thread-safe)."""
+        with self._lock:
+            return len(self.samples)
+
+    def get_samples_copy(self) -> list[RSSISample]:
+        """Return a snapshot of all samples (thread-safe)."""
+        with self._lock:
+            return list(self.samples)
 
     def next_probe(
         self,
@@ -100,7 +141,9 @@ class GradientNavigator:
             self.probe_count += 1
             if self.probe_count >= self._max_probes:
                 logger.warning("All probe directions exhausted")
-                return self.best_position[0], self.best_position[1], False
+                with self._lock:
+                    bp = self.best_position
+                return bp[0], bp[1], False
             self.bearing = (self.bearing + self._rotation_deg) % 360
             logger.info(
                 "Signal dropped (%+.1f dBm), rotating to %.0f° "

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from hydra_detect.rf.kismet_client import KismetClient
 
 
@@ -167,3 +165,31 @@ class TestUnifiedGetter:
         client._session = MagicMock()
         client.close()
         client._session.close.assert_called_once()
+
+    def test_context_manager(self):
+        with KismetClient() as client:
+            assert client._session is not None
+
+    def test_invalid_host_url(self):
+        import pytest
+        with pytest.raises(ValueError, match="HTTP"):
+            KismetClient(host="not-a-url")
+
+    def test_freq_normalisation_hz(self):
+        """Kismet reports Hz — should normalise to MHz correctly."""
+        client = KismetClient()
+        client._session = MagicMock()
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = [
+            {
+                "kismet.device.base.frequency": 915000000,  # 915 MHz in Hz
+                "kismet.device.base.signal": {
+                    "kismet.common.signal.last_signal": -60,
+                },
+            },
+        ]
+        client._session.get.return_value = response
+
+        rssi = client.get_sdr_rssi(915.0)
+        assert rssi == -60.0
