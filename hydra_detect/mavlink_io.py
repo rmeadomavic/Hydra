@@ -34,6 +34,7 @@ class MAVLinkIO:
         min_gps_fix: int = 3,
         auto_loiter: bool = False,
         guided_roi: bool = False,
+        alert_classes: set[str] | None = None,
     ):
         self._conn_str = connection_string
         self._baud = baud
@@ -44,6 +45,7 @@ class MAVLinkIO:
         self._min_gps_fix = min_gps_fix
         self._auto_loiter = auto_loiter
         self._guided_roi = guided_roi
+        self._alert_classes = alert_classes  # None = alert on all classes
 
         self._mav = None
         self._last_alert_times: Dict[str, float] = {}
@@ -355,6 +357,10 @@ class MAVLinkIO:
 
     def alert_detection(self, label: str, confidence: float = 0.0) -> None:
         """Rate-limited per-label detection alert with geo-coordinates."""
+        # Alert class filter — skip labels not in the allowlist
+        if self._alert_classes is not None and label not in self._alert_classes:
+            return
+
         now = time.time()
 
         # Per-label throttling (protected by main lock)
@@ -598,6 +604,18 @@ class MAVLinkIO:
     @auto_loiter.setter
     def auto_loiter(self, value: bool) -> None:
         self._auto_loiter = value
+
+    @property
+    def alert_classes(self) -> set[str] | None:
+        return self._alert_classes
+
+    @alert_classes.setter
+    def alert_classes(self, value: set[str] | None) -> None:
+        self._alert_classes = value
+        if value is not None:
+            logger.info("Alert class filter updated: %s", ", ".join(sorted(value)))
+        else:
+            logger.info("Alert class filter cleared — alerting on all classes.")
 
     def set_mode(self, mode_name: str) -> bool:
         """Set the vehicle flight mode by name. Returns True on success."""
