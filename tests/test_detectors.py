@@ -23,3 +23,18 @@ def test_detection_result_iterable():
     assert len(dr) == 2
     labels = [d.class_id for d in dr]
     assert labels == [0, 1]
+
+
+class TestGetClassNames:
+    def test_returns_empty_when_no_model(self):
+        from hydra_detect.detectors.yolo_detector import YOLODetector
+        det = YOLODetector()
+        assert det.get_class_names() == []
+
+    def test_returns_names_from_model(self):
+        from unittest.mock import MagicMock
+        from hydra_detect.detectors.yolo_detector import YOLODetector
+        det = YOLODetector()
+        det._model = MagicMock()
+        det._model.names = {0: "person", 1: "car", 2: "truck"}
+        assert det.get_class_names() == ["person", "car", "truck"]
