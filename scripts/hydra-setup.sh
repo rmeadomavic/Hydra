@@ -153,3 +153,38 @@ if [ "$NEED_RELOGIN" = true ]; then
 fi
 
 echo ""
+
+# ── Step 2: Tailscale (Optional) ────────────────────────────
+info "Step 2/7: Tailscale remote access"
+echo ""
+
+TS_IP=""
+if command -v tailscale >/dev/null 2>&1; then
+    TS_IP="$(tailscale ip -4 2>/dev/null || true)"
+    if [ -n "$TS_IP" ]; then
+        ok "Tailscale already running ($TS_IP)"
+    else
+        info "Tailscale is installed but not connected."
+        if ask "Connect Tailscale now?" "Y"; then
+            sudo tailscale up
+            TS_IP="$(tailscale ip -4 2>/dev/null || true)"
+            sudo tailscale set --ssh
+            ok "Tailscale connected ($TS_IP) with SSH enabled"
+        fi
+    fi
+else
+    if ask "Would you like to set up Tailscale for remote SSH?" "Y"; then
+        info "Installing Tailscale..."
+        curl -fsSL https://tailscale.com/install.sh | sh
+        info "Starting Tailscale — follow the auth URL in your browser..."
+        sudo tailscale up
+        sudo tailscale set --ssh
+        TS_IP="$(tailscale ip -4 2>/dev/null || true)"
+        ok "Tailscale connected ($TS_IP) with SSH enabled"
+        info "SSH from another machine: ssh $USER@$TS_IP"
+    else
+        info "Skipping Tailscale. Remote SSH will not be available via Tailscale."
+    fi
+fi
+
+echo ""
