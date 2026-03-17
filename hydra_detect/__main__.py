@@ -1,6 +1,7 @@
 """Entry point: python -m hydra_detect [--config config.ini]"""
 
 import argparse
+import os
 
 from .pipeline import Pipeline
 
@@ -16,6 +17,10 @@ def main():
 
     pipeline = Pipeline(config_path=args.config)
     pipeline.start()
+
+    # Hard exit to prevent "terminate called without an active exception"
+    # from CUDA/PyTorch/OpenCV daemon thread cleanup races on Jetson.
+    os._exit(0)
 
 
 if __name__ == "__main__":
