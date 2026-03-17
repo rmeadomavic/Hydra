@@ -177,17 +177,52 @@ full OSD test plan. Quick validation:
 
 **Goal:** Get SDR working with Kismet for RF hunt integration.
 
+### Setup (verified 2026-03-17 on Jetson Orin Nano, JetPack 6.2.1)
+
+```bash
+# 1. Install RTL-SDR drivers
+sudo apt-get install -y rtl-sdr
+
+# 2. Add udev rules so non-root users can access the dongle
+echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", MODE="0666"' \
+  | sudo tee /etc/udev/rules.d/20-rtlsdr.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger
+
+# 3. Install rtl_433 (required by Kismet's RTL-SDR capture helper)
+sudo apt-get install -y rtl-433
+
+# 4. Install Kismet from official repo
+wget -O - https://www.kismetwireless.net/repos/kismet-release.gpg.key --quiet \
+  | gpg --dearmor | sudo tee /usr/share/keyrings/kismet-archive-keyring.gpg > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/kismet-archive-keyring.gpg arch=arm64] \
+  https://www.kismetwireless.net/repos/apt/release/jammy jammy main" \
+  | sudo tee /etc/apt/sources.list.d/kismet.list
+sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y kismet
+
+# 5. Set Kismet credentials (must match config.ini [rf_homing] kismet_user/pass)
+sudo mkdir -p /root/.kismet
+echo -e "httpd_username=kismet\nhttpd_password=kismet" | sudo tee /root/.kismet/kismet_httpd.conf
+# Also set in site config so it takes priority:
+echo -e "httpd_username=kismet\nhttpd_password=kismet" | sudo tee /etc/kismet/kismet_site.conf
+
+# 6. Start Kismet with RTL-433 source (use rtl433-0, NOT rtlsdr-0)
+sudo kismet -c rtl433-0 --no-ncurses --daemonize
+```
+
+**Known issues:**
+- Kismet install prompts for suid-root helpers interactively. Use `DEBIAN_FRONTEND=noninteractive` or pre-set debconf answers.
+- Source name must be `rtl433-0` (not `rtlsdr-0`) — Kismet's RTL-SDR support works via the rtl_433 capture helper.
+- **Kismet 2025 auth:** Uses cookie-based sessions, NOT HTTP Basic Auth on every request. Hydra's `kismet_client.py` handles this automatically (establishes session via `/session/check_session`, then uses cookies). Older Kismet versions still work via basic auth fallback.
+
 ### Tests
 
-- [ ] Verify SDR device on Jetson:
-  - RTL-SDR: `rtl_test`
-  - HackRF: `hackrf_info`
-- [ ] USB passthrough into Docker container: `-device /dev/bus/usb`
-- [ ] Install Kismet on Jetson (REST API on `localhost:2501`)
-- [ ] Run Kismet with SDR source - verify web UI shows captured signals
+- [x] Verify SDR device on Jetson: `rtl_test` (NooElec NESDR Smart v5, R820T tuner)
+- [ ] USB passthrough into Docker container: `--privileged` handles this
+- [x] Install Kismet on Jetson (REST API on `localhost:2501`)
+- [x] Run Kismet with SDR source — `rtl433-0` source running, 0 packets (no transmitters in range)
 - [ ] Configure Hydra `[rf_homing]` section in config.ini with Kismet endpoint
-- [ ] Test RSSI data feed from Kismet into Hydra RF hunt module
-- [ ] (Stretch) Try `dump1090` for ADS-B reception - aircraft tracking
+- [x] Test RSSI data feed from Kismet into Hydra RF hunt module — `KismetClient.check_connection()` PASS
+- [ ] (Stretch) Try `dump1090` for ADS-B reception — `kismet-capture-rtladsb-v2` is installed
 - [ ] (Stretch) Spectrum survey of test area with gqrx or SigDigger
 
 ### Pass Criteria
