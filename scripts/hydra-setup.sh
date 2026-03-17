@@ -188,3 +188,48 @@ else
 fi
 
 echo ""
+
+# ── Step 3: Docker Base Image ───────────────────────────────
+info "Step 3/7: Docker base image"
+echo ""
+
+BASE_IMAGE="dustynv/l4t-pytorch:r36.4.0"
+if docker image inspect "$BASE_IMAGE" >/dev/null 2>&1; then
+    ok "Base image already pulled ($BASE_IMAGE)"
+else
+    info "Pulling base image ($BASE_IMAGE) — this is ~6 GB, may take a while..."
+    docker pull "$BASE_IMAGE"
+    ok "Base image pulled"
+fi
+
+echo ""
+
+# ── Step 4: Docker Build ────────────────────────────────────
+info "Step 4/7: Build Hydra Detect image"
+echo ""
+
+BUILD_IMAGE=true
+if docker image inspect hydra-detect:latest >/dev/null 2>&1; then
+    ok "hydra-detect:latest image already exists"
+    if ! ask "Rebuild the image?" "N"; then
+        BUILD_IMAGE=false
+    fi
+fi
+
+if [ "$BUILD_IMAGE" = true ]; then
+    info "Building hydra-detect:latest (this takes ~2 minutes)..."
+    docker build --network=host -t hydra-detect:latest "$HYDRA_DIR"
+    ok "hydra-detect:latest built successfully"
+fi
+
+echo ""
+
+# ── Step 5: Directories ─────────────────────────────────────
+info "Step 5/7: Data directories"
+echo ""
+
+mkdir -p "$HYDRA_DIR/models"
+mkdir -p "$HYDRA_DIR/output_data"
+ok "models/ and output_data/ directories ready"
+
+echo ""
