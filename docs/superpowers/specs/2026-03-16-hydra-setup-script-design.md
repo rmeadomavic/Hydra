@@ -128,6 +128,7 @@ done
 
 docker run --rm --privileged --runtime nvidia \
   $DEVICE_FLAGS \
+  -v $(pwd)/config.ini:/app/config.ini:ro \
   -v /usr/sbin/nvpmodel:/usr/sbin/nvpmodel:ro \
   -v /usr/bin/jetson_clocks:/usr/bin/jetson_clocks:ro \
   -v /etc/nvpmodel.conf:/etc/nvpmodel.conf:ro \
