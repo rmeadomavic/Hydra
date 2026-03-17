@@ -204,8 +204,8 @@ stream_state = StreamState()
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    """Serve the operator dashboard."""
-    return templates.TemplateResponse("index.html", {"request": request})
+    """Serve the operator dashboard SPA."""
+    return templates.TemplateResponse("base.html", {"request": request})
 
 
 @app.get("/api/stats")

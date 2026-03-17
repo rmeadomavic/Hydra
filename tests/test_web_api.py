@@ -310,6 +310,22 @@ class TestVehicleModeEndpoint:
 # Static file serving
 # ---------------------------------------------------------------------------
 
+class TestSPAShell:
+    def test_index_serves_base_html(self, client):
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "HYDRA DETECT" in resp.text
+        assert "view-monitor" in resp.text
+        assert "view-control" in resp.text
+        assert "view-settings" in resp.text
+        assert "stream.mjpeg" in resp.text
+
+    def test_index_includes_static_css(self, client):
+        resp = client.get("/")
+        assert "/static/css/variables.css" in resp.text
+        assert "/static/js/app.js" in resp.text
+
+
 class TestStaticFileServing:
     def test_css_variables_served(self, client):
         resp = client.get("/static/css/variables.css")
