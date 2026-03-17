@@ -1,1 +1,176 @@
-/* Settings view styles (populated in Task 6) */
+/* ── Settings View ── */
+.view-settings {
+    display: flex;
+}
+
+.settings-nav {
+    width: var(--settings-nav-width);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--card-border);
+    padding: var(--gap-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-xs);
+    overflow-y: auto;
+}
+
+.settings-section-btn {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: var(--font-sm);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: var(--ls-condensed);
+    text-align: left;
+    padding: var(--gap-sm) var(--gap-md);
+    border: none;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+.settings-section-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+}
+.settings-section-btn.active {
+    background: rgba(56, 87, 35, 0.2);
+    color: var(--ogt-muted);
+    border-left: 3px solid var(--ogt-green);
+}
+
+.settings-content {
+    flex: 1;
+    padding: var(--gap-lg);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-md);
+}
+
+.settings-warning {
+    background: var(--danger-bg);
+    border: 1px solid var(--danger);
+    border-radius: var(--radius-lg);
+    padding: var(--gap-md);
+    color: #fca5a5;
+    font-size: var(--font-sm);
+    font-weight: 600;
+}
+
+.settings-error {
+    background: var(--danger-bg);
+    border: 1px solid var(--danger);
+    border-radius: var(--radius-md);
+    padding: var(--gap-sm) var(--gap-md);
+    color: #fca5a5;
+    font-size: var(--font-sm);
+}
+
+.settings-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-sm);
+}
+
+.settings-field {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: var(--gap-sm);
+    align-items: center;
+    padding: var(--gap-xs) 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.settings-field-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+}
+
+.settings-field-label .restart-icon {
+    color: var(--warning);
+    font-size: var(--font-xs);
+    margin-left: 4px;
+    title: "Requires restart";
+}
+
+.settings-field input,
+.settings-field select,
+.settings-field textarea {
+    width: 100%;
+}
+
+.settings-field textarea {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: var(--font-sm);
+    padding: 6px 10px;
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-md);
+    background: #111;
+    color: var(--text-primary);
+    resize: vertical;
+    min-height: 60px;
+}
+
+/* Toggle switch for booleans */
+.toggle-switch {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    background: var(--card-border);
+    border-radius: 11px;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+.toggle-switch.active {
+    background: var(--ogt-green);
+}
+.toggle-switch::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--text-primary);
+    transition: transform var(--transition-fast);
+}
+.toggle-switch.active::after {
+    transform: translateX(18px);
+}
+
+.settings-restart {
+    background: rgba(180, 83, 9, 0.15);
+    border: 1px solid var(--warning);
+    border-radius: var(--radius-md);
+    padding: var(--gap-sm) var(--gap-md);
+    color: var(--warning);
+    font-size: var(--font-sm);
+}
+
+.settings-actions {
+    display: flex;
+    gap: var(--gap-sm);
+    padding-top: var(--gap-md);
+    border-top: 1px solid var(--card-border);
+    position: sticky;
+    bottom: 0;
+    background: var(--panel-bg);
+    padding-bottom: var(--gap-sm);
+}
+
+/* ── Responsive ── */
+@media (max-width: 1279px) {
+    .settings-nav {
+        width: 100%;
+        flex-direction: row;
+        flex-wrap: wrap;
+        border-right: none;
+        border-bottom: 1px solid var(--card-border);
+    }
+    .settings-field {
+        grid-template-columns: 1fr;
+    }
+}
