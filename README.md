@@ -31,6 +31,23 @@ Kismet (WiFi/SDR) ─> RF Hunt Controller ─> RSSI Gradient Ascent ─> MAVLink
 
 ## Getting Started
 
+### Automated Setup (Recommended)
+
+After flashing JetPack and completing the first-boot wizard
+([guide](docs/jetson-initial-setup.md)), run the setup script:
+
+```bash
+cd ~/Hydra
+bash scripts/hydra-setup.sh
+```
+
+This walks you through everything: system checks, optional Tailscale remote
+access, Docker build, hardware config, and first launch.
+
+For remote access after setup, see the [Tailscale SSH guide](docs/tailscale-ssh.md).
+
+### Manual Setup
+
 ```bash
 # Install pip (not included on fresh JetPack installs)
 sudo apt update && sudo apt install -y python3-pip
