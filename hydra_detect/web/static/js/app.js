@@ -283,12 +283,31 @@ const HydraApp = (() => {
         });
     }
 
+    // ── MJPEG Stream Error Handling ──
+    function initStreamWatcher() {
+        const streamImg = document.getElementById('mjpeg-stream');
+        if (streamImg) {
+            streamImg.addEventListener('error', () => {
+                const lost = document.getElementById('monitor-stream-lost');
+                if (lost) lost.style.display = '';
+                setTimeout(() => {
+                    streamImg.src = '/stream.mjpeg?' + Date.now();
+                }, 2000);
+            });
+            streamImg.addEventListener('load', () => {
+                const lost = document.getElementById('monitor-stream-lost');
+                if (lost) lost.style.display = 'none';
+            });
+        }
+    }
+
     // ── Init ──
     function init() {
         initRouter();
         trackActivity();
         initPresentationMode();
         initModalEscape();
+        initStreamWatcher();
         updatePollers();
     }
 

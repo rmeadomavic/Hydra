@@ -205,7 +205,7 @@ stream_state = StreamState()
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Serve the operator dashboard SPA."""
-    return templates.TemplateResponse("base.html", {"request": request})
+    return templates.TemplateResponse(request, "base.html")
 
 
 @app.get("/api/stats")
@@ -714,7 +714,7 @@ async def api_pipeline_pause(request: Request, authorization: Optional[str] = He
 @app.get("/review", response_class=HTMLResponse)
 async def review_page(request: Request):
     """Serve the post-mission review page."""
-    return templates.TemplateResponse("review.html", {"request": request})
+    return templates.TemplateResponse(request, "review.html")
 
 
 @app.get("/api/review/logs")
