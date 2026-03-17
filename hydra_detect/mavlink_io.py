@@ -34,6 +34,7 @@ class MAVLinkIO:
         min_gps_fix: int = 3,
         auto_loiter: bool = False,
         guided_roi: bool = False,
+        alert_classes: set[str] | None = None,
     ):
         self._conn_str = connection_string
         self._baud = baud
@@ -44,6 +45,7 @@ class MAVLinkIO:
         self._min_gps_fix = min_gps_fix
         self._auto_loiter = auto_loiter
         self._guided_roi = guided_roi
+        self._alert_classes = alert_classes  # None = alert on all classes
 
         self._mav = None
         self._last_alert_times: Dict[str, float] = {}
@@ -55,6 +57,16 @@ class MAVLinkIO:
         }
         self._gps_lock = threading.Lock()
         self._stop_evt = threading.Event()
+
+        # Vehicle telemetry (battery, speed, altitude — updated by _gps_listener)
+        self._telemetry: Dict[str, Any] = {
+            "armed": False,
+            "battery_v": None,
+            "battery_pct": None,
+            "groundspeed": None,
+            "altitude": None,
+            "heading": None,
+        }
 
         # Vehicle mode state (from HEARTBEAT)
         self._vehicle_mode: Optional[str] = None
@@ -111,17 +123,24 @@ class MAVLinkIO:
                 2,  # 2 Hz
                 1,  # start
             )
+            for stream_id in (
+                mavlink2.MAV_DATA_STREAM_EXTENDED_STATUS,
+                mavlink2.MAV_DATA_STREAM_EXTRA1,
+            ):
+                self._mav.mav.request_data_stream_send(
+                    self._mav.target_system,
+                    self._mav.target_component,
+                    stream_id,
+                    2,  # 2 Hz
+                    1,  # start
+                )
 
-            # Start GPS listener thread
+            # Start single reader thread (avoids serial port contention)
             self._stop_evt.clear()
-            threading.Thread(
-                target=self._gps_listener, daemon=True, name="mav-gps"
-            ).start()
-
-            # Start command listener thread
-            threading.Thread(
-                target=self._command_listener, daemon=True, name="mav-cmd"
-            ).start()
+            self._reader_thread = threading.Thread(
+                target=self._message_reader, daemon=True, name="mav-reader"
+            )
+            self._reader_thread.start()
 
             return True
         except Exception as exc:
@@ -129,28 +148,40 @@ class MAVLinkIO:
             return False
 
     def close(self) -> None:
-        """Stop GPS listener and close MAVLink connection."""
+        """Stop reader thread and close MAVLink connection."""
         self._stop_evt.set()
+        if hasattr(self, "_reader_thread") and self._reader_thread is not None:
+            self._reader_thread.join(timeout=3)
         if self._mav is not None:
             self._mav.close()
             self._mav = None
 
     # ------------------------------------------------------------------
-    # GPS listener
+    # Single reader thread (replaces separate GPS + command listeners
+    # to avoid serial port contention / recv_match race condition)
     # ------------------------------------------------------------------
-    def _gps_listener(self) -> None:
-        """Background thread: read GPS and HEARTBEAT messages."""
+    _ALL_MSG_TYPES = [
+        "GLOBAL_POSITION_INT", "GPS_RAW_INT", "HEARTBEAT",
+        "SYS_STATUS", "VFR_HUD",
+        "COMMAND_LONG", "NAMED_VALUE_INT",
+    ]
+
+    def _message_reader(self) -> None:
+        """Single thread that reads all MAVLink messages and dispatches."""
+        audit = logging.getLogger("hydra.audit")
         while not self._stop_evt.is_set():
             if self._mav is None:
                 break
             try:
                 msg = self._mav.recv_match(
-                    type=["GLOBAL_POSITION_INT", "GPS_RAW_INT", "HEARTBEAT"],
+                    type=self._ALL_MSG_TYPES,
                     timeout=1,
                 )
                 if msg is None:
                     continue
                 msg_type = msg.get_type()
+
+                # ── Telemetry / GPS messages ──
                 if msg_type == "GLOBAL_POSITION_INT":
                     with self._gps_lock:
                         self._gps["lat"] = msg.lat
@@ -160,14 +191,45 @@ class MAVLinkIO:
                 elif msg_type == "GPS_RAW_INT":
                     with self._gps_lock:
                         self._gps["fix"] = msg.fix_type
+                elif msg_type == "SYS_STATUS":
+                    with self._gps_lock:
+                        if msg.voltage_battery != 0xFFFF:
+                            self._telemetry["battery_v"] = round(msg.voltage_battery / 1000.0, 2)
+                        if msg.battery_remaining != -1:
+                            self._telemetry["battery_pct"] = msg.battery_remaining
+                elif msg_type == "VFR_HUD":
+                    with self._gps_lock:
+                        self._telemetry["groundspeed"] = round(msg.groundspeed, 1)
+                        self._telemetry["altitude"] = round(msg.alt, 1)
+                        self._telemetry["heading"] = round(msg.heading, 0)
                 elif msg_type == "HEARTBEAT":
-                    # Skip GCS heartbeats (type 6 = MAV_TYPE_GCS)
-                    if msg.type == 6:
+                    if msg.type == 6:  # Skip GCS heartbeats
                         continue
                     self._update_vehicle_mode(msg)
+                    self._update_armed_state(msg)
+
+                # ── Command messages ──
+                elif msg_type == "COMMAND_LONG":
+                    self._handle_command_long(msg, audit)
+                elif msg_type == "NAMED_VALUE_INT":
+                    self._handle_named_value_int(msg, audit)
+
+            except TypeError:
+                # pymavlink internal bug: messages[mtype]._instances is None
+                # for some message types during post_message bookkeeping.
+                # Safe to ignore — does not affect message delivery.
+                continue
             except Exception as exc:
-                logger.warning("GPS listener error: %s", exc)
+                if self._stop_evt.is_set():
+                    break
+                logger.warning("MAVLink reader error: %s", exc)
                 time.sleep(0.5)
+
+    def _update_armed_state(self, heartbeat_msg) -> None:
+        """Extract armed state from HEARTBEAT base_mode."""
+        armed = bool(heartbeat_msg.base_mode & 128)  # MAV_MODE_FLAG_SAFETY_ARMED
+        with self._gps_lock:
+            self._telemetry["armed"] = armed
 
     def _update_vehicle_mode(self, heartbeat_msg) -> None:
         """Extract flight mode name from a HEARTBEAT message."""
@@ -204,28 +266,6 @@ class MAVLinkIO:
                 self._cmd_callbacks["strike"] = on_strike
             if on_unlock is not None:
                 self._cmd_callbacks["unlock"] = on_unlock
-
-    def _command_listener(self) -> None:
-        """Background thread: listen for COMMAND_LONG and NAMED_VALUE_INT."""
-        audit = logging.getLogger("hydra.audit")
-        while not self._stop_evt.is_set():
-            if self._mav is None:
-                break
-            try:
-                msg = self._mav.recv_match(
-                    type=["COMMAND_LONG", "NAMED_VALUE_INT"],
-                    timeout=1,
-                )
-                if msg is None:
-                    continue
-                msg_type = msg.get_type()
-                if msg_type == "COMMAND_LONG":
-                    self._handle_command_long(msg, audit)
-                elif msg_type == "NAMED_VALUE_INT":
-                    self._handle_named_value_int(msg, audit)
-            except Exception as exc:
-                logger.warning("Command listener error: %s", exc)
-                time.sleep(0.5)
 
     def _handle_command_long(self, msg, audit) -> None:
         """Process a COMMAND_LONG message for Hydra commands."""
@@ -303,6 +343,15 @@ class MAVLinkIO:
         with self._gps_lock:
             return dict(self._gps)
 
+    def get_telemetry(self) -> Dict[str, Any]:
+        """Return merged GPS + telemetry + vehicle mode (thread-safe)."""
+        with self._gps_lock:
+            result = dict(self._gps)
+            result.update(self._telemetry)
+        with self._vehicle_mode_lock:
+            result["vehicle_mode"] = self._vehicle_mode
+        return result
+
     @property
     def gps_fix_ok(self) -> bool:
         with self._gps_lock:
@@ -355,6 +404,10 @@ class MAVLinkIO:
 
     def alert_detection(self, label: str, confidence: float = 0.0) -> None:
         """Rate-limited per-label detection alert with geo-coordinates."""
+        # Alert class filter — skip labels not in the allowlist
+        if self._alert_classes is not None and label not in self._alert_classes:
+            return
+
         now = time.time()
 
         # Per-label throttling (protected by main lock)
@@ -377,7 +430,7 @@ class MAVLinkIO:
             msg = f"Detection: {label} {dtg}"
 
         if self._alert_statustext:
-            self.send_statustext(msg)
+            self.send_statustext(msg, severity=6)  # INFO — green in Mission Planner
             logger.info("Alert sent: %s", msg)
 
     # ------------------------------------------------------------------
@@ -541,7 +594,7 @@ class MAVLinkIO:
                 0, 0,               # yaw, yaw_rate (ignored)
             )
             logger.info("GUIDED to %.6f, %.6f alt=%.1fm", lat, lon, alt)
-            self.send_statustext(f"STRIKE: GUIDED to {lat:.5f},{lon:.5f}", severity=2)
+            self.send_statustext(f"STRIKE: GUIDED to {lat:.5f},{lon:.5f}", severity=1)  # ALERT — red in Mission Planner
             return True
 
         except Exception as exc:
@@ -598,6 +651,18 @@ class MAVLinkIO:
     @auto_loiter.setter
     def auto_loiter(self, value: bool) -> None:
         self._auto_loiter = value
+
+    @property
+    def alert_classes(self) -> set[str] | None:
+        return self._alert_classes
+
+    @alert_classes.setter
+    def alert_classes(self, value: set[str] | None) -> None:
+        self._alert_classes = value
+        if value is not None:
+            logger.info("Alert class filter updated: %s", ", ".join(sorted(value)))
+        else:
+            logger.info("Alert class filter cleared — alerting on all classes.")
 
     def set_mode(self, mode_name: str) -> bool:
         """Set the vehicle flight mode by name. Returns True on success."""

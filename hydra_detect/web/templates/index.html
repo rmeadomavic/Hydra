@@ -497,6 +497,23 @@
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
         ::-webkit-scrollbar-thumb:hover { background: #383838; }
+
+        /* ── MODE / ARMED BADGES ─────────────────────────── */
+        .mode-badge { transition: all 0.3s ease; }
+        .mode-badge.auto { background: var(--ogt-green); color: var(--ogt-warm); }
+        .mode-badge.loiter, .mode-badge.hold { background: var(--warning); color: #fff; }
+        .mode-badge.guided { background: var(--danger); color: #fff; }
+        .mode-badge.rtl { background: var(--danger); color: #fff; }
+        .mode-badge.sending { animation: pulse 0.5s ease-in-out infinite; }
+        .mode-badge.failed { background: var(--danger); animation: none; }
+        .armed-badge.armed { background: var(--danger); color: #fff; }
+        .armed-badge.disarmed { background: var(--ogt-green); color: var(--ogt-warm); }
+
+        /* ── ALERT CLASS CHECKLIST ───────────────────────── */
+        .alert-class-list { max-height: 160px; overflow-y: auto; background: var(--panel-bg); border: 1px solid var(--card-border); border-radius: 2px; padding: 4px; }
+        .alert-cat-hdr { font-family: 'Barlow Condensed', sans-serif; font-size: 0.6rem; font-weight: 600; color: var(--ogt-muted); letter-spacing: 0.06em; text-transform: uppercase; padding: 4px 2px 2px; cursor: pointer; user-select: none; }
+        .alert-class-row { display: flex; align-items: center; gap: 4px; padding: 1px 4px; font-size: 0.7rem; cursor: pointer; color: var(--text-primary); }
+        .alert-class-row input { accent-color: var(--ogt-green); }
     </style>
 </head>
 <body>
@@ -605,20 +622,44 @@
             <!-- Vehicle Link -->
             <div class="sidebar-section">
                 <div class="section-label">Vehicle Link</div>
+                <div style="display:flex; gap:5px; flex-wrap:wrap; margin-bottom:6px;">
+                    <span class="badge off" id="mav-badge">DISCONNECTED</span>
+                    <span class="badge mode-badge" id="mode-badge">--</span>
+                    <span class="badge armed-badge" id="armed-badge">--</span>
+                </div>
                 <div class="stat-grid">
                     <div class="stat">
-                        <div class="stat-label">MAVLink</div>
-                        <span class="badge off" id="mav-badge">DISCONNECTED</span>
+                        <div class="stat-label">Battery</div>
+                        <div class="stat-value small" id="battery-val">--</div>
                     </div>
+                    <div class="stat">
+                        <div class="stat-label">Speed</div>
+                        <div class="stat-value small" id="speed-val">--</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Alt</div>
+                        <div class="stat-value small" id="alt-val">--</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Heading</div>
+                        <div class="stat-value small" id="hdg-val">--</div>
+                    </div>
+                </div>
+                <div class="stat-grid" style="margin-top:5px;">
                     <div class="stat">
                         <div class="stat-label">GPS Fix</div>
                         <div class="stat-value small" id="gps-fix">--</div>
                     </div>
+                    <div class="stat">
+                        <div class="stat-label">Position</div>
+                        <div class="stat-value small" id="gps-pos" style="color:var(--warning); font-family:'JetBrains Mono',monospace; font-size:0.68rem;">--</div>
+                    </div>
                 </div>
-                <div id="gps-pos" style="font-family:'JetBrains Mono',monospace; font-size:0.68rem; color:var(--warning); margin-top:4px;"></div>
-                <button class="btn-warning btn-full" style="margin-top:8px;" onclick="commandLoiter()">
-                    Command Loiter / Hold
-                </button>
+                <div style="margin-top:8px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px;">
+                    <button class="btn-warning" onclick="commandMode('LOITER')">Loiter</button>
+                    <button class="btn-primary" onclick="commandMode('AUTO')">Auto</button>
+                    <button class="btn-danger" onclick="commandMode('RTL')">RTL</button>
+                </div>
             </div>
 
             <!-- RF Hunt -->
@@ -743,6 +784,13 @@
                     <span class="range-val" id="thresh-val">0.45</span>
                 </div>
                 <button class="btn-primary" style="margin-top:6px;" onclick="updateThreshold()">Apply</button>
+                <div class="field-label" style="margin-top:8px;">Alert Classes <span class="field-note">(GCS alerts + map markers)</span></div>
+                <div class="btn-row" style="margin-bottom:4px;">
+                    <button class="btn-neutral" style="font-size:0.6rem; padding:3px 8px;" onclick="alertClassAll()">All</button>
+                    <button class="btn-neutral" style="font-size:0.6rem; padding:3px 8px;" onclick="alertClassClear()">Clear</button>
+                </div>
+                <div class="alert-class-list" id="alert-class-list"></div>
+                <button class="btn-primary" style="margin-top:6px;" onclick="applyAlertClasses()">Apply Filter</button>
             </div>
 
             <!-- Detection Log -->
@@ -840,7 +888,50 @@
                 }
 
                 document.getElementById('gps-fix').textContent = (!s.mavlink || s.gps_fix === undefined) ? '--' : (s.gps_fix === 0 ? 'No Fix' : s.gps_fix + 'D');
-                document.getElementById('gps-pos').textContent = s.position || '';
+                document.getElementById('gps-pos').textContent = s.position || '--';
+
+                // Vehicle mode badge
+                const modeBadge = document.getElementById('mode-badge');
+                if (!modeBadge.classList.contains('sending')) {
+                    const mode = s.vehicle_mode || '--';
+                    modeBadge.textContent = mode;
+                    modeBadge.className = 'badge mode-badge ' + (mode !== '--' ? mode.toLowerCase() : '');
+                }
+
+                // Armed badge
+                const armedBadge = document.getElementById('armed-badge');
+                if (s.armed !== undefined) {
+                    armedBadge.textContent = s.armed ? 'ARMED' : 'DISARMED';
+                    armedBadge.className = 'badge armed-badge ' + (s.armed ? 'armed' : 'disarmed');
+                }
+
+                // Battery
+                const battEl = document.getElementById('battery-val');
+                if (s.battery_v != null) {
+                    const pct = (s.battery_pct != null && s.battery_pct >= 0) ? ' ' + s.battery_pct + '%' : '';
+                    battEl.textContent = s.battery_v.toFixed(1) + 'V' + pct;
+                    const bpct = s.battery_pct != null ? s.battery_pct : 100;
+                    battEl.style.color = bpct > 40 ? '#4a7c2e' : bpct > 20 ? '#eab308' : '#c53030';
+                }
+
+                // Speed, alt, heading
+                if (s.groundspeed != null)
+                    document.getElementById('speed-val').textContent = s.groundspeed.toFixed(1) + ' m/s';
+                if (s.altitude_m != null)
+                    document.getElementById('alt-val').textContent = s.altitude_m.toFixed(1) + ' m';
+                if (s.heading_deg != null)
+                    document.getElementById('hdg-val').textContent = Math.round(s.heading_deg) + '\u00B0';
+
+                // Command feedback: check if pending mode was confirmed
+                if (pendingMode && s.vehicle_mode) {
+                    if (s.vehicle_mode === pendingMode) {
+                        pendingMode = null;
+                    } else if (Date.now() - pendingModeTime > 3000) {
+                        const mb = document.getElementById('mode-badge');
+                        mb.className = 'badge mode-badge failed';
+                        setTimeout(function() { pendingMode = null; }, 1000);
+                    }
+                }
 
                 if (!isPaused) {
                     document.getElementById('conn-status').className = 'status-pill live';
@@ -906,10 +997,27 @@
             } catch (e) { console.error('Failed to update threshold:', e); }
         }
 
-        async function commandLoiter() {
-            if (!confirm('Command vehicle to LOITER/HOLD?')) return;
-            try { await fetch('/api/vehicle/loiter', {method: 'POST'}); }
-            catch (e) { console.error('Loiter failed:', e); }
+        let pendingMode = null;
+        let pendingModeTime = 0;
+
+        async function commandMode(mode) {
+            const labels = {LOITER: 'Command vehicle to LOITER?', AUTO: 'Resume AUTO mission?', RTL: 'Return to Launch?'};
+            if (!confirm(labels[mode] || ('Set mode to ' + mode + '?'))) return;
+            try {
+                const resp = await fetch('/api/vehicle/mode', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({mode: mode})
+                });
+                const result = await resp.json();
+                if (result.status === 'ok') {
+                    const badge = document.getElementById('mode-badge');
+                    badge.textContent = mode + '...';
+                    badge.className = 'badge mode-badge sending';
+                    pendingMode = mode;
+                    pendingModeTime = Date.now();
+                }
+            } catch (e) { console.error('Mode command failed:', e); }
         }
 
         // ── Target control ────────────────────────────────
@@ -1139,6 +1247,8 @@
                 if (result.status !== 'ok') {
                     alert('Failed: ' + (result.error || 'unknown'));
                     loadModels();
+                } else {
+                    loadAlertClasses();
                 }
             } catch (e) {
                 alert('Model switch failed: ' + e);
@@ -1309,6 +1419,82 @@
             } catch (e) {}
         }
 
+        // ── Alert class checklist ────────────────────────
+        let alertClassData = {all: [], categories: {}, selected: new Set()};
+
+        async function loadAlertClasses() {
+            try {
+                const resp = await fetch('/api/config/alert-classes');
+                const data = await resp.json();
+                alertClassData.all = data.all_classes || [];
+                alertClassData.categories = data.categories || {};
+                const active = data.alert_classes || [];
+                alertClassData.selected = new Set(active.length > 0 ? active : alertClassData.all);
+                renderAlertClassList();
+            } catch (e) { console.warn('Failed to load alert classes:', e); }
+        }
+
+        function renderAlertClassList() {
+            const el = document.getElementById('alert-class-list');
+            while (el.firstChild) el.removeChild(el.firstChild);
+            const cats = alertClassData.categories;
+            for (const catName of Object.keys(cats)) {
+                const classes = cats[catName];
+                const isOther = catName === 'Other';
+                const hdr = document.createElement('div');
+                hdr.className = 'alert-cat-hdr';
+                hdr.textContent = (isOther ? '\u25B6 ' : '\u25BC ') + catName;
+                const wrap = document.createElement('div');
+                wrap.style.display = isOther ? 'none' : '';
+                hdr.addEventListener('click', function() {
+                    const hidden = wrap.style.display === 'none';
+                    wrap.style.display = hidden ? '' : 'none';
+                    hdr.textContent = (wrap.style.display === 'none' ? '\u25B6 ' : '\u25BC ') + catName;
+                });
+                for (var i = 0; i < classes.length; i++) {
+                    (function(cls) {
+                        var row = document.createElement('label');
+                        row.className = 'alert-class-row';
+                        var cb = document.createElement('input');
+                        cb.type = 'checkbox';
+                        cb.checked = alertClassData.selected.has(cls);
+                        cb.addEventListener('change', function() {
+                            if (cb.checked) alertClassData.selected.add(cls);
+                            else alertClassData.selected.delete(cls);
+                        });
+                        var span = document.createElement('span');
+                        span.textContent = cls;
+                        row.appendChild(cb);
+                        row.appendChild(span);
+                        wrap.appendChild(row);
+                    })(classes[i]);
+                }
+                el.appendChild(hdr);
+                el.appendChild(wrap);
+            }
+        }
+
+        function alertClassAll() {
+            alertClassData.selected = new Set(alertClassData.all);
+            renderAlertClassList();
+        }
+
+        function alertClassClear() {
+            alertClassData.selected.clear();
+            renderAlertClassList();
+        }
+
+        async function applyAlertClasses() {
+            var classes = alertClassData.selected.size === alertClassData.all.length ? [] : Array.from(alertClassData.selected);
+            try {
+                await fetch('/api/config/alert-classes', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({classes: classes})
+                });
+            } catch (e) { console.error('Failed to apply alert classes:', e); }
+        }
+
         // Init mode visibility
         rfModeChanged();
 
@@ -1323,6 +1509,7 @@
         loadCameraSources();
         loadPowerModes();
         loadModels();
+        loadAlertClasses();
     </script>
 </body>
 </html>

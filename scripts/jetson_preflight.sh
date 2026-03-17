@@ -37,7 +37,7 @@ check_cmd systemctl "systemctl is available"
 
 if command -v nvpmodel >/dev/null 2>&1; then
   mode_raw="$(nvpmodel -q 2>/dev/null || true)"
-  if echo "$mode_raw" | rg -qi "MAXN"; then
+  if echo "$mode_raw" | grep -qi "MAXN"; then
     ok "Power model reports MAXN"
   else
     warn "Power model is not MAXN. Run: sudo nvpmodel -m 0"
@@ -45,7 +45,7 @@ if command -v nvpmodel >/dev/null 2>&1; then
 fi
 
 if command -v jetson_clocks >/dev/null 2>&1; then
-  if jetson_clocks --show 2>/dev/null | rg -qi "ON|running"; then
+  if jetson_clocks --show 2>/dev/null | grep -qiE "ON|running"; then
     ok "jetson_clocks appears enabled"
   else
     warn "jetson_clocks may be disabled. Consider: sudo jetson_clocks"
@@ -100,14 +100,14 @@ else
   warn "No telemetry serial device found (/dev/ttyACM0 or /dev/ttyUSB0)"
 fi
 
-if id -nG | rg -qw dialout; then
+if id -nG | grep -qw dialout; then
   ok "User is in dialout group (serial access)"
 else
   warn "User is NOT in dialout group. Run: sudo usermod -aG dialout \$USER && logout"
 fi
 
 if [ -r config.ini ]; then
-  if rg -q "^yolo_model\s*=" config.ini; then
+  if grep -q "^yolo_model\s*=" config.ini; then
     ok "config.ini detector model is configured"
   else
     warn "config.ini yolo_model not set (will use default yolov8n.pt)"

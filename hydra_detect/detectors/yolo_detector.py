@@ -78,6 +78,12 @@ class YOLODetector(BaseDetector):
     def model_path(self) -> str:
         return self._model_path
 
+    def get_class_names(self) -> list[str]:
+        """Return class label names from the loaded model."""
+        if self._model is None:
+            return []
+        return list(self._model.names.values())
+
     def switch_model(self, model_path: str) -> bool:
         """Switch to a different YOLO model at runtime.
 

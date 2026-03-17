@@ -31,6 +31,12 @@ Kismet (WiFi/SDR) -> RF Hunt Controller -> RSSI Gradient Ascent -> MAVLink Nav
 
 ## Getting Started
 
+### Automated Setup (Recommended)
+
+After flashing JetPack ([guide](docs/jetson-initial-setup.md)), run: `bash scripts/hydra-setup.sh` — it handles everything interactively.
+
+### Docker (Manual)
+
 The recommended path is Docker on a Jetson. The base image is large (~6 GB) but it ships with CUDA, PyTorch, and TensorRT ready to go.
 
 ```bash
@@ -44,8 +50,7 @@ cd Hydra
 # Build and run
 docker build --network=host -t hydra-detect .
 docker run --rm --privileged --runtime nvidia \
-  --device /dev/video0 --device /dev/video2 \
-  --device /dev/ttyACM0 \
+  -v $(pwd)/config.ini:/app/config.ini:ro \
   -v /usr/sbin/nvpmodel:/usr/sbin/nvpmodel:ro \
   -v /usr/bin/jetson_clocks:/usr/bin/jetson_clocks:ro \
   -v /etc/nvpmodel.conf:/etc/nvpmodel.conf:ro \

@@ -17,7 +17,7 @@ def _reset_state():
     stream_state.target_lock = {"locked": False, "track_id": None, "mode": None, "label": None}
     stream_state.runtime_config = {"prompts": ["person"], "threshold": 0.25, "auto_loiter": False}
     # Clear callbacks
-    stream_state.set_callbacks()
+    stream_state._callbacks.clear()
     yield
 
 
@@ -69,6 +69,8 @@ class TestAuthEnforcement:
         ("POST", "/api/target/lock", {"track_id": 1}),
         ("POST", "/api/target/unlock", None),
         ("POST", "/api/target/strike", {"track_id": 1, "confirm": True}),
+        ("POST", "/api/config/alert-classes", {"classes": ["person"]}),
+        ("POST", "/api/vehicle/mode", {"mode": "AUTO"}),
     ]
 
     def test_no_auth_when_disabled(self, client):
@@ -222,3 +224,83 @@ class TestAuditLogging:
             resp = client.post("/api/target/strike", json={"track_id": 3, "confirm": True})
         assert resp.status_code == 503
         assert any("action=strike" in r.message and "outcome=failed" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Alert classes endpoints
+# ---------------------------------------------------------------------------
+
+class TestAlertClassesEndpoints:
+    def test_get_alert_classes(self, client):
+        stream_state.set_callbacks(
+            get_class_names=lambda: ["person", "car", "dog"],
+        )
+        stream_state.runtime_config["alert_classes"] = ["person"]
+        resp = client.get("/api/config/alert-classes")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "all_classes" in data
+        assert "alert_classes" in data
+        assert "categories" in data
+        assert data["all_classes"] == ["person", "car", "dog"]
+        assert data["alert_classes"] == ["person"]
+
+    def test_post_alert_classes(self, client):
+        called = {}
+        def on_change(classes):
+            called["classes"] = classes
+        stream_state.set_callbacks(
+            on_alert_classes_change=on_change,
+            get_class_names=lambda: ["person", "car", "dog"],
+        )
+        resp = client.post("/api/config/alert-classes", json={"classes": ["person", "car"]})
+        assert resp.status_code == 200
+        assert called["classes"] == ["person", "car"]
+
+    def test_post_empty_means_all(self, client):
+        called = {}
+        def on_change(classes):
+            called["classes"] = classes
+        stream_state.set_callbacks(
+            on_alert_classes_change=on_change,
+            get_class_names=lambda: ["person", "car"],
+        )
+        resp = client.post("/api/config/alert-classes", json={"classes": []})
+        assert resp.status_code == 200
+        assert called["classes"] == []
+
+    def test_post_invalid_class_rejected(self, client):
+        stream_state.set_callbacks(
+            get_class_names=lambda: ["person", "car"],
+        )
+        resp = client.post("/api/config/alert-classes", json={"classes": ["person", "INVALID"]})
+        assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Vehicle mode endpoint
+# ---------------------------------------------------------------------------
+
+class TestVehicleModeEndpoint:
+    def test_set_mode_success(self, client):
+        called = {}
+        def on_mode(mode):
+            called["mode"] = mode
+            return True
+        stream_state.set_callbacks(on_set_mode_command=on_mode)
+        resp = client.post("/api/vehicle/mode", json={"mode": "AUTO"})
+        assert resp.status_code == 200
+        assert called["mode"] == "AUTO"
+
+    def test_set_mode_missing_mode(self, client):
+        resp = client.post("/api/vehicle/mode", json={})
+        assert resp.status_code == 400
+
+    def test_set_mode_no_callback(self, client):
+        resp = client.post("/api/vehicle/mode", json={"mode": "AUTO"})
+        assert resp.status_code == 503
+
+    def test_set_mode_failed(self, client):
+        stream_state.set_callbacks(on_set_mode_command=lambda m: False)
+        resp = client.post("/api/vehicle/mode", json={"mode": "AUTO"})
+        assert resp.status_code == 503
