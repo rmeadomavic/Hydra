@@ -233,3 +233,108 @@ mkdir -p "$HYDRA_DIR/output_data"
 ok "models/ and output_data/ directories ready"
 
 echo ""
+
+# ── Step 6: Config ──────────────────────────────────────────
+info "Step 6/7: Configure MAVLink"
+echo ""
+
+CONFIG="$HYDRA_DIR/config.ini"
+
+if [ ${#SERIAL_DEVICES[@]} -eq 0 ]; then
+    info "No flight controller found. Disabling MAVLink."
+    read -rp "Press Enter to continue..."
+    MAVLINK_ENABLED=false
+elif [ ${#SERIAL_DEVICES[@]} -eq 1 ]; then
+    if ask "Flight controller detected on ${SERIAL_DEVICES[0]}. Enable MAVLink?" "Y"; then
+        MAVLINK_DEVICE="${SERIAL_DEVICES[0]}"
+        MAVLINK_ENABLED=true
+    else
+        MAVLINK_ENABLED=false
+    fi
+else
+    echo "Serial devices found:"
+    for i in "${!SERIAL_DEVICES[@]}"; do
+        echo "  $((i+1))) ${SERIAL_DEVICES[$i]}"
+    done
+    read -rp "Which device is the flight controller? [1]: " choice
+    choice="${choice:-1}"
+    idx=$((choice - 1))
+    if [ "$idx" -ge 0 ] && [ "$idx" -lt ${#SERIAL_DEVICES[@]} ]; then
+        MAVLINK_DEVICE="${SERIAL_DEVICES[$idx]}"
+        MAVLINK_ENABLED=true
+        ok "MAVLink will use ${MAVLINK_DEVICE}"
+    else
+        warn "Invalid choice. Disabling MAVLink."
+        MAVLINK_ENABLED=false
+    fi
+fi
+
+# Apply config changes (section-scoped sed to avoid touching other [section] enabled keys)
+if [ "$MAVLINK_ENABLED" = true ]; then
+    sed -i '/^\[mavlink\]/,/^\[/{s/^enabled = .*/enabled = true/}' "$CONFIG"
+    sed -i "/^\[mavlink\]/,/^\[/{s|^connection_string = .*|connection_string = ${MAVLINK_DEVICE}|}" "$CONFIG"
+    ok "MAVLink enabled (${MAVLINK_DEVICE}) in config.ini"
+else
+    sed -i '/^\[mavlink\]/,/^\[/{s/^enabled = .*/enabled = false/}' "$CONFIG"
+    ok "MAVLink disabled in config.ini"
+fi
+
+# Camera info
+if [ ${#VIDEO_DEVICES[@]} -gt 0 ]; then
+    info "Camera devices: ${VIDEO_DEVICES[*]} (config.ini source=auto will pick the right one)"
+fi
+
+echo ""
+
+# ── Step 7: Test Run ────────────────────────────────────────
+info "Step 7/7: Launch Hydra Detect"
+echo ""
+
+# Build device flags
+DEVICE_FLAGS=""
+for dev in "${VIDEO_DEVICES[@]}"; do
+    DEVICE_FLAGS+=" --device $dev:$dev"
+done
+if [ "$MAVLINK_ENABLED" = true ] && [ -n "$MAVLINK_DEVICE" ]; then
+    DEVICE_FLAGS+=" --device $MAVLINK_DEVICE:$MAVLINK_DEVICE"
+fi
+
+DOCKER_CMD="docker run --rm --privileged --runtime nvidia \
+$DEVICE_FLAGS \
+  -v $HYDRA_DIR/config.ini:/app/config.ini:ro \
+  -v /usr/sbin/nvpmodel:/usr/sbin/nvpmodel:ro \
+  -v /usr/bin/jetson_clocks:/usr/bin/jetson_clocks:ro \
+  -v /etc/nvpmodel.conf:/etc/nvpmodel.conf:ro \
+  -v /etc/nvpmodel:/etc/nvpmodel:ro \
+  -v /var/lib/nvpmodel:/var/lib/nvpmodel \
+  -v $HYDRA_DIR/models:/models \
+  -v $HYDRA_DIR/output_data:/data \
+  -p 8080:8080 \
+  hydra-detect:latest"
+
+# Determine dashboard URL
+JETSON_IP="$(hostname -I | awk '{print $1}')"
+TS_IP_DISPLAY="${TS_IP:-}"
+DASHBOARD_URL="http://${JETSON_IP}:8080"
+
+echo "Docker run command:"
+echo ""
+echo "  $DOCKER_CMD"
+echo ""
+if [ -n "$TS_IP_DISPLAY" ]; then
+    info "Dashboard (Tailscale): http://${TS_IP_DISPLAY}:8080"
+fi
+info "Dashboard (local): $DASHBOARD_URL"
+echo ""
+
+if ask "Launch Hydra now?" "Y"; then
+    info "Starting Hydra Detect..."
+    eval "$DOCKER_CMD"
+else
+    info "Run the command above when you're ready."
+fi
+
+echo ""
+echo "========================================"
+echo "  Setup complete!"
+echo "========================================"
