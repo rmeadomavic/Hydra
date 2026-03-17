@@ -1,0 +1,39 @@
+<!-- Settings View — config.ini editor -->
+<nav class="settings-nav" id="settings-nav">
+    <button class="settings-section-btn active" data-section="camera">Camera</button>
+    <button class="settings-section-btn" data-section="detector">Detector</button>
+    <button class="settings-section-btn" data-section="tracker">Tracker</button>
+    <button class="settings-section-btn" data-section="mavlink">MAVLink</button>
+    <button class="settings-section-btn" data-section="web">Web</button>
+    <button class="settings-section-btn" data-section="osd">OSD</button>
+    <button class="settings-section-btn" data-section="autonomous">Autonomous</button>
+    <button class="settings-section-btn" data-section="rf_homing">RF Homing</button>
+    <button class="settings-section-btn" data-section="logging">Logging</button>
+</nav>
+
+<div class="settings-content" id="settings-content">
+    <!-- Warning banner for autonomous section -->
+    <div class="settings-warning" id="settings-warning" style="display:none;">
+        ⚠ AUTONOMOUS STRIKE — Changes here affect autonomous engagement behavior.
+        Ensure geofence and safety parameters are correct before enabling.
+    </div>
+
+    <!-- Error banner -->
+    <div class="settings-error" id="settings-error" style="display:none;"></div>
+
+    <!-- Dynamic form container -->
+    <div class="settings-form" id="settings-form"></div>
+
+    <!-- Restart required notice -->
+    <div class="settings-restart" id="settings-restart" style="display:none;">
+        <span>⟳ Some changes require a service restart to take effect.</span>
+        <div id="restart-fields"></div>
+    </div>
+
+    <!-- Action bar -->
+    <div class="settings-actions">
+        <button class="btn btn-green" id="settings-apply">Apply Changes</button>
+        <button class="btn" id="settings-reset">Reset to Saved</button>
+        <button class="btn" id="settings-restore" title="Restore from last backup">Restore Backup</button>
+    </div>
+</div>

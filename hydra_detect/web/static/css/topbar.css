@@ -1,0 +1,197 @@
+/* ── Top Bar ── */
+.topbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--topbar-height);
+    background: linear-gradient(135deg, var(--ogt-green) 0%, var(--ogt-green-dark) 60%, #1e3312 100%);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--gap-lg);
+    z-index: 100;
+    border-bottom: 1px solid rgba(166, 188, 146, 0.15);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+}
+
+.topbar-left {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-md);
+}
+.topbar-brand {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: var(--font-lg);
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--ogt-light);
+}
+.topbar-badge {
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+}
+
+.topbar-center {
+    display: flex;
+    gap: var(--gap-xs);
+}
+.topbar-tab {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: var(--font-sm);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: var(--ls-condensed);
+    padding: 4px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: transparent;
+    color: rgba(255, 255, 255, 0.7);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+.topbar-tab:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+.topbar-tab.active {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.topbar-right {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-md);
+}
+.topbar-fps {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: var(--font-xs);
+    color: rgba(255, 255, 255, 0.7);
+}
+
+/* ── Mini Video Thumbnail ── */
+.topbar-thumbnail {
+    width: 120px;
+    height: 80px;
+    overflow: hidden;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    cursor: pointer;
+    display: none;
+    position: relative;
+}
+body.view-settings .topbar-thumbnail {
+    display: block;
+}
+.topbar-thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* ── Footer ── */
+.footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: var(--footer-height);
+    background: var(--sidebar-bg);
+    border-top: 1px solid var(--card-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.3);
+}
+.footer::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--ogt-green), transparent);
+}
+.footer-text {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: var(--font-xs);
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+}
+
+/* ── MJPEG Stream Positioning ── */
+#mjpeg-stream {
+    position: fixed;
+    z-index: 1;
+    background: #000;
+    object-fit: contain;
+    transition: all var(--transition-normal);
+}
+body.view-monitor #mjpeg-stream {
+    top: var(--topbar-height);
+    left: 0;
+    right: 0;
+    bottom: var(--footer-height);
+    width: 100%;
+    height: calc(100vh - var(--topbar-height) - var(--footer-height));
+}
+body.view-control #mjpeg-stream {
+    top: var(--topbar-height);
+    left: 0;
+    width: 60%;
+    height: calc(100vh - var(--topbar-height) - var(--footer-height));
+}
+body.view-settings #mjpeg-stream {
+    opacity: 0;
+    pointer-events: none;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+}
+
+/* ── Presentation Mode ── */
+body.presentation .topbar,
+body.presentation .footer {
+    display: none;
+}
+body.presentation #mjpeg-stream {
+    top: 0;
+    bottom: 0;
+    height: 100vh;
+}
+
+/* ── View Containers ── */
+.view { display: none; }
+body.view-monitor .view-monitor { display: block; }
+body.view-control .view-control { display: flex; }
+body.view-settings .view-settings { display: flex; }
+
+.view-monitor,
+.view-control,
+.view-settings {
+    position: fixed;
+    top: var(--topbar-height);
+    left: 0;
+    right: 0;
+    bottom: var(--footer-height);
+    z-index: 2;
+}
+
+/* ── Responsive: Steam Deck (800-1279px) ── */
+@media (max-width: 1279px) {
+    .topbar-tab .tab-label { display: none; }
+    .topbar-thumbnail { display: none !important; }
+
+    body.view-control #mjpeg-stream {
+        width: 100%;
+        height: 40vh;
+    }
+}
