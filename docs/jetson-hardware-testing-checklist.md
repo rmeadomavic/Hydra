@@ -40,7 +40,7 @@ HDZero video, QGroundControl on Steam Deck, and SDR integration.
   - Quick test: `mavproxy.py -master=/dev/ttyTHS1 -baudrate=921600`
   - Hydra test: run pipeline, check logs for `heartbeat` / `vehicle connected`
 - [ ] Verify GPS data stream (2 Hz) - compare lat/lon with Mission Planner values
-- [ ] Test reconnection: unplug/replug UART cable → Hydra should reconnect (exponential backoff)
+- [x] Test reconnection: unplug/replug UART cable → pipeline survived, alerts resumed
 - [x] Update Docker run command: `--privileged` handles device access
 - [x] Update `hydra-detect.service` if using systemd — already uses `--privileged`
 
@@ -471,3 +471,4 @@ _Use this section to record findings during testing._
 | 2026-03-17 | UART heartbeat (ttyTHS1, 921600) | PASS | Heartbeat in <2s. Initial wiring was straight-through — must cross TX/RX. |
 | 2026-03-17 | Hydra pipeline over UART | PASS | Full pipeline running: detection alerts sent to Pixhawk over TELEM2 UART. |
 | 2026-03-17 | GPS over UART | N/A | Returns 0,0 indoors (no fix). Needs outdoor test. |
+| 2026-03-17 | UART reconnection | PASS | Pulled GND wire ~5s, replugged. No crash, alerts resumed. |
