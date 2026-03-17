@@ -1,0 +1,282 @@
+<!-- Control view — right-side dockable panel grid -->
+
+<!-- Panel Visibility Toggle -->
+<div class="panel-toolbar">
+    <button class="btn panel-visibility-btn" id="panel-visibility-btn" aria-label="Toggle panel visibility menu">
+        <span class="panel-visibility-icon">&#9783;</span> Panels
+    </button>
+    <div class="panel-visibility-menu" id="panel-visibility-menu">
+        <label class="panel-vis-row" data-target="vehicle"><input type="checkbox" checked> Vehicle Telemetry</label>
+        <label class="panel-vis-row" data-target="target"><input type="checkbox" checked> Target Control</label>
+        <label class="panel-vis-row" data-target="pipeline"><input type="checkbox" checked> Pipeline Stats</label>
+        <label class="panel-vis-row" data-target="detection"><input type="checkbox" checked> Detection Config</label>
+        <label class="panel-vis-row" data-target="rf"><input type="checkbox" checked> RF Hunt</label>
+        <label class="panel-vis-row" data-target="log"><input type="checkbox" checked> Detection Log</label>
+    </div>
+</div>
+
+<div class="control-panels" id="control-panels">
+
+    <!-- 1. Vehicle Telemetry -->
+    <div class="panel" data-panel-id="vehicle" id="panel-vehicle">
+        <div class="panel-header">
+            <span class="panel-drag-handle">&#10303;</span>
+            <h3 class="panel-title">Vehicle Telemetry</h3>
+            <button class="panel-collapse-btn" aria-label="Collapse panel">&#9662;</button>
+        </div>
+        <div class="panel-body">
+            <div class="panel-badges">
+                <span class="badge mode-badge" id="ctrl-mode-badge">--</span>
+                <span class="badge armed-badge" id="ctrl-armed-badge">--</span>
+            </div>
+            <div class="panel-stat-grid">
+                <div class="panel-stat">
+                    <span class="panel-stat-label">Battery</span>
+                    <span class="panel-stat-value mono" id="ctrl-battery">--</span>
+                </div>
+                <div class="panel-stat">
+                    <span class="panel-stat-label">Speed</span>
+                    <span class="panel-stat-value mono" id="ctrl-speed">--</span>
+                </div>
+                <div class="panel-stat">
+                    <span class="panel-stat-label">Alt</span>
+                    <span class="panel-stat-value mono" id="ctrl-alt">--</span>
+                </div>
+                <div class="panel-stat">
+                    <span class="panel-stat-label">Heading</span>
+                    <span class="panel-stat-value mono" id="ctrl-heading">--</span>
+                </div>
+                <div class="panel-stat">
+                    <span class="panel-stat-label">GPS Fix</span>
+                    <span class="panel-stat-value mono" id="ctrl-gps-fix">--</span>
+                </div>
+                <div class="panel-stat">
+                    <span class="panel-stat-label">Position</span>
+                    <span class="panel-stat-value mono" id="ctrl-gps-pos" style="color:var(--warning);">--</span>
+                </div>
+            </div>
+            <div class="panel-mode-btns">
+                <button class="btn btn-mode" id="ctrl-btn-loiter" data-mode="LOITER">Loiter</button>
+                <button class="btn btn-mode" id="ctrl-btn-auto" data-mode="AUTO">Auto</button>
+                <button class="btn btn-mode btn-danger" id="ctrl-btn-rtl" data-mode="RTL">RTL</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. Target Control -->
+    <div class="panel" data-panel-id="target" id="panel-target">
+        <div class="panel-header">
+            <span class="panel-drag-handle">&#10303;</span>
+            <h3 class="panel-title">Target Control</h3>
+            <button class="panel-collapse-btn" aria-label="Collapse panel">&#9662;</button>
+        </div>
+        <div class="panel-body">
+            <div class="panel-lock-indicator" id="ctrl-lock-indicator" style="display:none;"></div>
+            <div class="panel-track-list" id="ctrl-track-list">
+                <div class="panel-track-empty">No tracks</div>
+            </div>
+            <div class="panel-target-btns">
+                <button class="btn btn-green" id="ctrl-btn-lock" disabled>Lock</button>
+                <button class="btn btn-danger" id="ctrl-btn-strike" disabled>Strike</button>
+                <button class="btn" id="ctrl-btn-release" disabled>Release</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Pipeline Stats -->
+    <div class="panel" data-panel-id="pipeline" id="panel-pipeline">
+        <div class="panel-header">
+            <span class="panel-drag-handle">&#10303;</span>
+            <h3 class="panel-title">Pipeline Stats</h3>
+            <button class="panel-collapse-btn" aria-label="Collapse panel">&#9662;</button>
+        </div>
+        <div class="panel-body">
+            <div class="panel-stat-grid panel-stat-grid-3">
+                <div class="panel-stat">
+                    <span class="panel-stat-label">FPS</span>
+                    <span class="panel-stat-value mono accent" id="ctrl-fps">--</span>
+                </div>
+                <div class="panel-stat">
+                    <span class="panel-stat-label">Inference</span>
+                    <span class="panel-stat-value mono" id="ctrl-inference">--</span>
+                </div>
+                <div class="panel-stat">
+                    <span class="panel-stat-label">Engine</span>
+                    <span class="panel-stat-value mono" id="ctrl-detector">--</span>
+                </div>
+            </div>
+            <div class="panel-sys-stats">
+                <div class="panel-sys-row">
+                    <span class="panel-sys-label">GPU</span>
+                    <span class="panel-sys-val mono" id="ctrl-gpu-temp">--</span>
+                    <div class="color-bar"><div class="color-bar-fill" id="ctrl-gpu-bar"></div></div>
+                </div>
+                <div class="panel-sys-row">
+                    <span class="panel-sys-label">CPU</span>
+                    <span class="panel-sys-val mono" id="ctrl-cpu-temp">--</span>
+                    <div class="color-bar"><div class="color-bar-fill" id="ctrl-cpu-bar"></div></div>
+                </div>
+                <div class="panel-sys-row">
+                    <span class="panel-sys-label">RAM</span>
+                    <span class="panel-sys-val mono" id="ctrl-ram-usage">--</span>
+                    <div class="color-bar"><div class="color-bar-fill" id="ctrl-ram-bar"></div></div>
+                </div>
+            </div>
+            <div class="panel-field">
+                <label class="panel-field-label" for="ctrl-power-mode">Power Mode</label>
+                <select id="ctrl-power-mode">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
+            <div class="panel-pipeline-btns">
+                <button class="btn" id="ctrl-btn-pause">Pause</button>
+                <button class="btn btn-danger" id="ctrl-btn-stop">Stop</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. Detection Config -->
+    <div class="panel" data-panel-id="detection" id="panel-detection">
+        <div class="panel-header">
+            <span class="panel-drag-handle">&#10303;</span>
+            <h3 class="panel-title">Detection Config</h3>
+            <button class="panel-collapse-btn" aria-label="Collapse panel">&#9662;</button>
+        </div>
+        <div class="panel-body">
+            <div class="panel-field">
+                <label class="panel-field-label" for="ctrl-model-select">Model</label>
+                <select id="ctrl-model-select">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
+            <div class="panel-field">
+                <label class="panel-field-label">Confidence Threshold</label>
+                <div class="panel-range-row">
+                    <input type="range" id="ctrl-thresh-slider" min="0.05" max="0.95" step="0.05" value="0.45">
+                    <span class="panel-range-val mono" id="ctrl-thresh-val">0.45</span>
+                </div>
+            </div>
+            <div class="panel-field">
+                <label class="panel-field-label">Alert Classes <span class="panel-field-note">(GCS alerts + map markers)</span></label>
+                <div class="panel-alert-btns">
+                    <button class="btn btn-sm" id="ctrl-alert-all">All</button>
+                    <button class="btn btn-sm" id="ctrl-alert-clear">Clear</button>
+                    <button class="btn btn-green btn-sm" id="ctrl-alert-apply">Apply</button>
+                </div>
+                <div class="panel-alert-class-list" id="ctrl-alert-class-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. RF Hunt -->
+    <div class="panel" data-panel-id="rf" id="panel-rf">
+        <div class="panel-header">
+            <span class="panel-drag-handle">&#10303;</span>
+            <h3 class="panel-title">RF Hunt</h3>
+            <span class="badge" id="ctrl-rf-state-badge" style="margin-left:auto; margin-right:var(--gap-sm);">N/A</span>
+            <button class="panel-collapse-btn" aria-label="Collapse panel">&#9662;</button>
+        </div>
+        <div class="panel-body">
+            <!-- Status display (shown when hunt is active) -->
+            <div id="ctrl-rf-status-panel" style="display:none;">
+                <div class="panel-stat-grid panel-stat-grid-3">
+                    <div class="panel-stat">
+                        <span class="panel-stat-label">RSSI</span>
+                        <span class="panel-stat-value mono accent" id="ctrl-rf-best-rssi">--</span>
+                    </div>
+                    <div class="panel-stat">
+                        <span class="panel-stat-label">Samples</span>
+                        <span class="panel-stat-value mono" id="ctrl-rf-samples">--</span>
+                    </div>
+                    <div class="panel-stat">
+                        <span class="panel-stat-label">WP</span>
+                        <span class="panel-stat-value mono" id="ctrl-rf-wp">--</span>
+                    </div>
+                </div>
+                <div class="panel-rf-best-pos mono" id="ctrl-rf-best-pos"></div>
+                <div class="panel-sys-row" style="margin-top:var(--gap-sm);">
+                    <span class="panel-sys-label">Signal</span>
+                    <span class="panel-sys-val mono" id="ctrl-rf-rssi-label">--</span>
+                    <div class="color-bar"><div class="color-bar-fill" id="ctrl-rf-rssi-bar"></div></div>
+                </div>
+            </div>
+            <!-- Config form (shown when hunt is idle/stopped) -->
+            <div id="ctrl-rf-config-panel">
+                <div class="panel-field">
+                    <label class="panel-field-label" for="ctrl-rf-mode">Mode</label>
+                    <select id="ctrl-rf-mode">
+                        <option value="wifi">WiFi (by BSSID)</option>
+                        <option value="sdr" selected>SDR (by Frequency)</option>
+                    </select>
+                </div>
+                <div class="panel-field" id="ctrl-rf-bssid-group">
+                    <label class="panel-field-label" for="ctrl-rf-bssid">Target BSSID</label>
+                    <input type="text" id="ctrl-rf-bssid" placeholder="AA:BB:CC:DD:EE:FF">
+                </div>
+                <div class="panel-field" id="ctrl-rf-freq-group">
+                    <label class="panel-field-label" for="ctrl-rf-freq">Frequency (MHz)</label>
+                    <input type="number" id="ctrl-rf-freq" value="915.0" step="0.1" min="1" max="6000">
+                </div>
+                <div class="panel-field">
+                    <label class="panel-field-label" for="ctrl-rf-pattern">Search Pattern</label>
+                    <select id="ctrl-rf-pattern">
+                        <option value="lawnmower">Lawnmower (Grid)</option>
+                        <option value="spiral">Spiral (Expanding)</option>
+                    </select>
+                </div>
+                <div class="panel-stat-grid">
+                    <div class="panel-field">
+                        <label class="panel-field-label" for="ctrl-rf-area">Area (m)</label>
+                        <input type="number" id="ctrl-rf-area" value="200" min="10" max="2000" step="10">
+                    </div>
+                    <div class="panel-field">
+                        <label class="panel-field-label" for="ctrl-rf-spacing">Spacing (m)</label>
+                        <input type="number" id="ctrl-rf-spacing" value="30" min="2" max="200" step="5">
+                    </div>
+                </div>
+                <div class="panel-stat-grid">
+                    <div class="panel-field">
+                        <label class="panel-field-label" for="ctrl-rf-alt">Alt (m)</label>
+                        <input type="number" id="ctrl-rf-alt" value="30" min="3" max="120" step="5">
+                    </div>
+                    <div class="panel-field">
+                        <label class="panel-field-label" for="ctrl-rf-step">Step (m)</label>
+                        <input type="number" id="ctrl-rf-step" value="10" min="1" max="50" step="1">
+                    </div>
+                </div>
+                <div class="panel-field">
+                    <label class="panel-field-label">RSSI Thresholds (dBm)</label>
+                    <div class="panel-stat-grid">
+                        <div class="panel-field">
+                            <label class="panel-field-label panel-field-label-sub" for="ctrl-rf-thresh">Detect</label>
+                            <input type="number" id="ctrl-rf-thresh" value="-80" min="-100" max="-10" step="5">
+                        </div>
+                        <div class="panel-field">
+                            <label class="panel-field-label panel-field-label-sub" for="ctrl-rf-converge">Converge</label>
+                            <input type="number" id="ctrl-rf-converge" value="-40" min="-90" max="0" step="5">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="panel-rf-btns">
+                <button class="btn btn-green" id="ctrl-btn-rf-start">Start Hunt</button>
+                <button class="btn btn-danger" id="ctrl-btn-rf-stop" disabled>Abort</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 6. Detection Log -->
+    <div class="panel" data-panel-id="log" id="panel-log">
+        <div class="panel-header">
+            <span class="panel-drag-handle">&#10303;</span>
+            <h3 class="panel-title">Detection Log</h3>
+            <button class="panel-collapse-btn" aria-label="Collapse panel">&#9662;</button>
+        </div>
+        <div class="panel-body">
+            <div class="panel-det-log" id="ctrl-det-log">
+                <div class="panel-track-empty">Waiting for detections...</div>
+            </div>
+        </div>
+    </div>
+
+</div>

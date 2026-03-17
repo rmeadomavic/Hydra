@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HYDRA DETECT — SORCC</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/variables.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/topbar.css">
+    <link rel="stylesheet" href="/static/css/monitor.css">
+    <link rel="stylesheet" href="/static/css/control.css">
+    <link rel="stylesheet" href="/static/css/settings.css">
+</head>
+<body class="view-monitor">
+    <!-- ── MJPEG Stream (persists across views) ── -->
+    <img id="mjpeg-stream" src="/stream.mjpeg" alt="Live video feed">
+
+    <!-- ── Top Bar ── -->
+    <header class="topbar" role="banner">
+        <div class="topbar-left">
+            <svg class="topbar-badge" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="17" y="2" width="21" height="21" rx="2" transform="rotate(45 17 2)" fill="#385723" stroke="#A6BC92" stroke-width="1"/>
+                <text x="17" y="20" text-anchor="middle" fill="#EFF5EB" font-family="Barlow Condensed" font-size="8" font-weight="700" letter-spacing="0.08em">SORCC</text>
+            </svg>
+            <span class="topbar-brand">Hydra Detect</span>
+        </div>
+
+        <nav class="topbar-center" role="navigation" aria-label="View navigation">
+            <button class="topbar-tab active" data-view="monitor" aria-label="Monitor view">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                <span class="tab-label">Monitor</span>
+            </button>
+            <button class="topbar-tab" data-view="control" aria-label="Control view">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                <span class="tab-label">Control</span>
+            </button>
+            <button class="topbar-tab" data-view="settings" aria-label="Settings view">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                <span class="tab-label">Settings</span>
+            </button>
+        </nav>
+
+        <div class="topbar-right">
+            <div class="topbar-thumbnail" id="mini-thumbnail" title="Click to go to Monitor">
+                <img id="mjpeg-thumbnail" src="/stream.mjpeg" alt="">
+            </div>
+            <span class="pill pill-live" id="connection-pill" aria-label="Connection status">
+                <span class="pill-dot"></span>
+                <span id="connection-text">LIVE</span>
+            </span>
+            <span class="topbar-fps" id="fps-display" aria-label="Frames per second">-- FPS</span>
+        </div>
+    </header>
+
+    <!-- ── Toast Notifications ── -->
+    <div class="toast-container" id="toast-container" role="alert" aria-live="polite"></div>
+
+    <!-- ── View: Monitor ── -->
+    <div class="view view-monitor" id="view-monitor">
+        {% include 'monitor.html' %}
+    </div>
+
+    <!-- ── View: Control ── -->
+    <div class="view view-control" id="view-control">
+        {% include 'control.html' %}
+    </div>
+
+    <!-- ── View: Settings ── -->
+    <div class="view view-settings" id="view-settings">
+        {% include 'settings.html' %}
+    </div>
+
+    <!-- ── Strike Confirmation Modal ── -->
+    <div class="modal-overlay" id="strike-modal">
+        <div class="modal">
+            <h3 style="color: var(--danger); margin-bottom: var(--gap-md);">Confirm Strike</h3>
+            <p style="margin-bottom: var(--gap-sm);">Target: <strong id="strike-target-label">--</strong></p>
+            <p style="font-size: var(--font-sm); color: var(--text-secondary); margin-bottom: var(--gap-lg);">
+                Vehicle will navigate toward the target. Manual GCS override is always available.
+            </p>
+            <div style="display: flex; gap: var(--gap-sm); justify-content: flex-end;">
+                <button class="btn" id="strike-cancel">Cancel</button>
+                <button class="btn btn-danger" id="strike-confirm">Confirm Strike</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Footer ── -->
+    <footer class="footer" role="contentinfo">
+        <span class="footer-text">Unclassified</span>
+    </footer>
+
+    <!-- ── Scripts ── -->
+    <script src="/static/js/vendor/Sortable.min.js"></script>
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/monitor.js"></script>
+    <script src="/static/js/panels.js"></script>
+    <script src="/static/js/control.js"></script>
+    <script src="/static/js/settings.js"></script>
+</body>
+</html>

@@ -15,11 +15,21 @@ import numpy as np
 from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+
+from hydra_detect.web.config_api import (
+    MAX_BODY_SIZE,
+    has_backup,
+    read_config,
+    restore_backup,
+    write_config,
+)
 
 logger = logging.getLogger(__name__)
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
+STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="Hydra Detect v2.0", version="2.0.0")
 
@@ -30,6 +40,9 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+if STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
@@ -191,8 +204,8 @@ stream_state = StreamState()
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    """Serve the operator dashboard."""
-    return templates.TemplateResponse("index.html", {"request": request})
+    """Serve the operator dashboard SPA."""
+    return templates.TemplateResponse(request, "base.html")
 
 
 @app.get("/api/stats")
@@ -701,7 +714,7 @@ async def api_pipeline_pause(request: Request, authorization: Optional[str] = He
 @app.get("/review", response_class=HTMLResponse)
 async def review_page(request: Request):
     """Serve the post-mission review page."""
-    return templates.TemplateResponse("review.html", {"request": request})
+    return templates.TemplateResponse(request, "review.html")
 
 
 @app.get("/api/review/logs")
@@ -823,6 +836,61 @@ async def _generate_mjpeg():
     except (GeneratorExit, asyncio.CancelledError):
         logger.debug("MJPEG stream client disconnected.")
         return
+
+
+# ── Full Config ────────────────────────────────────────────────
+
+@app.get("/api/config/full")
+async def api_get_full_config(authorization: str | None = Header(None)):
+    """Return all config.ini sections as JSON. Sensitive fields are redacted."""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    try:
+        return read_config()
+    except Exception as e:
+        logger.error("Failed to read config: %s", e)
+        return JSONResponse({"error": "Failed to read configuration"}, status_code=500)
+
+
+@app.post("/api/config/full")
+async def api_set_full_config(request: Request, authorization: str | None = Header(None)):
+    """Update config.ini fields. Returns list of fields requiring restart."""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    import json as _json
+    body_bytes = await request.body()
+    if len(body_bytes) > MAX_BODY_SIZE:
+        return JSONResponse({"error": "Request body too large"}, status_code=413)
+    try:
+        body = _json.loads(body_bytes)
+    except (ValueError, _json.JSONDecodeError):
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    try:
+        result = write_config(body)
+        _audit(request, "config_update", target=str(len(body)))
+        return {"status": "ok", **result}
+    except Exception as e:
+        logger.error("Failed to write config: %s", e)
+        return JSONResponse({"error": f"Failed to save configuration: {e}"}, status_code=500)
+
+
+@app.post("/api/config/restore-backup")
+async def api_restore_config_backup(request: Request, authorization: str | None = Header(None)):
+    """Restore config.ini from backup."""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    if not has_backup():
+        return JSONResponse({"error": "No backup file exists"}, status_code=404)
+    try:
+        restore_backup()
+        _audit(request, "config_restore_backup")
+        return {"status": "ok", "message": "Configuration restored from backup"}
+    except Exception as e:
+        logger.error("Failed to restore config backup: %s", e)
+        return JSONResponse({"error": f"Failed to restore: {e}"}, status_code=500)
 
 
 # ── Server launcher ──────────────────────────────────────────────────
