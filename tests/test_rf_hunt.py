@@ -257,4 +257,5 @@ class TestHuntKismetClient:
             kismet_pass="secret",
         )
         assert ctrl._kismet._host == "http://192.168.1.100:2501"
-        assert ctrl._kismet._session.auth == ("admin", "secret")
+        assert ctrl._kismet._user == "admin"
+        assert ctrl._kismet._password == "secret"

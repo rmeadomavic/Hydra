@@ -44,9 +44,11 @@ class KismetClient:
             )
         self._host = host.rstrip("/")
         self._timeout = timeout
+        self._user = user
+        self._password = password
         self._session = requests.Session()
-        self._session.auth = (user, password)
         self._session.headers["Content-Type"] = "application/json"
+        self._authenticated = False
 
     def __enter__(self) -> KismetClient:
         return self
@@ -54,14 +56,64 @@ class KismetClient:
     def __exit__(self, *exc) -> None:
         self.close()
 
-    def check_connection(self) -> bool:
-        """Return True if Kismet API is reachable."""
+    def _ensure_auth(self) -> bool:
+        """Establish a Kismet session.
+
+        Kismet 2025+ uses cookie-based sessions. We POST to
+        /session/check_session with basic auth to get a session cookie,
+        then use that cookie for all subsequent requests. Falls back to
+        persistent basic auth for older Kismet versions.
+        """
+        if self._authenticated:
+            return True
         try:
+            # Try cookie session auth (Kismet 2025+)
+            r = self._session.get(
+                f"{self._host}/session/check_session",
+                auth=(self._user, self._password),
+                timeout=self._timeout,
+            )
+            if r.status_code == 200:
+                # Session cookie is now stored in self._session
+                self._authenticated = True
+                logger.debug("Kismet session established via cookie auth")
+                return True
+            # Fall back to persistent basic auth (older Kismet)
+            self._session.auth = (self._user, self._password)
+            r2 = self._session.get(
+                f"{self._host}/system/status.json",
+                timeout=self._timeout,
+            )
+            if r2.status_code == 200:
+                self._authenticated = True
+                logger.debug("Kismet connected via basic auth (legacy)")
+                return True
+            logger.error("Kismet auth failed (status %d)", r2.status_code)
+            return False
+        except requests.RequestException as exc:
+            logger.error("Kismet auth error: %s", exc)
+            return False
+
+    def check_connection(self) -> bool:
+        """Return True if Kismet API is reachable and authenticated."""
+        try:
+            if not self._ensure_auth():
+                return False
             r = self._session.get(
                 f"{self._host}/system/status.json", timeout=self._timeout,
             )
             if r.status_code == 200:
                 logger.info("Kismet API connected at %s", self._host)
+                return True
+            # Session may have expired — retry auth once
+            self._authenticated = False
+            if not self._ensure_auth():
+                return False
+            r = self._session.get(
+                f"{self._host}/system/status.json", timeout=self._timeout,
+            )
+            if r.status_code == 200:
+                logger.info("Kismet API reconnected at %s", self._host)
                 return True
             logger.error("Kismet API returned %d", r.status_code)
             return False
@@ -76,6 +128,7 @@ class KismetClient:
 
         Returns None if the device is not currently seen.
         """
+        self._ensure_auth()
         try:
             r = self._session.get(
                 f"{self._host}/devices/by-mac/{bssid}/devices.json",
@@ -108,6 +161,7 @@ class KismetClient:
         Kismet reports frequency in Hz (e.g. 915000000 for 915 MHz).
         Values are normalised to MHz before comparison.
         """
+        self._ensure_auth()
         try:
             r = self._session.get(
                 f"{self._host}/devices/summary/devices.json",
