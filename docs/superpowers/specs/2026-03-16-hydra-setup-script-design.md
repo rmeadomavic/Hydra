@@ -90,11 +90,19 @@ Detect hardware and prompt the instructor:
 - **Camera:** Report which `/dev/video*` devices are present (informational only,
   config.ini default of `auto` handles device selection).
 
-**Config modification mechanism:** Use `sed` with section-aware patterns to
-modify only the `[mavlink]` section keys. Only `enabled` and `connection_string`
-are touched. All other config.ini settings remain at defaults. This will leave
-the git working tree dirty, which is expected and acceptable — `config.ini`
-contains per-deployment settings.
+**Config modification mechanism:** Use section-scoped `sed` to modify only the
+`[mavlink]` section. This is important because `enabled` appears in 5 different
+sections (`[mavlink]`, `[web]`, `[osd]`, `[autonomous]`, `[rf_homing]`).
+
+Pattern template:
+```bash
+sed -i '/^\[mavlink\]/,/^\[/{s/^enabled = .*/enabled = true/}' config.ini
+sed -i '/^\[mavlink\]/,/^\[/{s|^connection_string = .*|connection_string = /dev/ttyACM0|}' config.ini
+```
+
+Only `enabled` and `connection_string` are touched. This will leave the git
+working tree dirty, which is expected and acceptable — `config.ini` contains
+per-deployment settings.
 
 ### Step 7 — Test Run (Optional)
 
@@ -105,12 +113,21 @@ contains per-deployment settings.
   (`http://<jetson-ip>:8080`).
 - **No:** Print the full docker run command so the instructor can copy/paste later.
 
-Docker run command template:
+Docker run command is built dynamically:
+- **Camera devices:** Loop over detected `/dev/video*` devices from Step 1,
+  add `--device /dev/videoN:/dev/videoN` for each one that exists.
+- **MAVLink device:** Include only if enabled in Step 6.
+
 ```bash
+# Build device flags dynamically
+DEVICE_FLAGS=""
+for dev in /dev/video*; do
+  [ -e "$dev" ] && DEVICE_FLAGS+=" --device $dev:$dev"
+done
+[ -n "$MAVLINK_DEVICE" ] && DEVICE_FLAGS+=" --device $MAVLINK_DEVICE:$MAVLINK_DEVICE"
+
 docker run --rm --privileged --runtime nvidia \
-  --device /dev/video0:/dev/video0 \
-  --device /dev/video2:/dev/video2 \
-  ${MAVLINK_DEVICE:+--device $MAVLINK_DEVICE:$MAVLINK_DEVICE} \
+  $DEVICE_FLAGS \
   -v /usr/sbin/nvpmodel:/usr/sbin/nvpmodel:ro \
   -v /usr/bin/jetson_clocks:/usr/bin/jetson_clocks:ro \
   -v /etc/nvpmodel.conf:/etc/nvpmodel.conf:ro \
