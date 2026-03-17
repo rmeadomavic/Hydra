@@ -11,9 +11,7 @@ keywords:
   - sync
 ---
 
-This guide sets up Tailscale-based SSH remote access so you can manage a
-Jetson from any laptop — no monitor, no keyboard, no local network required.
-Tailscale creates a secure peer-to-peer VPN between your devices.
+This guide sets up Tailscale-based SSH remote access so you can manage a Jetson from any laptop. No monitor, no keyboard, no local network required. Tailscale creates a secure peer-to-peer VPN between your devices.
 
 For initial Jetson setup, see [Docker install](/setup/jetson-docker) first.
 
@@ -37,25 +35,18 @@ cd ~/Hydra
 sudo bash scripts/setup_tailscale.sh
 ```
 
-The script will:
-1. Install Tailscale from the official repository
-2. Enable the SSH server
-3. Start Tailscale and print a login URL
+The script will install Tailscale, enable the SSH server, start Tailscale, and print a login URL.
 
-Open the URL in a browser on any device to authenticate the Jetson to your
-Tailscale network.
+Open the URL in a browser on any device to authenticate the Jetson to your Tailscale network.
 
 <Tip>
-**Provisioning multiple Jetsons?** Generate an auth key in the
-[Tailscale admin console](https://login.tailscale.com/admin/settings/keys)
-and pass it to the script:
+**Provisioning multiple Jetsons?** Generate an auth key in the [Tailscale admin console](https://login.tailscale.com/admin/settings/keys) and pass it to the script:
 
 ```bash
 sudo bash scripts/setup_tailscale.sh --authkey tskey-auth-xxxxx --hostname hydra-jetson-03
 ```
 
-This skips the interactive login step — useful for setting up a classroom of
-Jetsons in one session.
+This skips the interactive login step. Useful for setting up a classroom of Jetsons in one session.
 </Tip>
 
 </Step>
@@ -74,7 +65,7 @@ After setup completes, the script prints a summary:
   └──────────────────────────────────────────────┘
 ```
 
-Save the Tailscale IP or hostname — you'll use it from your laptop.
+Save the Tailscale IP or hostname.
 
 </Step>
 
@@ -100,21 +91,17 @@ sudo systemctl is-enabled tailscaled
 <Tabs>
 
 <Tab title="Windows / WSL">
-Download and install [Tailscale for Windows](https://tailscale.com/download/windows).
-Sign in with the same account you used for the Jetson.
+Download and install [Tailscale for Windows](https://tailscale.com/download/windows). Sign in with the same account you used for the Jetson.
 
-If using WSL, Tailscale on the Windows host is sufficient — WSL shares
-the host's network.
+If using WSL, Tailscale on the Windows host is sufficient. WSL shares the host's network.
 </Tab>
 
 <Tab title="macOS">
 ```bash
-# Install via Homebrew
 brew install --cask tailscale
 ```
 
-Or download from [tailscale.com/download/mac](https://tailscale.com/download/mac).
-Sign in with the same Tailscale account.
+Or download from [tailscale.com/download/mac](https://tailscale.com/download/mac). Sign in with the same Tailscale account.
 </Tab>
 
 <Tab title="Linux">
@@ -144,8 +131,7 @@ ssh sorcc@hydra-jetson
 ```
 
 <Note>
-The default password for the `sorcc` user is `sorcc`. Change it after first
-login with `passwd`.
+The default password for the `sorcc` user is `sorcc`. Change it after first login with `passwd`.
 </Note>
 
 </Step>
@@ -154,9 +140,7 @@ login with `passwd`.
 
 ## Part 3: One-Command Sync
 
-The `hydra_sync.sh` script pushes code updates from your laptop to a Jetson
-over Tailscale (or any SSH connection), rebuilds the Docker image, and
-restarts the service.
+The `hydra_sync.sh` script pushes code updates from your laptop to a Jetson over Tailscale (or any SSH connection), rebuilds the Docker image, and restarts the service.
 
 ```bash
 # From your laptop, in the Hydra repo
@@ -193,16 +177,13 @@ bash scripts/hydra_sync.sh --dry-run hydra-jetson
 For password-less SSH, copy your public key to the Jetson:
 
 ```bash
-# From your laptop
 ssh-copy-id sorcc@hydra-jetson
 ```
 
 After this, `ssh` and `hydra_sync.sh` will connect without a password prompt.
 
 <Tip>
-If you enabled Tailscale SSH (`--ssh`, the default), you can skip this step
-entirely — Tailscale handles authentication through your Tailscale account
-instead of SSH keys.
+If you enabled Tailscale SSH (`--ssh`, the default), you can skip this step. Tailscale handles authentication through your Tailscale account instead of SSH keys.
 </Tip>
 
 ## Troubleshooting
@@ -225,8 +206,7 @@ Both devices must be logged into the same Tailscale account.
 </Accordion>
 
 <Accordion title="Tailscale login URL not appearing">
-If `tailscale up` hangs without printing a URL, check that the Jetson
-has internet access:
+If `tailscale up` hangs without printing a URL, check that the Jetson has internet access:
 ```bash
 ping -c 3 tailscale.com
 ```
@@ -240,10 +220,8 @@ sudo tailscale up --login-server=https://controlplane.tailscale.com
 ```
 sorcc@100.64.1.42: Permission denied (publickey).
 ```
-**Fix:** Password authentication may be disabled. Re-run the setup script
-to enable it, or use Tailscale SSH:
+**Fix:** Password authentication may be disabled. Re-run the setup script to enable it, or use Tailscale SSH:
 ```bash
-# Use Tailscale SSH (no keys needed)
 ssh sorcc@hydra-jetson
 ```
 </Accordion>
@@ -264,10 +242,7 @@ cd ~/Hydra && docker build --network=host -t hydra-detect:latest .
 </Accordion>
 
 <Accordion title="Tailscale IP changed after reboot">
-Tailscale IPs are stable and do not change between reboots. If you see a
-different IP, the device may have been re-authenticated as a new node.
-Check the [Tailscale admin console](https://login.tailscale.com/admin/machines)
-and remove duplicate entries.
+Tailscale IPs are stable and do not change between reboots. If you see a different IP, the device may have been re-authenticated as a new node. Check the [Tailscale admin console](https://login.tailscale.com/admin/machines) and remove duplicate entries.
 </Accordion>
 
 </AccordionGroup>

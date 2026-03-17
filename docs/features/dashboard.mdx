@@ -5,7 +5,7 @@ icon: "browser"
 description: "Live operator dashboard with video stream, pipeline stats, and vehicle controls"
 ---
 
-The Hydra Detect web dashboard is your primary operator interface. It runs on **port 8080** and is accessible from any device on the same network — laptop, tablet, or phone.
+The Hydra Detect web dashboard is the primary operator interface. It runs on **port 8080** and is accessible from any device on the same network: laptop, tablet, or phone.
 
 ```
 http://<jetson-ip>:8080
@@ -15,20 +15,20 @@ http://<jetson-ip>:8080
 
 The dashboard is split into a full-width video panel on the left and a control sidebar on the right.
 
-| Section | What you will see |
-|---------|-------------------|
+| Section | What it shows |
+|---------|--------------|
 | **Video Stream** | Live MJPEG feed with bounding boxes, track IDs, and target lock overlays |
 | **Pipeline Stats** | FPS, inference time, active tracks, total detections, detector engine |
 | **Vehicle Link** | MAVLink connection status, GPS fix, position (MGRS or lat/lon) |
 | **Target Control** | Active track list with Keep in Frame / Strike / Release buttons |
-| **Detection Config** | Confidence threshold slider — tweak it live without restarting |
+| **Detection Config** | Confidence threshold slider, adjustable without restarting |
 | **Detection Log** | Scrolling feed of recent detections with timestamps and coordinates |
 
 ## Video stream
 
 The main panel displays a live MJPEG stream served from `/stream.mjpeg`. Bounding boxes are drawn around every detected object with its class label, confidence score, and ByteTrack ID. When a target is locked, the overlay switches to a target-lock reticle.
 
-The stream quality is configurable:
+Stream quality is configurable:
 
 ```ini
 [web]
@@ -37,26 +37,21 @@ mjpeg_quality = 70
 
 ## Pipeline stats
 
-The stats panel updates in real time and shows:
+The stats panel updates in real time:
 
-- **FPS** — frames processed per second by the detection pipeline
-- **Inference** — model inference time in milliseconds
-- **Tracks** — number of currently active ByteTrack tracks
-- **Detections** — total detection count since startup
-- **Engine** — which detector backend is running (e.g. YOLOv8s, TensorRT)
+- **FPS**: frames processed per second by the detection pipeline
+- **Inference**: model inference time in milliseconds
+- **Tracks**: number of currently active ByteTrack tracks
+- **Detections**: total detection count since startup
+- **Engine**: which detector backend is running (e.g. YOLOv8s, TensorRT)
 
-These values are also available programmatically via the [`GET /api/stats`](/api-reference) endpoint.
+These values are also available via the [`GET /api/stats`](/reference/api) endpoint.
 
 ## Vehicle link
 
-The vehicle link section shows the MAVLink connection state and current vehicle telemetry:
+Shows the MAVLink connection state and current vehicle telemetry: connection status, GPS fix type and satellite count, vehicle position in MGRS or lat/lon format, and current flight mode.
 
-- Connection status (connected / disconnected)
-- GPS fix type and satellite count
-- Vehicle position in MGRS or latitude/longitude format
-- Current flight mode
-
-This requires MAVLink to be enabled in `config.ini`:
+Requires MAVLink to be enabled in `config.ini`:
 
 ```ini
 [mavlink]
@@ -67,34 +62,27 @@ baud = 115200
 
 ## Target control
 
-The target control panel lists all currently tracked objects. From here you can interact with individual targets using three modes:
+Lists all currently tracked objects. From here you can interact with individual targets using three modes:
 
-- **Keep in Frame** — yaw the vehicle to keep the selected target centered in the camera
-- **Strike** — navigate the vehicle toward the target's estimated GPS position
-- **Release** — unlock the current target and return to passive tracking
+- **Keep in Frame**: yaw the vehicle to keep the selected target centered in the camera
+- **Strike**: navigate the vehicle toward the target's estimated GPS position
+- **Release**: unlock the current target and return to passive tracking
 
 For a detailed walkthrough of each mode, see [Target control](/features/target-control).
 
 ## Detection config
 
-The confidence threshold slider lets you adjust the YOLO detection threshold on the fly. Lowering the threshold catches more objects but may introduce false positives. Raising it filters out low-confidence detections.
+The confidence threshold slider adjusts the YOLO detection threshold on the fly. Lowering it catches more objects but may introduce false positives. Raising it filters out low-confidence detections.
 
-Changes take effect immediately — no restart required. The slider maps to the `POST /api/config/threshold` endpoint.
+Changes take effect immediately, no restart required. Maps to the `POST /api/config/threshold` endpoint.
 
 ## Detection log
 
-The bottom of the sidebar shows a scrolling feed of recent detections. Each entry includes:
+The bottom of the sidebar shows a scrolling feed of recent detections. Each entry includes timestamp, object class and confidence score, GPS coordinates (when available), and track ID.
 
-- Timestamp
-- Object class and confidence score
-- GPS coordinates (when available)
-- Track ID
-
-The log is also available as JSON via [`GET /api/detections`](/api-reference).
+Also available as JSON via [`GET /api/detections`](/reference/api).
 
 ## Configuration
-
-The web dashboard is configured in the `[web]` section of `config.ini`:
 
 ```ini
 [web]

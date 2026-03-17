@@ -11,10 +11,10 @@ Hydra can autonomously locate RF signal sources by flying search patterns and fo
 
 The RF hunt controller runs as a background thread with a four-state machine:
 
-1. **IDLE** — waiting for a hunt to be started
-2. **SEARCHING** — flying a search pattern (lawnmower or spiral) and polling RSSI
-3. **HOMING** — RSSI above threshold, following the gradient ascent toward the source
-4. **CONVERGED** — RSSI above convergence threshold, source located
+1. **IDLE**: waiting for a hunt to be started
+2. **SEARCHING**: flying a search pattern (lawnmower or spiral) and polling RSSI
+3. **HOMING**: RSSI above threshold, following the gradient toward the source
+4. **CONVERGED**: RSSI above convergence threshold, source located
 
 The transition from SEARCHING to HOMING happens when the measured RSSI crosses `rssi_threshold_dbm`. The transition from HOMING to CONVERGED happens when it crosses `rssi_converge_dbm`.
 
@@ -67,7 +67,7 @@ The transition from SEARCHING to HOMING happens when the measured RSSI crosses `
 
 ## Search patterns
 
-When an RF hunt starts, the vehicle flies a search pattern centered on its current position (or a configured start point). Two patterns are available:
+When an RF hunt starts, the vehicle flies a search pattern centered on its current position (or a configured start point).
 
 | Pattern | Description |
 |---------|-------------|
@@ -92,12 +92,7 @@ The controller declares convergence when the RSSI reaches `rssi_converge_dbm`, a
 
 ## Web dashboard interface
 
-The [web dashboard](/features/dashboard) provides a full RF hunt interface:
-
-- Configure hunt parameters (mode, target, thresholds)
-- Start and stop hunts
-- Monitor RSSI readings in real time
-- View current hunt state (IDLE / SEARCHING / HOMING / CONVERGED)
+The [web dashboard](/features/dashboard) provides a full RF hunt interface: configure hunt parameters, start and stop hunts, monitor RSSI readings in real time, and view the current hunt state.
 
 The RF hunt is also controllable via the REST API:
 

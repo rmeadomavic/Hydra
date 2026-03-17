@@ -15,7 +15,7 @@ Generate a self-contained HTML report with an embedded OpenStreetMap from the co
 python -m hydra_detect.review_export /data/logs/detections.jsonl -o report.html
 ```
 
-This produces a single HTML file you can open in any browser — no server required. The map, detection markers, and all styling are embedded in the file.
+This produces a single HTML file you can open in any browser. No server required. The map, detection markers, and all styling are embedded in the file.
 
 The export tool reads detection log files in JSONL or CSV format (configured by `log_format` in `config.ini`).
 
@@ -27,11 +27,7 @@ The [web dashboard](/features/dashboard) includes a dedicated review page at `/r
 http://<jetson-ip>:8080/review
 ```
 
-This page provides the same map visualization but with interactive controls:
-
-- Browse and load available log files via the [`GET /api/review/logs`](/api-reference) endpoint
-- Switch between log files without reloading the page
-- Filter and explore data in real time
+This provides the same map visualization with interactive controls: browse and load available log files, switch between log files without reloading, and filter data in real time.
 
 ### Review API endpoints
 
@@ -43,7 +39,7 @@ This page provides the same map visualization but with interactive controls:
 
 ## Map features
 
-Both the CLI export and the web review page share the same visualization features:
+Both the CLI export and the web review page share the same visualization:
 
 <CardGroup cols={2}>
   <Card title="Detection markers" icon="location-dot">
@@ -53,7 +49,7 @@ Both the CLI export and the web review page share the same visualization feature
     Detections sharing the same ByteTrack ID are connected with lines showing the target's movement path over time.
   </Card>
   <Card title="Confidence filters" icon="sliders">
-    Filter detections by minimum confidence score to focus on high-quality detections and hide uncertain ones.
+    Filter detections by minimum confidence score to focus on high-quality detections.
   </Card>
   <Card title="Class filtering" icon="filter">
     Show or hide specific object classes to isolate the detections you care about.
@@ -77,10 +73,4 @@ save_crops = false
 crop_dir = /data/crops
 ```
 
-Each log entry contains:
-
-- Timestamp
-- Object class and confidence score
-- GPS coordinates (latitude, longitude)
-- Track ID (ByteTrack persistent ID)
-- Vehicle position and heading at time of detection
+Each log entry contains: timestamp, object class and confidence score, GPS coordinates (latitude, longitude), track ID (ByteTrack persistent ID), and vehicle position and heading at time of detection.

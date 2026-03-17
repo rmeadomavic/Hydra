@@ -5,17 +5,23 @@ icon: "code"
 description: "REST API endpoints for the Hydra Detect web server"
 ---
 
-<Note>
-Control endpoints (`POST` routes for target lock, strike, vehicle commands, pipeline control, and RF hunt) require bearer token authentication. Include your token in the `Authorization` header: `Authorization: Bearer <token>`.
-</Note>
-
 The web server runs on the port configured in `[web] port` (default `8080`). All API responses are JSON unless otherwise noted.
 
-### Dashboard & stream
+## Authentication
+
+Control endpoints (POST routes for target lock, strike, vehicle commands, pipeline control, and RF hunt) require bearer token authentication. Include your token in the `Authorization` header:
+
+```
+Authorization: Bearer <token>
+```
+
+Read-only endpoints (`GET` routes for stats, detections, tracks, and the MJPEG stream) do not require authentication.
+
+### Dashboard and stream
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/` | Serves the operator dashboard |
+| `GET` | `/` | Operator dashboard |
 | `GET` | `/stream.mjpeg` | Live MJPEG video stream with bounding boxes, track IDs, and target lock overlays |
 
 ### Pipeline stats

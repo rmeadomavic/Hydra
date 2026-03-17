@@ -11,7 +11,7 @@ pipeline on an analog video feed while keeping your FPV goggles view intact.
 | Part | Purpose | Est. cost |
 |------|---------|-----------|
 | CVBS-to-USB capture dongle (UVC) | Digitizes analog video for the Jetson | ~$8-15 |
-| Passive video Y-splitter (1M→2F RCA) | Splits camera signal to VTX + dongle | ~$3-5 |
+| Passive video Y-splitter (1M to 2F RCA) | Splits camera signal to VTX + dongle | ~$3-5 |
 | Analog FPV camera | Video source (Caddx Ratel 2, RunCam Phoenix 2, etc.) | ~$20-40 |
 | Analog VTX | Transmits live video to goggles | ~$15-30 |
 
@@ -36,52 +36,52 @@ clones (flaky on modern kernels), HDMI capture cards (wrong input type).
 ## Signal path
 
 ```
-                                    ┌──→ Analog VTX ──→ Goggles (pilot view)
+                                    ┌── Analog VTX ── Goggles (pilot view)
                                     │
-Caddx Ratel 2 ──→ Y-splitter ──────┤
+Caddx Ratel 2 ── Y-splitter ───────┤
   (CVBS out)        (1 to 2)        │
-                                    └──→ USB capture dongle ──→ Jetson USB 3.0
+                                    └── USB capture dongle ── Jetson USB 3.0
                                               /dev/videoX         (Hydra input)
 ```
 
 ### With standalone OSD chip (optional)
 
 ```
-                                    ┌──→ OSD board ──→ VTX ──→ Goggles
+                                    ┌── OSD board ── VTX ── Goggles
                                     │      ↑ MAVLink serial
                                     │      │ from Pixhawk or Jetson
-Caddx Ratel 2 ──→ Y-splitter ──────┤
+Caddx Ratel 2 ── Y-splitter ───────┤
   (CVBS out)        (1 to 2)        │
-                                    └──→ USB capture dongle ──→ Jetson USB 3.0
+                                    └── USB capture dongle ── Jetson USB 3.0
 ```
 
 The OSD board sits inline on the VTX leg only. The Jetson gets clean,
-un-OSD'd video — no bounding boxes in training data, no OSD text confusing
+un-OSD'd video. No bounding boxes in training data, no OSD text confusing
 the detector.
 
 ---
 
 ## Wiring
 
-### Camera → Y-splitter
-- Camera video out (yellow RCA or bare wire) → Y-splitter input
-- Camera GND → common ground
-- Camera 5V → from PDB or BEC (NOT from the capture dongle)
+### Camera to Y-splitter
+- Camera video out (yellow RCA or bare wire) to Y-splitter input
+- Camera GND to common ground
+- Camera 5V from PDB or BEC (NOT from the capture dongle)
 
-### Y-splitter → VTX
-- Splitter output 1 → VTX video in
+### Y-splitter to VTX
+- Splitter output 1 to VTX video in
 - VTX powered from PDB as normal
 
-### Y-splitter → Capture dongle
-- Splitter output 2 → Capture dongle CVBS/AV input (yellow RCA)
-- Capture dongle GND → common ground
-- Capture dongle USB → Jetson USB 3.0 port
+### Y-splitter to Capture dongle
+- Splitter output 2 to Capture dongle CVBS/AV input (yellow RCA)
+- Capture dongle GND to common ground
+- Capture dongle USB to Jetson USB 3.0 port
 
 ### OSD board (optional, on VTX leg only)
-- Splitter output 1 → OSD video IN
-- OSD video OUT → VTX video in
-- OSD MAVLink RX → Pixhawk TELEM TX (or Jetson UART TX via level shifter)
-- OSD 5V + GND → from PDB
+- Splitter output 1 to OSD video IN
+- OSD video OUT to VTX video in
+- OSD MAVLink RX to Pixhawk TELEM TX (or Jetson UART TX via level shifter)
+- OSD 5V + GND from PDB
 
 Hydra's existing `statustext` OSD mode works with standalone OSD boards
 (MinimOSD, MicroMinimOSD, any MAX7456/AT7456E-based board) with zero code
@@ -100,7 +100,7 @@ dmesg | tail -10
 
 # 2. Find the device node
 ls /dev/video*
-# Note which /dev/videoX is new — that's your capture dongle
+# Note which /dev/videoX is new, that's your capture dongle
 
 # 3. Install V4L2 utilities (if not already present)
 sudo apt install v4l-utils
@@ -140,7 +140,7 @@ cap.release()
 ```ini
 [camera]
 source_type = analog
-source = 2                    ; /dev/video2 — verify YOUR device number
+source = 2                    ; /dev/video2, verify YOUR device number
 width = 720
 height = 480
 fps = 30
@@ -183,8 +183,8 @@ Then use `source = /dev/videoANALOG` in config.ini.
 | | Analog (Ratel 2 + VTX) | Digital (Webcam) | Digital (HDZero) |
 |---|---|---|---|
 | Resolution to Jetson | 720x480 (NTSC) | 1080p | N/A (separate feed) |
-| Latency (camera→Jetson) | ~60-100ms | ~30-50ms | N/A |
-| Latency (camera→goggles) | ~10ms (analog) | N/A | ~30ms |
+| Latency (camera to Jetson) | ~60-100ms | ~30-50ms | N/A |
+| Latency (camera to goggles) | ~10ms (analog) | N/A | ~30ms |
 | YOLO input (after resize) | 640x480 | 640x480 | 640x480 |
 | FPS to detector | 25-30 | 30 | 30 |
 | OSD path | Standalone OSD + MAVLink | Web dashboard | MSP DisplayPort |
@@ -196,16 +196,16 @@ Then use `source = /dev/videoANALOG` in config.ini.
 
 **Dongle not detected (`dmesg` shows nothing)**
 - Try a different USB port (prefer USB 3.0)
-- Check the cable — some micro-USB cables are charge-only
+- Check the cable. Some micro-USB cables are charge-only
 - Verify the dongle is UVC class, not a proprietary chipset
 
 **`v4l2-ctl --list-inputs` shows no composite input**
 - The dongle may not support input selection (some auto-detect)
-- Hydra will still try to open the device — this warning is usually harmless
+- Hydra will still try to open the device. This warning is usually harmless.
 
 **Black frames or no signal**
 - Verify the camera is powered (separate 5V, not from the dongle)
-- Check the Y-splitter connections — try swapping the two outputs
+- Check the Y-splitter connections. Try swapping the two outputs
 - Try setting `video_standard = pal` if your camera is PAL
 
 **Low FPS or stuttering**

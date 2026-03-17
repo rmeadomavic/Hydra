@@ -5,14 +5,14 @@ icon: "crosshairs"
 description: "Lock, track, and strike targets from the web dashboard"
 ---
 
-The target control panel on the [web dashboard](/features/dashboard) lets you interact with tracked objects in real time. There are three modes of engagement, each escalating in autonomy.
+The target control panel on the [web dashboard](/features/dashboard) lets you interact with tracked objects in real time. Three modes, each escalating in autonomy.
 
 ## Hold Position
 
-Tells the vehicle to stop and hold where it is. This is the safest default action.
+Tells the vehicle to stop and hold where it is.
 
-- **Drones (ArduCopter)** — switches to `LOITER` mode
-- **Rovers and boats (ArduRover)** — switches to `HOLD` mode
+- **Drones (ArduCopter)**: switches to `LOITER` mode
+- **Rovers and boats (ArduRover)**: switches to `HOLD` mode
 
 The system auto-detects the correct hold mode from the vehicle's mode mapping. Triggered via the dashboard button or `POST /api/vehicle/loiter`.
 
@@ -49,7 +49,7 @@ Strike mode navigates the vehicle toward a target's estimated GPS position. This
     While the vehicle is in transit, the pipeline continues tracking the target and sending yaw corrections to keep it centered.
   </Step>
   <Step title="GCS alerts">
-    STATUSTEXT messages are sent to your ground control station (Mission Planner, QGroundControl) throughout the sequence so you always know what is happening.
+    STATUSTEXT messages are sent to your ground control station throughout the sequence.
   </Step>
 </Steps>
 
@@ -59,7 +59,7 @@ strike_distance_m = 20.0
 ```
 
 <Warning>
-  **GCS override is always available.** You can retake control at any time from Mission Planner or any other ground control station. Changing the flight mode from the GCS will immediately override Hydra's commands.
+  **GCS override is always available.** You can retake control at any time from Mission Planner or any other ground control station. Changing the flight mode from the GCS immediately overrides Hydra's commands.
 </Warning>
 
 ## API endpoints

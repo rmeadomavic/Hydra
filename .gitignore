@@ -12,3 +12,4 @@ crops/
 *.engine
 .venv/
 venv/
+hydra-docs-rewrite/ 

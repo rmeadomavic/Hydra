@@ -1,68 +1,45 @@
 # Hydra Detect v2.0
 
-Hydra is a real-time object detection and tracking system for uncrewed vehicles. If you're running a drone, boat, or rover on [ArduPilot](https://ardupilot.org/) and you want it to see the world, this is the payload software that makes that happen.
+Hydra is a real-time object detection and tracking system for uncrewed vehicles running ArduPilot. It runs on an NVIDIA Jetson as a companion computer, processes a camera feed through YOLO and ByteTrack, and pushes detection data to your ground control station over MAVLink.
 
-It runs on an NVIDIA Jetson (or really any Linux box with a camera and a MAVLink radio) and hooks into your existing flight stack without any firmware changes.
+No firmware changes required. If your vehicle supports GUIDED mode and you can plug in a camera, Hydra will work with it. Drones, boats, rovers.
 
 ```
-Camera ─> Detector (YOLO) ─> ByteTrack ─> MAVLink Alerts
-                                                   ─> Target Lock / Strike
-                                                   ─> Autonomous Strike Controller
-                                                   ─> FPV OSD (via FC OSD chip)
-                                                   ─> Web Dashboard (MJPEG)
-                                                   ─> Detection Logger
+Camera -> Detector (YOLO) -> ByteTrack -> MAVLink Alerts
+                                               -> Target Lock / Strike
+                                               -> Autonomous Strike Controller
+                                               -> FPV OSD (via FC OSD chip)
+                                               -> Web Dashboard (MJPEG)
+                                               -> Detection Logger
 
-Kismet (WiFi/SDR) ─> RF Hunt Controller ─> RSSI Gradient Ascent ─> MAVLink Nav
+Kismet (WiFi/SDR) -> RF Hunt Controller -> RSSI Gradient Ascent -> MAVLink Nav
 ```
 
-## What Can It Do?
+## What It Does
 
-- **See things** — YOLOv8 object detection running in real-time on-device
-- **Remember them** — ByteTrack keeps persistent IDs across frames, so object #5 stays object #5
-- **Tell you about them** — sends MAVLink STATUSTEXT alerts to Mission Planner / QGroundControl with GPS coordinates
-- **Keep them in frame** — lock onto a tracked target and the vehicle will yaw to keep it centered in the camera
-- **Go to them** — strike mode navigates the vehicle toward a target's estimated GPS position
-- **Log everything** — timestamps, GPS, confidence scores, and optional image snapshots
-- **Show up on your goggles** — detection data overlaid on your FPV feed through the flight controller's OSD chip
-- **Stream to a browser** — live annotated video over MJPEG, accessible from any device on the network
-- **Hunt RF sources** — locate WiFi APs or SDR signals using Kismet RSSI + gradient ascent navigation
-- **Auto-engage targets** — autonomous strike controller with geofencing, class whitelists, and cooldown timers
-- **Review missions** — post-flight web map with detection overlays, track trails, and confidence filters
+- YOLOv8 object detection, real-time on-device via CUDA/TensorRT
+- ByteTrack multi-object tracking with persistent IDs across frames
+- MAVLink STATUSTEXT alerts with GPS coordinates sent to Mission Planner or QGroundControl
+- Target lock: vehicle yaws to keep a tracked object centered in the camera
+- Strike mode: navigates the vehicle toward a target's estimated GPS position in GUIDED mode
+- Autonomous strike controller with geofencing, class whitelists, and cooldown timers
+- RF source localization via Kismet RSSI and gradient ascent navigation
+- FPV OSD overlay through the flight controller's OSD chip (MAX7456/AT7456E or MSP DisplayPort)
+- Post-mission review with detection markers on OpenStreetMap
+- Web dashboard with live MJPEG stream, pipeline stats, and vehicle controls
+- Detection logging in CSV or JSONL with timestamps, GPS, confidence, and optional image snapshots
 
 ## Getting Started
 
-```bash
-# Install pip (not included on fresh JetPack installs)
-sudo apt update && sudo apt install -y python3-pip
-
-# Allow serial access to the flight controller (one-time, then log out/in)
-sudo usermod -aG dialout $USER
-
-# Grab the code
-git clone https://github.com/rmeadomavic/Hydra.git
-cd Hydra
-sudo pip3 install -r requirements.txt
-
-# Download a YOLO model into the models directory
-mkdir -p models
-wget -P models https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8s.pt
-
-# Point it at your hardware
-nano config.ini
-
-# Fire it up
-sudo python3 -m hydra_detect --config config.ini
-```
-
-Then open **http://localhost:8080** in a browser — that's your operator dashboard.
-
-### Running on a Jetson (Docker)
-
-The easiest way to get Hydra running on a Jetson is through Docker. The base image is big (~6 GB) but it comes with CUDA, PyTorch, and TensorRT ready to go.
+The recommended path is Docker on a Jetson. The base image is large (~6 GB) but it ships with CUDA, PyTorch, and TensorRT ready to go.
 
 ```bash
 # Grab the base image (one-time download)
 docker pull dustynv/l4t-pytorch:r36.4.0
+
+# Clone the repo
+git clone https://github.com/rmeadomavic/Hydra.git
+cd Hydra
 
 # Build and run
 docker build --network=host -t hydra-detect .
@@ -80,11 +57,32 @@ docker run --rm --privileged --runtime nvidia \
   hydra-detect
 ```
 
-For a full walkthrough (flashing the Jetson, wiring, first boot), see the [Jetson setup guide](docs/jetson-setup-guide.md).
+Open **http://localhost:8080** in a browser. That's the operator dashboard.
 
-### Preflight Check (Jetson Orin Nano Super)
+For a full walkthrough starting from a bare Jetson, see the [Jetson flash guide](docs/setup/jetson-flash.mdx) followed by the [Docker install guide](docs/setup/jetson-docker.mdx).
 
-Before you head to the field, run the preflight script to make sure the Jetson is happy:
+### Bare Metal (Alternative)
+
+If you prefer running outside Docker:
+
+```bash
+sudo apt update && sudo apt install -y python3-pip
+sudo usermod -aG dialout $USER  # log out/in after this
+
+git clone https://github.com/rmeadomavic/Hydra.git
+cd Hydra
+sudo pip3 install -r requirements.txt
+
+mkdir -p models
+wget -P models https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8s.pt
+
+nano config.ini  # set camera source and MAVLink connection
+sudo python3 -m hydra_detect --config config.ini
+```
+
+### Preflight Check (Jetson Orin Nano)
+
+Before heading to the field, run the preflight script:
 
 ```bash
 ./scripts/jetson_preflight.sh
@@ -97,11 +95,7 @@ sudo nvpmodel -m 0
 sudo jetson_clocks
 ```
 
-If preflight passes, you're good to go — just make sure your camera and MAVLink wiring match what's in `config.ini`.
-
 ### Auto-Start on Boot
-
-Want Hydra to start automatically when the Jetson powers on?
 
 ```bash
 sudo cp scripts/hydra-detect.service /etc/systemd/system/
@@ -111,83 +105,78 @@ sudo systemctl enable --now hydra-detect
 
 ## The Dashboard
 
-The web dashboard lives at port 8080 and gives you everything you need to operate:
+The web dashboard runs on port 8080 and serves as the primary operator interface.
 
-| Section | What You'll See |
-|---------|----------------|
+| Section | What It Shows |
+|---------|--------------|
 | **Video Stream** | Live MJPEG feed with bounding boxes, track IDs, and target lock overlays |
 | **Pipeline Stats** | FPS, inference time, active tracks, total detections, detector engine |
 | **Vehicle Link** | MAVLink connection status, GPS fix, position (MGRS or lat/lon) |
 | **Target Control** | Active track list with Keep in Frame / Strike / Release buttons |
-| **Detection Config** | Confidence threshold slider — tweak it live |
+| **Detection Config** | Confidence threshold slider, adjustable without restarting |
 | **Detection Log** | Scrolling feed of recent detections with timestamps and coordinates |
 
-### Controlling the Vehicle
+### Vehicle Control
 
-**Hold Position** — Tells the vehicle to stop and hold where it is. Uses `LOITER` for drones, `HOLD` for rovers and boats.
+**Hold Position** tells the vehicle to stop where it is. Uses `LOITER` for drones, `HOLD` for rovers and boats. The system auto-detects the correct mode.
 
-**Keep in Frame** — Pick a tracked object and the pipeline will send yaw corrections every frame to keep it centered. Works on any ArduPilot vehicle.
+**Keep in Frame** locks onto a tracked object and sends yaw corrections every frame to keep it centered in the camera. Works on any ArduPilot vehicle.
 
-**Strike** — This is the big one. Pick a target, click Strike, and confirm in the popup. Here's what happens:
+**Strike** navigates the vehicle toward a target's estimated GPS position. Requires confirmation via the dashboard popup. The sequence:
 
-1. Hydra estimates the target's GPS position from vehicle heading + camera offset
-2. Switches the vehicle to `GUIDED` mode
+1. Hydra estimates target GPS from vehicle heading and camera offset
+2. Switches the vehicle to GUIDED mode
 3. Sends a waypoint via `SET_POSITION_TARGET_GLOBAL_INT`
-4. Keeps tracking and yawing during the approach
-5. Sends STATUSTEXT alerts to your GCS so you know what's happening
+4. Continues tracking and yawing during the approach
+5. Sends STATUSTEXT alerts to your GCS throughout
 
-You always have override through Mission Planner or any other GCS.
+You always have override through Mission Planner or any other GCS. Changing the flight mode from the GCS immediately overrides Hydra.
 
 ### FPV OSD Overlay
 
-If your flight controller has an onboard analog OSD chip (MAX7456 / AT7456E), Hydra can push detection telemetry right onto your FPV feed over MAVLink. No extra hardware, no video passthrough, no added latency.
+If your flight controller has an onboard analog OSD chip (MAX7456/AT7456E), Hydra can push detection telemetry onto your FPV feed over MAVLink. No extra hardware, no video passthrough, no added latency.
 
-Here's what it looks like on your goggles:
+What it looks like on your goggles:
 
 ```
 T:3 12fps 35ms LK#5TRK
 ```
 
-That's: track count, pipeline FPS, inference time, and locked target status — all composited with sub-millisecond delay.
+That reads as: 3 active tracks, 12 FPS pipeline speed, 35ms inference time, target lock active on track #5.
 
-**Works with:** Matek H743, SpeedyBee F405-Wing, or any FC with an AT7456E/MAX7456 chip.
-**Won't work with:** Pixhawk 6C (no OSD chip) — use the web dashboard overlay instead.
+Two modes are available:
 
-There are two modes depending on how much setup you want to do:
+| Mode | Setup | What You Get |
+|------|-------|-------------|
+| `statustext` | Config flag only | Detection info in the OSD message panel |
+| `named_value` | Lua script on FC | Dedicated display with stale-link warnings |
 
-| Mode | Effort | What You Get |
-|------|--------|-------------|
-| `statustext` | Just flip a config flag | Detection info in the OSD message panel |
-| `named_value` | Copy a Lua script to the FC | Richer display with stale-link warnings |
-
-**The easy way (statustext):**
+**Statustext (simple):**
 ```ini
 [osd]
 enabled = true
 mode = statustext
 ```
 
-**The fancy way (named_value with Lua):**
+**Named value (requires Lua script):**
 1. Copy `scripts/hydra_osd.lua` to `APM/scripts/` on the FC's SD card
 2. Set these ArduPilot parameters: `SCR_ENABLE=1`, `SCR_HEAP_SIZE=65536`, `OSD_TYPE=1`, `OSD1_ENABLE=1`
-3. Add to `config.ini`:
-   ```ini
-   [osd]
-   enabled = true
-   mode = named_value
-   ```
+3. Set `[osd] mode = named_value` in config.ini
 4. Reboot the FC
 
-**Running HDZero?** Check out the [HDZero OSD setup guide](docs/hdzero-osd-setup.md) for MSP DisplayPort wiring and parameters.
+**Works with:** Matek H743, SpeedyBee F405-Wing, or any FC with an AT7456E/MAX7456 chip.
+**Does not work with:** Pixhawk 6C (no OSD chip). Use the web dashboard or HDZero MSP DisplayPort instead.
+
+Running HDZero? See the [HDZero OSD setup guide](docs/setup/hdzero-osd.mdx) for MSP DisplayPort wiring and parameters.
 
 ### Autonomous Strike
 
-The autonomous controller can auto-engage targets that meet all qualification criteria simultaneously. This is off by default and requires explicit configuration.
+The autonomous controller can auto-engage targets when all qualification criteria are met simultaneously. Off by default.
 
-All criteria must pass before a strike is initiated:
-1. Controller is enabled in `config.ini`
-2. Vehicle is in an allowed mode (e.g. `AUTO`)
-3. Vehicle GPS is inside the configured geofence (circle or polygon)
+All five criteria must pass:
+1. Controller enabled in config.ini
+2. Vehicle in an allowed mode (default: AUTO only)
+3. Vehicle GPS inside the configured geofence (circle or polygon)
 4. No strike in cooldown period
 5. A tracked target matches: class in whitelist, confidence above threshold, tracked for N consecutive frames
 
@@ -204,16 +193,16 @@ strike_cooldown_sec = 30.0
 allowed_vehicle_modes = AUTO
 ```
 
-All autonomous actions are logged to the `hydra.audit` logger for accountability.
+All autonomous actions are logged to `hydra.audit` for accountability.
 
 ### RF Homing
 
-Hydra can autonomously locate RF signal sources using RSSI gradient ascent. This requires [Kismet](https://www.kismetwireless.net/) running on the companion computer with a monitor-mode WiFi adapter or RTL-SDR dongle.
+Hydra can autonomously locate RF signal sources using RSSI gradient ascent. Requires [Kismet](https://www.kismetwireless.net/) running on the companion computer with a monitor-mode WiFi adapter or RTL-SDR dongle.
 
-The RF hunt runs as a background thread with a state machine: `IDLE -> SEARCHING -> HOMING -> CONVERGED`.
+The RF hunt runs as a background thread with four states: IDLE, SEARCHING, HOMING, CONVERGED.
 
-- **WiFi mode** — hunts a specific BSSID (MAC address) via Kismet's WiFi device list
-- **SDR mode** — hunts a specific frequency via Kismet's RTL-SDR data source
+- **WiFi mode** hunts a specific BSSID (MAC address)
+- **SDR mode** hunts a specific frequency
 
 ```ini
 [rf_homing]
@@ -227,51 +216,48 @@ rssi_threshold_dbm = -80.0
 rssi_converge_dbm = -40.0
 ```
 
-The web dashboard provides a full RF hunt interface — configure parameters, start/stop hunts, and monitor RSSI readings and hunt state in real time.
+The web dashboard includes a full RF hunt interface for configuring parameters, starting/stopping hunts, and monitoring RSSI in real time.
 
 ### Post-Mission Review
 
-After a mission, use the review tool to visualize detection data on a map:
+After a mission, export detection data to a standalone HTML map:
 
 ```bash
-# Export to a standalone HTML file with embedded map
 python -m hydra_detect.review_export /data/logs/detections.jsonl -o report.html
-
-# Or view directly from the web dashboard at /review
 ```
 
-The review page shows detection markers on an OpenStreetMap with track trails, confidence filters, and class filtering.
+Or view directly from the web dashboard at `/review`.
 
 ## Configuration
 
-Everything lives in `config.ini`. Here's the full reference:
+Everything lives in `config.ini`. Full reference below.
 
 ### [camera]
-| Key | Default | What It Does |
-|-----|---------|--------------|
-| `source` | `auto` | Camera source — `auto` picks the first webcam, or use device index (`0`, `2`), RTSP URL, GStreamer pipeline, or file path |
+| Key | Default | Description |
+|-----|---------|-------------|
+| `source` | `auto` | Camera source. `auto` picks the first webcam. Also accepts device index (`0`, `2`), RTSP URL, GStreamer pipeline, or file path |
 | `width` | `640` | Capture width in pixels |
 | `height` | `480` | Capture height in pixels |
 | `fps` | `30` | Target frame rate |
 | `hfov_deg` | `60.0` | Horizontal field of view in degrees (used to estimate target bearing) |
 
 ### [detector]
-| Key | Default | What It Does |
-|-----|---------|--------------|
+| Key | Default | Description |
+|-----|---------|-------------|
 | `yolo_model` | `yolov8n.pt` | YOLO model file (auto-downloads on first run) |
-| `yolo_confidence` | `0.45` | Confidence threshold — lower catches more, higher reduces false positives |
+| `yolo_confidence` | `0.45` | Confidence threshold. Lower catches more, higher reduces false positives |
 | `yolo_classes` | *(all)* | Comma-separated COCO class IDs to detect (empty = everything) |
 
 ### [tracker]
-| Key | Default | What It Does |
-|-----|---------|--------------|
+| Key | Default | Description |
+|-----|---------|-------------|
 | `track_thresh` | `0.5` | Minimum confidence to start a new track |
 | `track_buffer` | `30` | Frames to keep a lost track alive before dropping it |
 | `match_thresh` | `0.8` | IoU threshold for matching detections to existing tracks |
 
 ### [mavlink]
-| Key | Default | What It Does |
-|-----|---------|--------------|
+| Key | Default | Description |
+|-----|---------|-------------|
 | `enabled` | `true` | Turn MAVLink on or off |
 | `connection_string` | `/dev/ttyACM0` | Serial device or `udp:127.0.0.1:14550` |
 | `baud` | `115200` | Serial baud rate |
@@ -285,23 +271,23 @@ Everything lives in `config.ini`. Here's the full reference:
 | `strike_distance_m` | `20.0` | How far ahead (metres) to project the strike waypoint |
 
 ### [web]
-| Key | Default | What It Does |
-|-----|---------|--------------|
+| Key | Default | Description |
+|-----|---------|-------------|
 | `enabled` | `true` | Turn the web dashboard on or off |
 | `host` | `0.0.0.0` | Bind address |
 | `port` | `8080` | HTTP port |
-| `mjpeg_quality` | `70` | JPEG quality for the video stream (1–100) |
+| `mjpeg_quality` | `70` | JPEG quality for the video stream (1-100) |
 
 ### [osd]
-| Key | Default | What It Does |
-|-----|---------|--------------|
-| `enabled` | `false` | Turn FPV OSD overlay on or off (needs MAVLink + FC with OSD chip) |
-| `mode` | `statustext` | `statustext` (simple) or `named_value` (needs Lua script on FC) |
-| `update_interval` | `0.2` | Seconds between OSD updates — lower is snappier but chattier on the MAVLink bus |
+| Key | Default | Description |
+|-----|---------|-------------|
+| `enabled` | `false` | Turn FPV OSD overlay on or off (requires MAVLink + FC with OSD chip) |
+| `mode` | `statustext` | `statustext` (simple) or `named_value` (requires Lua script on FC) |
+| `update_interval` | `0.2` | Seconds between OSD updates. Lower is snappier but chattier on the MAVLink bus |
 
 ### [autonomous]
-| Key | Default | What It Does |
-|-----|---------|--------------|
+| Key | Default | Description |
+|-----|---------|-------------|
 | `enabled` | `false` | Enable autonomous strike controller |
 | `geofence_lat` | `0.0` | Circle geofence center latitude |
 | `geofence_lon` | `0.0` | Circle geofence center longitude |
@@ -314,8 +300,8 @@ Everything lives in `config.ini`. Here's the full reference:
 | `allowed_vehicle_modes` | `AUTO` | Vehicle must be in one of these modes |
 
 ### [rf_homing]
-| Key | Default | What It Does |
-|-----|---------|--------------|
+| Key | Default | Description |
+|-----|---------|-------------|
 | `enabled` | `false` | Enable RF source localization |
 | `mode` | `wifi` | `wifi` (hunt by BSSID) or `sdr` (hunt by frequency) |
 | `target_bssid` | *(empty)* | MAC address to locate (WiFi mode) |
@@ -334,8 +320,8 @@ Everything lives in `config.ini`. Here's the full reference:
 | `arrival_tolerance_m` | `3.0` | Distance to consider a waypoint reached |
 
 ### [logging]
-| Key | Default | What It Does |
-|-----|---------|--------------|
+| Key | Default | Description |
+|-----|---------|-------------|
 | `log_dir` | `/data/logs` | Where detection logs go |
 | `log_format` | `jsonl` | Log format: `csv` or `jsonl` |
 | `save_images` | `true` | Save full-frame JPEG snapshots when something is detected |
@@ -348,26 +334,29 @@ Everything lives in `config.ini`. Here's the full reference:
 
 ```
 Hydra/
-  config.ini                          # All your settings
+  config.ini                          # All settings
   requirements.txt                    # Python dependencies
   Dockerfile                          # Jetson container build
   scripts/
     hydra-detect.service              # systemd unit file
     jetson_preflight.sh               # Hardware sanity checks
     hydra_osd.lua                     # ArduPilot Lua script for FPV OSD
+    setup_headless.sh                 # Headless field boot configuration
+    setup_tailscale.sh                # Tailscale remote access setup
+    hydra_sync.sh                     # One-command code sync to Jetsons
 
   hydra_detect/
     __init__.py
     __main__.py                       # Entry point (python -m hydra_detect)
-    pipeline.py                       # The main loop — detect, track, alert, repeat
+    pipeline.py                       # Main loop: detect, track, alert, repeat
     camera.py                         # Thread-safe capture with auto-reconnect
     tracker.py                        # ByteTrack multi-object tracker
-    overlay.py                        # Bounding boxes + HUD + target lock rendering
+    overlay.py                        # Bounding boxes, HUD, target lock rendering
     osd.py                            # FPV OSD overlay via MAVLink
     mavlink_io.py                     # MAVLink connection, alerts, vehicle commands
     detection_logger.py               # CSV/JSONL logging with image snapshots
     autonomous.py                     # Geofenced autonomous strike controller
-    review_export.py                  # Post-mission review — CLI + standalone HTML export
+    review_export.py                  # Post-mission review: CLI + standalone HTML export
 
     detectors/
       __init__.py
@@ -376,7 +365,7 @@ Hydra/
 
     rf/
       __init__.py
-      hunt.py                         # RF hunt state machine (IDLE→SEARCHING→HOMING→CONVERGED)
+      hunt.py                         # RF hunt state machine (IDLE->SEARCHING->HOMING->CONVERGED)
       kismet_client.py                # Kismet REST API client for RSSI polling
       navigator.py                    # Waypoint navigation for search patterns
       search.py                       # Lawnmower and spiral search pattern generators
@@ -384,7 +373,7 @@ Hydra/
 
     web/
       __init__.py
-      server.py                       # FastAPI — REST API + MJPEG stream
+      server.py                       # FastAPI: REST API + MJPEG stream
       templates/
         index.html                    # Operator dashboard (includes RF hunt UI)
         review.html                   # Post-mission review map
@@ -392,9 +381,9 @@ Hydra/
 
 ## API Reference
 
-| Method | Path | What It Does |
-|--------|------|--------------|
-| `GET` | `/` | Serves the operator dashboard |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Operator dashboard |
 | `GET` | `/stream.mjpeg` | Live MJPEG video stream |
 | `GET` | `/api/stats` | Pipeline stats (FPS, tracks, GPS, etc.) |
 | `GET` | `/api/config` | Current runtime configuration |
@@ -416,15 +405,17 @@ Hydra/
 | `POST` | `/api/pipeline/stop` | Gracefully stop the pipeline |
 | `POST` | `/api/pipeline/pause` | Pause or resume detection (`{"paused": true}`) |
 
+Control endpoints (POST routes for target, vehicle, pipeline, and RF) require bearer token authentication.
+
 ## Vehicle Compatibility
 
-**Drones (ArduCopter)** — Uses `LOITER` for holding, `CONDITION_YAW` for tracking, `GUIDED` for strike. Works best with a gimbal for ROI targeting.
+| Platform | Hold mode | Yaw control | Strike mode |
+|----------|-----------|-------------|-------------|
+| Drones (ArduCopter) | LOITER | CONDITION_YAW | GUIDED waypoint |
+| Boats (ArduRover, boat mode) | HOLD | Rudder steering | GUIDED waypoint |
+| Rovers (ArduRover) | HOLD | Steering | GUIDED waypoint |
 
-**Boats (ArduRover, boat mode)** — Uses `HOLD` mode. Yaw commands steer the rudder. `GUIDED` drives toward the target. Tune `strike_distance_m` for your water speed.
-
-**Rovers (ArduRover)** — Same as boats. Yaw commands turn the vehicle. Make sure there's a clear path before sending a strike.
-
-**Anything else on ArduPilot** — If it supports `GUIDED` mode and `CONDITION_YAW`, Hydra will work with it. The system auto-detects whether to use `LOITER` or `HOLD` from the vehicle's mode mapping.
+If it supports GUIDED mode and CONDITION_YAW, Hydra will work with it. The system auto-detects whether to use LOITER or HOLD from the vehicle's mode mapping.
 
 ## Dependencies
 

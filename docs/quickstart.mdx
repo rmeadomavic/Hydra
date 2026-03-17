@@ -1,7 +1,7 @@
 ---
 title: "Quickstart"
 sidebarTitle: "Quickstart"
-description: "Install Hydra Detect and get the operator dashboard running in under 5 minutes."
+description: "Install Hydra Detect and get the operator dashboard running."
 keywords:
   - install
   - setup
@@ -13,7 +13,7 @@ keywords:
 
 # Quickstart
 
-Get Hydra running on your Jetson (or any Linux machine) and open the operator dashboard. Choose bare-metal if you want direct hardware access, or Docker for a self-contained deployment with CUDA, PyTorch, and TensorRT baked in.
+Get Hydra running on your Jetson (or any Linux machine) and open the operator dashboard. Docker is the recommended path. Bare-metal is available if you need direct hardware access without containerization.
 
 <Info>
   **Jetson users:** If you haven't flashed your Jetson yet, start with the [Jetson flash guide](/setup/jetson-flash) first, then come back here.
@@ -23,28 +23,18 @@ Get Hydra running on your Jetson (or any Linux machine) and open the operator da
 
 <Tabs>
 
-<Tab title="Bare metal">
+<Tab title="Docker (recommended)">
+
+Docker is the easiest path on a Jetson. The base image is large (~6 GB) but includes CUDA, PyTorch, and TensorRT pre-configured.
 
 <Steps>
 
-<Step title="Install pip">
-  Fresh JetPack installs don't include pip. Install it first.
+<Step title="Pull the base image">
+  One-time download. Contains the full L4T PyTorch runtime.
 
   ```bash
-  sudo apt update && sudo apt install -y python3-pip
+  docker pull dustynv/l4t-pytorch:r36.4.0
   ```
-</Step>
-
-<Step title="Enable serial access">
-  Your user needs to be in the `dialout` group to talk to the flight controller over serial. This is a one-time step -- log out and back in after running it.
-
-  ```bash
-  sudo usermod -aG dialout $USER
-  ```
-
-  <Warning>
-    You must log out and log back in (or reboot) for the group change to take effect. Running `groups` should show `dialout` in the list.
-  </Warning>
 </Step>
 
 <Step title="Clone the repository">
@@ -54,76 +44,25 @@ Get Hydra running on your Jetson (or any Linux machine) and open the operator da
   ```
 </Step>
 
-<Step title="Install dependencies">
-  ```bash
-  sudo pip3 install -r requirements.txt
-  ```
-
-  <Note>
-    Using `sudo` for pip is required because Hydra needs root access for MAVLink serial devices and `nvpmodel` / `jetson_clocks`. If you prefer a virtualenv, make sure to run the application with `sudo` as well.
-  </Note>
-</Step>
-
-<Step title="Download a YOLO model">
-  Grab a pre-trained model and place it in the `models/` directory. YOLOv8s is a good balance of speed and accuracy on Jetson.
-
-  ```bash
-  mkdir -p models
-  wget -P models https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8s.pt
-  ```
-
-  The model will be auto-converted to TensorRT on first run for maximum inference speed.
-</Step>
-
-<Step title="Configure">
-  Open `config.ini` and point it at your hardware. At minimum, verify:
-
-  - `[camera] source` -- your camera device index or RTSP URL
-  - `[mavlink] connection_string` -- your serial device (e.g., `/dev/ttyACM0`) or UDP endpoint
-  - `[detector] yolo_model` -- path to the model you downloaded
-
-  ```bash
-  nano config.ini
-  ```
-</Step>
-
-<Step title="Run Hydra">
-  ```bash
-  sudo python3 -m hydra_detect --config config.ini
-  ```
-</Step>
-
-<Step title="Open the dashboard">
-  Navigate to [http://localhost:8080](http://localhost:8080) in a browser on the same network. You should see the live video stream with detection overlays.
-</Step>
-
-</Steps>
-
-</Tab>
-
-<Tab title="Docker (recommended for Jetson)">
-
-The Docker path is the easiest way to get Hydra running on a Jetson. The base image is large (~6 GB) but includes CUDA, PyTorch, and TensorRT pre-configured.
-
-<Steps>
-
-<Step title="Pull the base image">
-  This is a one-time download. It contains the full L4T PyTorch runtime.
-
-  ```bash
-  docker pull dustynv/l4t-pytorch:r36.4.0
-  ```
-</Step>
-
 <Step title="Build the Hydra image">
   ```bash
   docker build --network=host -t hydra-detect .
   ```
 </Step>
 
-<Step title="Run the container">
-  The run command mounts cameras, serial devices, NVIDIA power management tools, your models directory, and the data output directory.
+<Step title="Configure">
+  Open `config.ini` and verify your hardware settings. At minimum, check:
 
+  - `[camera] source` : your camera device index or RTSP URL
+  - `[mavlink] connection_string` : your serial device (e.g., `/dev/ttyACM0`) or UDP endpoint
+  - `[mavlink] enabled` : set `false` if no flight controller is connected
+
+  ```bash
+  nano config.ini
+  ```
+</Step>
+
+<Step title="Run the container">
   ```bash
   docker run --rm --privileged --runtime nvidia \
     --device /dev/video0 --device /dev/video2 \
@@ -145,7 +84,83 @@ The Docker path is the easiest way to get Hydra running on a Jetson. The base im
 </Step>
 
 <Step title="Open the dashboard">
-  Navigate to [http://localhost:8080](http://localhost:8080) in a browser. The dashboard streams live annotated video with detection overlays, pipeline stats, and vehicle telemetry.
+  Navigate to [http://localhost:8080](http://localhost:8080) in a browser. You should see a live video stream with detection overlays.
+</Step>
+
+</Steps>
+
+</Tab>
+
+<Tab title="Bare metal">
+
+<Steps>
+
+<Step title="Install pip">
+  Fresh JetPack installs don't include pip.
+
+  ```bash
+  sudo apt update && sudo apt install -y python3-pip
+  ```
+</Step>
+
+<Step title="Enable serial access">
+  Your user needs to be in the `dialout` group to talk to the flight controller over serial. One-time step. Log out and back in after running it.
+
+  ```bash
+  sudo usermod -aG dialout $USER
+  ```
+
+  <Warning>
+    You must log out and log back in (or reboot) for the group change to take effect. Run `groups` to confirm `dialout` appears in the list.
+  </Warning>
+</Step>
+
+<Step title="Clone the repository">
+  ```bash
+  git clone https://github.com/rmeadomavic/Hydra.git
+  cd Hydra
+  ```
+</Step>
+
+<Step title="Install dependencies">
+  ```bash
+  sudo pip3 install -r requirements.txt
+  ```
+
+  <Note>
+    Using `sudo` for pip is required because Hydra needs root access for MAVLink serial devices and `nvpmodel`/`jetson_clocks`. If you prefer a virtualenv, run the application with `sudo` as well.
+  </Note>
+</Step>
+
+<Step title="Download a YOLO model">
+  YOLOv8s is a good balance of speed and accuracy on Jetson. The model auto-converts to TensorRT on first run for maximum inference speed.
+
+  ```bash
+  mkdir -p models
+  wget -P models https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8s.pt
+  ```
+</Step>
+
+<Step title="Configure">
+  Open `config.ini` and point it at your hardware. At minimum, verify:
+
+  - `[camera] source` : your camera device index or RTSP URL
+  - `[mavlink] connection_string` : your serial device or UDP endpoint
+  - `[detector] yolo_model` : path to the model you downloaded
+
+  ```bash
+  nano config.ini
+  ```
+</Step>
+
+<Step title="Run Hydra">
+  ```bash
+  sudo python3 -m hydra_detect --config config.ini
+  ```
+</Step>
+
+<Step title="Open the dashboard">
+  Navigate to [http://localhost:8080](http://localhost:8080) in a browser on the same network.
 </Step>
 
 </Steps>
@@ -183,14 +198,14 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now hydra-detect
 ```
 
-This ensures the detection pipeline starts on every boot without manual intervention -- useful for field-deployed vehicles.
+This ensures the detection pipeline starts on every boot without manual intervention. Useful for field-deployed vehicles.
 
 ## Next steps
 
 <CardGroup cols={2}>
 
 <Card title="Dashboard overview" icon="gauge" href="/features/dashboard">
-  Learn what every section of the operator dashboard does.
+  What every section of the operator dashboard does.
 </Card>
 
 <Card title="Target control" icon="crosshairs" href="/features/target-control">

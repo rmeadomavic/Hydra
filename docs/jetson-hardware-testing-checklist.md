@@ -5,12 +5,12 @@ HDZero video, QGroundControl on Steam Deck, and SDR integration.
 
 ## Prerequisites
 
-- [ ] Verify Jetson UART enabled: `sudo cat /proc/tty/driver/serial` — confirm `/dev/ttyTHS1`
+- [ ] Verify Jetson UART enabled: `sudo cat /proc/tty/driver/serial` - confirm `/dev/ttyTHS1`
 - [ ] Gather UART wiring supplies (dupont jumpers, GND wire)
 - [ ] Identify SDR model and install drivers (`apt install rtl-sdr` or `hackrf`)
-- [ ] Run test suite baseline: `python -m pytest tests/ -v` — all green
+- [ ] Run test suite baseline: `python -m pytest tests/ -v` - all green
 
----
+--
 
 ## 1. GPIO/UART Connection to Pixhawk
 
@@ -19,7 +19,7 @@ HDZero video, QGroundControl on Steam Deck, and SDR integration.
 **Wiring:** Jetson 40-pin header UART (`/dev/ttyTHS1`) → Pixhawk TELEM2
 
 | Jetson Pin | Pixhawk TELEM2 | Notes |
-|------------|----------------|-------|
+|------|--------|----|
 | TX         | RX             | Cross-connect |
 | RX         | TX             | Cross-connect |
 | GND        | GND            | Common ground required |
@@ -33,11 +33,11 @@ HDZero video, QGroundControl on Steam Deck, and SDR integration.
 - [ ] Wire TX→RX, RX→TX, GND→GND between Jetson and Pixhawk TELEM2
 - [ ] Update `config.ini`: `connection_string = /dev/ttyTHS1`, `baud = 921600`
 - [ ] Confirm MAVLink heartbeat received over UART
-  - Quick test: `mavproxy.py --master=/dev/ttyTHS1 --baudrate=921600`
+  - Quick test: `mavproxy.py -master=/dev/ttyTHS1 -baudrate=921600`
   - Hydra test: run pipeline, check logs for `heartbeat` / `vehicle connected`
-- [ ] Verify GPS data stream (2 Hz) — compare lat/lon with Mission Planner values
+- [ ] Verify GPS data stream (2 Hz) - compare lat/lon with Mission Planner values
 - [ ] Test reconnection: unplug/replug UART cable → Hydra should reconnect (exponential backoff)
-- [ ] Update Docker run command: `--device /dev/ttyTHS1:/dev/ttyTHS1`
+- [ ] Update Docker run command: `-device /dev/ttyTHS1:/dev/ttyTHS1`
 - [ ] Update `hydra-detect.service` if using systemd
 
 ### Pass Criteria
@@ -46,7 +46,7 @@ HDZero video, QGroundControl on Steam Deck, and SDR integration.
 - Reconnection completes within 30 seconds after cable replug
 - No crash or data corruption during disconnect
 
----
+--
 
 ## 2. Camera & Video Setup
 
@@ -55,7 +55,7 @@ HDZero video, QGroundControl on Steam Deck, and SDR integration.
 ### Why Two Cameras?
 
 The HDZero Freestyle V2 + Nano 90 is a **fully digital** video system. The
-Nano 90 connects to the VTX via a proprietary digital link — there is no analog
+Nano 90 connects to the VTX via a proprietary digital link - there is no analog
 CVBS output pad on the Freestyle V2 to tap into. The firmware source
 ([hd-zero/hdzero-vtx](https://github.com/hd-zero/hdzero-vtx)) confirms the
 Freestyle V2 does not include the TP9950 analog video decoder chip that some
@@ -65,11 +65,11 @@ This means the HDZero feed **cannot be routed into the Jetson on-vehicle**.
 Instead, each camera serves a different role:
 
 | Camera | Purpose | Connection |
-|--------|---------|------------|
+|----|-----|------|
 | **USB webcam** (C270/C920) | Hydra detection source (Jetson processes this) | USB → Jetson |
 | **HDZero Nano 90** | Pilot FPV view + OSD overlay in goggles | Digital → Freestyle V2 VTX → Goggles/Monitor |
 
-The two cameras can be pointed independently — the webcam aims at the detection
+The two cameras can be pointed independently - the webcam aims at the detection
 area while the Nano 90 gives the pilot a flight/navigation view.
 
 > **Future option:** An analog FPV system would make it easier to share one
@@ -83,18 +83,18 @@ area while the Nano 90 gives the pilot a flight/navigation view.
 - **FPV receivers:** HDZero Monitor, Goggles 1, Goggles 2
 - **OSD path:** Jetson → MAVLink → Pixhawk 6C → MSP DisplayPort → Freestyle V2 VTX → Goggles
 
-### Tests — USB Webcam (Detection Source)
+### Tests - USB Webcam (Detection Source)
 
 - [ ] Plug USB webcam into Jetson
 - [ ] Verify auto-detect: `source = auto` in config.ini → check logs for device name
 - [ ] Verify live video on web dashboard (`http://<jetson-ip>:8080`)
-- [ ] Run detection pipeline — verify YOLO detects at configured resolution
+- [ ] Run detection pipeline - verify YOLO detects at configured resolution
 - [ ] If both webcam and other V4L2 devices present, confirm auto-detect picks webcam
-- [ ] Test camera disconnect/reconnect — Hydra should reconnect with backoff, not crash
+- [ ] Test camera disconnect/reconnect - Hydra should reconnect with backoff, not crash
 - [ ] Check web API: `curl http://<jetson-ip>:8080/api/camera/sources`
   - Webcam should appear with `"type": "webcam"`
 
-### Tests — HDZero FPV + OSD
+### Tests - HDZero FPV + OSD
 
 See [Section 7: OSD Overlay Testing](#7-osd-overlay-testing-fpv-goggles) for
 full OSD test plan. Quick validation:
@@ -104,7 +104,7 @@ full OSD test plan. Quick validation:
 - [ ] Set FC params: `OSD_TYPE=3`, `SERIALn_PROTOCOL=33`, `SERIALn_BAUD=115`
 - [ ] Set Hydra config: `[osd] enabled = true`, `mode = statustext`
 - [ ] Trigger a detection → verify OSD text appears in goggles
-- [ ] Test with HDZero powered off — Hydra should continue detecting, just no OSD
+- [ ] Test with HDZero powered off - Hydra should continue detecting, just no OSD
 
 ### Pass Criteria
 - USB webcam auto-detected and producing detections at ≥5 FPS
@@ -112,7 +112,7 @@ full OSD test plan. Quick validation:
 - Camera disconnect handled gracefully (no crash, auto-reconnect)
 - Both systems run simultaneously without resource contention
 
----
+--
 
 ## 3. QGroundControl on Steam Deck
 
@@ -126,7 +126,7 @@ full OSD test plan. Quick validation:
   - QGC should auto-detect serial at 57600 baud
 - [ ] Verify QGC receives telemetry: attitude, GPS position, battery voltage
 - [ ] Test WiFi UDP as alternative link:
-  - On Jetson: `mavproxy.py --master=/dev/ttyTHS1 --baudrate=921600 --out udp:<steamdeck-ip>:14550`
+  - On Jetson: `mavproxy.py -master=/dev/ttyTHS1 -baudrate=921600 -out udp:<steamdeck-ip>:14550`
   - Or configure ArduPilot to output on both TELEM1 and TELEM2
 - [ ] Map Steam Deck gamepad buttons in QGC (mode switch, arm/disarm)
 
@@ -135,7 +135,7 @@ full OSD test plan. Quick validation:
 - Mode changes from QGC are reflected on vehicle
 - Gamepad controls responsive and correctly mapped
 
----
+--
 
 ## 4. Alerts & Status Messages via QGC
 
@@ -144,7 +144,7 @@ full OSD test plan. Quick validation:
 ### Key Differences: QGC vs Mission Planner
 
 | Feature | Mission Planner | QGroundControl |
-|---------|----------------|----------------|
+|-----|--------|--------|
 | STATUSTEXT display | Messages tab (persistent log) | Toast notification bar (transient) |
 | Message persistence | Scrollable history | Disappears after timeout |
 | Custom MAV_CMD | Actions tab, easy to send | MAVLink Inspector or custom buttons |
@@ -156,7 +156,7 @@ full OSD test plan. Quick validation:
 - [ ] Trigger Hydra detection → observe STATUSTEXT in QGC notification bar
 - [ ] Document where alerts appear and how long they persist
 - [ ] Test different severity levels (config.ini `severity` 0-7):
-  - 0 = EMERGENCY, 2 = WARNING, 6 = INFO — note which QGC shows/hides
+  - 0 = EMERGENCY, 2 = WARNING, 6 = INFO - note which QGC shows/hides
 - [ ] Set `osd_mode = statustext` in config.ini (NAMED_VALUE won't display in QGC)
 - [ ] Test lock/strike/unlock commands from QGC:
   - MAV_CMD_USER_1 (31010) = Lock, param1 = track_id
@@ -171,7 +171,7 @@ full OSD test plan. Quick validation:
 - Lock/unlock commands successfully received by Hydra (check Hydra logs)
 - Clear understanding of QGC limitations vs MP documented
 
----
+--
 
 ## 5. SDR / RF Exploration
 
@@ -182,12 +182,12 @@ full OSD test plan. Quick validation:
 - [ ] Verify SDR device on Jetson:
   - RTL-SDR: `rtl_test`
   - HackRF: `hackrf_info`
-- [ ] USB passthrough into Docker container: `--device /dev/bus/usb`
+- [ ] USB passthrough into Docker container: `-device /dev/bus/usb`
 - [ ] Install Kismet on Jetson (REST API on `localhost:2501`)
-- [ ] Run Kismet with SDR source — verify web UI shows captured signals
+- [ ] Run Kismet with SDR source - verify web UI shows captured signals
 - [ ] Configure Hydra `[rf_homing]` section in config.ini with Kismet endpoint
 - [ ] Test RSSI data feed from Kismet into Hydra RF hunt module
-- [ ] (Stretch) Try `dump1090` for ADS-B reception — aircraft tracking
+- [ ] (Stretch) Try `dump1090` for ADS-B reception - aircraft tracking
 - [ ] (Stretch) Spectrum survey of test area with gqrx or SigDigger
 
 ### Pass Criteria
@@ -195,7 +195,7 @@ full OSD test plan. Quick validation:
 - Kismet receives data from SDR and serves REST API
 - Hydra RF hunt module reads RSSI values from Kismet
 
----
+--
 
 ## 6. Integration & Stress Testing
 
@@ -211,7 +211,7 @@ full OSD test plan. Quick validation:
 - [ ] Memory profiling: monitor shared 8GB CPU/GPU RAM under load
   - Verify no OOM after extended run
 - [ ] Access web dashboard from Steam Deck browser alongside QGC
-  - `http://<jetson-ip>:8080` — verify MJPEG stream works
+  - `http://<jetson-ip>:8080` - verify MJPEG stream works
 - [ ] Failure mode testing:
   - [ ] Yank UART cable → graceful degradation, no crash
   - [ ] Kill/disconnect camera → pipeline handles reconnect
@@ -224,7 +224,7 @@ full OSD test plan. Quick validation:
 - Memory usage bounded (no growth over time)
 - All failure modes recover without crash or unsafe vehicle behavior
 
----
+--
 
 ## 7. OSD Overlay Testing (FPV Goggles)
 
@@ -236,7 +236,7 @@ See `docs/hdzero-osd-setup.md` for full wiring details.
 
 - [ ] Set `[osd] mode = statustext` in config.ini
 - [ ] Verify text appears in OSD message panel on goggles
-- [ ] Works with Pixhawk 6C via MSP DisplayPort (no MAX7456 chip needed) —
+- [ ] Works with Pixhawk 6C via MSP DisplayPort (no MAX7456 chip needed) -
       requires spare UART TX wired to Freestyle V2 VTX RX pad
 - [ ] Measure OSD update latency (should be <200ms)
 
@@ -259,13 +259,13 @@ See `docs/hdzero-osd-setup.md` for full wiring details.
 - Detection data visible in goggles within 200ms of detection
 - OSD survives Hydra disconnect/reconnect gracefully
 
----
+--
 
 ## 8. Autonomous Strike Safety Validation
 
 **Goal:** Verify all autonomous strike safeguards work on real hardware.
 
-This is the most dangerous feature — every criterion must be tested independently.
+This is the most dangerous feature - every criterion must be tested independently.
 
 ### Qualification Chain (ALL must pass for a strike)
 
@@ -299,7 +299,7 @@ This is the most dangerous feature — every criterion must be tested independen
 - Audit log captures full context for every decision
 - No false strikes possible when any single criterion fails
 
----
+--
 
 ## 9. Detection Logging & Review
 
@@ -313,17 +313,17 @@ This is the most dangerous feature — every criterion must be tested independen
 
 ### Image Snapshots
 
-- [ ] `save_images = true` — full-frame JPEG at configured quality
+- [ ] `save_images = true` - full-frame JPEG at configured quality
 - [ ] Inspect file size and quality (default 90%)
 - [ ] Verify bounding boxes overlaid on saved images
-- [ ] `save_crops = true` — cropped object images saved separately
+- [ ] `save_crops = true` - cropped object images saved separately
   - [ ] Verify crop dimensions match track bounding box
   - [ ] Test crop for objects near frame edges (no overflow)
 
 ### GPS Geo-tagging
 
 - [ ] Detection logs include `lat`, `lon`, `alt` from MAVLink GPS
-- [ ] Test with no GPS fix — should log null/NaN, not crash
+- [ ] Test with no GPS fix - should log null/NaN, not crash
 
 ### Review Export
 
@@ -336,7 +336,7 @@ This is the most dangerous feature — every criterion must be tested independen
 - Images readable and correctly annotated
 - GPS coordinates present when fix is available
 
----
+--
 
 ## 10. Jetson Power & Performance Profiling
 
@@ -360,9 +360,9 @@ This is the most dangerous feature — every criterion must be tested independen
 
 ### YOLO Model Size Impact
 
-- [ ] Test yolov8n (fastest, ~6MB) — baseline FPS
-- [ ] Test yolov8s (balanced) — FPS delta
-- [ ] Test yolov8m (heavier) — FPS delta, memory impact
+- [ ] Test yolov8n (fastest, ~6MB) - baseline FPS
+- [ ] Test yolov8s (balanced) - FPS delta
+- [ ] Test yolov8m (heavier) - FPS delta, memory impact
 - [ ] Document model-size vs FPS vs temperature tradeoffs
 
 ### Pass Criteria
@@ -370,7 +370,7 @@ This is the most dangerous feature — every criterion must be tested independen
 - Temperature stays below 85°C (or degrades gracefully)
 - No OOM with any tested model on 8GB Jetson
 
----
+--
 
 ## 11. Web API & Dashboard Under Load
 
@@ -385,10 +385,10 @@ This is the most dangerous feature — every criterion must be tested independen
 
 ### API Endpoints
 
-- [ ] `/api/stats` — data updates in near real-time
-- [ ] `/api/camera/sources` — lists available video devices correctly
-- [ ] `/api/review/logs` — lists all detection log files
-- [ ] `/api/review/log/{filename}` — parses JSONL and CSV correctly
+- [ ] `/api/stats` - data updates in near real-time
+- [ ] `/api/camera/sources` - lists available video devices correctly
+- [ ] `/api/review/logs` - lists all detection log files
+- [ ] `/api/review/log/{filename}` - parses JSONL and CSV correctly
 
 ### Security
 
@@ -401,32 +401,32 @@ This is the most dangerous feature — every criterion must be tested independen
 - All endpoints return correct data
 - Auth enforced on control endpoints when token is set
 
----
+--
 
 ## 12. Preflight & Docker Validation
 
 **Goal:** Verify deployment tooling works before field testing.
 
-- [ ] Run `bash scripts/jetson_preflight.sh` — all checks PASS (0 FAILs)
+- [ ] Run `bash scripts/jetson_preflight.sh` - all checks PASS (0 FAILs)
   - Python, pip, NVIDIA utilities, OpenCV, FastAPI
   - Camera device, serial device, dialout group
   - config.ini present, model files exist
 - [ ] Verify Docker device passthrough works for all devices simultaneously:
-  - `--device /dev/video0` (camera)
-  - `--device /dev/ttyTHS1` (UART to Pixhawk)
-  - `--device /dev/bus/usb` (SDR if enabled)
-- [ ] Test `sudo systemctl restart hydra-detect` — port 8080 available within 5s
+  - `-device /dev/video0` (camera)
+  - `-device /dev/ttyTHS1` (UART to Pixhawk)
+  - `-device /dev/bus/usb` (SDR if enabled)
+- [ ] Test `sudo systemctl restart hydra-detect` - port 8080 available within 5s
 - [ ] Verify fail-safe defaults in config.ini:
   - `[autonomous] enabled = false`
   - `[osd] enabled = false`
   - `[rf_homing] enabled = false`
 
----
+--
 
 ## Notes & Observations
 
 _Use this section to record findings during testing._
 
 | Date | Test | Result | Notes |
-|------|------|--------|-------|
+|---|---|----|----|
 |      |      |        |       |

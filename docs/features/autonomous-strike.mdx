@@ -5,7 +5,7 @@ icon: "robot"
 description: "Auto-engage targets meeting all qualification criteria with geofencing"
 ---
 
-The autonomous strike controller can auto-engage targets without operator input. It evaluates every tracked object against a strict set of qualification criteria and only initiates a strike when **all five conditions are met simultaneously**.
+The autonomous strike controller can auto-engage targets without operator input. It evaluates every tracked object against a set of qualification criteria and only initiates a strike when **all five conditions are met simultaneously**.
 
 <Danger>
   **Autonomous strike is off by default.** This feature requires explicit configuration and should only be enabled in controlled environments with appropriate safety measures. The operator is responsible for setting correct geofence boundaries and class whitelists before enabling.
@@ -17,7 +17,7 @@ All five criteria must pass before an autonomous strike is initiated:
 
 <Steps>
   <Step title="Controller is enabled">
-    The `enabled` flag must be set to `true` in the `[autonomous]` section of `config.ini`. This is `false` by default.
+    The `enabled` flag must be `true` in the `[autonomous]` section of `config.ini`. Default is `false`.
   </Step>
   <Step title="Vehicle is in an allowed mode">
     The vehicle's current flight mode must match one of the modes listed in `allowed_vehicle_modes`. By default, only `AUTO` is permitted. This prevents autonomous strikes during manual flight or RTL.
@@ -29,14 +29,11 @@ All five criteria must pass before an autonomous strike is initiated:
     A minimum time must have elapsed since the last autonomous strike. This prevents rapid re-engagement and is controlled by `strike_cooldown_sec` (default: 30 seconds).
   </Step>
   <Step title="Target qualifies">
-    A tracked target must meet all of the following:
-    - Its class label is in the `allowed_classes` whitelist
-    - Its detection confidence is at or above `min_confidence`
-    - It has been continuously tracked for at least `min_track_frames` consecutive frames
+    A tracked target must meet all of the following: its class label is in the `allowed_classes` whitelist, its detection confidence is at or above `min_confidence`, and it has been continuously tracked for at least `min_track_frames` consecutive frames.
   </Step>
 </Steps>
 
-If any single criterion fails, no strike is issued and the controller continues monitoring.
+If any single criterion fails, no strike is issued. The controller continues monitoring.
 
 ## Configuration
 
@@ -70,7 +67,7 @@ allowed_vehicle_modes = AUTO
 
 ## Geofencing
 
-The geofence constrains where autonomous strikes can occur. You have two options:
+The geofence constrains where autonomous strikes can occur.
 
 <Tabs>
   <Tab title="Circle geofence">
@@ -99,12 +96,6 @@ The geofence constrains where autonomous strikes can occur. You have two options
 
 ## Audit logging
 
-All autonomous strike actions are logged to the `hydra.audit` logger. Every log entry includes:
-
-- Timestamp
-- Target track ID, class, and confidence
-- Vehicle position at the time of strike
-- Geofence evaluation result
-- Cooldown state
+All autonomous strike actions are logged to the `hydra.audit` logger. Every log entry includes: timestamp, target track ID, class, and confidence, vehicle position at the time of strike, geofence evaluation result, and cooldown state.
 
 This provides a complete accountability trail for post-mission review. Audit logs are written regardless of whether the strike was executed or rejected due to a failed criterion.
