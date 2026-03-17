@@ -200,8 +200,10 @@ const HydraMonitor = (() => {
 
         on('mon-btn-release', () => HydraApp.apiPost('/api/target/unlock', {}));
         on('mon-btn-loiter', () => HydraApp.apiPost('/api/vehicle/mode', { mode: 'LOITER' }));
-        on('mon-btn-rtl', () => HydraApp.apiPost('/api/vehicle/mode', { mode: 'RTL' }));
+        on('mon-btn-hold', () => HydraApp.apiPost('/api/vehicle/mode', { mode: 'HOLD' }));
         on('mon-btn-auto', () => HydraApp.apiPost('/api/vehicle/mode', { mode: 'AUTO' }));
+        on('mon-btn-guided', () => HydraApp.apiPost('/api/vehicle/mode', { mode: 'GUIDED' }));
+        on('mon-btn-rtl', () => HydraApp.apiPost('/api/vehicle/mode', { mode: 'RTL' }));
     }
 
     // ── Helpers ──

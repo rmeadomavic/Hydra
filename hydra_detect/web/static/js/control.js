@@ -317,7 +317,7 @@ const HydraControl = (() => {
         const list = document.getElementById('ctrl-track-list');
         if (!list) return;
 
-        // Track list
+        // Track list with per-track action buttons
         if (!tracks || tracks.length === 0) {
             clearChildren(list);
             const empty = document.createElement('div');
@@ -327,23 +327,59 @@ const HydraControl = (() => {
         } else {
             clearChildren(list);
             for (const t of tracks) {
+                const isLocked = target && target.locked && target.track_id === t.track_id;
                 const div = document.createElement('div');
-                div.className = 'panel-track-item' + (t.track_id === selectedTrackId ? ' selected' : '');
-                const info = document.createElement('span');
+                div.className = 'panel-track-item' + (isLocked ? ' locked' : '');
+
+                // Info column: ID + label + confidence
+                const info = document.createElement('div');
+                info.className = 'track-info';
                 const tid = document.createElement('span');
                 tid.className = 'track-id';
                 tid.textContent = '#' + t.track_id;
                 const tl = document.createElement('span');
                 tl.className = 'track-label';
                 tl.textContent = t.label;
-                info.appendChild(tid);
-                info.appendChild(tl);
                 const tc = document.createElement('span');
                 tc.className = 'track-conf';
                 tc.textContent = (t.confidence * 100).toFixed(0) + '%';
+                info.appendChild(tid);
+                info.appendChild(tl);
+                info.appendChild(tc);
+
+                // Action buttons column
+                const actions = document.createElement('div');
+                actions.className = 'track-actions';
+
+                if (isLocked) {
+                    const modeLabel = document.createElement('span');
+                    modeLabel.className = 'track-lock-badge' + (target.mode === 'strike' ? ' strike' : '');
+                    modeLabel.textContent = (target.mode || 'track').toUpperCase();
+                    actions.appendChild(modeLabel);
+                } else {
+                    const lockBtn = document.createElement('button');
+                    lockBtn.className = 'btn btn-sm btn-green track-btn';
+                    lockBtn.textContent = 'Lock';
+                    lockBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        HydraApp.apiPost('/api/target/lock', { track_id: t.track_id });
+                    });
+                    actions.appendChild(lockBtn);
+
+                    const strikeBtn = document.createElement('button');
+                    strikeBtn.className = 'btn btn-sm btn-danger track-btn';
+                    strikeBtn.textContent = 'Strike';
+                    strikeBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        selectedTrackId = t.track_id;
+                        selectedTrackLabel = t.label;
+                        showStrikeConfirm();
+                    });
+                    actions.appendChild(strikeBtn);
+                }
+
                 div.appendChild(info);
-                div.appendChild(tc);
-                div.addEventListener('click', () => selectTrack(t.track_id, t.label));
+                div.appendChild(actions);
                 list.appendChild(div);
             }
         }
@@ -364,17 +400,10 @@ const HydraControl = (() => {
                 if (releaseBtn) releaseBtn.disabled = false;
             } else {
                 lockEl.style.display = 'none';
+                const releaseBtn = document.getElementById('ctrl-btn-release');
+                if (releaseBtn) releaseBtn.disabled = true;
             }
         }
-    }
-
-    function selectTrack(trackId, label) {
-        selectedTrackId = trackId;
-        selectedTrackLabel = label;
-        const lockBtn = document.getElementById('ctrl-btn-lock');
-        const strikeBtn = document.getElementById('ctrl-btn-strike');
-        if (lockBtn) lockBtn.disabled = false;
-        if (strikeBtn) strikeBtn.disabled = false;
     }
 
     // ── Detection Log ──

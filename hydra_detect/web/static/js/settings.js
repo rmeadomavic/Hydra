@@ -25,6 +25,70 @@ const HydraSettings = (() => {
     // Password fields
     const PASSWORD_FIELDS = ['api_token', 'kismet_pass'];
 
+    // Dropdown fields — populated from API endpoints
+    const DROPDOWN_FIELDS = {
+        'yolo_model': { url: '/api/models', labelKey: 'name', valueKey: 'name', detailKey: 'size_mb', detailSuffix: ' MB' },
+        'source': { url: '/api/camera/sources', labelKey: 'label', valueKey: 'index' },
+    };
+    // Cache for dropdown options (fetched once per session)
+    const dropdownCache = {};
+
+    // Static dropdown options (known fixed choices)
+    const STATIC_DROPDOWNS = {
+        'mode': {
+            'osd': [
+                { value: 'statustext', label: 'statustext — simple, no Lua' },
+                { value: 'named_value', label: 'named_value — richer, needs Lua script' },
+            ],
+            'rf_homing': [
+                { value: 'wifi', label: 'WiFi (by BSSID)' },
+                { value: 'sdr', label: 'SDR (by Frequency)' },
+            ],
+        },
+        'search_pattern': {
+            'rf_homing': [
+                { value: 'lawnmower', label: 'Lawnmower (Grid)' },
+                { value: 'spiral', label: 'Spiral (Expanding)' },
+            ],
+        },
+        'log_format': {
+            'logging': [
+                { value: 'jsonl', label: 'JSONL' },
+                { value: 'csv', label: 'CSV' },
+            ],
+        },
+        'severity': {
+            'mavlink': [
+                { value: '0', label: '0 — Emergency' },
+                { value: '1', label: '1 — Alert' },
+                { value: '2', label: '2 — Critical' },
+                { value: '3', label: '3 — Error' },
+                { value: '4', label: '4 — Warning' },
+                { value: '5', label: '5 — Notice' },
+                { value: '6', label: '6 — Info' },
+                { value: '7', label: '7 — Debug' },
+            ],
+        },
+        'min_gps_fix': {
+            'mavlink': [
+                { value: '0', label: '0 — No fix' },
+                { value: '1', label: '1 — No fix' },
+                { value: '2', label: '2 — 2D fix' },
+                { value: '3', label: '3 — 3D fix' },
+                { value: '4', label: '4 — DGPS' },
+                { value: '5', label: '5 — RTK Float' },
+                { value: '6', label: '6 — RTK Fixed' },
+            ],
+        },
+        'allowed_vehicle_modes': {
+            'autonomous': [
+                { value: 'AUTO', label: 'AUTO' },
+                { value: 'GUIDED', label: 'GUIDED' },
+                { value: 'AUTO,GUIDED', label: 'AUTO + GUIDED' },
+            ],
+        },
+    };
+
     function onEnter() {
         loadConfig();
         initNavHandlers();
@@ -119,7 +183,54 @@ const HydraSettings = (() => {
 
             let input;
 
-            if (BOOLEAN_FIELDS.includes(key)) {
+            // Check for static dropdown (fixed options based on section + key)
+            const staticOpts = STATIC_DROPDOWNS[key] && STATIC_DROPDOWNS[key][section];
+            if (staticOpts) {
+                input = document.createElement('select');
+                input.dataset.key = key;
+                input.dataset.section = section;
+                input.addEventListener('change', () => { hasUnsavedChanges = true; });
+                staticOpts.forEach(opt => {
+                    const o = document.createElement('option');
+                    o.value = opt.value;
+                    o.textContent = opt.label;
+                    if (opt.value === value) o.selected = true;
+                    input.appendChild(o);
+                });
+            } else if (DROPDOWN_FIELDS[key]) {
+                // Dropdown populated from API
+                input = document.createElement('select');
+                input.dataset.key = key;
+                input.dataset.section = section;
+                input.addEventListener('change', () => { hasUnsavedChanges = true; });
+                const dfCfg = DROPDOWN_FIELDS[key];
+                // Add current value as default while loading
+                const defaultOpt = document.createElement('option');
+                defaultOpt.value = value;
+                defaultOpt.textContent = value + ' (loading...)';
+                defaultOpt.selected = true;
+                input.appendChild(defaultOpt);
+                // Fetch options asynchronously
+                (async () => {
+                    if (!dropdownCache[key]) {
+                        dropdownCache[key] = await HydraApp.apiGet(dfCfg.url);
+                    }
+                    const options = dropdownCache[key];
+                    if (!options || !Array.isArray(options)) return;
+                    while (input.firstChild) input.removeChild(input.firstChild);
+                    options.forEach(opt => {
+                        const o = document.createElement('option');
+                        o.value = opt[dfCfg.valueKey];
+                        let label = opt[dfCfg.labelKey];
+                        if (dfCfg.detailKey && opt[dfCfg.detailKey] != null) {
+                            label += ' (' + opt[dfCfg.detailKey] + (dfCfg.detailSuffix || '') + ')';
+                        }
+                        o.textContent = label;
+                        if (opt[dfCfg.valueKey] === value) o.selected = true;
+                        input.appendChild(o);
+                    });
+                })();
+            } else if (BOOLEAN_FIELDS.includes(key)) {
                 // Toggle switch
                 input = document.createElement('div');
                 input.className = 'toggle-switch' + (value === 'true' ? ' active' : '');

@@ -84,7 +84,6 @@
     display: none;
     position: relative;
 }
-body.view-control .topbar-thumbnail,
 body.view-settings .topbar-thumbnail {
     display: block;
 }

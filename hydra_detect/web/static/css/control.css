@@ -99,8 +99,11 @@ body.view-control #view-control {
     background: var(--card-bg-gradient);
     border: 1px solid var(--card-border);
     border-radius: var(--radius-lg);
-    overflow: hidden;
+    overflow: visible;
     transition: box-shadow var(--transition-normal);
+}
+.panel.collapsed {
+    overflow: hidden;
 }
 
 .panel:hover {
@@ -181,8 +184,8 @@ body.view-control #view-control {
 /* ── Panel Body ── */
 .panel-body {
     padding: var(--gap-sm) var(--gap-md) var(--gap-md);
-    max-height: 800px;
-    overflow: hidden;
+    max-height: 2000px;
+    overflow: visible;
     transition: max-height var(--transition-slow), padding var(--transition-slow), opacity var(--transition-normal);
     opacity: 1;
 }
@@ -192,6 +195,7 @@ body.view-control #view-control {
     padding-top: 0;
     padding-bottom: 0;
     opacity: 0;
+    overflow: hidden;
 }
 
 /* ── Panel Badges ── */
@@ -292,7 +296,7 @@ body.view-control #view-control {
 }
 
 .panel-track-list {
-    max-height: 130px;
+    max-height: 200px;
     overflow-y: auto;
     background: var(--panel-bg);
     border: 1px solid var(--card-border);
@@ -304,8 +308,7 @@ body.view-control #view-control {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 5px 8px;
-    cursor: pointer;
+    padding: 4px 8px;
     font-size: var(--font-sm);
     border-bottom: 1px solid var(--card-border);
     transition: background var(--transition-fast);
@@ -314,9 +317,16 @@ body.view-control #view-control {
 .panel-track-item:last-child { border-bottom: none; }
 .panel-track-item:hover { background: #1a1a1a; }
 
-.panel-track-item.selected {
+.panel-track-item.locked {
     background: rgba(56, 87, 35, 0.2);
     border-left: 2px solid var(--ogt-muted);
+}
+
+.track-info {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
 }
 
 .panel-track-item .track-id {
@@ -324,7 +334,6 @@ body.view-control #view-control {
     color: var(--ogt-muted);
     font-weight: 700;
     font-size: var(--font-xs);
-    margin-right: 5px;
 }
 
 .panel-track-item .track-label { color: #ccc; font-weight: 500; }
@@ -335,6 +344,34 @@ body.view-control #view-control {
     font-size: var(--font-xs);
 }
 
+.track-actions {
+    display: flex;
+    gap: 3px;
+    flex-shrink: 0;
+}
+
+.track-btn {
+    font-size: 0.6rem !important;
+    padding: 2px 6px !important;
+    min-height: 20px !important;
+}
+
+.track-lock-badge {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.6rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: var(--ls-condensed);
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: rgba(56, 87, 35, 0.4);
+    color: var(--ogt-muted);
+}
+.track-lock-badge.strike {
+    background: rgba(197, 48, 48, 0.3);
+    color: #fca5a5;
+}
+
 .panel-track-empty {
     color: var(--text-dim);
     padding: 10px;
@@ -342,9 +379,8 @@ body.view-control #view-control {
     text-align: center;
 }
 
-.panel-target-btns {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+.panel-target-actions {
+    display: flex;
     gap: var(--gap-xs);
 }
 

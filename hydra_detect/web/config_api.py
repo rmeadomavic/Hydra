@@ -50,7 +50,7 @@ def get_config_path() -> Path:
 def read_config() -> dict[str, dict[str, str]]:
     """Read config.ini and return as nested dict. Redacts sensitive fields."""
     path = get_config_path()
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
     config.read(path)
 
     result: dict[str, dict[str, str]] = {}
@@ -75,7 +75,7 @@ def write_config(updates: dict[str, dict[str, str]]) -> dict[str, Any]:
     skipped: list[str] = []
 
     # Read current config
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
     config.read(path)
 
     # Apply updates
