@@ -5,8 +5,8 @@ HDZero video, QGroundControl on Steam Deck, and SDR integration.
 
 ## Prerequisites
 
-- [ ] Verify Jetson UART enabled: `sudo cat /proc/tty/driver/serial` - confirm `/dev/ttyTHS1`
-- [ ] Gather UART wiring supplies (dupont jumpers, GND wire)
+- [x] Verify Jetson UART enabled: `sudo cat /proc/tty/driver/serial` - confirm `/dev/ttyTHS1`
+- [x] Gather UART wiring supplies (dupont jumpers, GND wire)
 - [ ] Identify SDR model and install drivers (`apt install rtl-sdr` or `hackrf`)
 - [ ] Run test suite baseline: `python -m pytest tests/ -v` - all green
 
@@ -18,27 +18,31 @@ HDZero video, QGroundControl on Steam Deck, and SDR integration.
 
 **Wiring:** Jetson 40-pin header UART (`/dev/ttyTHS1`) → Pixhawk TELEM2
 
-| Jetson Pin | Pixhawk TELEM2 | Notes |
+| Jetson Pin | Pixhawk TELEM2 Pin | Notes |
 |------|--------|----|
-| TX         | RX             | Cross-connect |
-| RX         | TX             | Cross-connect |
-| GND        | GND            | Common ground required |
+| Pin 8 (TX)  | Pin 2 (TX label) | Pixhawk "TX" is its output → Jetson receives |
+| Pin 10 (RX) | Pin 3 (RX label) | Pixhawk "RX" is its input → Jetson sends |
+| Pin 6 (GND) | Pin 6 (GND)      | Common ground required |
 
-**Pixhawk side** is already configured (see `docs/pixhawk-setup.md`):
+> **Note:** The Pixhawk TELEM2 JST-GH pin labels are from the Pixhawk's perspective.
+> "TX" means the Pixhawk transmits on that pin, so it connects to the Jetson's RX.
+> Both are 3.3V logic — no level shifter needed.
+
+**Pixhawk side** is already configured (verified over USB 2026-03-17):
 - `SERIAL2_PROTOCOL = 2` (MAVLink2)
 - `SERIAL2_BAUD = 921` (921600)
 
 ### Tests
 
-- [ ] Wire TX→RX, RX→TX, GND→GND between Jetson and Pixhawk TELEM2
-- [ ] Update `config.ini`: `connection_string = /dev/ttyTHS1`, `baud = 921600`
-- [ ] Confirm MAVLink heartbeat received over UART
+- [x] Wire TX→RX, RX→TX, GND→GND between Jetson and Pixhawk TELEM2
+- [x] Update `config.ini`: `connection_string = /dev/ttyTHS1`, `baud = 921600`
+- [x] Confirm MAVLink heartbeat received over UART
   - Quick test: `mavproxy.py -master=/dev/ttyTHS1 -baudrate=921600`
   - Hydra test: run pipeline, check logs for `heartbeat` / `vehicle connected`
 - [ ] Verify GPS data stream (2 Hz) - compare lat/lon with Mission Planner values
 - [ ] Test reconnection: unplug/replug UART cable → Hydra should reconnect (exponential backoff)
-- [ ] Update Docker run command: `-device /dev/ttyTHS1:/dev/ttyTHS1`
-- [ ] Update `hydra-detect.service` if using systemd
+- [x] Update Docker run command: `--privileged` handles device access
+- [x] Update `hydra-detect.service` if using systemd — already uses `--privileged`
 
 ### Pass Criteria
 - Heartbeat received within 10 seconds of connection
@@ -464,4 +468,6 @@ _Use this section to record findings during testing._
 
 | Date | Test | Result | Notes |
 |---|---|----|----|
-|      |      |        |       |
+| 2026-03-17 | UART heartbeat (ttyTHS1, 921600) | PASS | Heartbeat in <2s. Initial wiring was straight-through — must cross TX/RX. |
+| 2026-03-17 | Hydra pipeline over UART | PASS | Full pipeline running: detection alerts sent to Pixhawk over TELEM2 UART. |
+| 2026-03-17 | GPS over UART | N/A | Returns 0,0 indoors (no fix). Needs outdoor test. |
