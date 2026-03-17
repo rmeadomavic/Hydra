@@ -304,3 +304,18 @@ class TestVehicleModeEndpoint:
         stream_state.set_callbacks(on_set_mode_command=lambda m: False)
         resp = client.post("/api/vehicle/mode", json={"mode": "AUTO"})
         assert resp.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# Static file serving
+# ---------------------------------------------------------------------------
+
+class TestStaticFileServing:
+    def test_css_variables_served(self, client):
+        resp = client.get("/static/css/variables.css")
+        assert resp.status_code == 200
+        assert "ogt-green" in resp.text
+
+    def test_missing_static_file_404(self, client):
+        resp = client.get("/static/nonexistent.css")
+        assert resp.status_code == 404

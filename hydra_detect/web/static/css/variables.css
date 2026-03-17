@@ -1,0 +1,72 @@
+/* SORCC Design System — Hydra Detect v2.0 */
+:root {
+    /* ── Brand Greens ── */
+    --ogt-green: #385723;
+    --ogt-green-dark: #2a4118;
+    --ogt-muted: #A6BC92;
+    --ogt-warm: #D8E2D0;
+    --ogt-light: #EFF5EB;
+
+    /* ── Dark Base ── */
+    --panel-bg: #0c0c0c;
+    --sidebar-bg: #141414;
+    --card-bg: #1c1c1c;
+    --card-bg-gradient: linear-gradient(145deg, #1c1c1c, #1a1f18);
+    --card-border: #262626;
+
+    /* ── Text ── */
+    --text-primary: #e8e8e8;
+    --text-secondary: #888;
+    --text-dim: #555;
+
+    /* ── Status Colors ── */
+    --danger: #c53030;
+    --danger-bg: #2a1010;
+    --warning: #b45309;
+    --success: #385723;
+
+    /* ── Accent Glow ── */
+    --glow-green: 0 0 12px rgba(56, 87, 35, 0.3);
+    --glow-danger: 0 0 12px rgba(197, 48, 48, 0.3);
+
+    /* ── Border Radii ── */
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --radius-xl: 12px;
+
+    /* ── Type Scale ── */
+    --font-xs: 0.65rem;
+    --font-sm: 0.75rem;
+    --font-base: 0.85rem;
+    --font-md: 1rem;
+    --font-lg: 1.2rem;
+    --font-xl: 1.5rem;
+
+    /* ── Letter Spacing ── */
+    --ls-condensed: 0.08em;
+    --ls-body: 0;
+    --ls-mono: 0.02em;
+
+    /* ── Spacing ── */
+    --gap-xs: 4px;
+    --gap-sm: 8px;
+    --gap-md: 12px;
+    --gap-lg: 16px;
+    --gap-xl: 24px;
+
+    /* ── Transitions ── */
+    --transition-fast: 100ms ease-out;
+    --transition-normal: 200ms ease-out;
+    --transition-slow: 300ms ease-out;
+
+    /* ── Layout ── */
+    --topbar-height: 48px;
+    --footer-height: 28px;
+    --sidebar-width: 310px;
+    --settings-nav-width: 160px;
+
+    /* ── Overlay ── */
+    --overlay-bg: rgba(0, 0, 0, 0.75);
+    --overlay-blur: blur(8px);
+}
