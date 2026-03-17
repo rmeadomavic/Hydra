@@ -135,16 +135,12 @@ class MAVLinkIO:
                     1,  # start
                 )
 
-            # Start GPS listener thread
+            # Start single reader thread (avoids serial port contention)
             self._stop_evt.clear()
-            threading.Thread(
-                target=self._gps_listener, daemon=True, name="mav-gps"
-            ).start()
-
-            # Start command listener thread
-            threading.Thread(
-                target=self._command_listener, daemon=True, name="mav-cmd"
-            ).start()
+            self._reader_thread = threading.Thread(
+                target=self._message_reader, daemon=True, name="mav-reader"
+            )
+            self._reader_thread.start()
 
             return True
         except Exception as exc:
@@ -152,28 +148,40 @@ class MAVLinkIO:
             return False
 
     def close(self) -> None:
-        """Stop GPS listener and close MAVLink connection."""
+        """Stop reader thread and close MAVLink connection."""
         self._stop_evt.set()
+        if hasattr(self, "_reader_thread") and self._reader_thread is not None:
+            self._reader_thread.join(timeout=3)
         if self._mav is not None:
             self._mav.close()
             self._mav = None
 
     # ------------------------------------------------------------------
-    # GPS listener
+    # Single reader thread (replaces separate GPS + command listeners
+    # to avoid serial port contention / recv_match race condition)
     # ------------------------------------------------------------------
-    def _gps_listener(self) -> None:
-        """Background thread: read GPS and HEARTBEAT messages."""
+    _ALL_MSG_TYPES = [
+        "GLOBAL_POSITION_INT", "GPS_RAW_INT", "HEARTBEAT",
+        "SYS_STATUS", "VFR_HUD",
+        "COMMAND_LONG", "NAMED_VALUE_INT",
+    ]
+
+    def _message_reader(self) -> None:
+        """Single thread that reads all MAVLink messages and dispatches."""
+        audit = logging.getLogger("hydra.audit")
         while not self._stop_evt.is_set():
             if self._mav is None:
                 break
             try:
                 msg = self._mav.recv_match(
-                    type=["GLOBAL_POSITION_INT", "GPS_RAW_INT", "HEARTBEAT", "SYS_STATUS", "VFR_HUD"],
+                    type=self._ALL_MSG_TYPES,
                     timeout=1,
                 )
                 if msg is None:
                     continue
                 msg_type = msg.get_type()
+
+                # ── Telemetry / GPS messages ──
                 if msg_type == "GLOBAL_POSITION_INT":
                     with self._gps_lock:
                         self._gps["lat"] = msg.lat
@@ -195,13 +203,21 @@ class MAVLinkIO:
                         self._telemetry["altitude"] = round(msg.alt, 1)
                         self._telemetry["heading"] = round(msg.heading, 0)
                 elif msg_type == "HEARTBEAT":
-                    # Skip GCS heartbeats (type 6 = MAV_TYPE_GCS)
-                    if msg.type == 6:
+                    if msg.type == 6:  # Skip GCS heartbeats
                         continue
                     self._update_vehicle_mode(msg)
                     self._update_armed_state(msg)
+
+                # ── Command messages ──
+                elif msg_type == "COMMAND_LONG":
+                    self._handle_command_long(msg, audit)
+                elif msg_type == "NAMED_VALUE_INT":
+                    self._handle_named_value_int(msg, audit)
+
             except Exception as exc:
-                logger.warning("GPS listener error: %s", exc)
+                if self._stop_evt.is_set():
+                    break
+                logger.warning("MAVLink reader error: %s", exc)
                 time.sleep(0.5)
 
     def _update_armed_state(self, heartbeat_msg) -> None:
@@ -245,28 +261,6 @@ class MAVLinkIO:
                 self._cmd_callbacks["strike"] = on_strike
             if on_unlock is not None:
                 self._cmd_callbacks["unlock"] = on_unlock
-
-    def _command_listener(self) -> None:
-        """Background thread: listen for COMMAND_LONG and NAMED_VALUE_INT."""
-        audit = logging.getLogger("hydra.audit")
-        while not self._stop_evt.is_set():
-            if self._mav is None:
-                break
-            try:
-                msg = self._mav.recv_match(
-                    type=["COMMAND_LONG", "NAMED_VALUE_INT"],
-                    timeout=1,
-                )
-                if msg is None:
-                    continue
-                msg_type = msg.get_type()
-                if msg_type == "COMMAND_LONG":
-                    self._handle_command_long(msg, audit)
-                elif msg_type == "NAMED_VALUE_INT":
-                    self._handle_named_value_int(msg, audit)
-            except Exception as exc:
-                logger.warning("Command listener error: %s", exc)
-                time.sleep(0.5)
 
     def _handle_command_long(self, msg, audit) -> None:
         """Process a COMMAND_LONG message for Hydra commands."""

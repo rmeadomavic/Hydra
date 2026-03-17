@@ -410,7 +410,7 @@ class Pipeline:
                 on_strike=self._handle_strike_command,
                 on_unlock=self._handle_target_unlock,
             )
-            logger.info("MAVLink command listener enabled (CMD_USER_1/2/3 + NAMED_VALUE_INT)")
+            logger.info("MAVLink reader enabled (GPS/telemetry + CMD_USER_1/2/3 + NAMED_VALUE_INT)")
 
         if self._osd is not None:
             logger.info("FPV OSD enabled (mode=%s, interval=%.2fs)",
