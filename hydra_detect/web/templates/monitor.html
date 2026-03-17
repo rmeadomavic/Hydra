@@ -1,2 +1,111 @@
-<!-- Monitor view content (populated in Task 4) -->
-<div class="monitor-overlays" id="monitor-overlays"></div>
+<!-- Monitor View — floating overlays on top of MJPEG stream -->
+
+<!-- Loading State -->
+<div class="monitor-loading" id="monitor-loading">
+    <div class="monitor-loading-spinner"></div>
+    <span>Connecting to video stream...</span>
+</div>
+
+<!-- Stream Lost Badge -->
+<div class="monitor-stream-lost" id="monitor-stream-lost" style="display:none;">
+    <span>STREAM LOST — RECONNECTING</span>
+</div>
+
+<!-- Target Lock Indicator (top center) -->
+<div class="monitor-lock-indicator" id="monitor-lock-indicator" style="display:none;">
+    <span class="lock-icon">⊕</span>
+    <span class="lock-label" id="lock-label">--</span>
+    <span class="lock-mode" id="lock-mode">TRACK</span>
+</div>
+
+<!-- Bottom-left overlay: System & Vehicle vitals -->
+<div class="monitor-overlay monitor-overlay-left" id="monitor-overlay-left">
+    <div class="overlay-section">
+        <div class="overlay-title">Pipeline</div>
+        <div class="overlay-stats">
+            <div class="overlay-stat">
+                <span class="overlay-stat-label">FPS</span>
+                <span class="overlay-stat-value mono" id="mon-fps">--</span>
+            </div>
+            <div class="overlay-stat">
+                <span class="overlay-stat-label">Inference</span>
+                <span class="overlay-stat-value mono" id="mon-inference">--</span>
+            </div>
+            <div class="overlay-stat">
+                <span class="overlay-stat-label">GPU</span>
+                <span class="overlay-stat-value mono" id="mon-gpu">--</span>
+            </div>
+        </div>
+    </div>
+    <div class="overlay-section">
+        <div class="overlay-title">Vehicle</div>
+        <div class="overlay-stats">
+            <div class="overlay-stat">
+                <span class="overlay-stat-label">Mode</span>
+                <span class="overlay-stat-value" id="mon-mode">--</span>
+            </div>
+            <div class="overlay-stat">
+                <span class="overlay-stat-label">Armed</span>
+                <span class="overlay-stat-value" id="mon-armed">--</span>
+            </div>
+            <div class="overlay-stat">
+                <span class="overlay-stat-label">Battery</span>
+                <span class="overlay-stat-value mono" id="mon-battery">--</span>
+            </div>
+            <div class="overlay-stat">
+                <span class="overlay-stat-label">Alt</span>
+                <span class="overlay-stat-value mono" id="mon-alt">--</span>
+            </div>
+            <div class="overlay-stat">
+                <span class="overlay-stat-label">Heading</span>
+                <span class="overlay-stat-value mono" id="mon-heading">--</span>
+            </div>
+            <div class="overlay-stat">
+                <span class="overlay-stat-label">Speed</span>
+                <span class="overlay-stat-value mono" id="mon-speed">--</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bottom-right overlay: Track summary -->
+<div class="monitor-overlay monitor-overlay-right" id="monitor-overlay-right">
+    <div class="overlay-section">
+        <div class="overlay-title">Tracks</div>
+        <div class="overlay-stat">
+            <span class="overlay-stat-label">Active</span>
+            <span class="overlay-stat-value mono" id="mon-tracks">0</span>
+        </div>
+        <div class="overlay-stat">
+            <span class="overlay-stat-label">Total</span>
+            <span class="overlay-stat-value mono" id="mon-total-det">0</span>
+        </div>
+        <div id="mon-track-labels" class="overlay-track-labels"></div>
+    </div>
+    <div class="overlay-section" id="mon-rf-section" style="display:none;">
+        <div class="overlay-title">RF Hunt</div>
+        <div class="overlay-stat">
+            <span class="overlay-stat-label">State</span>
+            <span class="overlay-stat-value" id="mon-rf-state">--</span>
+        </div>
+        <div class="overlay-stat">
+            <span class="overlay-stat-label">RSSI</span>
+            <span class="overlay-stat-value mono" id="mon-rf-rssi">--</span>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Action Toolbar (bottom center) -->
+<div class="monitor-toolbar" id="monitor-toolbar">
+    <div class="toolbar-group">
+        <button class="btn btn-green toolbar-btn" id="mon-btn-lock" title="Lock target">Lock</button>
+        <button class="btn btn-danger toolbar-btn" id="mon-btn-strike" title="Strike target">Strike</button>
+        <button class="btn toolbar-btn" id="mon-btn-release" title="Release lock">Release</button>
+    </div>
+    <div class="toolbar-divider"></div>
+    <div class="toolbar-group">
+        <button class="btn toolbar-btn" id="mon-btn-loiter" title="Hold position">Loiter</button>
+        <button class="btn toolbar-btn" id="mon-btn-rtl" title="Return to launch">RTL</button>
+        <button class="btn toolbar-btn" id="mon-btn-auto" title="Resume mission">Auto</button>
+    </div>
+</div>
