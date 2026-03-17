@@ -740,8 +740,10 @@ class Pipeline:
             logger.warning("Strike failed: track #%d not found.", track_id)
             return False
 
-        # Always set visual lock to strike mode
+        # Save previous lock state so we can revert on failure
         with self._state_lock:
+            prev_lock_id = self._locked_track_id
+            prev_lock_mode = self._lock_mode
             self._locked_track_id = track_id
             self._lock_mode = "strike"
         logger.info("STRIKE LOCK: #%d (%s)", track_id, target_track.label)
@@ -768,6 +770,9 @@ class Pipeline:
         )
         if target_pos is None:
             logger.warning("Strike failed: no GPS fix or heading.")
+            with self._state_lock:
+                self._locked_track_id = prev_lock_id
+                self._lock_mode = prev_lock_mode
             return False
 
         target_lat, target_lon = target_pos
@@ -784,6 +789,9 @@ class Pipeline:
                 "STRIKE failed: GUIDED command rejected for #%d (%s)",
                 track_id, target_track.label,
             )
+            with self._state_lock:
+                self._locked_track_id = prev_lock_id
+                self._lock_mode = prev_lock_mode
         return success
 
     def _get_active_tracks(self) -> list[dict]:
