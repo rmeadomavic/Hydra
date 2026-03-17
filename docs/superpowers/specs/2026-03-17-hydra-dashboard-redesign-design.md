@@ -27,11 +27,50 @@ decomposed into a maintainable file structure with no build tools.
 
 ## Architecture
 
-### View System
+### Single-Page Application
 
-Three views, client-side routed via URL hash (`/#monitor`, `/#control`,
-`/#settings`). The MJPEG stream stays connected across view switches — no
-reconnection on navigation.
+This is a **single-page app** (SPA). The server renders one page using Jinja2
+`{% include %}` directives to compose `base.html` with all three view sections
+(`monitor.html`, `control.html`, `settings.html`) embedded in the same document.
+JavaScript in `app.js` handles hash-based routing (`/#monitor`, `/#control`,
+`/#settings`) by showing/hiding view sections via CSS (`display: none` on
+inactive views).
+
+This is critical because the MJPEG `<img>` element must remain in the DOM
+continuously — destroying and recreating it would drop the stream connection.
+The `<img>` lives in `base.html` outside any view section, using
+`position: fixed`. Each view applies a CSS class to `<body>` (e.g.,
+`body.view-monitor`, `body.view-control`) that controls the element's
+dimensions and position:
+- **Monitor (`body.view-monitor`):** Full-size, fills the view area
+  (`top/left/right/bottom` pinned to view bounds)
+- **Control (`body.view-control`):** Sized and positioned to the ~60% left
+  column area
+- **Settings (`body.view-settings`):** Hidden (`opacity: 0; pointer-events: none`)
+
+The mini thumbnail in the top bar uses a separate clipping container with
+`overflow: hidden` sized to ~120x80px. Inside it, a CSS `transform: scale()`
+with `transform-origin: top left` scales down the same `<img>` element. Since
+the `<img>` is `position: fixed`, the thumbnail container uses a `clip-path` or
+`overflow: hidden` wrapper to crop it. This avoids a second MJPEG connection.
+
+### Polling Coordination
+
+`app.js` manages a centralized polling coordinator. Polling for view-specific
+data **pauses when that view is not active** to avoid wasting Jetson CPU cycles.
+
+Base polling intervals (normal operation):
+- **`/api/stats` (2s)** — always active. Returns FPS, inference time, GPU/CPU/
+  RAM, MAVLink status, GPS fix, vehicle state. Serves the top bar and both
+  Monitor and Control views.
+- **`/api/tracks` (1s)** — Monitor + Control views. Track list for target
+  selection and summary overlay.
+- **`/api/target` (1s)** — Monitor + Control views. Target lock state.
+- **`/api/detections` (3s)** — Control view only. Detection log feed.
+- **`/api/rf/status` (2s)** — Monitor + Control views (only when RF hunt is
+  active; skip poll entirely when RF is disabled).
+- **Settings view** — no polling. Config loaded once via `GET /api/config/full`
+  on view enter.
 
 ### Persistent Top Bar (~48px)
 
@@ -43,7 +82,8 @@ Always visible across all views:
 - **Right:** Connection status pill (LIVE/OFFLINE) + FPS counter
 
 When on Control or Settings view, a **mini video thumbnail** (~120x80px) appears
-in the top bar. Click to jump to Monitor.
+in the top bar — this is a CSS-scaled reference to the same MJPEG `<img>`
+element, not a second stream. Click to jump to Monitor.
 
 ### Footer
 
@@ -92,12 +132,15 @@ Slim floating bar that appears on interaction:
 ### Toast Notifications
 
 MAVLink disconnect or critical alerts slide in from top-right (red accent,
-auto-dismiss after 10s). Only interruption allowed on Monitor view.
+auto-dismiss after 10s). Maximum 3 visible toasts — newest replaces oldest.
+Duplicate messages within a 5-second window are suppressed. Only interruption
+allowed on Monitor view.
 
 ### Presentation Mode
 
-Keyboard shortcut (`P` or `F11`) hides top bar and footer entirely — truly
-full-screen video with only floating overlays. One keypress to restore.
+Keyboard shortcut (`Ctrl+Shift+P`) hides top bar and footer entirely — truly
+full-screen video with only floating overlays. Same shortcut to restore. Only
+bound when no text input is focused.
 
 ## Control View
 
@@ -113,7 +156,8 @@ Operator cockpit with the video feed and a grid of dockable panels.
 Each panel has:
 - Header bar with title, collapse/expand toggle, drag handle
 - **Collapse:** One click minimizes to header only, one click restores
-- **Reorder:** Drag within the grid to rearrange
+- **Reorder:** Drag within the grid to rearrange (using SortableJS, ~10KB
+  gzipped, no dependencies, touch-ready for Steam Deck)
 - **Show/hide:** Panel menu button to toggle panel visibility entirely
 - **Persistence:** Layout saved to `localStorage`, survives sessions
 
@@ -147,16 +191,28 @@ All `config.ini` settings editable in the browser.
 - **Left nav (~160px):** Vertical list of config sections, highlighted active
 - **Right content:** Form fields for selected section
 
-### Sections
+### Sections (matching `config.ini`)
 
-1. **Camera** — source, resolution, FPS, FOV, GStreamer pipeline
-2. **Detector** — model file, confidence threshold, NMS threshold, class list
-3. **MAVLink** — connection string, baud rate, system/component IDs, alert classes
-4. **Web** — host, port, API token (masked with show/hide), MJPEG quality, CORS
-5. **Tracker** — ByteTrack parameters (track buffer, match threshold, etc.)
-6. **RF Homing** — default search pattern, area, spacing, altitude, RSSI thresholds
-7. **Display** — overlay options, color scheme tweaks, panel layout preferences
-8. **System** — power mode, log directory, debug flags
+1. **Camera** — source, resolution (width/height), FPS, horizontal FOV
+2. **Detector** — YOLO model file, confidence threshold, class filter
+3. **Tracker** — ByteTrack parameters (track threshold, track buffer, match
+   threshold)
+4. **MAVLink** — enabled, connection string, baud, source system ID, GPS
+   settings, alert settings (statustext, interval, severity, alert classes),
+   vehicle commands (auto-loiter, guided ROI, strike distance, geo tracking)
+5. **Web** — host, port, MJPEG quality, API token (masked with show/hide toggle;
+   see Security section for redaction rules)
+6. **OSD** — FPV overlay enabled, mode (statustext/named_value), update interval
+7. **Autonomous** — enabled (with prominent warning), geofence (circle: lat/lon/
+   radius, polygon: coordinate pairs), min confidence, min track frames, allowed
+   classes, strike cooldown, allowed vehicle modes. This section gets a red
+   warning banner: "Autonomous strike settings — changes affect safety-critical
+   behavior"
+8. **RF Homing** — enabled, mode (wifi/sdr), target BSSID/frequency, Kismet
+   connection, search pattern/area/spacing/altitude, RSSI thresholds/window,
+   gradient step/rotation, polling interval, arrival tolerance
+9. **Logging** — log directory, format (csv/jsonl), image saving (enabled, dir,
+   quality), crop saving (enabled, dir)
 
 ### Behavior
 
@@ -167,6 +223,58 @@ All `config.ini` settings editable in the browser.
 - Fields requiring restart show a warning icon
 - Frontend validation: numeric ranges, required fields, valid paths
 - `config.ini` remains source of truth on disk
+
+### Security
+
+- Both `GET /api/config/full` and `POST /api/config/full` require bearer token
+  auth (same `_check_auth()` as existing control endpoints)
+- `GET` response **redacts** the API token value, returning `"***"` instead of
+  the real token
+- `POST` treats an unchanged `"***"` value as "keep existing token" — only
+  updates if a new value is provided
+- `POST` request body size is bounded (server rejects payloads > 64KB).
+  Enforced by reading `Content-Length` header and returning 413 before parsing
+  if it exceeds the limit. This avoids loading large payloads into Jetson RAM.
+
+### Config Write Safety
+
+Writing `config.ini` on Jetson must be crash-safe:
+- **Atomic write:** Write to a temp file (`config.ini.tmp`) in the same
+  directory, then `os.replace()` to the final path. This is atomic on Linux
+  filesystems and prevents corruption if power is lost mid-write.
+- **File locking:** Use `fcntl.flock()` to prevent concurrent writes from
+  multiple browser sessions
+- **Backup:** Before overwriting, copy current `config.ini` to
+  `config.ini.bak`. The Settings view shows a "Restore Backup" button if
+  `.bak` exists.
+
+## Error States
+
+### Monitor View
+- **Before first MJPEG frame:** Dark background with a subtle loading spinner
+  and "Connecting to video stream..." text
+- **Stream disconnected:** Last frame stays visible with a red "STREAM LOST"
+  overlay badge. Auto-reconnects every 2 seconds.
+
+### Control View
+- **Pipeline stopped:** Panels show last-known values grayed out with a
+  "Pipeline offline" banner across the panel area
+- **Individual panel data unavailable:** Panel shows "No data" placeholder
+  instead of stale values
+
+### Settings View
+- **Config load failure:** Error banner with retry button: "Could not load
+  configuration — check connection"
+- **Config save failure:** Toast notification with the error message, form
+  retains unsaved changes
+
+### General
+- **Corrupted localStorage layout:** `panels.js` validates stored layout on
+  load. If invalid (missing panels, unknown IDs), falls back to default layout
+  silently.
+- **WebSocket/polling failure:** Top bar connection pill switches to OFFLINE
+  (red). Polling continues attempts with exponential backoff (1s → 2s → 4s,
+  max 10s).
 
 ## Visual Design System
 
@@ -280,20 +388,45 @@ hydra_detect/web/
 ### Key Decisions
 
 - **No build tools** — plain CSS and vanilla JS. No webpack, no npm.
-- **Jinja2 template inheritance** — `base.html` with `{% block content %}` so
-  views share top bar and footer
+  One exception: SortableJS loaded from a vendored copy in `static/js/vendor/`
+  (committed to the repo, not downloaded at build time).
+- **Jinja2 `{% include %}`** — `base.html` includes all three view templates
+  into a single page. This is NOT template inheritance with separate routes —
+  it is a single server-rendered page with client-side view switching.
 - **CSS variables file** — single source of truth for design tokens
-- **`review.html` stays standalone** — separate tool, own Leaflet dependency,
-  does not share the view system yet
+- **`review.html` stays standalone** — separate tool with its own Leaflet
+  dependency. Will be evaluated for integration as a fourth view in a future
+  phase.
 
 ### New API Endpoints
 
-- `GET /api/config/full` — all config.ini sections as JSON
+- `GET /api/config/full` — all config.ini sections as JSON (auth required,
+  token redacted)
 - `POST /api/config/full` — write changes, return which fields need restart
-- Static file serving for `/static/` directory
+  (auth required, 64KB body limit)
+- `app.mount("/static", StaticFiles(directory="..."))` — static file serving,
+  directory path resolved relative to the web module (not CWD) for Docker
+  compatibility
+
+### Accessibility
+
+Basic keyboard and screen-reader support (low effort, high value):
+- Tab order through panels and interactive elements
+- Escape to close modals
+- ARIA labels on status indicators (LIVE/OFFLINE, armed state, GPS fix)
+- Focus-visible outlines on all interactive elements
+
+### Performance Notes
+
+- `backdrop-filter: blur()` on floating overlays may be expensive on Jetson GPU
+  (shared with CUDA inference). Implementation should test this and fall back to
+  solid semi-transparent backgrounds (`rgba(0,0,0,0.85)`) if frame rate drops.
+- Hex pattern overlay + noise texture on panels is cosmetic compositing. Profile
+  with `tegrastats` after implementation — remove noise layer first if GPU
+  memory pressure is observed.
 
 ## Migration Path
 
 The existing `index.html` is replaced, not modified. The `review.html` page is
 unchanged. All current API endpoints remain — this redesign is purely frontend
-with two new config endpoints added to `server.py`.
+with two new config endpoints and a static file mount added to `server.py`.
