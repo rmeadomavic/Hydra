@@ -30,7 +30,9 @@
               "setup/jetson-flash",
               "setup/jetson-docker",
               "setup/pixhawk",
-              "setup/hdzero-osd"
+              "setup/hdzero-osd",
+              "setup/remote-access",
+              "setup/headless-field-boot"
             ]
           },
           {
