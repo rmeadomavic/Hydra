@@ -1,0 +1,291 @@
+---
+title: "Headless Field Boot"
+description: "Configure a Jetson to boot Hydra Detect automatically with no monitor, keyboard, or SSH — just plug in power."
+sidebarTitle: "Headless field boot"
+icon: "power-off"
+keywords:
+  - headless
+  - field
+  - boot
+  - mdns
+  - avahi
+  - auto-start
+  - zero-touch
+---
+
+Headless field-boot mode lets an operator power on a Jetson in the field and
+have Hydra Detect running and reachable on the network — no monitor, no
+keyboard, no SSH required. The only action is plugging in power.
+
+The Jetson will:
+1. Auto-login the `sorcc` user
+2. Connect to a pre-configured WiFi network (or use Ethernet)
+3. Start the Hydra Detect Docker container
+4. Advertise itself via mDNS so any device on the network can reach the
+   dashboard at `hydra.local:8080`
+
+For initial Jetson setup, see [Docker install](/setup/jetson-docker) first.
+For remote access over the internet (not just local network), see
+[Remote access](/setup/remote-access).
+
+## Prerequisites
+
+- Jetson with Hydra Detect Docker image already built (`hydra-detect:latest`)
+- `hydra-detect.service` installed (see [Docker install step 6](/setup/jetson-docker))
+- `sudo` access on the Jetson
+- WiFi SSID and password for the field network (or Ethernet cable)
+
+## Instructor Setup
+
+Run the setup script once in the classroom before deploying to the field.
+
+<Steps>
+
+<Step title="Run the headless setup script">
+
+<Tabs>
+
+<Tab title="WiFi">
+```bash
+cd ~/Hydra
+sudo bash scripts/setup_headless.sh \
+  --ssid "YourFieldNetwork" \
+  --password "YourWiFiPassword"
+```
+</Tab>
+
+<Tab title="Ethernet only">
+```bash
+cd ~/Hydra
+sudo bash scripts/setup_headless.sh --ethernet-only
+```
+</Tab>
+
+</Tabs>
+
+The script will:
+1. Install and configure Avahi for mDNS discovery
+2. Persist the WiFi network so it auto-connects on boot
+3. Enable the `hydra-detect` systemd service
+4. Run a self-test to verify the full boot chain
+
+<Tip>
+**Custom hostname:** If you have multiple Jetsons, give each one a unique
+hostname so they don't conflict on the network:
+
+```bash
+sudo bash scripts/setup_headless.sh --hostname jetson-03 \
+  --ssid "FieldNet" --password "pw123"
+# This Jetson will be reachable at jetson-03.local:8080
+```
+</Tip>
+
+</Step>
+
+<Step title="Review the self-test output">
+
+The script prints a boot chain summary at the end:
+
+```text
+  Boot chain:
+    1. Power on → systemd starts
+    2. NetworkManager → connects to 'YourFieldNetwork'
+    3. Docker daemon starts
+    4. hydra-detect.service → starts Hydra in Docker
+    5. avahi-daemon → advertises hydra.local
+    6. GCS browser → http://hydra.local:8080
+```
+
+All items should show `[PASS]`. Address any `[WARN]` or `[FAIL]` items
+before deploying to the field.
+
+</Step>
+
+<Step title="Test the full boot cycle">
+
+Reboot the Jetson and verify everything comes up without interaction:
+
+```bash
+sudo reboot
+```
+
+Wait 60–90 seconds, then from your GCS laptop (on the same network):
+
+```bash
+# Check if the Jetson is discoverable
+ping hydra.local
+
+# Open the dashboard
+# http://hydra.local:8080
+```
+
+<Warning>
+Your GCS device must be on the **same network** as the Jetson (same WiFi
+or same Ethernet switch/router). mDNS does not work across different
+subnets or over the internet — use [Tailscale](/setup/remote-access) for that.
+</Warning>
+
+</Step>
+
+<Step title="Verify the service is running">
+
+If you can reach the Jetson via SSH or mDNS:
+
+```bash
+ssh sorcc@hydra.local
+
+# Check service status
+sudo systemctl status hydra-detect
+
+# View live logs
+sudo journalctl -u hydra-detect -f
+```
+
+</Step>
+
+</Steps>
+
+## Field Operator Guide
+
+<Note>
+This section is for the person powering on the Jetson in the field. No Linux
+knowledge required.
+</Note>
+
+**Step 1:** Plug the Jetson into power. Wait 60–90 seconds for it to boot.
+
+**Step 2:** On your GCS device (laptop, tablet, or phone), make sure you're
+connected to the same WiFi network the Jetson was configured for.
+
+**Step 3:** Open a web browser and go to:
+
+```
+http://hydra.local:8080
+```
+
+You should see the Hydra Detect dashboard with a live camera feed.
+
+<Tip>
+**If `hydra.local` doesn't work** on your device, try the Jetson's IP address
+directly. You can find it from another device on the network:
+
+```bash
+# From a Linux/Mac terminal
+ping hydra.local
+# or
+avahi-resolve -n hydra.local
+```
+
+On Windows, install [Bonjour Print Services](https://support.apple.com/kb/DL999)
+to enable `.local` name resolution — or use the IP address directly.
+</Tip>
+
+## Multiple Jetsons
+
+If deploying several Jetsons on the same network, each must have a unique
+mDNS hostname to avoid conflicts:
+
+| Jetson | Setup command | Dashboard URL |
+|--------|--------------|---------------|
+| Unit 1 | `--hostname hydra-01` | `http://hydra-01.local:8080` |
+| Unit 2 | `--hostname hydra-02` | `http://hydra-02.local:8080` |
+| Unit 3 | `--hostname hydra-03` | `http://hydra-03.local:8080` |
+
+## Disabling Headless Mode
+
+To stop the Jetson from auto-starting Hydra Detect on boot:
+
+```bash
+# Disable the service
+sudo systemctl disable hydra-detect
+
+# Stop the running container
+sudo systemctl stop hydra-detect
+
+# (Optional) Remove mDNS advertisement
+sudo rm /etc/avahi/services/hydra-detect.service
+sudo systemctl restart avahi-daemon
+```
+
+To re-enable, run the setup script again.
+
+## Troubleshooting
+
+<AccordionGroup>
+
+<Accordion title="hydra.local not resolving">
+```
+ping: hydra.local: Name or service not known
+```
+**Possible causes:**
+
+1. **GCS not on same network** — verify your laptop/phone is on the same
+   WiFi the Jetson is configured for
+2. **Avahi not running on Jetson** — SSH in and check:
+   ```bash
+   sudo systemctl status avahi-daemon
+   ```
+3. **Windows doesn't support mDNS by default** — install
+   [Bonjour Print Services](https://support.apple.com/kb/DL999) or use the
+   Jetson's IP address directly
+4. **mDNS blocked by router** — some enterprise routers block multicast DNS.
+   Use the IP address instead
+</Accordion>
+
+<Accordion title="Jetson not connecting to WiFi">
+SSH in (via Ethernet or Tailscale) and check NetworkManager:
+```bash
+nmcli connection show
+nmcli device wifi list
+nmcli connection up "YourSSID"
+```
+If the network isn't visible, the Jetson may be out of WiFi range. Check
+signal strength with `nmcli device wifi list`.
+</Accordion>
+
+<Accordion title="hydra-detect service not starting on boot">
+```bash
+sudo systemctl status hydra-detect
+sudo journalctl -u hydra-detect -b --no-pager
+```
+Common causes:
+- Docker image not built — run `docker build` first
+  (see [Docker install](/setup/jetson-docker))
+- Docker daemon not starting — check `sudo systemctl status docker`
+- Camera not connected — the container may exit if `/dev/video0` is missing
+</Accordion>
+
+<Accordion title="Dashboard loads but no camera feed">
+The camera may not be connected or may have a different device path. SSH in
+and check:
+```bash
+ls /dev/video*
+v4l2-ctl --list-devices
+```
+Update `config.ini` if the camera is on a different device.
+</Accordion>
+
+<Accordion title="Multiple Jetsons showing same hostname">
+If two Jetsons have the same mDNS hostname, only one will be reliably
+reachable. Re-run the setup script on one of them with a unique hostname:
+```bash
+sudo bash scripts/setup_headless.sh --hostname hydra-02 --ethernet-only
+```
+</Accordion>
+
+<Accordion title="Boot takes too long">
+The Jetson needs 60–90 seconds to fully boot, connect to WiFi, start Docker,
+and launch the container. If it takes longer:
+
+1. Check if Docker is pulling the image on every boot (it shouldn't if the
+   image is built locally)
+2. Check if the WiFi connection is slow — Ethernet is faster and more reliable
+3. Add swap if the Jetson is low on memory (see [Docker install](/setup/jetson-docker)
+   troubleshooting)
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+*Guide tested on Jetson Orin Nano Super 8GB, JetPack 6.2.1, L4T R36.4.7, 2026-03-16*
