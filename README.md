@@ -84,8 +84,7 @@ docker pull dustynv/l4t-pytorch:r36.4.0
 # Build and run
 docker build --network=host -t hydra-detect .
 docker run --rm --privileged --runtime nvidia \
-  --device /dev/video0 --device /dev/video2 \
-  --device /dev/ttyACM0 \
+  -v $(pwd)/config.ini:/app/config.ini:ro \
   -v /usr/sbin/nvpmodel:/usr/sbin/nvpmodel:ro \
   -v /usr/bin/jetson_clocks:/usr/bin/jetson_clocks:ro \
   -v /etc/nvpmodel.conf:/etc/nvpmodel.conf:ro \

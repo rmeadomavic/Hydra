@@ -214,6 +214,11 @@ class MAVLinkIO:
                 elif msg_type == "NAMED_VALUE_INT":
                     self._handle_named_value_int(msg, audit)
 
+            except TypeError:
+                # pymavlink internal bug: messages[mtype]._instances is None
+                # for some message types during post_message bookkeeping.
+                # Safe to ignore — does not affect message delivery.
+                continue
             except Exception as exc:
                 if self._stop_evt.is_set():
                     break
