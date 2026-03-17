@@ -41,7 +41,7 @@ echo "========================================"
 echo ""
 
 # ── Step 1: Preflight Checks ────────────────────────────────
-info "Step 1/7: Preflight checks"
+info "Step 1/8: Preflight checks"
 echo ""
 
 # curl
@@ -155,7 +155,7 @@ fi
 echo ""
 
 # ── Step 2: Tailscale (Optional) ────────────────────────────
-info "Step 2/7: Tailscale remote access"
+info "Step 2/8: Tailscale remote access"
 echo ""
 
 TS_IP=""
@@ -190,7 +190,7 @@ fi
 echo ""
 
 # ── Step 3: Docker Base Image ───────────────────────────────
-info "Step 3/7: Docker base image"
+info "Step 3/8: Docker base image"
 echo ""
 
 BASE_IMAGE="dustynv/l4t-pytorch:r36.4.0"
@@ -205,7 +205,7 @@ fi
 echo ""
 
 # ── Step 4: Docker Build ────────────────────────────────────
-info "Step 4/7: Build Hydra Detect image"
+info "Step 4/8: Build Hydra Detect image"
 echo ""
 
 BUILD_IMAGE=true
@@ -225,7 +225,7 @@ fi
 echo ""
 
 # ── Step 5: Directories ─────────────────────────────────────
-info "Step 5/7: Data directories"
+info "Step 5/8: Data directories"
 echo ""
 
 mkdir -p "$HYDRA_DIR/models"
@@ -235,7 +235,7 @@ ok "models/ and output_data/ directories ready"
 echo ""
 
 # ── Step 6: Config ──────────────────────────────────────────
-info "Step 6/7: Configure MAVLink"
+info "Step 6/8: Configure MAVLink"
 echo ""
 
 CONFIG="$HYDRA_DIR/config.ini"
@@ -286,8 +286,76 @@ fi
 
 echo ""
 
-# ── Step 7: Test Run ────────────────────────────────────────
-info "Step 7/7: Launch Hydra Detect"
+# ── Step 7: SDR / Kismet (Optional) ──────────────────────────
+info "Step 7/8: SDR / Kismet RF homing"
+echo ""
+
+SDR_FOUND=false
+if lsusb 2>/dev/null | grep -q "0bda:2838"; then
+    ok "RTL-SDR dongle detected (RTL2838)"
+    SDR_FOUND=true
+elif lsusb 2>/dev/null | grep -qi "hackrf"; then
+    ok "HackRF dongle detected"
+    SDR_FOUND=true
+fi
+
+if [ "$SDR_FOUND" = true ]; then
+    if ask "Set up Kismet for RF homing?" "Y"; then
+        info "Installing RTL-SDR tools..."
+        sudo apt-get install -y rtl-sdr rtl-433 >/dev/null 2>&1
+        ok "rtl-sdr and rtl_433 installed"
+
+        # Udev rules for non-root access
+        if [ ! -f /etc/udev/rules.d/20-rtlsdr.rules ]; then
+            echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", MODE="0666"' \
+                | sudo tee /etc/udev/rules.d/20-rtlsdr.rules >/dev/null
+            sudo udevadm control --reload-rules && sudo udevadm trigger
+            ok "Udev rules installed for RTL-SDR"
+        else
+            ok "Udev rules already present"
+        fi
+
+        # Install Kismet
+        if ! command -v kismet >/dev/null 2>&1; then
+            info "Adding Kismet repository..."
+            wget -O - https://www.kismetwireless.net/repos/kismet-release.gpg.key --quiet \
+                | gpg --dearmor | sudo tee /usr/share/keyrings/kismet-archive-keyring.gpg >/dev/null
+            echo "deb [signed-by=/usr/share/keyrings/kismet-archive-keyring.gpg arch=arm64] https://www.kismetwireless.net/repos/apt/release/jammy jammy main" \
+                | sudo tee /etc/apt/sources.list.d/kismet.list >/dev/null
+            sudo apt-get update >/dev/null 2>&1
+            info "Installing Kismet (this may take a few minutes)..."
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y kismet >/dev/null 2>&1
+            ok "Kismet installed ($(kismet --version 2>&1 | head -1))"
+        else
+            ok "Kismet already installed ($(kismet --version 2>&1 | head -1))"
+        fi
+
+        # Set Kismet credentials to match config.ini defaults
+        sudo mkdir -p /root/.kismet
+        echo -e "httpd_username=kismet\nhttpd_password=kismet" | sudo tee /root/.kismet/kismet_httpd.conf >/dev/null
+        echo -e "httpd_username=kismet\nhttpd_password=kismet" | sudo tee /etc/kismet/kismet_site.conf >/dev/null
+        ok "Kismet credentials set (kismet/kismet — matches config.ini)"
+
+        # Add user to kismet group
+        if ! id -nG | grep -qw kismet; then
+            sudo usermod -aG kismet "$USER"
+            ok "Added $USER to kismet group"
+        fi
+
+        info "To start Kismet: sudo kismet -c rtl433-0 --no-ncurses --daemonize"
+        info "Kismet web UI: http://localhost:2501"
+    else
+        info "Skipping SDR/Kismet setup."
+    fi
+else
+    info "No SDR dongle detected. Skipping Kismet setup."
+    info "(Plug in an RTL-SDR and re-run to enable RF homing.)"
+fi
+
+echo ""
+
+# ── Step 8: Test Run ────────────────────────────────────────
+info "Step 8/8: Launch Hydra Detect"
 echo ""
 
 # Build device flags
