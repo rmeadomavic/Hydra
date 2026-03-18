@@ -4,7 +4,7 @@
 
 Three features to enable full beyond-visual-range USV operations:
 
-1. **MAVLink Command Path** — Strike/lock/unlock over SiK telemetry (no WiFi needed)
+1. **MAVLink Command Path** — Strike/lock/unlock over telemetry radio (no WiFi needed)
 2. **Autonomous Strike Controller** — Geofenced auto-engage with qualification criteria
 3. **Post-Mission Review Tool** — Web page + CLI script for reviewing detection logs on a map
 
@@ -13,7 +13,7 @@ Three features to enable full beyond-visual-range USV operations:
 ## Feature 1: MAVLink Command Path
 
 ### Goal
-Allow operators to send target lock, strike, and unlock commands from Mission Planner over SiK radio using MAV_CMD_USER commands and NAMED_VALUE_INT messages.
+Allow operators to send target lock, strike, and unlock commands from Mission Planner over RFD 900x radio using MAV_CMD_USER commands and NAMED_VALUE_INT messages.
 
 ### Files Modified
 - `hydra_detect/mavlink_io.py` — Add command listener thread

@@ -250,7 +250,7 @@ class MAVLinkIO:
             return self._vehicle_mode
 
     # ------------------------------------------------------------------
-    # MAVLink command listener (lock, strike, unlock over SiK radio)
+    # MAVLink command listener (lock, strike, unlock over telemetry radio)
     # ------------------------------------------------------------------
     def set_command_callbacks(
         self,

@@ -125,8 +125,8 @@ full OSD test plan. Quick validation:
 ### Tests
 
 - [ ] Install QGroundControl on Steam Deck (AppImage or Flatpak)
-- [ ] Connect QGC to Pixhawk via SiK 915 MHz radio
-  - Plug ground SiK radio into Steam Deck USB
+- [ ] Connect QGC to Pixhawk via RFD 900x radio
+  - Plug ground RFD 900x radio into Steam Deck USB
   - QGC should auto-detect serial at 57600 baud
 - [ ] Verify QGC receives telemetry: attitude, GPS position, battery voltage
 - [ ] Test WiFi UDP as alternative link:

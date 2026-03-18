@@ -22,7 +22,7 @@ stations via MAVLink.
 
 **Owner:** rmeadomavic
 **Repo:** https://github.com/rmeadomavic/Hydra
-**Hardware:** Jetson Orin Nano 8GB, Pixhawk 6C, SiK 915 MHz telemetry,
+**Hardware:** Jetson Orin Nano 8GB, Pixhawk 6C, RFD 900x telemetry (AES encrypted, Net ID 8),
 HDZero FPV (Freestyle V2 VTX + Nano 90 cam + Monitor + Goggles 1 + Goggles 2),
 USB cameras (Logitech C270/C920)
 **GCS:** Mission Planner (primary), QGroundControl on Steam Deck (testing)
@@ -83,7 +83,7 @@ Camera Source --> YOLO Detector --> ByteTrack Tracker --> MAVLink Alerts
 
 - `docs/jetson-setup-guide.md` — Docker build & run on Jetson
 - `docs/jetson-initial-setup.md` — JetPack flashing
-- `docs/pixhawk-setup.md` — Pixhawk 6C config, serial ports, SiK radios
+- `docs/pixhawk-setup.md` — Pixhawk 6C config, serial ports, RFD 900x radios
 - `docs/hdzero-osd-setup.md` — OSD wiring for HDZero + ArduPilot
 - `docs/jetson-hardware-testing-checklist.md` — Current testing plan & backlog
 

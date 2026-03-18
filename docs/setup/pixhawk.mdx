@@ -13,7 +13,7 @@ This documents the Pixhawk 6C configuration for use as the flight controller in 
 
 - **Flight Controller:** Holybro Pixhawk 6C
 - **GPS:** Holybro M9N on GPS1 port
-- **Telemetry:** SiK 915 MHz radio pair on TELEM1
+- **Telemetry:** RFD 900x radio pair on TELEM1
 - **Companion Computer:** NVIDIA Jetson Orin Nano (connected via USB-C or TELEM2 UART)
 
 ## Firmware
@@ -68,7 +68,7 @@ Indoor calibration will produce poor offsets. Recalibrate outdoors before water 
 | Port   | Param Prefix | Use              | Protocol       | Baud          |
 |--------|-------------|------------------|----------------|---------------|
 | USB    | SERIAL0     | GCS (MP) or Jetson | 2 (MAVLink2) | 115 (115200)  |
-| TELEM1 | SERIAL1     | SiK 915 MHz radio | 2 (MAVLink2) | 57 (57600)    |
+| TELEM1 | SERIAL1     | RFD 900x radio     | 2 (MAVLink2) | 57 (57600)    |
 | TELEM2 | SERIAL2     | Jetson (UART)    | 2 (MAVLink2)   | 921 (921600)  |
 | GPS1   | SERIAL3     | M9N GPS          | 5 (GPS)        | 38 (38400)    |
 
@@ -88,28 +88,39 @@ GPS1_TYPE = 1    (Auto)
 
 </Step>
 
-<Step title="Configure SiK radios">
+<Step title="Configure RFD 900x radios">
 
-Both radios configured identically via Mission Planner (Setup > Optional Hardware > SiK Radio). Configure one at a time over USB. MP cannot enter AT command mode while actively connected via MAVLink on the same port.
+Both radios must be configured identically. Use **Mission Planner** (Setup > Optional Hardware > SiK Radio — works for RFD 900x too) or **RFD Tools**. Configure one at a time over USB. MP cannot enter AT command mode while actively connected via MAVLink on the same port.
 
-| Setting   | Value   |
-|-----------|---------|
-| Baud      | 57600   |
-| Air Speed | 64      |
-| Net ID    | 8       |
-| ECC       | On      |
-| Mavlink   | Mavlink |
-| Min Freq  | 915000  |
-| Tx Power  | 20      |
+| Setting          | Value   | Notes                                      |
+|------------------|---------|--------------------------------------------|
+| Baud             | 57600   | Serial baud between radio and Pixhawk/GCS  |
+| Air Speed        | 64      | Over-the-air data rate (kbps)              |
+| Net ID           | 8       | Must match on both radios                  |
+| ECC              | On      | Error correction                           |
+| Mavlink          | Mavlink | MAVLink framing                            |
+| Min Freq         | 915000  | US 900 MHz ISM band lower bound (kHz)      |
+| Max Freq         | 928000  | US 900 MHz ISM band upper bound (kHz)      |
+| Num Channels     | 20      | FHSS hopping channels                      |
+| Tx Power         | 30      | 30 dBm = 1W (RFD max)                     |
+| Encryption Level | 1       | AES 128-bit encryption                     |
+| Encryption Key   | sorcc   | Must match on both radios                  |
+| LBT RSSI         | 0       | Listen Before Talk disabled (US)           |
+| Duty Cycle       | 100     | No duty cycle limit (US)                   |
 
 **Procedure (USB, one radio at a time):**
 
-1. Plug radio into USB
+1. Plug radio into USB (use the included FTDI cable or USB adapter)
 2. In MP: select COM port, set baud to 57600, do **NOT** click Connect
 3. Go to Setup > Optional Hardware > SiK Radio > Load Settings
-4. Set Net ID and verify other settings match
-5. Save Settings
-6. Unplug, repeat for second radio
+4. Set Net ID = 8, Tx Power = 30, Encryption Level = 1, Encryption Key = sorcc
+5. Verify all other settings match the table above
+6. Save Settings
+7. Unplug, repeat for second radio
+
+<Warning>
+Both radios MUST have identical Net ID, Encryption Level, and Encryption Key or they will not link. If you change any of these on one radio, you must change it on the other before they can communicate again.
+</Warning>
 
 </Step>
 
@@ -188,4 +199,4 @@ If USB and battery must be used simultaneously (e.g., during hull integration), 
 
 ## Mission Planner (GCS)
 
-With the SiK radios configured, Mission Planner connects wirelessly via the ground-side SiK module at 57600 baud. This allows simultaneous GCS monitoring while the Jetson communicates over USB or TELEM2.
+With the RFD 900x radios configured, Mission Planner connects wirelessly via the ground-side RFD module at 57600 baud. The RFD 900x provides significantly better range and AES encryption compared to SiK radios, while remaining protocol-compatible. This allows simultaneous GCS monitoring while the Jetson communicates over USB or TELEM2.

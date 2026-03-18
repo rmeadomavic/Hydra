@@ -427,7 +427,7 @@ class Pipeline:
                 self._mavlink = None
                 self._osd = None
 
-        # Wire MAVLink command callbacks (lock/strike/unlock over SiK radio)
+        # Wire MAVLink command callbacks (lock/strike/unlock over telemetry radio)
         if self._mavlink is not None:
             self._mavlink.set_command_callbacks(
                 on_lock=lambda tid: self._handle_target_lock(tid, mode="track"),
