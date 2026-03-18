@@ -7,7 +7,7 @@ HDZero video, QGroundControl on Steam Deck, and SDR integration.
 
 - [x] Verify Jetson UART enabled: `sudo cat /proc/tty/driver/serial` - confirm `/dev/ttyTHS1`
 - [x] Gather UART wiring supplies (dupont jumpers, GND wire)
-- [ ] Identify SDR model and install drivers (`apt install rtl-sdr` or `hackrf`)
+- [ ] Identify SDR model and install drivers (tested path: RTL-SDR via `apt install rtl-sdr`; HackRF setup is not yet automated)
 - [ ] Run test suite baseline: `python -m pytest tests/ -v` - all green
 
 --
@@ -217,6 +217,7 @@ sudo kismet -c rtl433-0 --no-ncurses --daemonize
 - Kismet install prompts for suid-root helpers interactively. Use `DEBIAN_FRONTEND=noninteractive` or pre-set debconf answers.
 - Source name must be `rtl433-0` (not `rtlsdr-0`) — Kismet's RTL-SDR support works via the rtl_433 capture helper.
 - **Kismet 2025 auth:** Uses cookie-based sessions, NOT HTTP Basic Auth on every request. Hydra's `kismet_client.py` handles this automatically (establishes session via `/session/check_session`, then uses cookies). Older Kismet versions still work via basic auth fallback.
+- The automated setup path currently targets RTL-SDR hardware; HackRF needs separate manual Kismet setup.
 
 ### Tests
 

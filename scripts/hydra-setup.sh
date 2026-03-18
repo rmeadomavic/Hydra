@@ -33,6 +33,8 @@ SERIAL_DEVICES=()
 VIDEO_DEVICES=()
 MAVLINK_DEVICE=""
 MAVLINK_ENABLED=false
+MAVLINK_BAUD=""
+SDR_TYPE=""
 
 echo ""
 echo "========================================"
@@ -132,13 +134,13 @@ else
 fi
 
 # Detect serial devices
-for dev in /dev/ttyACM* /dev/ttyUSB*; do
+for dev in /dev/ttyACM* /dev/ttyUSB* /dev/ttyTHS*; do
     [ -e "$dev" ] && SERIAL_DEVICES+=("$dev")
 done || true
 if [ ${#SERIAL_DEVICES[@]} -gt 0 ]; then
     ok "Serial devices found: ${SERIAL_DEVICES[*]}"
 else
-    warn "No serial devices found (/dev/ttyACM*, /dev/ttyUSB*)"
+    warn "No serial devices found (/dev/ttyACM*, /dev/ttyUSB*, /dev/ttyTHS*)"
 fi
 
 # Relogin warning
@@ -239,14 +241,36 @@ info "Step 6/8: Configure MAVLink"
 echo ""
 
 CONFIG="$HYDRA_DIR/config.ini"
+CURRENT_MAVLINK_DEVICE="$(awk -F' = ' '
+    /^\[mavlink\]$/ {in_section=1; next}
+    /^\[/ {in_section=0}
+    in_section && $1 == "connection_string" {print $2; exit}
+' "$CONFIG")"
+CURRENT_MAVLINK_BAUD="$(awk -F' = ' '
+    /^\[mavlink\]$/ {in_section=1; next}
+    /^\[/ {in_section=0}
+    in_section && $1 == "baud" {print $2; exit}
+' "$CONFIG")"
 
 if [ ${#SERIAL_DEVICES[@]} -eq 0 ]; then
-    info "No flight controller found. Disabling MAVLink."
-    read -rp "Press Enter to continue..."
-    MAVLINK_ENABLED=false
+    if [[ -n "${CURRENT_MAVLINK_DEVICE:-}" && "$CURRENT_MAVLINK_DEVICE" == /dev/ttyTHS* && -e "$CURRENT_MAVLINK_DEVICE" ]]; then
+        info "Preserving existing GPIO UART MAVLink config on ${CURRENT_MAVLINK_DEVICE}."
+        MAVLINK_DEVICE="$CURRENT_MAVLINK_DEVICE"
+        MAVLINK_BAUD="${CURRENT_MAVLINK_BAUD:-921600}"
+        MAVLINK_ENABLED=true
+    else
+        info "No flight controller found. Disabling MAVLink."
+        read -rp "Press Enter to continue..."
+        MAVLINK_ENABLED=false
+    fi
 elif [ ${#SERIAL_DEVICES[@]} -eq 1 ]; then
     if ask "Flight controller detected on ${SERIAL_DEVICES[0]}. Enable MAVLink?" "Y"; then
         MAVLINK_DEVICE="${SERIAL_DEVICES[0]}"
+        if [[ "$MAVLINK_DEVICE" == /dev/ttyTHS* ]]; then
+            MAVLINK_BAUD=921600
+        else
+            MAVLINK_BAUD="${CURRENT_MAVLINK_BAUD:-115200}"
+        fi
         MAVLINK_ENABLED=true
     else
         MAVLINK_ENABLED=false
@@ -261,6 +285,11 @@ else
     idx=$((choice - 1))
     if [ "$idx" -ge 0 ] && [ "$idx" -lt ${#SERIAL_DEVICES[@]} ]; then
         MAVLINK_DEVICE="${SERIAL_DEVICES[$idx]}"
+        if [[ "$MAVLINK_DEVICE" == /dev/ttyTHS* ]]; then
+            MAVLINK_BAUD=921600
+        else
+            MAVLINK_BAUD="${CURRENT_MAVLINK_BAUD:-115200}"
+        fi
         MAVLINK_ENABLED=true
         ok "MAVLink will use ${MAVLINK_DEVICE}"
     else
@@ -273,7 +302,10 @@ fi
 if [ "$MAVLINK_ENABLED" = true ]; then
     sed -i '/^\[mavlink\]/,/^\[/{s/^enabled = .*/enabled = true/}' "$CONFIG"
     sed -i "/^\[mavlink\]/,/^\[/{s|^connection_string = .*|connection_string = ${MAVLINK_DEVICE}|}" "$CONFIG"
-    ok "MAVLink enabled (${MAVLINK_DEVICE}) in config.ini"
+    if [ -n "${MAVLINK_BAUD:-}" ]; then
+        sed -i "/^\[mavlink\]/,/^\[/{s/^baud = .*/baud = ${MAVLINK_BAUD}/}" "$CONFIG"
+    fi
+    ok "MAVLink enabled (${MAVLINK_DEVICE}${MAVLINK_BAUD:+ @ ${MAVLINK_BAUD} baud}) in config.ini"
 else
     sed -i '/^\[mavlink\]/,/^\[/{s/^enabled = .*/enabled = false/}' "$CONFIG"
     ok "MAVLink disabled in config.ini"
@@ -294,13 +326,21 @@ SDR_FOUND=false
 if lsusb 2>/dev/null | grep -q "0bda:2838"; then
     ok "RTL-SDR dongle detected (RTL2838)"
     SDR_FOUND=true
+    SDR_TYPE="rtl_sdr"
 elif lsusb 2>/dev/null | grep -qi "hackrf"; then
     ok "HackRF dongle detected"
     SDR_FOUND=true
+    SDR_TYPE="hackrf"
 fi
 
 if [ "$SDR_FOUND" = true ]; then
     if ask "Set up Kismet for RF homing?" "Y"; then
+        if [ "$SDR_TYPE" = "hackrf" ]; then
+            warn "HackRF auto-setup is not implemented yet."
+            info "This script currently automates only the RTL-SDR + rtl_433 + rtl433-0 Kismet path."
+            info "Skipping SDR/Kismet auto-setup for HackRF to avoid installing the wrong backend."
+            echo ""
+        else
         info "Installing RTL-SDR tools..."
         sudo apt-get install -y rtl-sdr rtl-433 >/dev/null 2>&1
         ok "rtl-sdr and rtl_433 installed"
@@ -344,12 +384,13 @@ if [ "$SDR_FOUND" = true ]; then
 
         info "To start Kismet: sudo kismet -c rtl433-0 --no-ncurses --daemonize"
         info "Kismet web UI: http://localhost:2501"
+        fi
     else
         info "Skipping SDR/Kismet setup."
     fi
 else
-    info "No SDR dongle detected. Skipping Kismet setup."
-    info "(Plug in an RTL-SDR and re-run to enable RF homing.)"
+    info "No supported SDR dongle detected. Skipping Kismet setup."
+    info "(Plug in an RTL-SDR and re-run to enable the automated RF homing setup.)"
 fi
 
 echo ""
