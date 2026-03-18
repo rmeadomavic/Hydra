@@ -643,6 +643,57 @@ class MAVLinkIO:
 
         return (target_lat, target_lon)
 
+    # ------------------------------------------------------------------
+    # Servo control (light bar, gimbal, payloads)
+    # ------------------------------------------------------------------
+    def set_servo(self, channel: int, pwm: int) -> None:
+        """Set a servo output to a specific PWM value via MAV_CMD_DO_SET_SERVO.
+
+        Args:
+            channel: Servo output channel (1-16). E.g. 4 for PWM port 4.
+            pwm: PWM value in microseconds (typically 1000-2000).
+        """
+        if self._mav is None:
+            return
+        pwm = max(500, min(2500, pwm))
+        try:
+            from pymavlink import mavutil
+
+            self._mav.mav.command_long_send(
+                self._mav.target_system,
+                self._mav.target_component,
+                mavutil.mavlink.MAV_CMD_DO_SET_SERVO,
+                0,          # confirmation
+                channel,    # param1: servo channel
+                pwm,        # param2: PWM microseconds
+                0, 0, 0, 0, 0,
+            )
+        except Exception as exc:
+            logger.warning("set_servo ch=%d pwm=%d failed: %s", channel, pwm, exc)
+
+    def flash_servo(
+        self, channel: int, pwm_on: int = 1900, pwm_off: int = 1100,
+        duration: float = 0.5,
+    ) -> None:
+        """Flash a servo output (e.g. light bar) on then off after a delay.
+
+        Sends pwm_on immediately, then schedules pwm_off after *duration* seconds
+        in a daemon thread to avoid blocking the detection loop.
+
+        Args:
+            channel: Servo output channel.
+            pwm_on: PWM value for "on" state.
+            pwm_off: PWM value for "off" state.
+            duration: Seconds to hold the on state before reverting.
+        """
+        self.set_servo(channel, pwm_on)
+
+        def _off():
+            time.sleep(duration)
+            self.set_servo(channel, pwm_off)
+
+        threading.Thread(target=_off, daemon=True, name="servo-flash").start()
+
     # -- Public accessors / mutators ------------------------------------
     @property
     def auto_loiter(self) -> bool:

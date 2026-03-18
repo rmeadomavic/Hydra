@@ -156,7 +156,8 @@ class TestFpvOsdStatustext:
 # ---------------------------------------------------------------------------
 
 class TestFpvOsdNamedValue:
-    def test_sends_named_values(self):
+    def test_sends_scr_user_params(self):
+        """named_value mode sends PARAM_SET for SCR_USER1-6."""
         mav = _make_mavlink_mock()
         osd = FpvOsd(mav, mode="named_value", update_interval=0.0)
         state = OSDState(
@@ -167,9 +168,24 @@ class TestFpvOsdNamedValue:
         osd.update(state)
 
         inner = mav._mav.mav
-        # Should have sent fps, infms, trks, lkid(-1), gfix
-        assert inner.named_value_float_send.call_count == 2  # fps, infms
-        assert inner.named_value_int_send.call_count == 3    # trks, lkid, gfix
+        # Should send PARAM_SET for: USER1(fps), USER2(infms), USER3(trks),
+        # USER4(lkid=-1), USER5(lkmod=0), USER6(top_class_id)
+        assert inner.param_set_send.call_count == 6
+
+        # Verify the param names and values from the calls
+        calls = inner.param_set_send.call_args_list
+        param_map = {}
+        for call in calls:
+            name = call[0][2].rstrip(b"\x00").decode("utf-8")
+            value = call[0][3]
+            param_map[name] = value
+
+        assert abs(param_map["SCR_USER1"] - 12.0) < 0.01
+        assert abs(param_map["SCR_USER2"] - 35.0) < 0.01
+        assert abs(param_map["SCR_USER3"] - 2.0) < 0.01
+        assert abs(param_map["SCR_USER4"] - (-1.0)) < 0.01
+        assert abs(param_map["SCR_USER5"] - 0.0) < 0.01
+        assert abs(param_map["SCR_USER6"] - (-1.0)) < 0.01  # top_class_id, no detections
 
     def test_sends_lock_data_when_locked(self):
         mav = _make_mavlink_mock()
@@ -182,8 +198,19 @@ class TestFpvOsdNamedValue:
         osd.update(state)
 
         inner = mav._mav.mav
-        # trks, lkid, lkmod, gfix = 4 int sends
-        assert inner.named_value_int_send.call_count == 4
+        # All 6 SCR_USER params sent
+        assert inner.param_set_send.call_count == 6
+
+        # Verify lock-specific values
+        calls = inner.param_set_send.call_args_list
+        param_map = {}
+        for call in calls:
+            name = call[0][2].rstrip(b"\x00").decode("utf-8")
+            value = call[0][3]
+            param_map[name] = value
+
+        assert abs(param_map["SCR_USER4"] - 5.0) < 0.01    # locked_track_id
+        assert abs(param_map["SCR_USER5"] - 2.0) < 0.01    # strike mode
 
     def test_no_send_when_mav_disconnected(self):
         mav = _make_mavlink_mock()
@@ -496,4 +523,4 @@ class TestFpvOsdMspDisplayPort:
         state = OSDState(fps=10.0, inference_ms=20.0, active_tracks=0)
         osd.update(state)
         mav.send_statustext.assert_not_called()
-        mav._mav.mav.named_value_float_send.assert_not_called()
+        mav._mav.mav.param_set_send.assert_not_called()

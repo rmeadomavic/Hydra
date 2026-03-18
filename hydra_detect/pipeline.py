@@ -269,6 +269,28 @@ class Pipeline:
                 ),
             )
 
+        # Light bar / strobe on detection (requires MAVLink)
+        self._light_bar_enabled = False
+        self._light_bar_channel = 4
+        self._light_bar_pwm_on = 1900
+        self._light_bar_pwm_off = 1100
+        self._light_bar_flash_sec = 0.5
+        self._light_bar_last_flash: float = 0.0
+        if (
+            self._mavlink is not None
+            and self._cfg.getboolean("alerts", "light_bar_enabled", fallback=False)
+        ):
+            self._light_bar_enabled = True
+            self._light_bar_channel = self._cfg.getint("alerts", "light_bar_channel", fallback=4)
+            self._light_bar_pwm_on = self._cfg.getint("alerts", "light_bar_pwm_on", fallback=1900)
+            self._light_bar_pwm_off = self._cfg.getint("alerts", "light_bar_pwm_off", fallback=1100)
+            self._light_bar_flash_sec = self._cfg.getfloat("alerts", "light_bar_flash_sec", fallback=0.5)
+            logger.info(
+                "Light bar enabled: channel=%d, on=%d, off=%d, flash=%.1fs",
+                self._light_bar_channel, self._light_bar_pwm_on,
+                self._light_bar_pwm_off, self._light_bar_flash_sec,
+            )
+
         # Autonomous strike controller
         self._autonomous: AutonomousController | None = None
         if self._cfg.getboolean("autonomous", "enabled", fallback=False):
@@ -517,8 +539,23 @@ class Pipeline:
 
             # MAVLink alerts (per-label throttled)
             if self._mavlink is not None and len(track_result) > 0:
+                alert_sent = False
                 for track in track_result:
                     self._mavlink.alert_detection(track.label, track.confidence)
+                    alert_sent = True
+
+                # Flash light bar when detections are present (throttled)
+                if alert_sent and self._light_bar_enabled:
+                    now = time.monotonic()
+                    interval = self._light_bar_flash_sec + 0.2
+                    if (now - self._light_bar_last_flash) >= interval:
+                        self._light_bar_last_flash = now
+                        self._mavlink.flash_servo(
+                            self._light_bar_channel,
+                            self._light_bar_pwm_on,
+                            self._light_bar_pwm_off,
+                            self._light_bar_flash_sec,
+                        )
 
                 # Auto-loiter on detection
                 if self._mavlink.auto_loiter:

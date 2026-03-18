@@ -47,6 +47,7 @@ class OSDState:
     gps_lon: float | None = None
     latest_det_label: str = ""
     latest_det_conf: float = 0.0
+    top_class_id: int = -1
 
 
 # Max length for NAMED_VALUE_FLOAT name field in MAVLink
@@ -147,54 +148,56 @@ class FpvOsd:
         self._mav.send_statustext(msg[:50], severity=6)  # 6 = INFO
 
     # ------------------------------------------------------------------
-    # NAMED_VALUE mode — structured data for Lua script on FC
+    # NAMED_VALUE mode — sends OSD data via SCR_USER parameters
+    # ------------------------------------------------------------------
+    # Despite the mode name "named_value" (kept for config compatibility),
+    # this now uses PARAM_SET to write SCR_USER1-6 on the FC.  The Lua
+    # script reads these parameters each tick.
+    #
+    # The previous approach (NAMED_VALUE_FLOAT/INT messages) did not work
+    # because ArduPilot does not forward those messages from companion-
+    # computer serial ports to the Lua scripting engine.
+    #
+    # SCR_USER parameter mapping:
+    #   SCR_USER1 = fps           (float)
+    #   SCR_USER2 = inference_ms  (float)
+    #   SCR_USER3 = active_tracks (float, Lua reads as int)
+    #   SCR_USER4 = locked_track_id (float, -1 = no lock)
+    #   SCR_USER5 = lock_mode     (float, 0=none, 1=track, 2=strike)
+    #   SCR_USER6 = top_class_id  (COCO class #, -1 = no detections)
     # ------------------------------------------------------------------
     def _send_named_values(self, state: OSDState) -> None:
-        """Send individual NAMED_VALUE_FLOAT messages for Lua to decode."""
-        self._send_named_float("osd_fps", state.fps)
-        self._send_named_float("osd_infms", state.inference_ms)
-        self._send_named_int("osd_trks", state.active_tracks)
+        """Write OSD data to SCR_USER1-6 via PARAM_SET for the Lua script."""
+        self._set_param("SCR_USER1", state.fps)
+        self._set_param("SCR_USER2", state.inference_ms)
+        self._set_param("SCR_USER3", float(state.active_tracks))
 
         if state.locked_track_id is not None:
-            self._send_named_int("osd_lkid", state.locked_track_id)
-            # Encode lock mode as int: 1=track, 2=strike
-            mode_val = 2 if state.lock_mode == "strike" else 1
-            self._send_named_int("osd_lkmod", mode_val)
+            self._set_param("SCR_USER4", float(state.locked_track_id))
+            # Encode lock mode as float: 1=track, 2=strike
+            mode_val = 2.0 if state.lock_mode == "strike" else 1.0
+            self._set_param("SCR_USER5", mode_val)
         else:
-            self._send_named_int("osd_lkid", -1)
+            self._set_param("SCR_USER4", -1.0)
+            self._set_param("SCR_USER5", 0.0)
 
-        self._send_named_int("osd_gfix", state.gps_fix)
+        self._set_param("SCR_USER6", float(state.top_class_id))
 
-    def _send_named_float(self, name: str, value: float) -> None:
-        """Send a NAMED_VALUE_FLOAT via the MAVLink connection."""
+    def _set_param(self, name: str, value: float) -> None:
+        """Send a PARAM_SET message to set a parameter on the FC."""
         if self._mav._mav is None:
             return
         try:
-            # Truncate name to 10 bytes (MAVLink spec)
-            name_bytes = name[:_NV_NAME_MAX].encode("utf-8")[:_NV_NAME_MAX]
             with self._mav._lock:
-                self._mav._mav.mav.named_value_float_send(
-                    int(time.monotonic() * 1000) & 0xFFFFFFFF,
-                    name_bytes,
+                self._mav._mav.mav.param_set_send(
+                    self._mav._mav.target_system,
+                    self._mav._mav.target_component,
+                    name.encode("utf-8").ljust(16, b"\x00"),
                     value,
+                    9,  # MAV_PARAM_TYPE_REAL32 (float)
                 )
         except Exception as exc:
-            logger.debug("OSD named_value_float send failed: %s", exc)
-
-    def _send_named_int(self, name: str, value: int) -> None:
-        """Send a NAMED_VALUE_INT via the MAVLink connection."""
-        if self._mav._mav is None:
-            return
-        try:
-            name_bytes = name[:_NV_NAME_MAX].encode("utf-8")[:_NV_NAME_MAX]
-            with self._mav._lock:
-                self._mav._mav.mav.named_value_int_send(
-                    int(time.monotonic() * 1000) & 0xFFFFFFFF,
-                    name_bytes,
-                    value,
-                )
-        except Exception as exc:
-            logger.debug("OSD named_value_int send failed: %s", exc)
+            logger.debug("OSD param_set %s failed: %s", name, exc)
 
     # ------------------------------------------------------------------
     # MSP DisplayPort mode — direct serial to HDZero VTX
@@ -236,10 +239,12 @@ def build_osd_state(
     # Pick the highest-confidence detection for OSD display
     latest_label = ""
     latest_conf = 0.0
+    top_class_id = -1
     for t in track_result:
         if t.confidence > latest_conf:
             latest_conf = t.confidence
             latest_label = t.label
+            top_class_id = getattr(t, "class_id", -1)
 
     state = OSDState(
         fps=fps,
@@ -252,6 +257,7 @@ def build_osd_state(
         gps_lon=gps_lon,
         latest_det_label=latest_label,
         latest_det_conf=latest_conf,
+        top_class_id=top_class_id,
     )
 
     # Resolve locked target label
