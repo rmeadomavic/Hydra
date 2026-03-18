@@ -22,7 +22,7 @@ stations via MAVLink.
 
 **Owner:** rmeadomavic
 **Repo:** https://github.com/rmeadomavic/Hydra
-**Hardware:** Jetson Orin Nano 8GB, Pixhawk 6C, RFD 900x telemetry (AES encrypted, Net ID 8),
+**Hardware:** Jetson Orin Nano 8GB, Pixhawk 6C, RFD 900x telemetry (Net ID 8),
 HDZero FPV (Freestyle V2 VTX + Nano 90 cam + Monitor + Goggles 1 + Goggles 2),
 USB cameras (Logitech C270/C920)
 **GCS:** Mission Planner (primary), QGroundControl on Steam Deck (testing)
