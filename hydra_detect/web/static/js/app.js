@@ -9,7 +9,7 @@
 
 const HydraApp = (() => {
     // ── State ──
-    let currentView = 'operations';
+    let currentView = null;
     const pollers = {};
     let pollFailCount = 0;
     const MAX_BACKOFF = 10000;
