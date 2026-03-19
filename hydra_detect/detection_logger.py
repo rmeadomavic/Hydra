@@ -6,6 +6,7 @@ import csv
 import json
 import logging
 import time
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -55,7 +56,7 @@ class DetectionLogger:
         self._disabled = False
 
         # Recent detections ring buffer for web UI
-        self._recent: list[Dict[str, Any]] = []
+        self._recent: deque[Dict[str, Any]] = deque(maxlen=self._max_recent)
 
     def start(self) -> None:
         """Create directories and open output file."""
@@ -181,10 +182,8 @@ class DetectionLogger:
             elif self._json_file is not None:
                 self._json_file.write(json.dumps(record) + "\n")
 
-            # Add to recent buffer
+            # Add to recent buffer (deque with maxlen evicts oldest automatically)
             self._recent.append(record)
-            if len(self._recent) > self._max_recent:
-                self._recent.pop(0)
 
             # Save cropped object image
             if self._save_crops and frame is not None:
@@ -202,7 +201,7 @@ class DetectionLogger:
 
     def get_recent(self, n: int = 20) -> list[Dict[str, Any]]:
         """Return the N most recent detection records (for web UI)."""
-        return list(self._recent[-n:])
+        return list(self._recent)[-n:]
 
     def _save_crop(self, frame: np.ndarray, track: TrackedObject) -> None:
         """Save a cropped image of the tracked object."""
