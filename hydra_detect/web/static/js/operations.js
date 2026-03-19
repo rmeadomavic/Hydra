@@ -44,6 +44,7 @@ const HydraOperations = (() => {
         loadConfig();
         loadAlertClasses();
         rfModeChanged();
+        loadRTSPStatus();
     }
 
     async function loadModels() {
@@ -201,6 +202,17 @@ const HydraOperations = (() => {
         addChange('ctrl-rf-mode', () => rfModeChanged());
         addClick('ctrl-btn-rf-start', () => rfStart());
         addClick('ctrl-btn-rf-stop', () => rfStop());
+
+        // RTSP toggle
+        addClick('ctrl-rtsp-toggle', () => toggleRTSP());
+        const rtspUrl = document.getElementById('ctrl-rtsp-url');
+        if (rtspUrl) {
+            rtspUrl.addEventListener('click', () => {
+                navigator.clipboard.writeText(rtspUrl.textContent);
+                rtspUrl.title = 'Copied!';
+                setTimeout(() => { rtspUrl.title = 'Click to copy'; }, 1500);
+            });
+        }
     }
 
     function addClick(id, handler) {
@@ -325,6 +337,16 @@ const HydraOperations = (() => {
                 const c = levelColor(pct);
                 el.style.color = c;
                 setBar('ctrl-ram-bar', pct, c);
+            }
+        }
+
+        // Refresh RTSP client count from stats
+        if (s.rtsp_clients !== undefined) {
+            const status = document.getElementById('ctrl-rtsp-status');
+            if (status && document.getElementById('ctrl-rtsp-toggle')?.classList.contains('active')) {
+                status.textContent = s.rtsp_clients > 0
+                    ? s.rtsp_clients + ' client' + (s.rtsp_clients !== 1 ? 's' : '')
+                    : 'ON';
             }
         }
     }
@@ -741,6 +763,40 @@ const HydraOperations = (() => {
         const stopBtn = document.getElementById('ctrl-btn-rf-stop');
         if (startBtn) startBtn.disabled = false;
         if (stopBtn) stopBtn.disabled = true;
+    }
+
+    // -- RTSP ----------------------------------------------------------
+
+    async function loadRTSPStatus() {
+        const data = await HydraApp.apiGet('/api/rtsp/status');
+        if (!data) return;
+        const toggle = document.getElementById('ctrl-rtsp-toggle');
+        const status = document.getElementById('ctrl-rtsp-status');
+        const urlEl = document.getElementById('ctrl-rtsp-url');
+        if (!toggle || !status) return;
+
+        if (data.running) {
+            toggle.classList.add('active');
+            status.textContent = data.clients > 0
+                ? data.clients + ' client' + (data.clients !== 1 ? 's' : '')
+                : 'ON';
+            if (urlEl) {
+                urlEl.textContent = data.url;
+                urlEl.style.display = 'block';
+            }
+        } else {
+            toggle.classList.remove('active');
+            status.textContent = 'OFF';
+            if (urlEl) urlEl.style.display = 'none';
+        }
+    }
+
+    async function toggleRTSP() {
+        const toggle = document.getElementById('ctrl-rtsp-toggle');
+        if (!toggle) return;
+        const nowActive = toggle.classList.contains('active');
+        const resp = await HydraApp.apiPost('/api/rtsp/toggle', { enabled: !nowActive });
+        if (resp) loadRTSPStatus();
     }
 
     // ── Stream Watcher ──
