@@ -76,6 +76,9 @@ class MAVLinkIO:
         self._cmd_callbacks: Dict[str, Callable] = {}
         self._cmd_callbacks_lock = threading.Lock()
 
+        # Serializes all MAVLink sends (prevents interleaving from video thread)
+        self._send_lock = threading.Lock()
+
         # MAV_CMD_USER IDs for Hydra commands
         self.CMD_LOCK = 31010     # MAV_CMD_USER_1: param1=track_id
         self.CMD_STRIKE = 31011   # MAV_CMD_USER_2: param1=track_id
@@ -334,7 +337,8 @@ class MAVLinkIO:
         if self._mav is None:
             return
         try:
-            self._mav.mav.command_ack_send(command, result)
+            with self._send_lock:
+                self._mav.mav.command_ack_send(command, result)
         except Exception as exc:
             logger.warning("Failed to send COMMAND_ACK: %s", exc)
 
@@ -398,7 +402,8 @@ class MAVLinkIO:
                 msg = mavlink2.MAVLink_statustext_message(severity=sev, text=payload)
                 msg._header.srcSystem = self._source_system
                 msg._header.srcComponent = mavlink2.MAV_COMP_ID_ONBOARD_COMPUTER
-                self._mav.mav.send(msg, force_mavlink1=False)
+                with self._send_lock:
+                    self._mav.mav.send(msg, force_mavlink1=False)
             except Exception as exc:
                 logger.warning("Failed to send STATUSTEXT: %s", exc)
 
@@ -445,7 +450,8 @@ class MAVLinkIO:
             # Try LOITER first (Copter), then HOLD (Rover)
             for mode_name in ("LOITER", "HOLD"):
                 if mode_name in mode_map:
-                    self._mav.set_mode_apm(mode_map[mode_name])
+                    with self._send_lock:
+                        self._mav.set_mode_apm(mode_map[mode_name])
                     logger.info("Vehicle set to %s mode.", mode_name)
                     return
             logger.warning("No LOITER/HOLD mode found in mode mapping.")
@@ -459,14 +465,15 @@ class MAVLinkIO:
         try:
             from pymavlink import mavutil
 
-            self._mav.mav.command_long_send(
-                self._mav.target_system,
-                self._mav.target_component,
-                mavutil.mavlink.MAV_CMD_DO_SET_ROI_LOCATION,
-                0,  # confirmation
-                0, 0, 0, 0,  # params 1-4 unused
-                lat, lon, alt,
-            )
+            with self._send_lock:
+                self._mav.mav.command_long_send(
+                    self._mav.target_system,
+                    self._mav.target_component,
+                    mavutil.mavlink.MAV_CMD_DO_SET_ROI_LOCATION,
+                    0,  # confirmation
+                    0, 0, 0, 0,  # params 1-4 unused
+                    lat, lon, alt,
+                )
             logger.info("ROI set to %.6f, %.6f", lat, lon)
         except Exception as exc:
             logger.warning("Failed to set ROI: %s", exc)
@@ -478,12 +485,13 @@ class MAVLinkIO:
         try:
             from pymavlink import mavutil
 
-            self._mav.mav.command_long_send(
-                self._mav.target_system,
-                self._mav.target_component,
-                mavutil.mavlink.MAV_CMD_DO_SET_ROI_NONE,
-                0, 0, 0, 0, 0, 0, 0, 0,
-            )
+            with self._send_lock:
+                self._mav.mav.command_long_send(
+                    self._mav.target_system,
+                    self._mav.target_component,
+                    mavutil.mavlink.MAV_CMD_DO_SET_ROI_NONE,
+                    0, 0, 0, 0, 0, 0, 0, 0,
+                )
             logger.info("ROI cleared.")
         except Exception as exc:
             logger.warning("Failed to clear ROI: %s", exc)
@@ -523,17 +531,18 @@ class MAVLinkIO:
             # We use relative yaw: small incremental adjustments each frame
             direction = 1 if yaw_rate >= 0 else -1  # 1=CW, -1=CCW
             angle = abs(yaw_rate) * 0.1  # Small step per call (~100ms frame interval)
-            self._mav.mav.command_long_send(
-                self._mav.target_system,
-                self._mav.target_component,
-                mavutil.mavlink.MAV_CMD_CONDITION_YAW,
-                0,  # confirmation
-                angle,            # param1: target angle (degrees)
-                abs(yaw_rate),    # param2: yaw speed (deg/s)
-                direction,        # param3: direction (1=CW, -1=CCW)
-                1,                # param4: 1=relative, 0=absolute
-                0, 0, 0,
-            )
+            with self._send_lock:
+                self._mav.mav.command_long_send(
+                    self._mav.target_system,
+                    self._mav.target_component,
+                    mavutil.mavlink.MAV_CMD_CONDITION_YAW,
+                    0,  # confirmation
+                    angle,            # param1: target angle (degrees)
+                    abs(yaw_rate),    # param2: yaw speed (deg/s)
+                    direction,        # param3: direction (1=CW, -1=CCW)
+                    1,                # param4: 1=relative, 0=absolute
+                    0, 0, 0,
+                )
         except Exception as exc:
             logger.warning("Yaw adjust failed: %s", exc)
 
@@ -566,7 +575,8 @@ class MAVLinkIO:
             # Switch to GUIDED mode
             mode_map = self._mav.mode_mapping()
             if "GUIDED" in mode_map:
-                self._mav.set_mode_apm(mode_map["GUIDED"])
+                with self._send_lock:
+                    self._mav.set_mode_apm(mode_map["GUIDED"])
             else:
                 logger.warning("GUIDED mode not available in mode mapping.")
                 return False
@@ -580,19 +590,20 @@ class MAVLinkIO:
                 alt = cur_alt
 
             # Send position target
-            self._mav.mav.set_position_target_global_int_send(
-                0,  # time_boot_ms (not used)
-                self._mav.target_system,
-                self._mav.target_component,
-                mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
-                0b0000111111111000,  # type_mask: use only lat/lon/alt
-                int(lat * 1e7),     # lat_int
-                int(lon * 1e7),     # lon_int
-                alt,                # alt (metres)
-                0, 0, 0,            # vx, vy, vz (ignored)
-                0, 0, 0,            # afx, afy, afz (ignored)
-                0, 0,               # yaw, yaw_rate (ignored)
-            )
+            with self._send_lock:
+                self._mav.mav.set_position_target_global_int_send(
+                    0,  # time_boot_ms (not used)
+                    self._mav.target_system,
+                    self._mav.target_component,
+                    mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+                    0b0000111111111000,  # type_mask: use only lat/lon/alt
+                    int(lat * 1e7),     # lat_int
+                    int(lon * 1e7),     # lon_int
+                    alt,                # alt (metres)
+                    0, 0, 0,            # vx, vy, vz (ignored)
+                    0, 0, 0,            # afx, afy, afz (ignored)
+                    0, 0,               # yaw, yaw_rate (ignored)
+                )
             logger.info("GUIDED to %.6f, %.6f alt=%.1fm", lat, lon, alt)
             self.send_statustext(f"STRIKE: GUIDED to {lat:.5f},{lon:.5f}", severity=1)  # ALERT — red in Mission Planner
             return True
@@ -659,15 +670,16 @@ class MAVLinkIO:
         try:
             from pymavlink import mavutil
 
-            self._mav.mav.command_long_send(
-                self._mav.target_system,
-                self._mav.target_component,
-                mavutil.mavlink.MAV_CMD_DO_SET_SERVO,
-                0,          # confirmation
-                channel,    # param1: servo channel
-                pwm,        # param2: PWM microseconds
-                0, 0, 0, 0, 0,
-            )
+            with self._send_lock:
+                self._mav.mav.command_long_send(
+                    self._mav.target_system,
+                    self._mav.target_component,
+                    mavutil.mavlink.MAV_CMD_DO_SET_SERVO,
+                    0,          # confirmation
+                    channel,    # param1: servo channel
+                    pwm,        # param2: PWM microseconds
+                    0, 0, 0, 0, 0,
+                )
         except Exception as exc:
             logger.warning("set_servo ch=%d pwm=%d failed: %s", channel, pwm, exc)
 
@@ -722,7 +734,8 @@ class MAVLinkIO:
         try:
             mode_map = self._mav.mode_mapping()
             if mode_name in mode_map:
-                self._mav.set_mode_apm(mode_map[mode_name])
+                with self._send_lock:
+                    self._mav.set_mode_apm(mode_map[mode_name])
                 logger.info("Vehicle set to %s mode.", mode_name)
                 return True
             logger.warning("Mode %s not found in mode mapping.", mode_name)
@@ -734,3 +747,13 @@ class MAVLinkIO:
     @property
     def connected(self) -> bool:
         return self._mav is not None
+
+    @property
+    def send_lock(self) -> threading.Lock:
+        """Lock for serializing MAVLink send operations."""
+        return self._send_lock
+
+    @property
+    def mav(self):
+        """Raw pymavlink connection (for MAVLink video sender)."""
+        return self._mav
