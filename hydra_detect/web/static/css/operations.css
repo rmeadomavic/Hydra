@@ -1,4 +1,4 @@
-/* ── Control View — Right-Side Panel Area ── */
+/* ── Operations View — Right-Side Panel Area ── */
 
 /* Panel toolbar (visibility toggle) */
 .panel-toolbar {
@@ -59,25 +59,15 @@
 }
 
 /* Panel container: right 40% of view */
-.view-control {
+.view-operations {
     display: flex;
     justify-content: flex-end;
 }
 
-.view-control > .panel-toolbar,
-.view-control > .operations-panels {
+.view-operations > .panel-toolbar,
+.view-operations > .operations-panels {
     position: relative;
     z-index: 2;
-}
-
-#view-control {
-    display: none;
-    flex-direction: column;
-    align-items: flex-end;
-}
-
-body.view-control #view-control {
-    display: flex;
 }
 
 .operations-panels {
