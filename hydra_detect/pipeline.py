@@ -5,7 +5,6 @@ from __future__ import annotations
 import configparser
 import logging
 import signal
-import subprocess
 import sys
 import threading
 import time
@@ -23,6 +22,12 @@ from .detectors.yolo_detector import YOLODetector
 from .mavlink_io import MAVLinkIO
 from .osd import FpvOsd, build_osd_state
 from .overlay import draw_tracks
+from .system import (
+    list_models as _list_models,
+    list_power_modes as _list_power_modes,
+    read_jetson_stats as _read_jetson_stats,
+    set_power_mode as _set_power_mode,
+)
 from .tracker import ByteTracker
 from .web.config_api import set_config_path
 from .web.server import configure_auth, run_server, stream_state
@@ -39,8 +44,62 @@ def _read_thermal(zone: str) -> float | None:
         return None
 
 
+_nvpmodel_cache: dict = {"power_mode": None}
+_nvpmodel_lock: threading.Lock = threading.Lock()
+_nvpmodel_refresh_running: bool = False
+
+
+def _query_nvpmodel_background() -> None:
+    """Run 'nvpmodel -q' in a background thread and update the cache."""
+    global _nvpmodel_refresh_running
+    try:
+        result = subprocess.run(
+            ["nvpmodel", "-q"], capture_output=True, text=True, timeout=2,
+        )
+        power_mode: str | None = None
+        for line in result.stdout.splitlines():
+            if "NV Power Mode" in line:
+                power_mode = line.split(":", 1)[1].strip()
+                break
+        with _nvpmodel_lock:
+            _nvpmodel_cache["power_mode"] = power_mode
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        pass  # leave cache unchanged on failure
+    finally:
+        with _nvpmodel_lock:
+            _nvpmodel_refresh_running = False
+
+
+def _refresh_nvpmodel_async() -> None:
+    """Trigger a background refresh of the nvpmodel cache if none is running."""
+    global _nvpmodel_refresh_running
+    with _nvpmodel_lock:
+        if _nvpmodel_refresh_running:
+            return
+        _nvpmodel_refresh_running = True
+    t = threading.Thread(target=_query_nvpmodel_background, daemon=True)
+    t.start()
+
+
+def _query_nvpmodel_sync() -> str | None:
+    """Run 'nvpmodel -q' synchronously (for use outside the hot loop)."""
+    try:
+        result = subprocess.run(
+            ["nvpmodel", "-q"], capture_output=True, text=True, timeout=2,
+        )
+        for line in result.stdout.splitlines():
+            if "NV Power Mode" in line:
+                mode = line.split(":", 1)[1].strip()
+                with _nvpmodel_lock:
+                    _nvpmodel_cache["power_mode"] = mode
+                return mode
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        pass
+    return None
+
+
 def _read_jetson_stats() -> dict:
-    """Read Jetson system stats from sysfs and nvpmodel."""
+    """Read Jetson system stats from sysfs; power_mode comes from async cache."""
     stats: dict = {}
 
     # Temperatures
@@ -71,19 +130,10 @@ def _read_jetson_stats() -> dict:
     except (FileNotFoundError, ValueError, PermissionError):
         stats["gpu_load_pct"] = None
 
-    # Power mode via nvpmodel
-    try:
-        result = subprocess.run(
-            ["nvpmodel", "-q"], capture_output=True, text=True, timeout=2,
-        )
-        for line in result.stdout.splitlines():
-            if "NV Power Mode" in line:
-                stats["power_mode"] = line.split(":", 1)[1].strip()
-                break
-        else:
-            stats["power_mode"] = None
-    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
-        stats["power_mode"] = None
+    # Power mode — read from async-updated cache (never blocks the hot loop)
+    with _nvpmodel_lock:
+        stats["power_mode"] = _nvpmodel_cache["power_mode"]
+
     return stats
 
 
@@ -420,6 +470,9 @@ class Pipeline:
         self._paused = False
         self._total_detections = 0
         self._frame_count = 0
+        # Pre-populate the nvpmodel cache synchronously at startup (not in the
+        # hot loop, so blocking here is fine) then read sysfs stats.
+        _query_nvpmodel_sync()
         self._jetson_stats: dict = _read_jetson_stats()
         self._init_target_state()
 
@@ -696,8 +749,12 @@ class Pipeline:
                     gps_data = self._mavlink.get_gps()
                     stats_update["gps_fix"] = gps_data.get("fix", 0)
                     stats_update["position"] = self._mavlink.get_position_string()
-                # Read Jetson stats every ~5 seconds (not every frame)
+                # Refresh Jetson stats every ~5 seconds (not every frame).
+                # sysfs reads (temp, RAM, GPU load) happen inline; the
+                # nvpmodel subprocess is dispatched to a background thread
+                # so it never blocks the detection loop.
                 if self._frame_count % 150 == 0:
+                    _refresh_nvpmodel_async()
                     self._jetson_stats = _read_jetson_stats()
                 if self._rf_hunt is not None:
                     stats_update["rf_hunt"] = self._rf_hunt.get_status()
@@ -901,6 +958,9 @@ class Pipeline:
         """Set Jetson power mode by ID."""
         result = _set_power_mode(mode_id)
         if result["status"] == "ok":
+            # This runs on a web-request thread, not the hot loop — synchronous
+            # nvpmodel query is acceptable here to get the freshest reading.
+            _query_nvpmodel_sync()
             self._jetson_stats = _read_jetson_stats()
         return result
 
