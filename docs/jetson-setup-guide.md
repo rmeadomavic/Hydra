@@ -106,6 +106,7 @@ nano config.ini
 | `source` | `[camera]` | `0` for /dev/video0, RTSP URL, or file path |
 | `connection_string` | `[mavlink]` | `/dev/ttyACM0` or UDP endpoint |
 | `enabled` | `[mavlink]` | Set `false` if no flight controller connected |
+| `enabled` | `[rtsp]` | RTSP video stream for Mission Planner (on by default) |
 
 > **Tip:** YOLO (yolov8n) downloads its model automatically on first run
 > (~6 MB). No manual model setup required.
@@ -128,6 +129,7 @@ docker run --rm --privileged --runtime nvidia \
   -v /var/lib/nvpmodel:/var/lib/nvpmodel \
   -v $(pwd)/models:/models \
   -p 8080:8080 \
+  -p 8554:8554 \
   hydra-detect:latest
 ```
 
@@ -161,6 +163,33 @@ docker run --rm --privileged --runtime nvidia \
 Open a browser to `http://<jetson-ip>:8080`
 
 You should see a live camera feed with detection bounding boxes overlaid.
+
+### RTSP video stream for Mission Planner
+
+Hydra publishes annotated detection frames (with bounding boxes, FPS, and
+lock indicators) as an H.264 RTSP stream. This is enabled by default.
+
+**In Mission Planner:**
+
+1. Right-click the HUD (the main attitude/video display)
+2. Select **Video > Set GStreamer Source**
+3. Paste:
+   ```
+   rtspsrc location=rtsp://<jetson-ip>:8554/hydra latency=0 ! decodebin ! videoconvert ! autovideosink
+   ```
+4. The annotated detection feed appears in the HUD
+
+**Test with VLC or ffplay:**
+
+```bash
+ffplay rtsp://<jetson-ip>:8554/hydra
+# or
+vlc rtsp://<jetson-ip>:8554/hydra
+```
+
+The RTSP stream can be toggled on/off from the web dashboard (System panel)
+or via the API (`POST /api/rtsp/toggle`). Config lives in the `[rtsp]`
+section of `config.ini`.
 
 ### Expected startup log
 

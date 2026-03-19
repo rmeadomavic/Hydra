@@ -419,6 +419,7 @@ $DEVICE_FLAGS \
   -v $HYDRA_DIR/models:/models \
   -v $HYDRA_DIR/output_data:/data \
   -p 8080:8080 \
+  -p 8554:8554 \
   hydra-detect:latest"
 
 # Determine dashboard URL
@@ -432,8 +433,10 @@ echo "  $DOCKER_CMD"
 echo ""
 if [ -n "$TS_IP_DISPLAY" ]; then
     info "Dashboard (Tailscale): http://${TS_IP_DISPLAY}:8080"
+    info "RTSP stream (Tailscale): rtsp://${TS_IP_DISPLAY}:8554/hydra"
 fi
 info "Dashboard (local): $DASHBOARD_URL"
+info "RTSP stream (local): rtsp://${JETSON_IP}:8554/hydra"
 echo ""
 
 if ask "Launch Hydra now?" "Y"; then
