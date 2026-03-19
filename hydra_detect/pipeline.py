@@ -24,6 +24,7 @@ from .mavlink_io import MAVLinkIO
 from .osd import FpvOsd, build_osd_state
 from .overlay import draw_tracks
 from .tracker import ByteTracker
+from .web.config_api import set_config_path
 from .web.server import configure_auth, run_server, stream_state
 
 logger = logging.getLogger(__name__)
@@ -197,6 +198,10 @@ class Pipeline:
     def __init__(self, config_path: str = "config.ini"):
         self._cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
         self._cfg.read(config_path)
+
+        # Wire the config API to the actual file so the web settings page
+        # reads and writes the correct path when --config is non-default.
+        set_config_path(Path(config_path).resolve())
 
         # Models search: /models (Docker mount), then ./models, then project root
         self._project_dir = Path(config_path).resolve().parent
