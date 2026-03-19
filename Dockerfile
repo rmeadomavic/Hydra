@@ -26,10 +26,22 @@ RUN pip3 install --no-cache-dir --no-deps ultralytics supervision && \
     pip3 install --no-cache-dir scipy polars ultralytics-thop defusedxml pyDeprecate matplotlib tqdm && \
     rm /tmp/reqs-filtered.txt
 
+# GStreamer RTSP server for annotated video output
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gstreamer1.0-rtsp \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    gir1.2-gst-rtsp-server-1.0 \
+    gir1.2-gst-plugins-base-1.0 \
+    gir1.2-gstreamer-1.0 \
+    python3-gi \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy application
 COPY hydra_detect/ ./hydra_detect/
 COPY config.ini .
 
 EXPOSE 8080
+EXPOSE 8554
 
 CMD ["python3", "-m", "hydra_detect", "--config", "config.ini"]
