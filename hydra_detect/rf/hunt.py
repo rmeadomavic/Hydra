@@ -20,6 +20,7 @@ from enum import Enum
 from typing import Callable
 
 from .kismet_client import KismetClient
+from .kismet_manager import KismetManager
 from .navigator import GradientNavigator
 from .search import generate_lawnmower, generate_spiral
 from .signal import RSSIFilter
@@ -104,6 +105,7 @@ class RFHuntController:
         arrival_tolerance_m: float = 3.0,
         # Callbacks
         on_state_change: Callable[[HuntState], None] | None = None,
+        kismet_manager: KismetManager | None = None,
     ):
         self._mavlink = mavlink
         self._mode = mode
@@ -118,6 +120,7 @@ class RFHuntController:
         self._poll_interval = poll_interval_sec
         self._arrival_tolerance = arrival_tolerance_m
         self._on_state_change = on_state_change
+        self._kismet_manager = kismet_manager
 
         self._kismet = KismetClient(
             host=kismet_host, user=kismet_user, password=kismet_pass,
@@ -287,12 +290,31 @@ class RFHuntController:
             self._report_results()
 
     def _poll_rssi(self) -> float | None:
-        """Poll Kismet for current RSSI."""
-        return self._kismet.get_rssi(
+        """Poll Kismet for current RSSI, restarting Kismet once on failure."""
+        rssi = self._kismet.get_rssi(
             mode=self._mode,
             bssid=self._target_bssid,
             freq_mhz=self._target_freq_mhz,
         )
+        if rssi is not None:
+            return rssi
+
+        # No reading — check if Kismet is still up
+        if self._kismet_manager is None:
+            return None
+        if not self._kismet.check_connection():
+            logger.warning("Kismet connection lost — attempting restart")
+            if self._kismet_manager.restart(stop_event=self._stop_evt):
+                # Reset auth so KismetClient re-authenticates with new Kismet instance.
+                # TODO: Add KismetClient.reset_auth() method to avoid private attr access.
+                self._kismet._authenticated = False
+                return self._kismet.get_rssi(
+                    mode=self._mode,
+                    bssid=self._target_bssid,
+                    freq_mhz=self._target_freq_mhz,
+                )
+            logger.error("Kismet restart failed")
+        return None
 
     def _do_search(self) -> None:
         """Fly search pattern while polling for target signal."""

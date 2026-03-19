@@ -259,3 +259,39 @@ class TestHuntKismetClient:
         assert ctrl._kismet._host == "http://192.168.1.100:2501"
         assert ctrl._kismet._user == "admin"
         assert ctrl._kismet._password == "secret"
+
+
+class TestHuntKismetManagerIntegration:
+    def test_accepts_kismet_manager(self):
+        from hydra_detect.rf.kismet_manager import KismetManager
+        mgr = KismetManager(
+            source="rtl433-0",
+            capture_dir="/tmp/test",
+            host="http://localhost:2501",
+            log_dir="/tmp/test",
+        )
+        ctrl = _make_controller(kismet_manager=mgr)
+        assert ctrl._kismet_manager is mgr
+
+    def test_works_without_kismet_manager(self):
+        ctrl = _make_controller()
+        assert ctrl._kismet_manager is None
+
+    def test_poll_rssi_restarts_kismet_on_failure(self):
+        from hydra_detect.rf.kismet_manager import KismetManager
+
+        mgr = MagicMock(spec=KismetManager)
+        mgr.restart.return_value = True
+
+        ctrl = _make_controller(kismet_manager=mgr)
+        ctrl._set_state(HuntState.SEARCHING)
+
+        # First call returns None (connection error), retry after restart returns -60
+        ctrl._kismet = MagicMock()
+        ctrl._kismet.get_rssi.side_effect = [None, -60.0]
+        ctrl._kismet.check_connection.return_value = False
+
+        rssi = ctrl._poll_rssi()
+        # Should have attempted restart and returned the retry value
+        mgr.restart.assert_called_once()
+        assert rssi == -60.0
