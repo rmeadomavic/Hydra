@@ -333,6 +333,7 @@ class Pipeline:
                     capture_dir=self._cfg.get("rf_homing", "kismet_capture_dir", fallback="./output_data/kismet"),
                     host=kismet_host,
                     log_dir=self._cfg.get("logging", "log_dir", fallback="./output_data/logs"),
+                    max_capture_mb=self._cfg.getfloat("rf_homing", "kismet_max_capture_mb", fallback=100.0),
                 )
                 if self._kismet_manager.start():
                     self._rf_hunt = RFHuntController(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import signal
 import subprocess
 import threading
@@ -249,3 +250,61 @@ class TestKismetManagerRestart:
         assert mgr.restart(stop_event=evt) is False
         mock_stop.assert_called_once()
         mock_start.assert_not_called()
+
+
+class TestKismetManagerCaptureLimit:
+    def test_deletes_oldest_when_over_limit(self, tmp_path):
+        cap_dir = tmp_path / "captures"
+        cap_dir.mkdir()
+        # Create 3 files: 40 KB each = 120 KB total
+        for i in range(3):
+            f = cap_dir / f"Kismet-{i}.kismet"
+            f.write_bytes(b"\x00" * 40_000)
+            # Stagger mtimes so ordering is deterministic
+            os.utime(f, (1000 + i, 1000 + i))
+
+        mgr = KismetManager(
+            source="rtl433-0",
+            capture_dir=str(cap_dir),
+            host="http://localhost:2501",
+            log_dir=str(tmp_path / "logs"),
+            max_capture_mb=0.05,  # ~52 KB limit
+        )
+        mgr._enforce_capture_limit()
+
+        remaining = sorted(cap_dir.iterdir())
+        # Should have deleted the two oldest, keeping only Kismet-2.kismet
+        assert len(remaining) == 1
+        assert remaining[0].name == "Kismet-2.kismet"
+
+    def test_no_delete_when_under_limit(self, tmp_path):
+        cap_dir = tmp_path / "captures"
+        cap_dir.mkdir()
+        f = cap_dir / "Kismet-0.kismet"
+        f.write_bytes(b"\x00" * 1000)
+
+        mgr = KismetManager(
+            source="rtl433-0",
+            capture_dir=str(cap_dir),
+            host="http://localhost:2501",
+            log_dir=str(tmp_path / "logs"),
+            max_capture_mb=1.0,
+        )
+        mgr._enforce_capture_limit()
+        assert len(list(cap_dir.iterdir())) == 1
+
+    def test_unlimited_when_zero(self, tmp_path):
+        cap_dir = tmp_path / "captures"
+        cap_dir.mkdir()
+        for i in range(5):
+            (cap_dir / f"Kismet-{i}.kismet").write_bytes(b"\x00" * 10_000)
+
+        mgr = KismetManager(
+            source="rtl433-0",
+            capture_dir=str(cap_dir),
+            host="http://localhost:2501",
+            log_dir=str(tmp_path / "logs"),
+            max_capture_mb=0,
+        )
+        mgr._enforce_capture_limit()
+        assert len(list(cap_dir.iterdir())) == 5

@@ -26,6 +26,7 @@ class KismetManager:
         capture_dir: Directory for .kismet capture files.
         host: Kismet REST API base URL.
         log_dir: Directory for kismet.log (stdout/stderr).
+        max_capture_mb: Max disk usage for capture files in MB (0 = unlimited).
     """
 
     def __init__(
@@ -35,11 +36,13 @@ class KismetManager:
         capture_dir: str = "./output_data/kismet",
         host: str = "http://localhost:2501",
         log_dir: str = "./output_data/logs",
+        max_capture_mb: float = 100.0,
     ):
         self._source = source
         self._capture_dir = capture_dir
         self._host = host.rstrip("/")
         self._log_dir = log_dir
+        self._max_capture_bytes = int(max_capture_mb * 1_048_576)
         self._process: subprocess.Popen | None = None
         self._we_own_process = False
         self._log_file = None
@@ -75,6 +78,8 @@ class KismetManager:
 
         os.makedirs(self._capture_dir, exist_ok=True)
         os.makedirs(self._log_dir, exist_ok=True)
+
+        self._enforce_capture_limit()
 
         log_prefix = os.path.join(os.path.abspath(self._capture_dir), "Kismet")
         cmd = [
@@ -177,6 +182,35 @@ class KismetManager:
             return False
 
         return self.start()
+
+    def _enforce_capture_limit(self) -> None:
+        """Delete oldest .kismet files until total size is under the limit."""
+        if self._max_capture_bytes <= 0:
+            return
+        try:
+            files = []
+            for name in os.listdir(self._capture_dir):
+                if name.endswith((".kismet", ".kismet-journal")):
+                    path = os.path.join(self._capture_dir, name)
+                    files.append((os.path.getmtime(path), os.path.getsize(path), path))
+        except OSError:
+            return
+
+        total = sum(size for _, size, _ in files)
+        if total <= self._max_capture_bytes:
+            return
+
+        # Sort oldest first
+        files.sort()
+        for mtime, size, path in files:
+            if total <= self._max_capture_bytes:
+                break
+            try:
+                os.remove(path)
+                total -= size
+                logger.info("Removed old capture: %s (%.1f MB)", path, size / 1_048_576)
+            except OSError as exc:
+                logger.warning("Could not remove %s: %s", path, exc)
 
     def _check_api(self) -> bool:
         """Hit Kismet REST API to see if it's responding."""
