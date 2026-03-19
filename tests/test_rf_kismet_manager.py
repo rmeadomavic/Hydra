@@ -176,3 +176,76 @@ class TestKismetManagerStop:
 
         mgr.stop(timeout_sec=0.1)
         proc.kill.assert_called_once()
+
+
+class TestKismetManagerHealth:
+    @patch("hydra_detect.rf.kismet_manager.requests.get")
+    def test_healthy_when_api_responds(self, mock_get):
+        mgr = KismetManager(
+            source="rtl433-0",
+            capture_dir="/tmp/test",
+            host="http://localhost:2501",
+            log_dir="/tmp/test",
+        )
+        resp = MagicMock()
+        resp.status_code = 200
+        mock_get.return_value = resp
+        # Simulate adopted process (no subprocess but API up)
+        mgr._we_own_process = False
+        assert mgr.is_healthy() is True
+
+    @patch("hydra_detect.rf.kismet_manager.requests.get")
+    def test_unhealthy_when_process_dead(self, mock_get):
+        mgr = KismetManager(
+            source="rtl433-0",
+            capture_dir="/tmp/test",
+            host="http://localhost:2501",
+            log_dir="/tmp/test",
+        )
+        proc = MagicMock()
+        proc.poll.return_value = 1  # exited
+        mgr._process = proc
+        mgr._we_own_process = True
+        assert mgr.is_healthy() is False
+
+    @patch("hydra_detect.rf.kismet_manager.requests.get")
+    def test_unhealthy_when_api_down(self, mock_get):
+        import requests
+        mock_get.side_effect = requests.ConnectionError("refused")
+        mgr = KismetManager(
+            source="rtl433-0",
+            capture_dir="/tmp/test",
+            host="http://localhost:2501",
+            log_dir="/tmp/test",
+        )
+        assert mgr.is_healthy() is False
+
+
+class TestKismetManagerRestart:
+    @patch.object(KismetManager, "start", return_value=True)
+    @patch.object(KismetManager, "stop")
+    def test_restart_calls_stop_then_start(self, mock_stop, mock_start):
+        mgr = KismetManager(
+            source="rtl433-0",
+            capture_dir="/tmp/test",
+            host="http://localhost:2501",
+            log_dir="/tmp/test",
+        )
+        assert mgr.restart() is True
+        mock_stop.assert_called_once()
+        mock_start.assert_called_once()
+
+    @patch.object(KismetManager, "start", return_value=True)
+    @patch.object(KismetManager, "stop")
+    def test_restart_bails_if_stop_event_set(self, mock_stop, mock_start):
+        mgr = KismetManager(
+            source="rtl433-0",
+            capture_dir="/tmp/test",
+            host="http://localhost:2501",
+            log_dir="/tmp/test",
+        )
+        evt = threading.Event()
+        evt.set()
+        assert mgr.restart(stop_event=evt) is False
+        mock_stop.assert_called_once()
+        mock_start.assert_not_called()
