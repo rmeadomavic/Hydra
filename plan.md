@@ -1,19 +1,51 @@
-# Implementation Plan: MAVLink Commands, Autonomous Strike, Mission Review
+# Hydra Roadmap: Commands, Autonomy, Review, and Reliability
 
-## Overview
+## Why this rewrite exists
 
-Three features to enable full beyond-visual-range USV operations:
+This roadmap keeps the original ideas intact, but organizes them into:
 
-1. **MAVLink Command Path** — Strike/lock/unlock over telemetry radio (no WiFi needed)
-2. **Autonomous Strike Controller** — Geofenced auto-engage with qualification criteria
-3. **Post-Mission Review Tool** — Web page + CLI script for reviewing detection logs on a map
+1. **Must have next** — highest value / lowest regret work
+2. **Should have soon** — important enabling work and risk reduction
+3. **Nice to have later** — worthwhile extensions that should stay visible
+4. **Idea backlog (do not lose)** — notable future ideas pulled forward so they do not disappear in later edits
+
+The goal is to preserve the existing feature concepts while making sequencing and tradeoffs clearer.
 
 ---
 
-## Feature 1: MAVLink Command Path
+## Priority Overview
+
+### Must have next
+
+1. **MAVLink Command Path** — radio-only lock / strike / unlock commands
+2. **Post-Mission Review Tool** — web + export tooling for validating missions and detections
+3. **Reliability / Regression hardening** — lifecycle, auth, degraded-mode, and restart-path coverage
+4. **RF restart cleanup** — remove private auth mutation by giving `KismetClient` an explicit reset path
+
+### Should have soon
+
+5. **Autonomous Strike Controller** — only with explicit safety / explainability controls
+6. **Offline review workflow** — bundle/export strategy for field and air-gapped use
+7. **Fleet trust / time semantics** — identity, freshness, and conflict groundwork before heavier C2 features
+
+### Nice to have later
+
+8. **Fleet coordination extensions** — TAK/CoT, commander node, deconfliction, shared geofence
+9. **Advanced RF / Kismet expansion** — WiFi monitor mode, multi-SDR, richer RF indexing
+10. **UI polish** — presentation mode refinement and more operator-focused display options
+
+---
+
+## Workstream 1: MAVLink Command Path
 
 ### Goal
 Allow operators to send target lock, strike, and unlock commands from Mission Planner over RFD 900x radio using MAV_CMD_USER commands and NAMED_VALUE_INT messages.
+
+### Why it is first
+- Enables control without WiFi
+- Useful immediately in the field
+- Lower safety risk than autonomous strike
+- Creates a clean command channel that later autonomy and fleet work can build on
 
 ### Files Modified
 - `hydra_detect/mavlink_io.py` — Add command listener thread
@@ -56,10 +88,126 @@ Allow operators to send target lock, strike, and unlock commands from Mission Pl
 
 ---
 
-## Feature 2: Autonomous Strike Controller
+## Workstream 2: Post-Mission Review Tool
+
+### Goal
+Two ways to review detection logs after a mission:
+1. Web page on the Jetson (`/review`) with interactive Leaflet map
+2. CLI script that generates a standalone HTML file for offline viewing
+
+### Why it is early
+- Increases confidence in detections and mission behavior
+- Helps debug autonomy, RF, and target-control behavior later
+- Valuable even before autonomous strike ships
+- Produces artifacts operators and stakeholders can inspect
+
+### Files Created
+- `hydra_detect/web/templates/review.html` — Leaflet map review page
+- `hydra_detect/review_export.py` — CLI script for standalone HTML export
+- `tests/test_review.py` — Tests for log parsing and export
+
+### Files Modified
+- `hydra_detect/web/server.py` — Add review endpoints
+
+### Web Review Page
+
+**New endpoints in server.py:**
+- `GET /review` — Serve the review HTML page
+- `GET /api/review/logs` — List available JSONL/CSV log files in log_dir
+- `GET /api/review/log/{filename}` — Parse and return detection data from a log file
+- `GET /api/review/images/{filename}` — Serve saved detection images from image_dir
+
+**Review page features (Leaflet.js via CDN):**
+- OpenStreetMap tile layer (works offline with cached tiles)
+- Detection markers placed at GPS coordinates
+- Marker popup: label, confidence, timestamp, thumbnail image
+- Color-coded markers by class
+- Filter panel: filter by class label, minimum confidence slider
+- Track trails: toggle to connect markers with same track_id as polylines
+- Timeline slider: scrub through detections by timestamp
+- Log file selector dropdown
+
+### CLI Export Script
+
+`python -m hydra_detect.review_export /data/logs/detections_20260315_120000.jsonl -o mission_report.html`
+
+**Features:**
+- Reads JSONL or CSV log file
+- Embeds detection data as inline JSON in a self-contained HTML file
+- Uses Leaflet.js CDN (requires internet to open) or optionally inlines the JS
+- Generates summary statistics: total detections, unique classes, time range
+- Outputs a single .html file you can SCP off and open anywhere
+- Optional: `--images-dir` flag to embed thumbnail images as base64
+
+### Offline / field-use additions that should be tracked with this work
+- Fully offline export mode (no CDN dependency)
+- Optional tile caching or alternate map source strategy
+- Large-log handling (pagination / decimation / filtering before render)
+- Log/image consistency checks for missing media
+
+### Tests
+- `tests/test_review.py`:
+  - Test JSONL log parsing
+  - Test CSV log parsing
+  - Test log file listing endpoint
+  - Test image serving with path traversal protection
+  - Test CLI export generates valid HTML
+  - Test filtering by class and confidence
+
+---
+
+## Workstream 3: Reliability / Regression Hardening
+
+### Goal
+Capture the cross-cutting work that prevents repeated lifecycle, restart, auth, and degraded-mode failures as the project grows.
+
+### Why it is explicit now
+Recent fixes were mostly not “missing features”; they were correctness and resilience issues. This should be visible as a real workstream, not treated as incidental cleanup.
+
+### Scope
+- UI lifecycle regression coverage
+- Auth-enabled web control flow coverage
+- Degraded startup behavior when optional dependencies are missing
+- Disk-full / unwritable storage behavior
+- Restart-path visibility for RF/Kismet
+- Clear operator-facing health state where useful
+
+### Concrete near-term tasks
+- Add explicit tests for first-load Operations init, repeated view entry, and panel re-init regressions
+- Add smoke coverage for auth-enabled control endpoints from the SPA perspective
+- Add tests / behavior checks for missing `cv2`, missing `httpx`, missing Kismet binary, and unwritable log directories where practical
+- Surface RF subsystem restart count / last restart reason / adopted-vs-owned status in status APIs or UI as needed
+- Keep degraded modes safe and obvious rather than silently partial
+
+---
+
+## Workstream 4: RF Restart / Auth Cleanup
+
+### Goal
+Remove the current private-attribute auth reset in the RF restart path and replace it with a real client API.
+
+### Why it matters
+There is already a TODO in the hunt controller to stop mutating Kismet client internals directly after a restart. This is small, concrete, and worth fixing soon.
+
+### Files Modified
+- `hydra_detect/rf/kismet_client.py` — Add `reset_auth()` or equivalent
+- `hydra_detect/rf/hunt.py` — Use the public reset path
+- `tests/test_rf_hunt.py` / `tests/test_rf_kismet.py` — Cover restart + re-auth behavior
+
+### Success criteria
+- No direct mutation of private auth state from `RFHuntController`
+- Restart path remains test-covered
+- Failure behavior is unchanged or clearer
+
+---
+
+## Workstream 5: Autonomous Strike Controller
 
 ### Goal
 When the vehicle is in AUTO mode, inside a geofence, and a target meets qualification criteria, automatically initiate a strike without operator confirmation.
+
+### Why it is not first
+This is the highest-consequence feature in the current roadmap. It is important, but should ship with more explicit safety and explainability controls than the current draft implies.
 
 ### Files Created
 - `hydra_detect/autonomous.py` — AutonomousController class
@@ -136,7 +284,7 @@ class AutonomousController:
 - Extract `custom_mode` field and map to mode name
 - Store in GPS-like state dict, read by autonomous controller
 
-**Safety features:**
+**Safety features already in scope:**
 - Disabled by default (`enabled = false`)
 - Geofence must be explicitly configured (0,0 center = invalid)
 - Cooldown prevents rapid successive strikes
@@ -145,6 +293,12 @@ class AutonomousController:
 - Track persistence debounces false positives
 - All autonomous decisions logged to `hydra.audit` logger with full context
 - STATUSTEXT alert: `"AUTO-STRIKE: mine #4 @ 18SUJ1234567890"` sent to GCS
+
+### Additional controls that should be preserved in the roadmap
+- Dry-run mode (evaluate and report, but never strike)
+- Explicit runtime enable / inhibit control beyond config alone
+- Explainability logging for why a candidate did or did not qualify
+- Pre-strike audit trail that operators can review after the fact
 
 ### Pipeline Integration Point
 In `_run_loop()`, after tracking and MAVLink alerts, before overlay:
@@ -173,68 +327,86 @@ if self._autonomous is not None:
 
 ---
 
-## Feature 3: Post-Mission Review Tool
+## Workstream 6: Fleet groundwork before heavier coordination
 
 ### Goal
-Two ways to review detection logs after a mission:
-1. Web page on the Jetson (`/review`) with interactive Leaflet map
-2. CLI script that generates a standalone HTML file for offline viewing
+Keep fleet work visible, but sequence the foundations before the bigger C2 ideas.
 
-### Files Created
-- `hydra_detect/web/templates/review.html` — Leaflet map review page
-- `hydra_detect/review_export.py` — CLI script for standalone HTML export
-- `tests/test_review.py` — Tests for log parsing and export
+### Nearer-term groundwork
+- Node identity / authenticity assumptions
+- Duplicate node_id handling
+- Timestamp / freshness semantics
+- Stale / replay handling expectations
 
-### Files Modified
-- `hydra_detect/web/server.py` — Add review endpoints
+### Later feature ideas already worth preserving
+- TAK/CoT integration
+- Automated target deconfliction
+- Commander node / C2 commands
+- Fleet map overlay on video feed
+- Shared geofence enforcement
 
-### Web Review Page
+---
 
-**New endpoints in server.py:**
-- `GET /review` — Serve the review HTML page
-- `GET /api/review/logs` — List available JSONL/CSV log files in log_dir
-- `GET /api/review/log/{filename}` — Parse and return detection data from a log file
-- `GET /api/review/images/{filename}` — Serve saved detection images from image_dir
+## Workstream 7: Advanced RF / UI polish (later)
 
-**Review page features (Leaflet.js via CDN):**
-- OpenStreetMap tile layer (works offline with cached tiles)
-- Detection markers placed at GPS coordinates
-- Marker popup: label, confidence, timestamp, thumbnail image
-- Color-coded markers by class
-- Filter panel: filter by class label, minimum confidence slider
-- Track trails: toggle to connect markers with same track_id as polylines
-- Timeline slider: scrub through detections by timestamp
-- Log file selector dropdown
+### Advanced RF / Kismet ideas to keep visible
+- Elasticsearch indexing of RF samples
+- WiFi monitor-mode source support
+- Multi-SDR dongle support
 
-### CLI Export Script
-
-`python -m hydra_detect.review_export /data/logs/detections_20260315_120000.jsonl -o mission_report.html`
-
-**Features:**
-- Reads JSONL or CSV log file
-- Embeds detection data as inline JSON in a self-contained HTML file
-- Uses Leaflet.js CDN (requires internet to open) or optionally inlines the JS
-- Generates summary statistics: total detections, unique classes, time range
-- Outputs a single .html file you can SCP off and open anywhere
-- Optional: `--images-dir` flag to embed thumbnail images as base64
-
-### Tests
-- `tests/test_review.py`:
-  - Test JSONL log parsing
-  - Test CSV log parsing
-  - Test log file listing endpoint
-  - Test image serving with path traversal protection
-  - Test CLI export generates valid HTML
-  - Test filtering by class and confidence
+### UI polish ideas to keep visible
+- Presentation Mode updates, including optionally hiding panel columns
+- More operator-oriented full-screen / display presets
 
 ---
 
 ## Implementation Order
 
-1. **Feature 2 first** (autonomous.py) — standalone module, no dependencies on other features
-2. **Feature 1 second** (MAVLink commands) — modifies mavlink_io.py which is also needed by Feature 2
-3. **Feature 3 last** (review tool) — completely independent, touches web/server.py
+### Recommended order
+1. **MAVLink Command Path**
+2. **Post-Mission Review Tool**
+3. **Reliability / Regression Hardening** (ongoing alongside feature work)
+4. **RF Restart / Auth Cleanup**
+5. **Autonomous Strike Controller**
+6. **Fleet groundwork (trust / time semantics)**
+7. **Fleet coordination extensions**
+8. **Advanced RF / UI polish**
+
+### Alternative if autonomy urgency is very high
+If autonomous strike is the mission-critical driver, keep it early — but only if the dry-run, inhibit, and explainability items above stay attached to it and do not get split off into “later cleanup.”
+
+---
 
 ## Testing Strategy
 
 Run `python -m pytest tests/ -v` after each feature. All existing tests must continue to pass. New tests added per feature as described above.
+
+In addition to unit tests, prefer to keep a lightweight checklist for:
+- auth-enabled web flows
+- first-load SPA lifecycle
+- degraded startup behavior
+- restart behavior for external managed processes
+- field validation of RF and mission-review artifacts
+
+---
+
+## Idea Backlog (do not lose)
+
+These ideas should remain visible even if they are not the next thing implemented:
+
+- Radio-only operator control via MAVLink user commands
+- Autonomous strike with geofence + qualification gates
+- Review/export workflow for after-action mission analysis
+- Dry-run / explainability / inhibit controls for autonomy
+- Offline review/export support for field use
+- RF restart-path cleanup and observability
+- Fleet identity / freshness groundwork
+- TAK/CoT integration
+- Automated target deconfliction
+- Commander-node / C2 semantics
+- Fleet map overlay
+- Shared geofence enforcement
+- WiFi monitor-mode support
+- Multi-SDR support
+- RF sample indexing / richer analysis
+- Presentation Mode improvements
