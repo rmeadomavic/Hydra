@@ -706,6 +706,65 @@ async def api_rtsp_toggle(request: Request, authorization: Optional[str] = Heade
     return JSONResponse({"error": "RTSP toggle not available"}, status_code=503)
 
 
+# ── MAVLink Video ────────────────────────────────────────────
+
+@app.get("/api/mavlink-video/status")
+async def api_mavlink_video_status():
+    """Return MAVLink video thumbnail stream status."""
+    cb = stream_state.get_callback("get_mavlink_video_status")
+    if cb:
+        return cb()
+    return {"enabled": False, "running": False, "width": 0, "height": 0,
+            "quality": 0, "current_fps": 0, "bytes_per_sec": 0}
+
+
+@app.post("/api/mavlink-video/toggle")
+async def api_mavlink_video_toggle(request: Request, authorization: Optional[str] = Header(None)):
+    """Start or stop MAVLink video. Body: {"enabled": true/false}"""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    enabled = body.get("enabled")
+    if enabled is None:
+        return JSONResponse({"error": "enabled field required"}, status_code=400)
+    cb = stream_state.get_callback("on_mavlink_video_toggle")
+    if cb:
+        result = cb(bool(enabled))
+        _audit(request, "mavlink_video_toggle", target=str(enabled))
+        if result.get("status") == "ok":
+            return result
+        return JSONResponse(result, status_code=500)
+    return JSONResponse({"error": "MAVLink video not available"}, status_code=503)
+
+
+@app.post("/api/mavlink-video/tune")
+async def api_mavlink_video_tune(request: Request, authorization: Optional[str] = Header(None)):
+    """Live-tune MAVLink video params. Body: {width, height, quality, max_fps} (all optional)"""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    for field, lo, hi in [("width", 40, 320), ("height", 30, 240),
+                          ("quality", 5, 50), ("max_fps", 0.1, 5.0)]:
+        val = body.get(field)
+        if val is not None:
+            try:
+                val = float(val) if field == "max_fps" else int(val)
+                if not (lo <= val <= hi):
+                    return JSONResponse({"error": f"{field} must be {lo}-{hi}"}, status_code=400)
+            except (TypeError, ValueError):
+                return JSONResponse({"error": f"{field} must be a number"}, status_code=400)
+    cb = stream_state.get_callback("on_mavlink_video_tune")
+    if cb:
+        result = cb(body)
+        _audit(request, "mavlink_video_tune", target=str(body))
+        if result.get("status") == "ok":
+            return result
+        return JSONResponse(result, status_code=500)
+    return JSONResponse({"error": "MAVLink video not available"}, status_code=503)
+
+
 @app.post("/api/pipeline/stop")
 async def api_pipeline_stop(request: Request, authorization: Optional[str] = Header(None)):
     """Gracefully stop the pipeline and shut down."""

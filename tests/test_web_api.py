@@ -72,6 +72,8 @@ class TestAuthEnforcement:
         ("POST", "/api/config/alert-classes", {"classes": ["person"]}),
         ("POST", "/api/vehicle/mode", {"mode": "AUTO"}),
         ("POST", "/api/rtsp/toggle", {"enabled": True}),
+        ("POST", "/api/mavlink-video/toggle", {"enabled": True}),
+        ("POST", "/api/mavlink-video/tune", {"width": 80}),
     ]
 
     def test_no_auth_when_disabled(self, client):
@@ -381,3 +383,47 @@ class TestRTSPEndpoints:
     def test_rtsp_toggle_missing_body(self, client):
         resp = client.post("/api/rtsp/toggle", json={})
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# MAVLink Video endpoints
+# ---------------------------------------------------------------------------
+
+class TestMAVLinkVideoEndpoints:
+    def test_status_default(self, client):
+        resp = client.get("/api/mavlink-video/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "running" in data
+
+    def test_toggle_requires_auth(self, client):
+        configure_auth("secret-token-123")
+        resp = client.post("/api/mavlink-video/toggle", json={"enabled": True})
+        assert resp.status_code == 401
+
+    def test_toggle_works(self, client):
+        called = {}
+        def on_toggle(enabled):
+            called["enabled"] = enabled
+            return {"status": "ok", "running": enabled}
+        stream_state.set_callbacks(on_mavlink_video_toggle=on_toggle)
+        resp = client.post("/api/mavlink-video/toggle", json={"enabled": True})
+        assert resp.status_code == 200
+
+    def test_toggle_missing_field(self, client):
+        resp = client.post("/api/mavlink-video/toggle", json={})
+        assert resp.status_code == 400
+
+    def test_tune_validates_range(self, client):
+        def on_tune(params):
+            return {"status": "error", "message": "Invalid parameter value"}
+        stream_state.set_callbacks(on_mavlink_video_tune=on_tune)
+        resp = client.post("/api/mavlink-video/tune", json={"width": 5000})
+        assert resp.status_code == 400  # Server-side validation rejects before callback
+
+    def test_tune_success(self, client):
+        def on_tune(params):
+            return {"status": "ok", "width": 80, "height": 60}
+        stream_state.set_callbacks(on_mavlink_video_tune=on_tune)
+        resp = client.post("/api/mavlink-video/tune", json={"width": 80, "height": 60})
+        assert resp.status_code == 200
