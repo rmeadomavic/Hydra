@@ -1,13 +1,13 @@
 'use strict';
 
 /**
- * Hydra Detect v2.0 — Control View Logic
+ * Hydra Detect v2.0 — Operations View Logic
  *
  * Reads from HydraApp.state (populated by centralized pollers) and
  * updates the 6 panels. Handles all user interactions (mode buttons,
  * sliders, target lock/strike, RF hunt, etc).
  */
-const HydraControl = (() => {
+const HydraOperations = (() => {
     let updateTimer = null;
     let isPaused = false;
     let selectedTrackId = null;
@@ -20,6 +20,7 @@ const HydraControl = (() => {
     // ── Lifecycle ──
     function onEnter() {
         HydraPanels.init();
+        initStreamWatcher();
         if (!dropdownsLoaded) {
             loadDropdowns();
             dropdownsLoaded = true;
@@ -222,6 +223,24 @@ const HydraControl = (() => {
         updateTargetPanel();
         updateDetectionLog();
         updateRFPanel();
+        updateLockOverlay();
+    }
+
+    // ── Lock Overlay (on video) ──
+    function updateLockOverlay() {
+        const t = HydraApp.state.target;
+        const el = document.getElementById('ops-lock-indicator');
+        if (!el) return;
+        if (t.locked) {
+            el.style.display = '';
+            const labelEl = document.getElementById('lock-label');
+            const modeEl = document.getElementById('lock-mode');
+            if (labelEl) labelEl.textContent = '#' + t.track_id + ' ' + (t.label || '');
+            if (modeEl) modeEl.textContent = (t.mode || 'track').toUpperCase();
+            el.classList.toggle('strike', t.mode === 'strike');
+        } else {
+            el.style.display = 'none';
+        }
     }
 
     // ── Vehicle Panel ──
@@ -722,6 +741,23 @@ const HydraControl = (() => {
         const stopBtn = document.getElementById('ctrl-btn-rf-stop');
         if (startBtn) startBtn.disabled = false;
         if (stopBtn) stopBtn.disabled = true;
+    }
+
+    // ── Stream Watcher ──
+    function initStreamWatcher() {
+        const img = document.getElementById('mjpeg-stream');
+        const loading = document.getElementById('ops-loading');
+        const lost = document.getElementById('ops-stream-lost');
+        if (!img) return;
+
+        if (img.complete && img.naturalWidth > 0) {
+            if (loading) loading.style.display = 'none';
+        }
+
+        img.addEventListener('load', () => {
+            if (loading) loading.style.display = 'none';
+            if (lost) lost.style.display = 'none';
+        }, { once: true });
     }
 
     // ── Helpers ──
