@@ -64,10 +64,13 @@ def _build_detector(cfg: configparser.ConfigParser, models_dir: Path | None = No
             if candidate.exists():
                 model_path = str(candidate)
                 break
+    imgsz_raw = cfg.get("detector", "yolo_imgsz", fallback="")
+    imgsz = int(imgsz_raw) if imgsz_raw.strip() else None
     return YOLODetector(
         model_path=model_path,
         confidence=cfg.getfloat("detector", "yolo_confidence", fallback=0.45),
         classes=classes,
+        imgsz=imgsz,
     )
 
 
