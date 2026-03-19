@@ -10,6 +10,7 @@ const HydraPanels = (() => {
     const KNOWN_IDS = ['vehicle', 'target', 'pipeline', 'detection', 'rf', 'log'];
     const STORAGE_PREFIX = 'hydra-panels-';
     let sortableInstance = null;
+    let initialized = false;
 
     // ── Breakpoint helper ──
     function getBreakpoint() {
@@ -24,6 +25,8 @@ const HydraPanels = (() => {
     function init() {
         const container = document.getElementById('operations-panels');
         if (!container) return;
+        if (initialized) return;
+        initialized = true;
 
         // Init SortableJS
         if (typeof Sortable !== 'undefined') {

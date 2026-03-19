@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
@@ -91,6 +91,29 @@ class TestOpenCloseLogFile:
         assert dl._json_file is None
         assert dl._csv_file is None
         assert dl._csv_writer is None
+
+    def test_seed_index_from_existing_logs(self, tmp_path):
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        (log_dir / "detections_001.jsonl").write_text("{}\n")
+        (log_dir / "detections_007.jsonl").write_text("{}\n")
+
+        dl = _make_logger(tmp_path, log_dir=str(log_dir))
+        dl._seed_log_index()
+
+        assert dl._log_index == 7
+
+    def test_open_after_seed_uses_next_index(self, tmp_path):
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        (log_dir / "detections_004.jsonl").write_text("{}\n")
+
+        dl = _make_logger(tmp_path, log_dir=str(log_dir))
+        dl._seed_log_index()
+        assert dl._open_log_file()
+
+        assert dl._current_log_path.name == "detections_005.jsonl"
+        dl._close_log_file()
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +269,22 @@ class TestRotationIntegration:
                     records.append(json.loads(line))
         assert len(records) > 0
         assert all("label" in r for r in records)
+
+    @patch("hydra_detect.detection_logger.open", new_callable=mock_open)
+    def test_rotation_failure_disables_logger_without_closing_current_file(self, mock_file, tmp_path):
+        dl = _make_logger(tmp_path)
+        dl._log_dir.mkdir(parents=True, exist_ok=True)
+        assert dl._open_log_file()
+        dl._max_log_size_bytes = 0
+
+        original_handle = dl._json_file
+        assert original_handle is not None
+
+        mock_file.side_effect = OSError("disk full")
+        dl._rotate_if_needed()
+
+        assert dl._disabled is True
+        assert dl._json_file is original_handle
 
 
 # ---------------------------------------------------------------------------

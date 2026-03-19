@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import re
 import queue
 import threading
 from collections import deque
@@ -108,6 +109,7 @@ class DetectionLogger:
             self._disabled = True
             return
 
+        self._seed_log_index()
         if not self._open_log_file():
             self._disabled = True
             return
@@ -256,6 +258,7 @@ class DetectionLogger:
             logger.info("Logging detections to %s", path)
             return True
         except OSError as exc:
+            self._current_log_path = None
             logger.error("Failed to open detection log file: %s", exc)
             return False
 
@@ -272,6 +275,7 @@ class DetectionLogger:
                 finally:
                     setattr(self, fh_name, None)
         self._csv_writer = None
+        self._current_log_path = None
 
     def _log_file_size(self) -> int:
         """Return byte size of the current log file, or 0 on error."""
@@ -295,12 +299,50 @@ class DetectionLogger:
             self._current_log_path,
             self._max_log_size_bytes / (1024 * 1024),
         )
-        self._close_log_file()
-        self._open_log_file()
+        if not self._open_rotated_log_file():
+            self._disabled = True
+            logger.error("Disabling detection logger after log rotation failure")
+            return
         self._prune_old_logs()
 
         if self._save_images:
             self._prune_old_images()
+
+    def _seed_log_index(self) -> None:
+        """Initialize the log index from existing files to avoid reuse on restart."""
+        ext = "csv" if self._log_format == "csv" else "jsonl"
+        pattern = re.compile(rf"^detections_(\d{{3}})\.{ext}$")
+        max_index = 0
+        for path in self._log_dir.glob(f"detections_*.{ext}"):
+            match = pattern.match(path.name)
+            if match:
+                max_index = max(max_index, int(match.group(1)))
+        self._log_index = max_index
+
+    def _open_rotated_log_file(self) -> bool:
+        """Rotate to a new file without losing the current log if reopen fails."""
+        old_csv_file = self._csv_file
+        old_json_file = self._json_file
+        old_csv_writer = self._csv_writer
+        old_path = self._current_log_path
+        old_index = self._log_index
+
+        if not self._open_log_file():
+            self._csv_file = old_csv_file
+            self._json_file = old_json_file
+            self._csv_writer = old_csv_writer
+            self._current_log_path = old_path
+            self._log_index = old_index
+            return False
+
+        try:
+            for fh in (old_csv_file, old_json_file):
+                if fh is not None:
+                    fh.flush()
+                    fh.close()
+        except OSError as exc:
+            logger.warning("Error closing rotated log file: %s", exc)
+        return True
 
     def _prune_old_logs(self) -> None:
         """Delete the oldest log files beyond the configured retention limit."""
