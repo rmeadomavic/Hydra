@@ -31,6 +31,7 @@ from .system import (
     set_power_mode as _set_power_mode,
 )
 from .rtsp_server import RTSPServer
+from .mavlink_video import MAVLinkVideoSender
 from .tracker import ByteTracker
 from .web.config_api import set_config_path
 from .web.server import configure_auth, run_server, stream_state
@@ -303,6 +304,12 @@ class Pipeline:
         self._rtsp_mount = self._cfg.get("rtsp", "mount", fallback="/hydra")
         self._rtsp_bitrate = self._cfg.getint("rtsp", "bitrate", fallback=2_000_000)
 
+        # MAVLink video thumbnails
+        self._mavlink_video: MAVLinkVideoSender | None = None
+        self._mavlink_video_enabled = self._cfg.getboolean(
+            "mavlink_video", "enabled", fallback=True
+        )
+
         self._running = False
         self._paused = False
         self._total_detections = 0
@@ -413,6 +420,9 @@ class Pipeline:
                 get_class_names=self._detector.get_class_names,
                 on_rtsp_toggle=self._handle_rtsp_toggle,
                 get_rtsp_status=self._get_rtsp_status,
+                on_mavlink_video_toggle=self._handle_mavlink_video_toggle,
+                on_mavlink_video_tune=self._handle_mavlink_video_tune,
+                get_mavlink_video_status=self._get_mavlink_video_status,
             )
 
             stream_state.update_stats(
@@ -433,6 +443,21 @@ class Pipeline:
             if not self._rtsp.start():
                 logger.warning("RTSP server failed to start — continuing without.")
                 self._rtsp = None
+
+        # Start MAVLink video thumbnails
+        if self._mavlink_video_enabled and self._mavlink is not None:
+            self._mavlink_video = MAVLinkVideoSender(
+                self._mavlink,
+                width=self._cfg.getint("mavlink_video", "width", fallback=160),
+                height=self._cfg.getint("mavlink_video", "height", fallback=120),
+                jpeg_quality=self._cfg.getint("mavlink_video", "jpeg_quality", fallback=20),
+                max_fps=self._cfg.getfloat("mavlink_video", "max_fps", fallback=2.0),
+                min_fps=self._cfg.getfloat("mavlink_video", "min_fps", fallback=0.2),
+                link_budget_bytes_sec=self._cfg.getint("mavlink_video", "link_budget_bytes_sec", fallback=8000),
+            )
+            if not self._mavlink_video.start():
+                logger.warning("MAVLink video failed to start — continuing without.")
+                self._mavlink_video = None
 
         # Start RF hunt if configured
         if self._rf_hunt is not None:
@@ -581,6 +606,10 @@ class Pipeline:
             if self._rtsp is not None:
                 self._rtsp.push_frame(annotated)
 
+            # Push to MAVLink video (thumbnail over telemetry radio)
+            if self._mavlink_video is not None:
+                self._mavlink_video.push_frame(annotated)
+
             # Push to web stream
             if self._web_enabled:
                 stream_state.update_frame(annotated)
@@ -614,6 +643,10 @@ class Pipeline:
                     self._jetson_stats = _read_jetson_stats()
                 if self._rtsp is not None:
                     stats_update["rtsp_clients"] = self._rtsp.client_count
+                if self._mavlink_video is not None:
+                    mv_status = self._mavlink_video.get_status()
+                    stats_update["mavlink_video_fps"] = mv_status["current_fps"]
+                    stats_update["mavlink_video_kbps"] = round(mv_status["bytes_per_sec"] / 1024, 1)
                 if self._rf_hunt is not None:
                     stats_update["rf_hunt"] = self._rf_hunt.get_status()
                 stats_update.update(self._jetson_stats)
@@ -936,6 +969,49 @@ class Pipeline:
             "clients": 0,
         }
 
+    def _handle_mavlink_video_toggle(self, enabled: bool) -> dict:
+        """Start or stop MAVLink video at runtime."""
+        if enabled and self._mavlink_video is None:
+            if self._mavlink is None:
+                return {"status": "error", "message": "MAVLink not connected"}
+            self._mavlink_video = MAVLinkVideoSender(
+                self._mavlink,
+                width=self._cfg.getint("mavlink_video", "width", fallback=160),
+                height=self._cfg.getint("mavlink_video", "height", fallback=120),
+                jpeg_quality=self._cfg.getint("mavlink_video", "jpeg_quality", fallback=20),
+                max_fps=self._cfg.getfloat("mavlink_video", "max_fps", fallback=2.0),
+                min_fps=self._cfg.getfloat("mavlink_video", "min_fps", fallback=0.2),
+                link_budget_bytes_sec=self._cfg.getint("mavlink_video", "link_budget_bytes_sec", fallback=8000),
+            )
+            if self._mavlink_video.start():
+                return {"status": "ok", "running": True}
+            self._mavlink_video = None
+            return {"status": "error", "message": "Failed to start"}
+        elif not enabled and self._mavlink_video is not None:
+            self._mavlink_video.stop()
+            self._mavlink_video = None
+            return {"status": "ok", "running": False}
+        return {"status": "ok", "running": self._mavlink_video is not None}
+
+    def _handle_mavlink_video_tune(self, params: dict) -> dict:
+        """Live-tune MAVLink video parameters."""
+        if self._mavlink_video is None:
+            return {"status": "error", "message": "Not running"}
+        if self._mavlink_video.set_params(**params):
+            return {"status": "ok", **self._mavlink_video.get_status()}
+        return {"status": "error", "message": "Invalid parameter value"}
+
+    def _get_mavlink_video_status(self) -> dict:
+        """Return MAVLink video status for web API."""
+        if self._mavlink_video is not None:
+            return self._mavlink_video.get_status()
+        return {
+            "enabled": self._mavlink_video_enabled,
+            "running": False,
+            "width": 0, "height": 0, "quality": 0,
+            "current_fps": 0, "bytes_per_sec": 0,
+        }
+
     def _handle_stop_command(self) -> None:
         """Stop the pipeline gracefully from the web UI."""
         logger.info("Stop command received from web UI.")
@@ -960,6 +1036,8 @@ class Pipeline:
             self._kismet_manager.stop()
         if self._rtsp is not None:
             self._rtsp.stop()
+        if self._mavlink_video is not None:
+            self._mavlink_video.stop()
         self._camera.close()
         self._detector.unload()
         self._det_logger.stop()

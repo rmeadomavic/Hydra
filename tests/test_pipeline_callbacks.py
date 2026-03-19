@@ -201,3 +201,36 @@ class TestRTSPCallbacks:
         assert result["status"] == "ok"
         assert result["running"] is False
         assert p._rtsp is None
+
+
+# ---------------------------------------------------------------------------
+# MAVLink Video toggle / status
+# ---------------------------------------------------------------------------
+
+class TestMAVLinkVideoCallbacks:
+    def test_mavlink_video_status_when_disabled(self):
+        p = _make_pipeline()
+        p._mavlink_video = None
+        p._mavlink_video_enabled = False
+        status = p._get_mavlink_video_status()
+        assert status["enabled"] is False
+        assert status["running"] is False
+
+    def test_mavlink_video_status_when_running(self):
+        p = _make_pipeline()
+        p._mavlink_video = MagicMock()
+        p._mavlink_video.get_status.return_value = {
+            "enabled": True, "running": True, "width": 160, "height": 120,
+            "quality": 20, "current_fps": 1.5, "bytes_per_sec": 5000,
+        }
+        status = p._get_mavlink_video_status()
+        assert status["running"] is True
+        assert status["current_fps"] == 1.5
+
+    def test_mavlink_video_toggle_off(self):
+        p = _make_pipeline()
+        p._mavlink_video = MagicMock()
+        p._mavlink_video_enabled = True
+        result = p._handle_mavlink_video_toggle(False)
+        assert result["status"] == "ok"
+        assert p._mavlink_video is None

@@ -154,6 +154,25 @@
                 </div>
                 <div id="ctrl-rtsp-url" class="mono" style="font-size:var(--font-xs);color:var(--text-secondary);margin-top:4px;cursor:pointer;display:none;" title="Click to copy"></div>
             </div>
+            <div class="panel-field">
+                <label class="panel-field-label">MAVLink Video</label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <div class="toggle-switch" id="ctrl-mvid-toggle" title="Toggle MAVLink video thumbnails"></div>
+                    <span class="panel-sys-val mono" id="ctrl-mvid-status">OFF</span>
+                </div>
+                <div id="ctrl-mvid-details" style="display:none;margin-top:6px;">
+                    <div class="panel-range-row" style="margin-bottom:4px;">
+                        <span class="panel-field-label" style="min-width:50px;margin:0;">Res</span>
+                        <input type="range" id="ctrl-mvid-res" min="60" max="320" step="20" value="160" style="flex:1;">
+                        <span class="panel-range-val mono" id="ctrl-mvid-res-val">160</span>
+                    </div>
+                    <div class="panel-range-row">
+                        <span class="panel-field-label" style="min-width:50px;margin:0;">Quality</span>
+                        <input type="range" id="ctrl-mvid-quality" min="5" max="50" step="5" value="20" style="flex:1;">
+                        <span class="panel-range-val mono" id="ctrl-mvid-quality-val">20</span>
+                    </div>
+                </div>
+            </div>
             <div class="panel-pipeline-btns">
                 <button class="btn" id="ctrl-btn-pause">Pause</button>
                 <button class="btn btn-danger" id="ctrl-btn-stop">Stop</button>

@@ -45,6 +45,7 @@ const HydraOperations = (() => {
         loadAlertClasses();
         rfModeChanged();
         loadRTSPStatus();
+        loadMAVLinkVideoStatus();
     }
 
     async function loadModels() {
@@ -213,6 +214,30 @@ const HydraOperations = (() => {
                 setTimeout(() => { rtspUrl.title = 'Click to copy'; }, 1500);
             });
         }
+
+        // MAVLink Video
+        addClick('ctrl-mvid-toggle', () => toggleMAVLinkVideo());
+        const mvidRes = document.getElementById('ctrl-mvid-res');
+        const mvidResVal = document.getElementById('ctrl-mvid-res-val');
+        if (mvidRes) {
+            mvidRes.addEventListener('input', function() {
+                if (mvidResVal) mvidResVal.textContent = this.value;
+            });
+            mvidRes.addEventListener('change', function() {
+                const v = parseInt(this.value);
+                tuneMAVLinkVideo({ width: v, height: Math.round(v * 0.75) });
+            });
+        }
+        const mvidQ = document.getElementById('ctrl-mvid-quality');
+        const mvidQVal = document.getElementById('ctrl-mvid-quality-val');
+        if (mvidQ) {
+            mvidQ.addEventListener('input', function() {
+                if (mvidQVal) mvidQVal.textContent = this.value;
+            });
+            mvidQ.addEventListener('change', function() {
+                tuneMAVLinkVideo({ quality: parseInt(this.value) });
+            });
+        }
     }
 
     function addClick(id, handler) {
@@ -347,6 +372,14 @@ const HydraOperations = (() => {
                 status.textContent = s.rtsp_clients > 0
                     ? s.rtsp_clients + ' client' + (s.rtsp_clients !== 1 ? 's' : '')
                     : 'ON';
+            }
+        }
+
+        if (s.mavlink_video_fps !== undefined) {
+            const status = document.getElementById('ctrl-mvid-status');
+            if (status && document.getElementById('ctrl-mvid-toggle')?.classList.contains('active')) {
+                const kbps = (s.mavlink_video_kbps || 0).toFixed(1);
+                status.textContent = s.mavlink_video_fps.toFixed(1) + ' FPS / ' + kbps + ' KB/s';
             }
         }
     }
@@ -797,6 +830,40 @@ const HydraOperations = (() => {
         const nowActive = toggle.classList.contains('active');
         const resp = await HydraApp.apiPost('/api/rtsp/toggle', { enabled: !nowActive });
         if (resp) loadRTSPStatus();
+    }
+
+    // -- MAVLink Video --------------------------------------------------
+
+    async function loadMAVLinkVideoStatus() {
+        const data = await HydraApp.apiGet('/api/mavlink-video/status');
+        if (!data) return;
+        const toggle = document.getElementById('ctrl-mvid-toggle');
+        const status = document.getElementById('ctrl-mvid-status');
+        const details = document.getElementById('ctrl-mvid-details');
+        if (!toggle || !status) return;
+
+        if (data.running) {
+            toggle.classList.add('active');
+            const kbps = (data.bytes_per_sec / 1024).toFixed(1);
+            status.textContent = data.current_fps.toFixed(1) + ' FPS / ' + kbps + ' KB/s';
+            if (details) details.style.display = 'block';
+        } else {
+            toggle.classList.remove('active');
+            status.textContent = 'OFF';
+            if (details) details.style.display = 'none';
+        }
+    }
+
+    async function toggleMAVLinkVideo() {
+        const toggle = document.getElementById('ctrl-mvid-toggle');
+        if (!toggle) return;
+        const nowActive = toggle.classList.contains('active');
+        await HydraApp.apiPost('/api/mavlink-video/toggle', { enabled: !nowActive });
+        loadMAVLinkVideoStatus();
+    }
+
+    async function tuneMAVLinkVideo(params) {
+        await HydraApp.apiPost('/api/mavlink-video/tune', params);
     }
 
     // ── Stream Watcher ──
