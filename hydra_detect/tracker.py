@@ -64,10 +64,12 @@ class ByteTracker:
         track_thresh: float = 0.5,
         track_buffer: int = 30,
         match_thresh: float = 0.8,
+        frame_rate: int = 30,
     ):
         self._track_thresh = track_thresh
         self._track_buffer = track_buffer
         self._match_thresh = match_thresh
+        self._frame_rate = frame_rate
         self._tracker = None
 
     def init(self) -> None:
@@ -79,7 +81,7 @@ class ByteTracker:
                 track_activation_threshold=self._track_thresh,
                 lost_track_buffer=self._track_buffer,
                 minimum_matching_threshold=self._match_thresh,
-                frame_rate=30,
+                frame_rate=self._frame_rate,
             )
             logger.info("ByteTrack initialised (supervision back-end).")
         except ImportError:
