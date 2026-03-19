@@ -294,4 +294,5 @@ class TestHuntKismetManagerIntegration:
         rssi = ctrl._poll_rssi()
         # Should have attempted restart and returned the retry value
         mgr.restart.assert_called_once()
+        ctrl._kismet.reset_auth.assert_called_once_with()
         assert rssi == -60.0

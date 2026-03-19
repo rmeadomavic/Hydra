@@ -305,9 +305,7 @@ class RFHuntController:
         if not self._kismet.check_connection():
             logger.warning("Kismet connection lost — attempting restart")
             if self._kismet_manager.restart(stop_event=self._stop_evt):
-                # Reset auth so KismetClient re-authenticates with new Kismet instance.
-                # TODO: Add KismetClient.reset_auth() method to avoid private attr access.
-                self._kismet._authenticated = False
+                self._kismet.reset_auth()
                 return self._kismet.get_rssi(
                     mode=self._mode,
                     bssid=self._target_bssid,
