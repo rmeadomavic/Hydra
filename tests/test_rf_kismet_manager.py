@@ -13,6 +13,18 @@ import pytest
 from hydra_detect.rf.kismet_manager import KismetManager
 
 
+class TestKismetManagerDependencyPolicy:
+    @patch("hydra_detect.rf.kismet_manager.requests.get")
+    def test_health_check_uses_requests_dependency(self, mock_get):
+        mgr = KismetManager()
+        response = MagicMock()
+        response.status_code = 200
+        mock_get.return_value = response
+
+        assert mgr._check_api() is True
+        mock_get.assert_called_once()
+
+
 class TestKismetManagerInit:
     def test_stores_config(self):
         mgr = KismetManager(
