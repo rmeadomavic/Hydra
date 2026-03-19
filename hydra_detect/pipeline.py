@@ -479,6 +479,11 @@ class Pipeline:
         if self._web_enabled:
             # Configure API auth
             api_token = self._cfg.get("web", "api_token", fallback="").strip()
+            if not api_token:
+                logger.warning(
+                    "WARNING: No API token configured — web control endpoints are "
+                    "unauthenticated. Set [web] api_token in config.ini for production use."
+                )
             configure_auth(api_token or None)
 
             # Set initial runtime config for web UI
