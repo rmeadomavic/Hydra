@@ -641,31 +641,9 @@ class Pipeline:
                 if self._frame_count % 150 == 0:
                     _refresh_nvpmodel_async()
                     self._jetson_stats = _read_jetson_stats()
-                    # Advertise RTSP stream to GCS via VIDEO_STREAM_INFORMATION
-                    if (
-                        self._mavlink is not None
-                        and self._rtsp is not None
-                        and self._rtsp.running
-                    ):
-                        rtsp_uri = self._cfg.get(
-                            "rtsp", "advertise_url", fallback=""
-                        )
-                        if not rtsp_uri:
-                            import socket
-                            try:
-                                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                                s.connect(("8.8.8.8", 80))
-                                local_ip = s.getsockname()[0]
-                                s.close()
-                            except Exception:
-                                local_ip = "0.0.0.0"
-                            rtsp_uri = f"rtsp://{local_ip}:{self._rtsp_port}{self._rtsp_mount}"
-                        self._mavlink.send_video_stream_info(
-                            uri=rtsp_uri,
-                            width=self._cfg.getint("camera", "width", fallback=640),
-                            height=self._cfg.getint("camera", "height", fallback=480),
-                            bitrate=self._rtsp_bitrate,
-                        )
+                    # VIDEO_STREAM_INFORMATION disabled — causes MP to display
+                    # garbled STATUSTEXT. Needs investigation before re-enabling.
+                    # See docs/superpowers/specs/2026-03-19-rtsp-output-design.md
                 if self._rtsp is not None:
                     stats_update["rtsp_clients"] = self._rtsp.client_count
                 if self._mavlink_video is not None:
