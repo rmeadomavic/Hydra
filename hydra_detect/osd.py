@@ -131,7 +131,15 @@ class FpvOsd:
     # STATUSTEXT mode — simple, works on any FC with OSD message panel
     # ------------------------------------------------------------------
     def _send_statustext(self, state: OSDState) -> None:
-        """Format and send a single STATUSTEXT with key OSD info."""
+        """Format and send a single STATUSTEXT with key OSD info.
+
+        Only sends when there are active tracks or a locked target —
+        avoids spamming the radio link with empty status updates.
+        """
+        # Skip sending when nothing is happening
+        if state.active_tracks == 0 and state.locked_track_id is None:
+            return
+
         parts: list[str] = []
 
         parts.append(f"T:{state.active_tracks}")
