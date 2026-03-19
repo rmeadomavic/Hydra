@@ -31,12 +31,21 @@ class DetectionLogger:
     - Optional cropped object images
     - GPS geo-tagging when coordinates are provided
     - Recent detections buffer for the web UI
+    - Size-based log rotation with configurable retention limits
 
     All file I/O (JPEG writes, CSV/JSONL writes) is offloaded to a daemon
     background thread so the detection hot-loop is never blocked by slow
     storage.  A bounded queue (maxsize=100) caps memory growth; if the
     writer falls behind, new work items are dropped with a warning rather
     than stalling the caller.
+
+    Log rotation fires in the background writer thread every flush cycle
+    (every 30 frames by default).  When the active log file exceeds
+    ``max_log_size_mb``, it is closed and a new file opened with an
+    incremented numeric suffix (``detections_001.jsonl``, …).  The oldest
+    log files beyond ``max_log_files`` are deleted automatically.  If
+    ``save_images`` is enabled the same retention limit is applied to JPEG
+    snapshots (oldest deleted first).
     """
 
     _QUEUE_MAXSIZE = 100
@@ -51,6 +60,8 @@ class DetectionLogger:
         save_crops: bool = False,
         crop_dir: str = "crops",
         max_recent: int = 50,
+        max_log_size_mb: float = 10.0,
+        max_log_files: int = 20,
     ):
         self._log_dir = Path(log_dir)
         self._log_format = log_format.lower()
@@ -60,10 +71,14 @@ class DetectionLogger:
         self._save_crops = save_crops
         self._crop_dir = Path(crop_dir)
         self._max_recent = max_recent
+        self._max_log_size_bytes = int(max_log_size_mb * 1024 * 1024)
+        self._max_log_files = max(1, max_log_files)
 
         self._csv_writer = None
         self._csv_file = None
         self._json_file = None
+        self._current_log_path: Path | None = None
+        self._log_index: int = 0
         self._frame_count = 0
         self._disabled = False
 
@@ -93,25 +108,7 @@ class DetectionLogger:
             self._disabled = True
             return
 
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-
-        try:
-            if self._log_format == "csv":
-                path = self._log_dir / f"detections_{timestamp}.csv"
-                self._csv_file = open(path, "w", newline="")
-                self._csv_writer = csv.writer(self._csv_file)
-                self._csv_writer.writerow([
-                    "timestamp", "frame", "track_id", "label", "class_id",
-                    "confidence", "x1", "y1", "x2", "y2",
-                    "lat", "lon", "alt", "fix", "image",
-                ])
-                logger.info("Logging detections to %s", path)
-            else:
-                path = self._log_dir / f"detections_{timestamp}.jsonl"
-                self._json_file = open(path, "w")
-                logger.info("Logging detections to %s", path)
-        except OSError as exc:
-            logger.error("Failed to open detection log file: %s", exc)
+        if not self._open_log_file():
             self._disabled = True
             return
 
@@ -130,17 +127,7 @@ class DetectionLogger:
             self._writer_thread.join()
             self._writer_thread = None
 
-        for fh_name in ("_csv_file", "_json_file"):
-            fh = getattr(self, fh_name, None)
-            if fh is not None:
-                try:
-                    fh.flush()
-                    fh.close()
-                except OSError as exc:
-                    logger.warning("Error closing log file: %s", exc)
-                finally:
-                    setattr(self, fh_name, None)
-        self._csv_writer = None
+        self._close_log_file()
 
     # ------------------------------------------------------------------
     # Hot-path method (called from the detection thread)
@@ -243,6 +230,113 @@ class DetectionLogger:
             return list(self._recent)[-n:]
 
     # ------------------------------------------------------------------
+    # Log file open / close / rotation helpers (background thread only)
+    # ------------------------------------------------------------------
+
+    def _open_log_file(self) -> bool:
+        """Open a new log file with an incremented index suffix.
+
+        Returns True on success, False on I/O error.
+        """
+        self._log_index += 1
+        ext = "csv" if self._log_format == "csv" else "jsonl"
+        path = self._log_dir / f"detections_{self._log_index:03d}.{ext}"
+        try:
+            if self._log_format == "csv":
+                self._csv_file = open(path, "w", newline="")
+                self._csv_writer = csv.writer(self._csv_file)
+                self._csv_writer.writerow([
+                    "timestamp", "frame", "track_id", "label", "class_id",
+                    "confidence", "x1", "y1", "x2", "y2",
+                    "lat", "lon", "alt", "fix", "image",
+                ])
+            else:
+                self._json_file = open(path, "w")
+            self._current_log_path = path
+            logger.info("Logging detections to %s", path)
+            return True
+        except OSError as exc:
+            logger.error("Failed to open detection log file: %s", exc)
+            return False
+
+    def _close_log_file(self) -> None:
+        """Flush and close the active log file handles."""
+        for fh_name in ("_csv_file", "_json_file"):
+            fh = getattr(self, fh_name, None)
+            if fh is not None:
+                try:
+                    fh.flush()
+                    fh.close()
+                except OSError as exc:
+                    logger.warning("Error closing log file: %s", exc)
+                finally:
+                    setattr(self, fh_name, None)
+        self._csv_writer = None
+
+    def _log_file_size(self) -> int:
+        """Return byte size of the current log file, or 0 on error."""
+        if self._current_log_path is None:
+            return 0
+        try:
+            return self._current_log_path.stat().st_size
+        except OSError:
+            return 0
+
+    def _rotate_if_needed(self) -> None:
+        """Check log file size and rotate + prune if the limit is exceeded.
+
+        Must only be called from the background writer thread.
+        """
+        if self._log_file_size() < self._max_log_size_bytes:
+            return
+
+        logger.info(
+            "Log file %s exceeded %.1f MB — rotating.",
+            self._current_log_path,
+            self._max_log_size_bytes / (1024 * 1024),
+        )
+        self._close_log_file()
+        self._open_log_file()
+        self._prune_old_logs()
+
+        if self._save_images:
+            self._prune_old_images()
+
+    def _prune_old_logs(self) -> None:
+        """Delete the oldest log files beyond the configured retention limit."""
+        ext = "csv" if self._log_format == "csv" else "jsonl"
+        pattern = f"detections_*.{ext}"
+        files = sorted(self._log_dir.glob(pattern), key=lambda p: p.stat().st_mtime)
+        excess = len(files) - self._max_log_files
+        for path in files[:excess]:
+            try:
+                path.unlink()
+                logger.info("Pruned old log file: %s", path)
+            except OSError as exc:
+                logger.warning("Failed to delete old log file %s: %s", path, exc)
+
+    def _prune_old_images(self) -> None:
+        """Delete oldest JPEG snapshots beyond the per-log-file average budget.
+
+        The image retention limit is derived from ``max_log_files`` so the
+        image directory scales proportionally with the log file limit.  Each
+        log file slot is allowed up to 200 images (a conservative estimate),
+        giving a default ceiling of 4 000 images at 20 log files.
+        """
+        max_images = self._max_log_files * 200
+        files = sorted(
+            self._image_dir.glob("*.jpg"),
+            key=lambda p: p.stat().st_mtime,
+        )
+        excess = len(files) - max_images
+        for path in files[:excess]:
+            try:
+                path.unlink()
+                logger.info("Pruned old image: %s", path)
+            except OSError as exc:
+                logger.warning("Failed to delete old image %s: %s", path, exc)
+
+    # ------------------------------------------------------------------
     # Background writer loop
     # ------------------------------------------------------------------
 
@@ -313,7 +407,7 @@ class DetectionLogger:
             if self._save_crops and frame is not None:
                 self._save_crop(frame, track, frame_no)
 
-        # Periodic flush to bound data loss on crash.
+        # Periodic flush to bound data loss on crash, then check rotation.
         if do_flush:
             try:
                 if self._csv_file is not None:
@@ -322,6 +416,7 @@ class DetectionLogger:
                     self._json_file.flush()
             except OSError as exc:
                 logger.warning("Failed to flush log file: %s", exc)
+            self._rotate_if_needed()
 
     # ------------------------------------------------------------------
     # Helpers
