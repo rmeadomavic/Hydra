@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 import shutil
 import subprocess
 import threading
@@ -25,6 +26,8 @@ class KismetManager:
         source: Kismet capture source (e.g. "rtl433-0").
         capture_dir: Directory for .kismet capture files.
         host: Kismet REST API base URL.
+        user: Kismet API username (needed for health checks on Kismet 2025+).
+        password: Kismet API password.
         log_dir: Directory for kismet.log (stdout/stderr).
         max_capture_mb: Max disk usage for capture files in MB (0 = unlimited).
     """
@@ -35,12 +38,16 @@ class KismetManager:
         source: str = "rtl433-0",
         capture_dir: str = "./output_data/kismet",
         host: str = "http://localhost:2501",
+        user: str = "kismet",
+        password: str = "kismet",
         log_dir: str = "./output_data/logs",
         max_capture_mb: float = 100.0,
     ):
         self._source = source
         self._capture_dir = capture_dir
         self._host = host.rstrip("/")
+        self._user = user
+        self._password = password
         self._log_dir = log_dir
         self._max_capture_bytes = int(max_capture_mb * 1_048_576)
         self._process: subprocess.Popen | None = None
@@ -81,13 +88,11 @@ class KismetManager:
 
         self._enforce_capture_limit()
 
-        log_prefix = os.path.join(os.path.abspath(self._capture_dir), "Kismet")
         cmd = [
             "kismet",
             "-c", self._source,
             "--no-ncurses",
-            "--override", f"log_prefix={log_prefix}",
-            "--daemonize", "false",
+            "--log-prefix", os.path.abspath(self._capture_dir),
         ]
 
         log_path = os.path.join(self._log_dir, "kismet.log")
@@ -102,6 +107,7 @@ class KismetManager:
                 cmd,
                 stdout=self._log_file,
                 stderr=subprocess.STDOUT,
+                start_new_session=True,  # own process group for clean shutdown
             )
         except FileNotFoundError:
             logger.error("Kismet binary not found despite which() check")
@@ -153,13 +159,22 @@ class KismetManager:
             return
 
         logger.info("Stopping Kismet (PID %d)...", self._process.pid)
-        self._process.terminate()
+        # Kill entire process group (Kismet + child capture processes like rtl_433)
+        try:
+            pgid = os.getpgid(self._process.pid)
+            os.killpg(pgid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            self._process.terminate()
         try:
             self._process.wait(timeout=timeout_sec)
             logger.info("Kismet stopped gracefully")
         except subprocess.TimeoutExpired:
             logger.warning("Kismet did not stop in %.0fs, sending SIGKILL", timeout_sec)
-            self._process.kill()
+            try:
+                pgid = os.getpgid(self._process.pid)
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                self._process.kill()
             try:
                 self._process.wait(timeout=3.0)
             except subprocess.TimeoutExpired:
@@ -213,10 +228,16 @@ class KismetManager:
                 logger.warning("Could not remove %s: %s", path, exc)
 
     def _check_api(self) -> bool:
-        """Hit Kismet REST API to see if it's responding."""
+        """Hit Kismet REST API to see if it's responding.
+
+        Kismet 2025+ requires authentication on all endpoints, so we
+        send basic auth credentials.  Falls back to unauthenticated
+        request for older versions that allow anonymous status access.
+        """
         try:
             r = requests.get(
                 f"{self._host}/system/status.json",
+                auth=(self._user, self._password),
                 timeout=2.0,
             )
             return r.status_code == 200

@@ -232,6 +232,8 @@ class Pipeline:
                     source=self._cfg.get("rf_homing", "kismet_source", fallback="rtl433-0"),
                     capture_dir=self._cfg.get("rf_homing", "kismet_capture_dir", fallback="./output_data/kismet"),
                     host=kismet_host,
+                    user=self._cfg.get("rf_homing", "kismet_user", fallback="kismet"),
+                    password=self._cfg.get("rf_homing", "kismet_pass", fallback="kismet"),
                     log_dir=self._cfg.get("logging", "log_dir", fallback="./output_data/logs"),
                     max_capture_mb=self._cfg.getfloat("rf_homing", "kismet_max_capture_mb", fallback=100.0),
                 )

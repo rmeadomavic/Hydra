@@ -170,7 +170,7 @@ class KismetClient:
         self._ensure_auth()
         try:
             r = self._session.get(
-                f"{self._host}/devices/summary/devices.json",
+                f"{self._host}/devices/views/all/devices.json",
                 params={
                     "KISMET": '{"fields": ['
                     '"kismet.device.base.signal/kismet.common.signal.last_signal",'
