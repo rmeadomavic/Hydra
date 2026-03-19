@@ -225,6 +225,7 @@ class Pipeline:
             track_thresh=self._cfg.getfloat("tracker", "track_thresh", fallback=0.5),
             track_buffer=self._cfg.getint("tracker", "track_buffer", fallback=30),
             match_thresh=self._cfg.getfloat("tracker", "match_thresh", fallback=0.8),
+            frame_rate=self._cfg.getint("camera", "fps", fallback=30),
         )
 
         # Alert class filter (shared with MAVLink and overlay)
@@ -272,6 +273,18 @@ class Pipeline:
                 mode=self._cfg.get("osd", "mode", fallback="statustext"),
                 update_interval=self._cfg.getfloat(
                     "osd", "update_interval", fallback=0.2
+                ),
+                serial_port=self._cfg.get(
+                    "osd", "serial_port", fallback="/dev/ttyUSB0"
+                ),
+                serial_baud=self._cfg.getint(
+                    "osd", "serial_baud", fallback=115200
+                ),
+                canvas_rows=self._cfg.getint(
+                    "osd", "canvas_rows", fallback=18
+                ),
+                canvas_cols=self._cfg.getint(
+                    "osd", "canvas_cols", fallback=50
                 ),
             )
 
