@@ -12,4 +12,9 @@ crops/
 *.engine
 .venv/
 venv/
-hydra-docs-rewrite/ 
+hydra-docs-rewrite/
+
+# Kismet capture files
+*.kismet
+*.kismet-journal
+output_data/kismet/
