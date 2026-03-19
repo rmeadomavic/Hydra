@@ -55,11 +55,12 @@ class TestKismetManagerStart:
         assert mgr.we_own_process is False
         assert mgr.pid is None  # didn't spawn
 
+    @patch("builtins.open", new_callable=mock_open)
     @patch("hydra_detect.rf.kismet_manager.os.makedirs")
     @patch("hydra_detect.rf.kismet_manager.subprocess.Popen")
     @patch("hydra_detect.rf.kismet_manager.requests.get")
     @patch("hydra_detect.rf.kismet_manager.shutil.which", return_value="/usr/bin/kismet")
-    def test_start_spawns_kismet(self, mock_which, mock_get_check, mock_popen, mock_makedirs):
+    def test_start_spawns_kismet(self, mock_which, mock_get_check, mock_popen, mock_makedirs, mock_file):
         """If Kismet is not running, spawn it and wait for API."""
         import requests
 
@@ -96,11 +97,12 @@ class TestKismetManagerStart:
         assert "rtl433-0" in cmd
         assert "--no-ncurses" in cmd
 
+    @patch("builtins.open", new_callable=mock_open)
     @patch("hydra_detect.rf.kismet_manager.os.makedirs")
     @patch("hydra_detect.rf.kismet_manager.subprocess.Popen")
     @patch("hydra_detect.rf.kismet_manager.requests.get")
     @patch("hydra_detect.rf.kismet_manager.shutil.which", return_value="/usr/bin/kismet")
-    def test_start_creates_directories(self, mock_which, mock_get, mock_popen, mock_makedirs):
+    def test_start_creates_directories(self, mock_which, mock_get, mock_popen, mock_makedirs, mock_file):
         import requests
         call_count = [0]
         def side_effect(*args, **kwargs):

@@ -88,17 +88,14 @@ class KismetManager:
         log_path = os.path.join(self._log_dir, "kismet.log")
         try:
             self._log_file = open(log_path, "w")
-            log_stdout = self._log_file
         except OSError as exc:
-            logger.warning(
-                "Cannot open Kismet log file %s: %s — using DEVNULL", log_path, exc
-            )
-            log_stdout = subprocess.DEVNULL
+            logger.error("Cannot open Kismet log file %s: %s", log_path, exc)
+            return False
 
         try:
             self._process = subprocess.Popen(
                 cmd,
-                stdout=log_stdout,
+                stdout=self._log_file,
                 stderr=subprocess.STDOUT,
             )
         except FileNotFoundError:
