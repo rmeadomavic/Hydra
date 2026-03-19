@@ -16,6 +16,7 @@ from typing import Optional
 from .autonomous import AutonomousController, parse_polygon
 from .camera import Camera, list_video_sources
 from .rf.hunt import RFHuntController
+from .rf.kismet_manager import KismetManager
 from .detection_logger import DetectionLogger
 from .detectors.base import BaseDetector
 from .detectors.yolo_detector import YOLODetector
@@ -323,34 +324,47 @@ class Pipeline:
 
         # RF homing controller
         self._rf_hunt: RFHuntController | None = None
+        self._kismet_manager: KismetManager | None = None
         if self._cfg.getboolean("rf_homing", "enabled", fallback=False):
             if self._mavlink is not None:
-                self._rf_hunt = RFHuntController(
-                    self._mavlink,
-                    mode=self._cfg.get("rf_homing", "mode", fallback="wifi"),
-                    target_bssid=self._cfg.get("rf_homing", "target_bssid", fallback="").strip() or None,
-                    target_freq_mhz=self._cfg.getfloat("rf_homing", "target_freq_mhz", fallback=915.0),
-                    kismet_host=self._cfg.get("rf_homing", "kismet_host", fallback="http://localhost:2501"),
-                    kismet_user=self._cfg.get("rf_homing", "kismet_user", fallback="kismet"),
-                    kismet_pass=self._cfg.get("rf_homing", "kismet_pass", fallback="kismet"),
-                    search_pattern=self._cfg.get("rf_homing", "search_pattern", fallback="lawnmower"),
-                    search_area_m=self._cfg.getfloat("rf_homing", "search_area_m", fallback=100.0),
-                    search_spacing_m=self._cfg.getfloat("rf_homing", "search_spacing_m", fallback=20.0),
-                    search_alt_m=self._cfg.getfloat("rf_homing", "search_alt_m", fallback=15.0),
-                    rssi_threshold_dbm=self._cfg.getfloat("rf_homing", "rssi_threshold_dbm", fallback=-80.0),
-                    rssi_converge_dbm=self._cfg.getfloat("rf_homing", "rssi_converge_dbm", fallback=-40.0),
-                    rssi_window=self._cfg.getint("rf_homing", "rssi_window", fallback=10),
-                    gradient_step_m=self._cfg.getfloat("rf_homing", "gradient_step_m", fallback=5.0),
-                    gradient_rotation_deg=self._cfg.getfloat("rf_homing", "gradient_rotation_deg", fallback=45.0),
-                    poll_interval_sec=self._cfg.getfloat("rf_homing", "poll_interval_sec", fallback=0.5),
-                    arrival_tolerance_m=self._cfg.getfloat("rf_homing", "arrival_tolerance_m", fallback=3.0),
+                kismet_host = self._cfg.get("rf_homing", "kismet_host", fallback="http://localhost:2501")
+                self._kismet_manager = KismetManager(
+                    source=self._cfg.get("rf_homing", "kismet_source", fallback="rtl433-0"),
+                    capture_dir=self._cfg.get("rf_homing", "kismet_capture_dir", fallback="./output_data/kismet"),
+                    host=kismet_host,
+                    log_dir=self._cfg.get("logging", "log_dir", fallback="./output_data/logs"),
                 )
-                logger.info(
-                    "RF homing configured: mode=%s target=%s",
-                    self._cfg.get("rf_homing", "mode", fallback="wifi"),
-                    self._cfg.get("rf_homing", "target_bssid", fallback="")
-                    or f"{self._cfg.getfloat('rf_homing', 'target_freq_mhz', fallback=915.0)}MHz",
-                )
+                if self._kismet_manager.start():
+                    self._rf_hunt = RFHuntController(
+                        self._mavlink,
+                        mode=self._cfg.get("rf_homing", "mode", fallback="wifi"),
+                        target_bssid=self._cfg.get("rf_homing", "target_bssid", fallback="").strip() or None,
+                        target_freq_mhz=self._cfg.getfloat("rf_homing", "target_freq_mhz", fallback=915.0),
+                        kismet_host=kismet_host,
+                        kismet_user=self._cfg.get("rf_homing", "kismet_user", fallback="kismet"),
+                        kismet_pass=self._cfg.get("rf_homing", "kismet_pass", fallback="kismet"),
+                        search_pattern=self._cfg.get("rf_homing", "search_pattern", fallback="lawnmower"),
+                        search_area_m=self._cfg.getfloat("rf_homing", "search_area_m", fallback=100.0),
+                        search_spacing_m=self._cfg.getfloat("rf_homing", "search_spacing_m", fallback=20.0),
+                        search_alt_m=self._cfg.getfloat("rf_homing", "search_alt_m", fallback=15.0),
+                        rssi_threshold_dbm=self._cfg.getfloat("rf_homing", "rssi_threshold_dbm", fallback=-80.0),
+                        rssi_converge_dbm=self._cfg.getfloat("rf_homing", "rssi_converge_dbm", fallback=-40.0),
+                        rssi_window=self._cfg.getint("rf_homing", "rssi_window", fallback=10),
+                        gradient_step_m=self._cfg.getfloat("rf_homing", "gradient_step_m", fallback=5.0),
+                        gradient_rotation_deg=self._cfg.getfloat("rf_homing", "gradient_rotation_deg", fallback=45.0),
+                        poll_interval_sec=self._cfg.getfloat("rf_homing", "poll_interval_sec", fallback=0.5),
+                        arrival_tolerance_m=self._cfg.getfloat("rf_homing", "arrival_tolerance_m", fallback=3.0),
+                        kismet_manager=self._kismet_manager,
+                    )
+                    logger.info(
+                        "RF homing configured: mode=%s target=%s",
+                        self._cfg.get("rf_homing", "mode", fallback="wifi"),
+                        self._cfg.get("rf_homing", "target_bssid", fallback="")
+                        or f"{self._cfg.getfloat('rf_homing', 'target_freq_mhz', fallback=915.0)}MHz",
+                    )
+                else:
+                    logger.warning("Kismet failed to start — RF homing disabled")
+                    self._kismet_manager = None
             else:
                 logger.warning("RF homing requires MAVLink — skipping")
 
@@ -927,8 +941,11 @@ class Pipeline:
             rssi_threshold_dbm=float(params.get("rssi_threshold_dbm", -80.0)),
             rssi_converge_dbm=float(params.get("rssi_converge_dbm", -40.0)),
             gradient_step_m=float(params.get("gradient_step_m", 5.0)),
+            gradient_rotation_deg=self._cfg.getfloat("rf_homing", "gradient_rotation_deg", fallback=45.0),
+            rssi_window=self._cfg.getint("rf_homing", "rssi_window", fallback=10),
             poll_interval_sec=self._cfg.getfloat("rf_homing", "poll_interval_sec", fallback=0.5),
             arrival_tolerance_m=self._cfg.getfloat("rf_homing", "arrival_tolerance_m", fallback=3.0),
+            kismet_manager=self._kismet_manager,
         )
         return self._rf_hunt.start()
 
@@ -958,6 +975,8 @@ class Pipeline:
         logger.info("Shutting down ...")
         if self._rf_hunt is not None:
             self._rf_hunt.stop()
+        if self._kismet_manager is not None:
+            self._kismet_manager.stop()
         self._camera.close()
         self._detector.unload()
         self._det_logger.stop()
