@@ -7,6 +7,15 @@ from unittest.mock import MagicMock, patch
 from hydra_detect.rf.kismet_client import KismetClient
 
 
+class TestKismetDependencyPolicy:
+    @patch("hydra_detect.rf.kismet_client.requests.Session")
+    def test_client_uses_requests_session_dependency(self, mock_session_cls):
+        client = KismetClient()
+
+        mock_session_cls.assert_called_once_with()
+        assert client._session is mock_session_cls.return_value
+
+
 class TestKismetConnection:
     @patch("hydra_detect.rf.kismet_client.requests.Session")
     def test_connection_success(self, mock_session_cls):

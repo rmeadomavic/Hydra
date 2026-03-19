@@ -77,6 +77,7 @@ sudo usermod -aG dialout $USER  # log out/in after this
 git clone https://github.com/rmeadomavic/Hydra.git
 cd Hydra
 sudo pip3 install -r requirements.txt
+# `requests` is included here because RF/Kismet support uses it at runtime.
 
 mkdir -p models
 wget -P models https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8s.pt
