@@ -1,4 +1,22 @@
-<!-- Control view — right-side dockable panel grid -->
+<!-- Operations View — video overlays + dockable panels -->
+
+<!-- Loading State -->
+<div class="ops-loading" id="ops-loading">
+    <div class="ops-loading-spinner"></div>
+    <span>Connecting to video stream...</span>
+</div>
+
+<!-- Stream Lost Badge -->
+<div class="ops-stream-lost" id="ops-stream-lost" style="display:none;">
+    <span>STREAM LOST — RECONNECTING</span>
+</div>
+
+<!-- Target Lock Indicator (top center, overlaid on video) -->
+<div class="ops-lock-indicator" id="ops-lock-indicator" style="display:none;">
+    <span class="lock-icon">⊕</span>
+    <span class="lock-label" id="lock-label">--</span>
+    <span class="lock-mode" id="lock-mode">TRACK</span>
+</div>
 
 <!-- Panel Visibility Toggle -->
 <div class="panel-toolbar">
@@ -15,7 +33,7 @@
     </div>
 </div>
 
-<div class="control-panels" id="control-panels">
+<div class="operations-panels" id="operations-panels">
 
     <!-- 1. Vehicle Telemetry -->
     <div class="panel" data-panel-id="vehicle" id="panel-vehicle">
