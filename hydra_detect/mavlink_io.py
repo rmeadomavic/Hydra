@@ -706,6 +706,50 @@ class MAVLinkIO:
 
         threading.Thread(target=_off, daemon=True, name="servo-flash").start()
 
+    # ------------------------------------------------------------------
+    # VIDEO_STREAM_INFORMATION — advertise RTSP stream to GCS
+    # ------------------------------------------------------------------
+    def send_video_stream_info(
+        self,
+        uri: str,
+        width: int = 640,
+        height: int = 480,
+        framerate: float = 15.0,
+        bitrate: int = 2_000_000,
+        name: str = "Hydra Detect",
+    ) -> None:
+        """Send VIDEO_STREAM_INFORMATION so Mission Planner auto-discovers the RTSP stream.
+
+        MP populates its 'Detected Streams' dropdown from this message.
+        Should be called periodically (e.g., every 5s) so MP picks it up.
+        """
+        if self._mav is None:
+            return
+        try:
+            from pymavlink.dialects.v20 import common as mavlink2
+
+            msg = mavlink2.MAVLink_video_stream_information_message(
+                stream_id=1,
+                count=1,
+                type=0,         # VIDEO_STREAM_TYPE_RTSP
+                flags=1,        # VIDEO_STREAM_STATUS_FLAGS_RUNNING
+                framerate=framerate,
+                resolution_h=width,
+                resolution_v=height,
+                bitrate=bitrate,
+                rotation=0,
+                hfov=0,
+                name=name.encode('utf-8')[:32].ljust(32, b'\0'),
+                uri=uri.encode('utf-8')[:160].ljust(160, b'\0'),
+                encoding=1,    # VIDEO_STREAM_ENCODING_H264
+            )
+            msg._header.srcSystem = self._source_system
+            msg._header.srcComponent = 100  # MAV_COMP_ID_CAMERA
+            with self._send_lock:
+                self._mav.mav.send(msg, force_mavlink1=False)
+        except Exception as exc:
+            logger.warning("Failed to send VIDEO_STREAM_INFORMATION: %s", exc)
+
     # -- Public accessors / mutators ------------------------------------
     @property
     def auto_loiter(self) -> bool:
