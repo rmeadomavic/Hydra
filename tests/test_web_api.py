@@ -71,6 +71,7 @@ class TestAuthEnforcement:
         ("POST", "/api/target/strike", {"track_id": 1, "confirm": True}),
         ("POST", "/api/config/alert-classes", {"classes": ["person"]}),
         ("POST", "/api/vehicle/mode", {"mode": "AUTO"}),
+        ("POST", "/api/rtsp/toggle", {"enabled": True}),
     ]
 
     def test_no_auth_when_disabled(self, client):
@@ -334,3 +335,49 @@ class TestStaticFileServing:
     def test_missing_static_file_404(self, client):
         resp = client.get("/static/nonexistent.css")
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# RTSP endpoints
+# ---------------------------------------------------------------------------
+
+class TestRTSPEndpoints:
+    def test_rtsp_status_default(self, client):
+        """Status endpoint returns shape even without callback."""
+        resp = client.get("/api/rtsp/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "enabled" in data
+        assert "running" in data
+
+    def test_rtsp_toggle_requires_auth(self, client):
+        configure_auth("secret-token-123")
+        resp = client.post("/api/rtsp/toggle", json={"enabled": True})
+        assert resp.status_code == 401
+
+    def test_rtsp_toggle_with_auth(self, client):
+        configure_auth("secret-token-123")
+        called = {}
+        def on_toggle(enabled):
+            called["enabled"] = enabled
+            return {"status": "ok", "running": enabled}
+        stream_state.set_callbacks(on_rtsp_toggle=on_toggle)
+        headers = {"Authorization": "Bearer secret-token-123"}
+        resp = client.post("/api/rtsp/toggle", json={"enabled": True}, headers=headers)
+        assert resp.status_code == 200
+        assert called["enabled"] is True
+
+    def test_rtsp_toggle_no_auth_when_disabled(self, client):
+        configure_auth(None)
+        called = {}
+        def on_toggle(enabled):
+            called["enabled"] = enabled
+            return {"status": "ok", "running": enabled}
+        stream_state.set_callbacks(on_rtsp_toggle=on_toggle)
+        resp = client.post("/api/rtsp/toggle", json={"enabled": False})
+        assert resp.status_code == 200
+        assert called["enabled"] is False
+
+    def test_rtsp_toggle_missing_body(self, client):
+        resp = client.post("/api/rtsp/toggle", json={})
+        assert resp.status_code == 400

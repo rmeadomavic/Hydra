@@ -674,6 +674,38 @@ async def api_rf_stop(request: Request, authorization: Optional[str] = Header(No
     return JSONResponse({"error": "RF homing not configured"}, status_code=503)
 
 
+# ── RTSP ─────────────────────────────────────────────────────
+
+@app.get("/api/rtsp/status")
+async def api_rtsp_status():
+    """Return RTSP server status."""
+    cb = stream_state.get_callback("get_rtsp_status")
+    if cb:
+        return cb()
+    return {"enabled": False, "running": False, "url": "", "clients": 0}
+
+
+@app.post("/api/rtsp/toggle")
+async def api_rtsp_toggle(request: Request, authorization: Optional[str] = Header(None)):
+    """Start or stop the RTSP server at runtime. Body: {"enabled": true/false}"""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    enabled = body.get("enabled")
+    if enabled is None:
+        return JSONResponse({"error": "enabled field required (true/false)"}, status_code=400)
+    cb = stream_state.get_callback("on_rtsp_toggle")
+    if cb:
+        result = cb(bool(enabled))
+        _audit(request, "rtsp_toggle", target=str(enabled))
+        if result.get("status") == "ok":
+            return result
+        return JSONResponse(result, status_code=500)
+    _audit(request, "rtsp_toggle", outcome="unavailable")
+    return JSONResponse({"error": "RTSP toggle not available"}, status_code=503)
+
+
 @app.post("/api/pipeline/stop")
 async def api_pipeline_stop(request: Request, authorization: Optional[str] = Header(None)):
     """Gracefully stop the pipeline and shut down."""
