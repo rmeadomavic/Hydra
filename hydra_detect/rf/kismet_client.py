@@ -121,6 +121,12 @@ class KismetClient:
             logger.error("Cannot reach Kismet API at %s: %s", self._host, exc)
             return False
 
+    def reset_auth(self) -> None:
+        """Clear cached auth/session state so the next request re-authenticates."""
+        self._authenticated = False
+        self._session.auth = None
+        self._session.cookies.clear()
+
     # -- WiFi RSSI by BSSID ------------------------------------------------
 
     def get_wifi_rssi(self, bssid: str) -> float | None:

@@ -178,6 +178,18 @@ class TestUnifiedGetter:
         client.close()
         client._session.close.assert_called_once()
 
+    def test_reset_auth_clears_cached_session_state(self):
+        client = KismetClient()
+        client._session = MagicMock()
+        client._authenticated = True
+        client._session.auth = ("user", "pass")
+
+        client.reset_auth()
+
+        assert client._authenticated is False
+        assert client._session.auth is None
+        client._session.cookies.clear.assert_called_once()
+
     def test_context_manager(self):
         with KismetClient() as client:
             assert client._session is not None
