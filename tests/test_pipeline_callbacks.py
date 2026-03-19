@@ -159,3 +159,45 @@ class TestActiveTracks:
         assert len(tracks) == 1
         assert tracks[0]["track_id"] == 7
         assert tracks[0]["label"] == "vehicle"
+
+
+# ---------------------------------------------------------------------------
+# RTSP toggle / status
+# ---------------------------------------------------------------------------
+
+class TestRTSPCallbacks:
+    def test_rtsp_status_when_disabled(self):
+        p = _make_pipeline()
+        p._rtsp = None
+        p._rtsp_enabled = False
+        p._rtsp_port = 8554
+        p._rtsp_mount = "/hydra"
+        status = p._get_rtsp_status()
+        assert status["enabled"] is False
+        assert status["running"] is False
+
+    def test_rtsp_status_when_running(self):
+        p = _make_pipeline()
+        p._rtsp = MagicMock()
+        p._rtsp.running = True
+        p._rtsp.url = "rtsp://0.0.0.0:8554/hydra"
+        p._rtsp.client_count = 2
+        p._rtsp_enabled = True
+        p._rtsp_port = 8554
+        p._rtsp_mount = "/hydra"
+        status = p._get_rtsp_status()
+        assert status["running"] is True
+        assert status["clients"] == 2
+
+    def test_rtsp_toggle_off(self):
+        p = _make_pipeline()
+        p._rtsp = MagicMock()
+        p._rtsp.running = True
+        p._rtsp_enabled = True
+        p._rtsp_port = 8554
+        p._rtsp_mount = "/hydra"
+        p._rtsp_bitrate = 2_000_000
+        result = p._handle_rtsp_toggle(False)
+        assert result["status"] == "ok"
+        assert result["running"] is False
+        assert p._rtsp is None

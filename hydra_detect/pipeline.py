@@ -30,6 +30,7 @@ from .system import (
     refresh_nvpmodel_async as _refresh_nvpmodel_async,
     set_power_mode as _set_power_mode,
 )
+from .rtsp_server import RTSPServer
 from .tracker import ByteTracker
 from .web.config_api import set_config_path
 from .web.server import configure_auth, run_server, stream_state
@@ -295,6 +296,13 @@ class Pipeline:
         self._web_host = self._cfg.get("web", "host", fallback="0.0.0.0")
         self._web_port = self._cfg.getint("web", "port", fallback=8080)
 
+        # RTSP output
+        self._rtsp: RTSPServer | None = None
+        self._rtsp_enabled = self._cfg.getboolean("rtsp", "enabled", fallback=True)
+        self._rtsp_port = self._cfg.getint("rtsp", "port", fallback=8554)
+        self._rtsp_mount = self._cfg.get("rtsp", "mount", fallback="/hydra")
+        self._rtsp_bitrate = self._cfg.getint("rtsp", "bitrate", fallback=2_000_000)
+
         self._running = False
         self._paused = False
         self._total_detections = 0
@@ -403,6 +411,8 @@ class Pipeline:
                 on_set_mode_command=self._handle_set_mode_command,
                 on_alert_classes_change=self._handle_alert_classes_change,
                 get_class_names=self._detector.get_class_names,
+                on_rtsp_toggle=self._handle_rtsp_toggle,
+                get_rtsp_status=self._get_rtsp_status,
             )
 
             stream_state.update_stats(
@@ -410,6 +420,19 @@ class Pipeline:
                 mavlink=self._mavlink is not None and self._mavlink.connected,
             )
             run_server(self._web_host, self._web_port)
+
+        # Start RTSP output
+        if self._rtsp_enabled:
+            self._rtsp = RTSPServer(
+                port=self._rtsp_port,
+                mount=self._rtsp_mount,
+                bitrate=self._rtsp_bitrate,
+                width=self._cfg.getint("camera", "width", fallback=640),
+                height=self._cfg.getint("camera", "height", fallback=480),
+            )
+            if not self._rtsp.start():
+                logger.warning("RTSP server failed to start — continuing without.")
+                self._rtsp = None
 
         # Start RF hunt if configured
         if self._rf_hunt is not None:
@@ -554,6 +577,10 @@ class Pipeline:
                 )
                 self._osd.update(osd_state)
 
+            # Push to RTSP stream (independent of web UI)
+            if self._rtsp is not None:
+                self._rtsp.push_frame(annotated)
+
             # Push to web stream
             if self._web_enabled:
                 stream_state.update_frame(annotated)
@@ -585,6 +612,8 @@ class Pipeline:
                 if self._frame_count % 150 == 0:
                     _refresh_nvpmodel_async()
                     self._jetson_stats = _read_jetson_stats()
+                if self._rtsp is not None:
+                    stats_update["rtsp_clients"] = self._rtsp.client_count
                 if self._rf_hunt is not None:
                     stats_update["rf_hunt"] = self._rf_hunt.get_status()
                 stats_update.update(self._jetson_stats)
@@ -868,6 +897,45 @@ class Pipeline:
             self._rf_hunt.stop()
             logger.info("RF hunt stopped from web UI")
 
+    def _handle_rtsp_toggle(self, enabled: bool) -> dict:
+        """Start or stop the RTSP server at runtime."""
+        if enabled and self._rtsp is None:
+            self._rtsp = RTSPServer(
+                port=self._rtsp_port,
+                mount=self._rtsp_mount,
+                bitrate=self._rtsp_bitrate,
+                width=self._cfg.getint("camera", "width", fallback=640),
+                height=self._cfg.getint("camera", "height", fallback=480),
+            )
+            if self._rtsp.start():
+                return {"status": "ok", "running": True, "url": self._rtsp.url}
+            self._rtsp = None
+            return {"status": "error", "message": "RTSP server failed to start"}
+        elif not enabled and self._rtsp is not None:
+            self._rtsp.stop()
+            self._rtsp = None
+            return {"status": "ok", "running": False}
+        return {
+            "status": "ok",
+            "running": self._rtsp is not None and self._rtsp.running,
+        }
+
+    def _get_rtsp_status(self) -> dict:
+        """Return RTSP server status for the web API."""
+        if self._rtsp is not None and self._rtsp.running:
+            return {
+                "enabled": True,
+                "running": True,
+                "url": self._rtsp.url,
+                "clients": self._rtsp.client_count,
+            }
+        return {
+            "enabled": self._rtsp_enabled,
+            "running": False,
+            "url": f"rtsp://0.0.0.0:{self._rtsp_port}{self._rtsp_mount}",
+            "clients": 0,
+        }
+
     def _handle_stop_command(self) -> None:
         """Stop the pipeline gracefully from the web UI."""
         logger.info("Stop command received from web UI.")
@@ -890,6 +958,8 @@ class Pipeline:
             self._rf_hunt.stop()
         if self._kismet_manager is not None:
             self._kismet_manager.stop()
+        if self._rtsp is not None:
+            self._rtsp.stop()
         self._camera.close()
         self._detector.unload()
         self._det_logger.stop()
