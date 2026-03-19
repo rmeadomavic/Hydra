@@ -21,10 +21,12 @@ class YOLODetector(BaseDetector):
         model_path: str = "yolov8n.pt",
         confidence: float = 0.45,
         classes: Optional[List[int]] = None,
+        imgsz: int | None = None,
     ):
         self._model_path = model_path
         self._confidence = confidence
         self._classes = classes
+        self._imgsz = imgsz
         self._model = None
 
     def load(self) -> None:
@@ -39,12 +41,14 @@ class YOLODetector(BaseDetector):
             raise RuntimeError("Model not loaded — call load() first.")
 
         t0 = time.perf_counter()
-        results = self._model.predict(
-            frame,
+        predict_kwargs: dict = dict(
             conf=self._confidence,
             classes=self._classes,
             verbose=False,
         )
+        if self._imgsz is not None:
+            predict_kwargs["imgsz"] = self._imgsz
+        results = self._model.predict(frame, **predict_kwargs)
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
         detections: list[Detection] = []
