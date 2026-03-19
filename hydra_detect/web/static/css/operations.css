@@ -1,4 +1,4 @@
-/* ── Control View — Right-Side Panel Area ── */
+/* ── Operations View — Right-Side Panel Area ── */
 
 /* Panel toolbar (visibility toggle) */
 .panel-toolbar {
@@ -59,28 +59,18 @@
 }
 
 /* Panel container: right 40% of view */
-.view-control {
+.view-operations {
     display: flex;
     justify-content: flex-end;
 }
 
-.view-control > .panel-toolbar,
-.view-control > .control-panels {
+.view-operations > .panel-toolbar,
+.view-operations > .operations-panels {
     position: relative;
     z-index: 2;
 }
 
-#view-control {
-    display: none;
-    flex-direction: column;
-    align-items: flex-end;
-}
-
-body.view-control #view-control {
-    display: flex;
-}
-
-.control-panels {
+.operations-panels {
     width: 40%;
     max-height: calc(100vh - var(--topbar-height) - var(--footer-height) - 40px);
     overflow-y: auto;
@@ -571,10 +561,10 @@ body.view-control #view-control {
 .panel-det-pos { color: var(--warning); }
 
 /* ── Scrollbar for panels ── */
-.control-panels::-webkit-scrollbar { width: 4px; }
-.control-panels::-webkit-scrollbar-track { background: transparent; }
-.control-panels::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
-.control-panels::-webkit-scrollbar-thumb:hover { background: #383838; }
+.operations-panels::-webkit-scrollbar { width: 4px; }
+.operations-panels::-webkit-scrollbar-track { background: transparent; }
+.operations-panels::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+.operations-panels::-webkit-scrollbar-thumb:hover { background: #383838; }
 
 .panel-track-list::-webkit-scrollbar,
 .panel-det-log::-webkit-scrollbar,
@@ -585,7 +575,7 @@ body.view-control #view-control {
 
 /* ── Responsive: below 1280px — single column, full width ── */
 @media (max-width: 1279px) {
-    .control-panels {
+    .operations-panels {
         width: 100%;
         max-height: 55vh;
         margin-top: 40vh;
@@ -617,4 +607,108 @@ body.view-control #view-control {
     .panel-track-item {
         padding: 8px;
     }
+}
+
+/* ── Video Overlay: Target Lock Indicator ── */
+.ops-lock-indicator {
+    position: fixed;
+    top: calc(var(--topbar-height) + var(--gap-md));
+    left: 30%;
+    transform: translateX(-50%);
+    z-index: 10;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: var(--radius-lg);
+    padding: var(--gap-xs) var(--gap-md);
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+    border: 1px solid var(--ogt-green);
+    box-shadow: var(--glow-green);
+}
+
+.ops-lock-indicator.strike {
+    border-color: var(--danger);
+    box-shadow: var(--glow-danger);
+}
+
+.ops-lock-indicator .lock-icon {
+    font-size: var(--font-lg);
+    color: var(--ogt-muted);
+}
+.ops-lock-indicator.strike .lock-icon {
+    color: #fca5a5;
+}
+.ops-lock-indicator .lock-label {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: var(--font-sm);
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-primary);
+}
+.ops-lock-indicator .lock-mode {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: var(--font-xs);
+    color: var(--ogt-muted);
+}
+.ops-lock-indicator.strike .lock-mode {
+    color: #fca5a5;
+}
+
+/* ── Loading & Stream States ── */
+.ops-loading {
+    position: fixed;
+    top: var(--topbar-height);
+    left: 0;
+    width: 60%;
+    bottom: var(--footer-height);
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--gap-md);
+    color: var(--text-secondary);
+    font-size: var(--font-sm);
+    background: var(--panel-bg);
+}
+
+.ops-loading-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--card-border);
+    border-top-color: var(--ogt-green);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.ops-stream-lost {
+    position: fixed;
+    top: calc(var(--topbar-height) + var(--gap-md));
+    left: 30%;
+    transform: translateX(-50%);
+    z-index: 15;
+    background: var(--danger-bg);
+    border: 1px solid var(--danger);
+    border-radius: var(--radius-lg);
+    padding: var(--gap-xs) var(--gap-md);
+    color: #fca5a5;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: var(--font-sm);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: var(--ls-condensed);
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* ── Responsive ── */
+@media (max-width: 1279px) {
+    .ops-loading { width: 100%; }
+    .ops-lock-indicator { left: 50%; }
+    .ops-stream-lost { left: 50%; }
 }

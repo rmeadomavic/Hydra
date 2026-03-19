@@ -315,8 +315,7 @@ class TestSPAShell:
         resp = client.get("/")
         assert resp.status_code == 200
         assert "HYDRA DETECT" in resp.text
-        assert "view-monitor" in resp.text
-        assert "view-control" in resp.text
+        assert "view-operations" in resp.text
         assert "view-settings" in resp.text
         assert "stream.mjpeg" in resp.text
 

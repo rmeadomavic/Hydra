@@ -22,7 +22,7 @@ const HydraPanels = (() => {
 
     // ── Initialization ──
     function init() {
-        const container = document.getElementById('control-panels');
+        const container = document.getElementById('operations-panels');
         if (!container) return;
 
         // Init SortableJS
@@ -93,7 +93,7 @@ const HydraPanels = (() => {
 
     // ── Save Layout ──
     function saveLayout() {
-        const container = document.getElementById('control-panels');
+        const container = document.getElementById('operations-panels');
         if (!container) return;
 
         const panels = container.querySelectorAll('.panel');
@@ -118,54 +118,73 @@ const HydraPanels = (() => {
 
     // ── Load Layout ──
     function loadLayout() {
-        const container = document.getElementById('control-panels');
+        const container = document.getElementById('operations-panels');
         if (!container) return;
+
+        migrateOldKeys();
 
         let layout;
         try {
             const raw = localStorage.getItem(storageKey());
-            if (!raw) return;
+            if (!raw) {
+                applyTierDefaults(container);
+                return;
+            }
             layout = JSON.parse(raw);
         } catch (e) {
+            applyTierDefaults(container);
             return;
         }
 
-        if (!Array.isArray(layout) || layout.length === 0) return;
+        if (!Array.isArray(layout) || layout.length === 0) {
+            applyTierDefaults(container);
+            return;
+        }
 
-        // Validate: only keep entries with known IDs
         const valid = layout.filter(item => item && KNOWN_IDS.includes(item.id));
-        if (valid.length === 0) return;
+        if (valid.length === 0) {
+            applyTierDefaults(container);
+            return;
+        }
 
-        // Reorder panels in the DOM
         const panelMap = {};
         container.querySelectorAll('.panel').forEach(p => {
             panelMap[p.dataset.panelId] = p;
         });
 
-        // Append panels in saved order
         valid.forEach(item => {
             const panel = panelMap[item.id];
             if (!panel) return;
-
-            // Apply collapsed state
             panel.classList.toggle('collapsed', !!item.collapsed);
-
-            // Apply visibility state
             panel.classList.toggle('hidden', item.visible === false);
-
-            // Move to correct order
             container.appendChild(panel);
-
             delete panelMap[item.id];
         });
 
-        // Any panels not in saved layout get appended at end (new panels added later)
         Object.values(panelMap).forEach(panel => {
             container.appendChild(panel);
         });
 
-        // Sync visibility menu checkboxes
         syncVisibilityCheckboxes();
+    }
+
+    function migrateOldKeys() {
+        const newKey = storageKey();
+        try {
+            if (localStorage.getItem(newKey)) return;
+            localStorage.removeItem('hydra-panels-desktop');
+            localStorage.removeItem('hydra-panels-compact');
+        } catch (e) {}
+    }
+
+    function applyTierDefaults(container) {
+        const tier3 = ['detection', 'log'];
+        container.querySelectorAll('.panel').forEach(panel => {
+            const id = panel.dataset.panelId;
+            if (tier3.includes(id)) {
+                panel.classList.add('collapsed');
+            }
+        });
     }
 
     // ── Sync visibility checkboxes to current panel state ──

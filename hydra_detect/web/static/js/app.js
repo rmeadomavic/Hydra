@@ -9,14 +9,13 @@
 
 const HydraApp = (() => {
     // ── State ──
-    let currentView = 'monitor';
+    let currentView = 'operations';
     const pollers = {};
     let pollFailCount = 0;
     const MAX_BACKOFF = 10000;
     const toasts = [];
     const MAX_TOASTS = 3;
     const TOAST_DEDUP_MS = 5000;
-    let lastActivity = Date.now();
     let apiToken = '';
 
     // ── Shared Data (updated by pollers, read by views) ──
@@ -40,7 +39,7 @@ const HydraApp = (() => {
     // ── View Router ──
     function initRouter() {
         window.addEventListener('hashchange', onHashChange);
-        const hash = window.location.hash.replace('#', '') || 'monitor';
+        const hash = window.location.hash.replace('#', '') || 'operations';
         switchView(hash);
 
         document.querySelectorAll('.topbar-tab').forEach(tab => {
@@ -53,22 +52,22 @@ const HydraApp = (() => {
         const thumb = document.getElementById('mini-thumbnail');
         if (thumb) {
             thumb.addEventListener('click', () => {
-                window.location.hash = 'monitor';
+                window.location.hash = 'operations';
             });
         }
     }
 
     function onHashChange() {
-        const hash = window.location.hash.replace('#', '') || 'monitor';
+        const hash = window.location.hash.replace('#', '') || 'operations';
         switchView(hash);
     }
 
     function switchView(view) {
-        if (!['monitor', 'control', 'settings'].includes(view)) view = 'monitor';
+        if (!['operations', 'settings'].includes(view)) view = 'operations';
         const prev = currentView;
         currentView = view;
 
-        ['view-monitor', 'view-control', 'view-settings'].forEach(c =>
+        ['view-operations', 'view-settings'].forEach(c =>
             document.body.classList.remove(c));
         document.body.classList.add(`view-${view}`);
 
@@ -78,13 +77,9 @@ const HydraApp = (() => {
 
         updatePollers();
 
-        if (typeof HydraMonitor !== 'undefined' && prev !== view) {
-            if (view === 'monitor') HydraMonitor.onEnter();
-            if (prev === 'monitor') HydraMonitor.onLeave();
-        }
-        if (typeof HydraControl !== 'undefined' && prev !== view) {
-            if (view === 'control') HydraControl.onEnter();
-            if (prev === 'control') HydraControl.onLeave();
+        if (typeof HydraOperations !== 'undefined' && prev !== view) {
+            if (view === 'operations') HydraOperations.onEnter();
+            if (prev === 'operations') HydraOperations.onLeave();
         }
         if (typeof HydraSettings !== 'undefined' && prev !== view) {
             if (view === 'settings') HydraSettings.onEnter();
@@ -145,20 +140,16 @@ const HydraApp = (() => {
             });
         }
 
-        const needsTracks = ['monitor', 'control'].includes(currentView);
-        if (needsTracks && !pollers['tracks']) {
+        const isOps = currentView === 'operations';
+        if (isOps && !pollers['tracks']) {
             startPoller('tracks', '/api/tracks', 1000, data => { state.tracks = data; });
             startPoller('target', '/api/target', 1000, data => { state.target = data; });
             startPoller('rf', '/api/rf/status', 2000, data => { state.rfStatus = data; });
-        } else if (!needsTracks) {
+            startPoller('detections', '/api/detections', 3000, data => { state.detections = data; });
+        } else if (!isOps) {
             stopPoller('tracks');
             stopPoller('target');
             stopPoller('rf');
-        }
-
-        if (currentView === 'control' && !pollers['detections']) {
-            startPoller('detections', '/api/detections', 3000, data => { state.detections = data; });
-        } else if (currentView !== 'control') {
             stopPoller('detections');
         }
     }
@@ -250,17 +241,6 @@ const HydraApp = (() => {
         }
     }
 
-    // ── Activity Tracking (for auto-hide) ──
-    function trackActivity() {
-        ['mousemove', 'touchstart', 'keydown'].forEach(evt => {
-            document.addEventListener(evt, () => { lastActivity = Date.now(); });
-        });
-    }
-
-    function isIdle(thresholdMs) {
-        return (Date.now() - lastActivity) > thresholdMs;
-    }
-
     // ── Modal: Escape to close ──
     function initModalEscape() {
         document.addEventListener('keydown', e => {
@@ -288,14 +268,14 @@ const HydraApp = (() => {
         const streamImg = document.getElementById('mjpeg-stream');
         if (streamImg) {
             streamImg.addEventListener('error', () => {
-                const lost = document.getElementById('monitor-stream-lost');
+                const lost = document.getElementById('ops-stream-lost');
                 if (lost) lost.style.display = '';
                 setTimeout(() => {
                     streamImg.src = '/stream.mjpeg?' + Date.now();
                 }, 2000);
             });
             streamImg.addEventListener('load', () => {
-                const lost = document.getElementById('monitor-stream-lost');
+                const lost = document.getElementById('ops-stream-lost');
                 if (lost) lost.style.display = 'none';
             });
         }
@@ -304,7 +284,6 @@ const HydraApp = (() => {
     // ── Init ──
     function init() {
         initRouter();
-        trackActivity();
         initPresentationMode();
         initModalEscape();
         initStreamWatcher();
@@ -326,6 +305,5 @@ const HydraApp = (() => {
         apiGet,
         authHeaders,
         setApiToken,
-        isIdle,
     };
 })();
