@@ -19,14 +19,20 @@ Two accepted sequences (both 10 keys):
 - **Classic:** `Up Up Down Down Left Right Left Right B A`
 - **Reverse arrows:** `Down Down Up Up Left Right Left Right B A`
 
-Detected via a keydown listener on `document`. Works on any page/view of the
-dashboard. The listener tracks the last 10 keypresses and checks against both
-sequences on each keypress.
+Detected via a keydown listener on `document`. Works on the main SPA
+(Operations and Settings views). The Review page (`/review`) is excluded — it
+is a standalone HTML document that does not share `base.html` or `app.js`.
+
+The listener tracks the last 10 keypresses and checks against both sequences
+on each keypress. Keypresses are **ignored when focus is in an INPUT, TEXTAREA,
+or SELECT** element (consistent with the existing presentation mode shortcut in
+`app.js`). If the animation is currently playing, subsequent matches are ignored
+until cleanup completes.
 
 ### Behavior
 
-1. **Black overlay** fades in over the entire viewport (z-index above all UI,
-   including modals). Background: `#000`.
+1. **Black overlay** fades in over the entire viewport (`z-index: 9999`, above
+   all UI including the strike modal at z-index 1000). Background: `#000`.
 
 2. **Terminal boot sequence** types out line-by-line in monospace green text
    (`#00ff41`, think classic terminal). Each line appears with a typewriter
@@ -50,8 +56,10 @@ sequences on each keypress.
    horizontal offset, ~500ms) plays on the overlay, then the overlay fades out
    over ~300ms.
 
-6. **Ominous toast** — after the overlay is gone, a standard toast notification
-   appears: *"Resuming manual control."*
+6. **Ominous toast** — after the overlay is gone, a toast notification appears:
+   *"Resuming manual control."* Toast type: `info`. Note: the codebase currently
+   lacks `.toast-info` CSS styling (all toasts render with the red danger style).
+   A `.toast-info` class with muted/neutral colors must be added to `base.css`.
 
 **Total duration:** ~10 seconds.
 
@@ -73,7 +81,7 @@ sequences on each keypress.
 |------|--------|
 | `web/templates/base.html` | Add `#sentience-overlay` div |
 | `web/static/js/app.js` | Konami code listener + animation orchestration |
-| `web/static/css/base.css` | Overlay styles, typewriter, glitch, pulse keyframes |
+| `web/static/css/base.css` | Overlay styles, typewriter, glitch, pulse keyframes, `.toast-info` class |
 
 ## Easter Egg 2: "Power User Options" — Rickroll
 
@@ -111,11 +119,15 @@ styled identically to existing action buttons so it looks completely legitimate.
   confirmation modal is the template). A new modal `#power-user-modal` with
   the confirmation text.
 - **Rickroll page:** On confirm, JS replaces `document.body.innerHTML` with a
-  full-viewport YouTube iframe embed. The video URL uses `autoplay=1` and
-  `allow="autoplay"`.
+  full-viewport YouTube iframe embed. The iframe uses `autoplay=1&mute=1` in
+  the URL and `allow="autoplay"` on the element. The `mute=1` parameter ensures
+  autoplay works across all modern browsers (Chrome, Firefox, Edge block unmuted
+  autoplay). The video starts silently — the user can unmute manually.
 - **No backend calls.** No config changes. No state mutations.
-- **Recovery:** Navigating back or refreshing restores the normal dashboard
-  (the replacement is DOM-only, no persistent state change).
+- **Recovery:** The user must refresh the page or close the tab. Browser back
+  button will not restore the SPA since the hash router and all JS state are
+  destroyed by the `innerHTML` replacement. This is intentional — commitment
+  to the bit.
 
 ### Files Modified
 
@@ -145,10 +157,13 @@ Deferred to a future session. Ideas under consideration:
 
 ## Testing
 
-- Verify Konami code triggers on Operations view, Settings view, and Review page.
+- Verify Konami code triggers on Operations view and Settings view.
+- Verify Konami code does NOT trigger when typing in input/textarea fields.
+- Verify Konami code is ignored if triggered while animation is already playing.
 - Verify the full animation sequence plays and returns to normal UI cleanly.
 - Verify "Power User Options" button appears in Settings and modal works.
-- Verify rickroll takeover replaces page and video autoplays.
+- Verify rickroll takeover replaces page and video autoplays (muted).
+- Verify page refresh after rickroll restores the dashboard (back button won't).
 - Verify page refresh after either easter egg restores normal dashboard.
 - Verify no console errors during or after either sequence.
 - Verify no network requests to Hydra backend during either easter egg.
