@@ -320,7 +320,7 @@ class TestSPAShell:
         assert "HYDRA DETECT" in resp.text
         assert "view-operations" in resp.text
         assert "view-settings" in resp.text
-        assert "stream.mjpeg" in resp.text
+        assert "mjpeg-stream" in resp.text
 
     def test_index_includes_static_css(self, client):
         resp = client.get("/")

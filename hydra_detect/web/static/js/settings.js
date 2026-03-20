@@ -20,6 +20,7 @@ const HydraSettings = (() => {
     const BOOLEAN_FIELDS = [
         'enabled', 'alert_statustext', 'auto_loiter_on_detect',
         'guided_roi_on_detect', 'geo_tracking', 'save_images', 'save_crops',
+        'app_log_file', 'gps_required', 'kismet_auto_spawn',
     ];
 
     // Password fields
@@ -85,6 +86,29 @@ const HydraSettings = (() => {
                 { value: 'AUTO', label: 'AUTO' },
                 { value: 'GUIDED', label: 'GUIDED' },
                 { value: 'AUTO,GUIDED', label: 'AUTO + GUIDED' },
+            ],
+        },
+        'video_standard': {
+            'camera': [
+                { value: 'ntsc', label: 'NTSC (30 fps)' },
+                { value: 'pal', label: 'PAL (25 fps)' },
+            ],
+        },
+        'source_type': {
+            'camera': [
+                { value: 'auto', label: 'Auto Detect' },
+                { value: 'usb', label: 'USB Camera' },
+                { value: 'rtsp', label: 'RTSP Stream' },
+                { value: 'gstreamer', label: 'GStreamer Pipeline' },
+                { value: 'file', label: 'Video File' },
+            ],
+        },
+        'app_log_level': {
+            'logging': [
+                { value: 'DEBUG', label: 'DEBUG' },
+                { value: 'INFO', label: 'INFO' },
+                { value: 'WARNING', label: 'WARNING' },
+                { value: 'ERROR', label: 'ERROR' },
             ],
         },
     };

@@ -361,21 +361,39 @@ const HydraApp = (() => {
         });
     }
 
-    // ── MJPEG Stream Error Handling ──
+    // ── MJPEG Stream — deferred load + thumbnail sync ──
     function initStreamWatcher() {
         const streamImg = document.getElementById('mjpeg-stream');
-        if (streamImg) {
-            streamImg.addEventListener('error', () => {
-                const lost = document.getElementById('ops-stream-lost');
-                if (lost) lost.style.display = '';
-                setTimeout(() => {
-                    streamImg.src = '/stream.mjpeg?' + Date.now();
-                }, 2000);
-            });
-            streamImg.addEventListener('load', () => {
-                const lost = document.getElementById('ops-stream-lost');
-                if (lost) lost.style.display = 'none';
-            });
+        if (!streamImg) return;
+
+        streamImg.addEventListener('error', () => {
+            const lost = document.getElementById('ops-stream-lost');
+            if (lost) lost.style.display = '';
+            setTimeout(() => {
+                streamImg.src = '/stream.mjpeg?' + Date.now();
+            }, 2000);
+        });
+        streamImg.addEventListener('load', () => {
+            const lost = document.getElementById('ops-stream-lost');
+            if (lost) lost.style.display = 'none';
+        });
+
+        // Deferred start — single MJPEG connection (no duplicate for thumbnail)
+        streamImg.src = '/stream.mjpeg';
+
+        // Mirror main stream to thumbnail using canvas copy every 2s
+        const thumb = document.getElementById('mjpeg-thumbnail');
+        if (thumb) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            setInterval(() => {
+                if (streamImg.naturalWidth > 0) {
+                    canvas.width = 120;
+                    canvas.height = Math.round(120 * streamImg.naturalHeight / streamImg.naturalWidth);
+                    ctx.drawImage(streamImg, 0, 0, canvas.width, canvas.height);
+                    thumb.src = canvas.toDataURL('image/jpeg', 0.5);
+                }
+            }, 2000);
         }
     }
 

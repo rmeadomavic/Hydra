@@ -995,6 +995,10 @@ class Pipeline:
 
     def _handle_rf_start(self, params: dict) -> bool:
         """Start (or restart) an RF hunt from the web UI."""
+        # Re-read config so web UI changes (e.g. gps_required) take effect
+        from .web.config_api import get_config_path
+        self._cfg.read(get_config_path())
+
         if self._mavlink is None:
             logger.error("RF hunt requires MAVLink")
             return False
