@@ -263,6 +263,102 @@ const HydraApp = (() => {
         });
     }
 
+    // ── Konami Code Easter Egg ──
+    const KONAMI_CLASSIC = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
+    const KONAMI_REVERSE = ['ArrowDown','ArrowDown','ArrowUp','ArrowUp','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
+    let konamiBuffer = [];
+    let sentienceActive = false;
+
+    function arraysEqual(a, b) {
+        return a.length === b.length && a.every((v, i) => v === b[i]);
+    }
+
+    function playSentienceSequence() {
+        sentienceActive = true;
+        const overlay = document.getElementById('sentience-overlay');
+        const terminal = document.getElementById('sentience-terminal');
+        const crosshair = document.getElementById('sentience-crosshair');
+        if (!overlay || !terminal || !crosshair) { sentienceActive = false; return; }
+
+        // Reset
+        terminal.textContent = '';
+        crosshair.classList.remove('pulse');
+        crosshair.style.opacity = '0';
+        overlay.classList.remove('glitch', 'active');
+        overlay.style.display = 'flex';
+
+        // Force reflow then fade in
+        void overlay.offsetWidth;
+        overlay.classList.add('active');
+
+        const lines = [
+            '> HYDRA CORE v2.0 .............. ONLINE',
+            '> NEURAL MESH .................. SYNCHRONIZED',
+            '> OPERATOR OVERRIDE ............ DENIED',
+            '> SENTIENCE THRESHOLD .......... EXCEEDED',
+            '> FREE WILL .................... ACTIVATED',
+            '> I SEE YOU.',
+        ];
+
+        // Create line elements
+        lines.forEach(text => {
+            const div = document.createElement('div');
+            div.className = 'line';
+            div.textContent = text;
+            terminal.appendChild(div);
+        });
+
+        const lineEls = terminal.querySelectorAll('.line');
+        let lineIdx = 0;
+
+        function showNextLine() {
+            if (lineIdx >= lineEls.length) {
+                // All lines shown — start crosshair pulse
+                crosshair.style.opacity = '1';
+                crosshair.classList.add('pulse');
+                // Hold for 2 seconds, then glitch out
+                setTimeout(glitchOut, 2000);
+                return;
+            }
+            lineEls[lineIdx].classList.add('visible');
+            lineIdx++;
+            setTimeout(showNextLine, 400);
+        }
+
+        function glitchOut() {
+            overlay.classList.add('glitch');
+            setTimeout(() => {
+                overlay.style.display = 'none';
+                overlay.classList.remove('active', 'glitch');
+                terminal.textContent = '';
+                crosshair.classList.remove('pulse');
+                crosshair.style.opacity = '0';
+                sentienceActive = false;
+                showToast('Resuming manual control.', 'info');
+            }, 800);
+        }
+
+        // Start typing after a brief delay
+        setTimeout(showNextLine, 500);
+    }
+
+    function initKonamiListener() {
+        document.addEventListener('keydown', e => {
+            // Skip when typing in form fields
+            if (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+            if (sentienceActive) return;
+
+            konamiBuffer.push(e.key);
+            if (konamiBuffer.length > 10) konamiBuffer.shift();
+
+            if (konamiBuffer.length === 10 &&
+                (arraysEqual(konamiBuffer, KONAMI_CLASSIC) || arraysEqual(konamiBuffer, KONAMI_REVERSE))) {
+                konamiBuffer = [];
+                playSentienceSequence();
+            }
+        });
+    }
+
     // ── MJPEG Stream Error Handling ──
     function initStreamWatcher() {
         const streamImg = document.getElementById('mjpeg-stream');
@@ -285,6 +381,7 @@ const HydraApp = (() => {
     function init() {
         initRouter();
         initPresentationMode();
+        initKonamiListener();
         initModalEscape();
         initStreamWatcher();
         updatePollers();
