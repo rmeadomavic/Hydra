@@ -598,11 +598,17 @@ class Pipeline:
                     cx = (locked_track.x1 + locked_track.x2) / 2.0
                     error_x = (cx - frame_w / 2.0) / (frame_w / 2.0)  # -1..+1
 
+                    # Yaw correction (skip if servo tracker replaces it)
                     if current_lock_mode == "track":
-                        self._mavlink.adjust_yaw(error_x)
-                    # Strike mode: yaw + continue GUIDED approach
+                        if self._servo_tracker is None or not self._servo_tracker.replaces_yaw:
+                            self._mavlink.adjust_yaw(error_x)
                     elif current_lock_mode == "strike":
-                        self._mavlink.adjust_yaw(error_x, yaw_rate_max=15.0)
+                        if self._servo_tracker is None or not self._servo_tracker.replaces_yaw:
+                            self._mavlink.adjust_yaw(error_x, yaw_rate_max=15.0)
+
+                    # Pixel-lock servo tracking
+                    if self._servo_tracker is not None:
+                        self._servo_tracker.update(error_x)
                 else:
                     self._handle_target_unlock(reason="lost")
 
