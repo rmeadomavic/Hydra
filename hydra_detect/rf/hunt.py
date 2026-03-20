@@ -16,6 +16,8 @@ import logging
 import os
 import tempfile
 import threading
+import time
+from collections import deque
 from enum import Enum
 from typing import Callable
 
@@ -141,6 +143,7 @@ class RFHuntController:
 
         # Lock for state reads from other threads (web UI, etc.)
         self._lock = threading.Lock()
+        self._rssi_history: deque[dict] = deque(maxlen=300)
 
     # -- Public API --------------------------------------------------------
 
@@ -159,6 +162,11 @@ class RFHuntController:
     def best_position(self) -> tuple[float, float]:
         """(lat, lon) of the best RSSI reading (thread-safe)."""
         return self._navigator.get_best_position()
+
+    def get_rssi_history(self) -> list[dict]:
+        """Return RSSI history for visualization (thread-safe)."""
+        with self._lock:
+            return list(self._rssi_history)
 
     @property
     def sample_count(self) -> int:
@@ -289,6 +297,21 @@ class RFHuntController:
             self._kismet.close()
             self._report_results()
 
+    def _record_rssi(
+        self, rssi: float,
+        lat: float | None = None, lon: float | None = None,
+    ) -> None:
+        """Append an RSSI reading to the history ring buffer."""
+        if lat is None or lon is None:
+            lat, lon, _ = self._mavlink.get_lat_lon()
+        with self._lock:
+            self._rssi_history.append({
+                "t": time.time(),
+                "rssi": round(rssi, 1),
+                "lat": round(lat, 7) if lat is not None else None,
+                "lon": round(lon, 7) if lon is not None else None,
+            })
+
     def _poll_rssi(self) -> float | None:
         """Poll Kismet for current RSSI, restarting Kismet once on failure."""
         rssi = self._kismet.get_rssi(
@@ -319,6 +342,7 @@ class RFHuntController:
         # Poll for target
         rssi = self._poll_rssi()
         if rssi is not None:
+            self._record_rssi(rssi)
             smoothed = self._filter.add(rssi)
             logger.info(
                 "[SEARCH] Signal: %.1f dBm (avg %.1f)", rssi, smoothed,
@@ -378,6 +402,7 @@ class RFHuntController:
         if lat is None:
             return
 
+        self._record_rssi(rssi, lat=lat, lon=lon)
         self._navigator.record(smoothed, lat, lon, alt or 0)
 
         # Check convergence

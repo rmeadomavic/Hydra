@@ -296,3 +296,53 @@ class TestHuntKismetManagerIntegration:
         mgr.restart.assert_called_once()
         ctrl._kismet.reset_auth.assert_called_once_with()
         assert rssi == -60.0
+
+
+import time
+
+
+class TestRssiHistory:
+    def test_record_rssi_appends(self):
+        ctrl = _make_controller()
+        ctrl._record_rssi(-72.3)
+        history = ctrl.get_rssi_history()
+        assert len(history) == 1
+        assert history[0]["rssi"] == -72.3
+        assert history[0]["lat"] is not None
+        assert "t" in history[0]
+
+    def test_record_rssi_with_explicit_gps(self):
+        ctrl = _make_controller()
+        ctrl._record_rssi(-65.0, lat=35.123, lon=-80.987)
+        history = ctrl.get_rssi_history()
+        assert history[0]["lat"] == 35.123
+        assert history[0]["lon"] == -80.987
+
+    def test_ring_buffer_maxlen(self):
+        ctrl = _make_controller()
+        for i in range(301):
+            ctrl._record_rssi(float(-100 + i))
+        history = ctrl.get_rssi_history()
+        assert len(history) == 300
+        assert history[0]["rssi"] == -99.0
+
+    def test_get_rssi_history_empty(self):
+        ctrl = _make_controller()
+        assert ctrl.get_rssi_history() == []
+
+    def test_get_rssi_history_is_snapshot(self):
+        ctrl = _make_controller()
+        ctrl._record_rssi(-70.0)
+        h1 = ctrl.get_rssi_history()
+        ctrl._record_rssi(-60.0)
+        h2 = ctrl.get_rssi_history()
+        assert len(h1) == 1
+        assert len(h2) == 2
+
+    def test_record_rssi_uses_wall_clock(self):
+        ctrl = _make_controller()
+        before = time.time()
+        ctrl._record_rssi(-70.0)
+        after = time.time()
+        t = ctrl.get_rssi_history()[0]["t"]
+        assert before <= t <= after
