@@ -385,6 +385,29 @@ class Pipeline:
             level=logging.INFO,
             format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
         )
+
+        # Persistent log file for remote debugging access
+        if self._cfg.getboolean("logging", "app_log_file", fallback=True):
+            from logging.handlers import RotatingFileHandler
+            log_dir = Path(self._cfg.get("logging", "log_dir", fallback="./output_data/logs"))
+            log_dir.mkdir(parents=True, exist_ok=True)
+            app_log_level = getattr(
+                logging,
+                self._cfg.get("logging", "app_log_level", fallback="INFO").upper(),
+                logging.INFO,
+            )
+            file_handler = RotatingFileHandler(
+                str(log_dir / "hydra.log"),
+                maxBytes=5 * 1024 * 1024,
+                backupCount=3,
+            )
+            file_handler.setLevel(app_log_level)
+            file_handler.setFormatter(logging.Formatter(
+                "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
+            ))
+            logging.getLogger().addHandler(file_handler)
+            logger.info("App log file enabled: %s", log_dir / "hydra.log")
+
         logger.info("=== Hydra Detect v2.0 starting ===")
 
         # Init subsystems — clean up on partial failure
