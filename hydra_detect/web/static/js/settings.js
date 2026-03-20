@@ -361,7 +361,7 @@ const HydraSettings = (() => {
             const iframe = document.createElement('iframe');
             iframe.width = '100%';
             iframe.height = '100%';
-            iframe.src = 'https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&mute=1';
+            iframe.src = 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1&mute=1';
             iframe.frameBorder = '0';
             iframe.allow = 'autoplay; encrypted-media';
             iframe.allowFullscreen = true;

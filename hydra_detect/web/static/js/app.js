@@ -316,13 +316,15 @@ const HydraApp = (() => {
                 // All lines shown — start crosshair pulse
                 crosshair.style.opacity = '1';
                 crosshair.classList.add('pulse');
-                // Hold for 2 seconds, then glitch out
-                setTimeout(glitchOut, 2000);
+                // Hold for 3 seconds, then glitch out
+                setTimeout(glitchOut, 3000);
                 return;
             }
             lineEls[lineIdx].classList.add('visible');
             lineIdx++;
-            setTimeout(showNextLine, 400);
+            // Last line ("I SEE YOU.") gets an extra beat
+            const delay = lineIdx >= lineEls.length ? 0 : (lineIdx === lineEls.length - 1 ? 1000 : 700);
+            setTimeout(showNextLine, delay);
         }
 
         function glitchOut() {
@@ -338,8 +340,8 @@ const HydraApp = (() => {
             }, 800);
         }
 
-        // Start typing after a brief delay
-        setTimeout(showNextLine, 500);
+        // Start typing after overlay fades in
+        setTimeout(showNextLine, 800);
     }
 
     function initKonamiListener() {
