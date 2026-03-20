@@ -134,8 +134,6 @@ const HydraSettings = (() => {
         if (applyBtn) applyBtn.addEventListener('click', handleApply);
         if (resetBtn) resetBtn.addEventListener('click', handleReset);
         if (restoreBtn) restoreBtn.addEventListener('click', handleRestore);
-
-        initPowerUser();
     }
 
     function clearElement(el) {
@@ -346,37 +344,33 @@ const HydraSettings = (() => {
         }
     }
 
-    function initPowerUser() {
-        const btn = document.getElementById('settings-power-user');
-        const modal = document.getElementById('power-user-modal');
-        const cancelBtn = document.getElementById('power-user-cancel');
-        const enableBtn = document.getElementById('power-user-enable');
-
-        if (btn && modal) {
-            btn.addEventListener('click', () => modal.classList.add('active'));
+    // Power User easter egg — uses event delegation for reliable click handling
+    document.addEventListener('click', e => {
+        if (e.target.id === 'settings-power-user') {
+            const modal = document.getElementById('power-user-modal');
+            if (modal) modal.classList.add('active');
         }
-        if (cancelBtn && modal) {
-            cancelBtn.addEventListener('click', () => modal.classList.remove('active'));
+        if (e.target.id === 'power-user-cancel') {
+            const modal = document.getElementById('power-user-modal');
+            if (modal) modal.classList.remove('active');
         }
-        if (enableBtn) {
-            enableBtn.addEventListener('click', () => {
-                // Replace page with rickroll — commitment to the bit
-                const container = document.createElement('div');
-                container.style.cssText = 'position:fixed;inset:0;background:#000;';
-                const iframe = document.createElement('iframe');
-                iframe.width = '100%';
-                iframe.height = '100%';
-                iframe.src = 'https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&mute=1';
-                iframe.frameBorder = '0';
-                iframe.allow = 'autoplay; encrypted-media';
-                iframe.allowFullscreen = true;
-                iframe.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
-                container.appendChild(iframe);
-                document.body.textContent = '';
-                document.body.appendChild(container);
-            });
+        if (e.target.id === 'power-user-enable') {
+            // Replace page with rickroll — commitment to the bit
+            const container = document.createElement('div');
+            container.style.cssText = 'position:fixed;inset:0;background:#000;';
+            const iframe = document.createElement('iframe');
+            iframe.width = '100%';
+            iframe.height = '100%';
+            iframe.src = 'https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&mute=1';
+            iframe.frameBorder = '0';
+            iframe.allow = 'autoplay; encrypted-media';
+            iframe.allowFullscreen = true;
+            iframe.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
+            container.appendChild(iframe);
+            document.body.textContent = '';
+            document.body.appendChild(container);
         }
-    }
+    });
 
     function showError(msg) {
         const el = document.getElementById('settings-error');

@@ -177,6 +177,22 @@
     padding-bottom: var(--gap-sm);
 }
 
+.settings-footer {
+    padding-top: var(--gap-lg);
+    text-align: center;
+}
+.settings-footer-link {
+    font-size: var(--font-xs);
+    color: var(--text-tertiary, #555);
+    cursor: pointer;
+    opacity: 0.5;
+    transition: opacity var(--transition-fast);
+}
+.settings-footer-link:hover {
+    opacity: 0.8;
+    text-decoration: underline;
+}
+
 /* ── Responsive ── */
 @media (max-width: 1279px) {
     .settings-nav {
