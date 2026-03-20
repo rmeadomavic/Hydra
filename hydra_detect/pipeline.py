@@ -965,6 +965,23 @@ class Pipeline:
         if self._rf_hunt is not None:
             self._rf_hunt.stop()
 
+        # Auto-start Kismet if no manager exists
+        if self._kismet_manager is None:
+            self._kismet_manager = KismetManager(
+                source=self._cfg.get("rf_homing", "kismet_source", fallback="rtl433-0"),
+                capture_dir=self._cfg.get("rf_homing", "kismet_capture_dir", fallback="./output_data/kismet"),
+                host=self._cfg.get("rf_homing", "kismet_host", fallback="http://localhost:2501"),
+                user=self._cfg.get("rf_homing", "kismet_user", fallback="kismet"),
+                password=self._cfg.get("rf_homing", "kismet_pass", fallback="kismet"),
+                log_dir=self._cfg.get("logging", "log_dir", fallback="./output_data/logs"),
+                max_capture_mb=self._cfg.getfloat("rf_homing", "kismet_max_capture_mb", fallback=100.0),
+            )
+            if not self._kismet_manager.start():
+                logger.error("Kismet auto-start failed — RF hunt aborted")
+                self._kismet_manager = None
+                return False
+            logger.info("Kismet auto-started for RF hunt")
+
         # Build a new controller from the web-submitted params
         self._rf_hunt = RFHuntController(
             self._mavlink,

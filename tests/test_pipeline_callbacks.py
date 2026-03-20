@@ -349,3 +349,56 @@ class TestServoTrackerIntegration:
         p._det_logger = MagicMock()
         p._shutdown()
         p._servo_tracker.safe.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Kismet auto-start on RF hunt
+# ---------------------------------------------------------------------------
+
+from hydra_detect.rf.kismet_manager import KismetManager
+
+
+class TestKismetAutoStart:
+    def test_auto_start_creates_kismet_manager(self):
+        """When _kismet_manager is None, _handle_rf_start creates one."""
+        p = _make_pipeline()
+        p._mavlink = MagicMock()
+        p._rf_hunt = None
+        p._kismet_manager = None
+
+        with patch.object(KismetManager, "__init__", return_value=None) as mock_init, \
+             patch.object(KismetManager, "start", return_value=True), \
+             patch("hydra_detect.pipeline.RFHuntController") as mock_ctrl:
+            mock_ctrl.return_value.start.return_value = True
+            result = p._handle_rf_start({"mode": "wifi"})
+
+        assert result is True
+        assert p._kismet_manager is not None
+
+    def test_auto_start_failure_returns_false(self):
+        """When Kismet auto-start fails, return False and reset manager."""
+        p = _make_pipeline()
+        p._mavlink = MagicMock()
+        p._rf_hunt = None
+        p._kismet_manager = None
+
+        with patch.object(KismetManager, "__init__", return_value=None), \
+             patch.object(KismetManager, "start", return_value=False):
+            result = p._handle_rf_start({"mode": "wifi"})
+
+        assert result is False
+        assert p._kismet_manager is None
+
+    def test_existing_kismet_manager_not_replaced(self):
+        """When _kismet_manager already exists, don't create a new one."""
+        p = _make_pipeline()
+        p._mavlink = MagicMock()
+        p._rf_hunt = None
+        existing_mgr = MagicMock()
+        p._kismet_manager = existing_mgr
+
+        with patch("hydra_detect.pipeline.RFHuntController") as mock_ctrl:
+            mock_ctrl.return_value.start.return_value = True
+            p._handle_rf_start({"mode": "wifi"})
+
+        assert p._kismet_manager is existing_mgr
