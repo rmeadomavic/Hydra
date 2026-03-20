@@ -25,5 +25,6 @@ Run these via SSH commands:
 6. **Python deps** — `cd ~/Hydra && pip check 2>&1 | head -20`
 7. **Camera** — `ls /dev/video* 2>/dev/null`
 8. **Models** — `ls ~/Hydra/models/*.pt ~/Hydra/models/*.engine 2>/dev/null`
+9. **App Logs** — fetch recent errors: `curl -s 'http://100.109.160.122:8080/api/logs?lines=10&level=ERROR'`. Report count of errors; show messages if any found.
 
-Report all results, then summarize: "X/8 checks passed. [list failures]"
+Report all results, then summarize: "X/9 checks passed. [list failures]"

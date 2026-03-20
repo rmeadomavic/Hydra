@@ -102,6 +102,13 @@ note it clearly and suggest adding it to one of these places:
 
 Always ask: "Want me to add this to the testing checklist / Todoist / an issue?"
 
+## Live Debugging
+
+Use `/jetson-logs` to fetch live application logs from the running instance.
+The API at `GET /api/logs?lines=N&level=LEVEL` tails `hydra.log` with
+structured output. Use this proactively when debugging hardware issues, runtime
+errors, or unexpected behavior after config changes.
+
 ## Quick Reference
 
 ```bash

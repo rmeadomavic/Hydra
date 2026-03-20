@@ -143,6 +143,20 @@ tegrastats
 - Always verify serial port mappings against the `/hydra` skill or
   `docs/pixhawk-setup.md` (if it exists) before changing ArduPilot parameters
 
+## Live Logs API
+
+Hydra exposes `GET /api/logs?lines=N&level=LEVEL` which tails
+`output_data/logs/hydra.log` — a RotatingFileHandler capturing all Python
+logging output (5 MB rotation, 3 backups). Use `/jetson-logs` skill or:
+
+```bash
+curl -s 'http://100.109.160.122:8080/api/logs?lines=100&level=WARNING'
+```
+
+Use this proactively when diagnosing runtime issues on the Jetson — it provides
+real-time context that `journalctl` or Docker logs cannot (structured, filtered,
+and accessible without SSH).
+
 ## Debugging Rules
 
 - When facing unfamiliar system issues (snap, kernel modules, hardware protocols):
