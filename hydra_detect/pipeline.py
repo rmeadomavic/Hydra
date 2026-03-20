@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from .autonomous import AutonomousController, parse_polygon
+from .servo_tracker import ServoTracker
 from .camera import Camera, list_video_sources
 from .rf.hunt import RFHuntController
 from .rf.kismet_manager import KismetManager
@@ -192,6 +193,44 @@ class Pipeline:
                 self._light_bar_pwm_off, self._light_bar_flash_sec,
             )
 
+        # Pixel-lock servo tracker
+        self._servo_tracker: ServoTracker | None = None
+        if (
+            self._mavlink is not None
+            and self._cfg.getboolean("servo_tracking", "enabled", fallback=False)
+        ):
+            pan_ch = self._cfg.getint("servo_tracking", "pan_channel", fallback=1)
+            strike_ch = self._cfg.getint("servo_tracking", "strike_channel", fallback=2)
+            # Channel collision check
+            channels = [pan_ch, strike_ch]
+            if self._light_bar_enabled:
+                channels.append(self._light_bar_channel)
+            if len(channels) != len(set(channels)):
+                logger.error(
+                    "Servo tracking DISABLED: channel collision detected "
+                    "(pan=%d, strike=%d, light_bar=%d)",
+                    pan_ch, strike_ch, self._light_bar_channel,
+                )
+            else:
+                self._servo_tracker = ServoTracker(
+                    self._mavlink,
+                    pan_channel=pan_ch,
+                    pan_pwm_center=self._cfg.getint("servo_tracking", "pan_pwm_center", fallback=1500),
+                    pan_pwm_range=self._cfg.getint("servo_tracking", "pan_pwm_range", fallback=500),
+                    pan_invert=self._cfg.getboolean("servo_tracking", "pan_invert", fallback=False),
+                    pan_dead_zone=self._cfg.getfloat("servo_tracking", "pan_dead_zone", fallback=0.05),
+                    pan_smoothing=self._cfg.getfloat("servo_tracking", "pan_smoothing", fallback=0.3),
+                    strike_channel=strike_ch,
+                    strike_pwm_fire=self._cfg.getint("servo_tracking", "strike_pwm_fire", fallback=1900),
+                    strike_pwm_safe=self._cfg.getint("servo_tracking", "strike_pwm_safe", fallback=1100),
+                    strike_duration=self._cfg.getfloat("servo_tracking", "strike_duration", fallback=0.5),
+                    replaces_yaw=self._cfg.getboolean("servo_tracking", "replaces_yaw", fallback=False),
+                )
+                logger.info(
+                    "Pixel-lock servo tracking ENABLED: pan_ch=%d, strike_ch=%d, replaces_yaw=%s",
+                    pan_ch, strike_ch, self._servo_tracker.replaces_yaw,
+                )
+
         # Autonomous strike controller
         self._autonomous: AutonomousController | None = None
         if self._cfg.getboolean("autonomous", "enabled", fallback=False):
@@ -331,6 +370,7 @@ class Pipeline:
         self._locked_track_id: Optional[int] = None
         self._lock_mode: Optional[str] = None  # "track" or "strike"
         self._last_track_result = None  # Most recent TrackingResult for web API
+        self._servo_tracker = None
 
     # ------------------------------------------------------------------
     def start(self) -> None:

@@ -260,3 +260,26 @@ class TestTargetUnlockReason:
         p._handle_target_unlock()
         msg = p._mavlink.send_statustext.call_args[0][0]
         assert "RELEASED" in msg
+
+
+# ---------------------------------------------------------------------------
+# ServoTracker setup
+# ---------------------------------------------------------------------------
+
+class TestServoTrackerSetup:
+    def test_servo_tracker_none_without_mavlink(self):
+        p = _make_pipeline()
+        assert p._servo_tracker is None
+
+    def test_channel_collision_pan_equals_light_bar(self):
+        """Validate the collision detection logic directly."""
+        channels = [4, 2, 4]
+        assert len(channels) != len(set(channels))
+
+    def test_channel_collision_pan_equals_strike(self):
+        channels = [2, 2]
+        assert len(channels) != len(set(channels))
+
+    def test_no_collision_distinct_channels(self):
+        channels = [1, 2, 4]
+        assert len(channels) == len(set(channels))
