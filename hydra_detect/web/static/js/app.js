@@ -284,9 +284,10 @@ const HydraApp = (() => {
         terminal.textContent = '';
         crosshair.classList.remove('pulse');
         crosshair.style.opacity = '0';
-        overlay.classList.remove('glitch');
+        overlay.classList.remove('glitch', 'active');
 
-        // Force reflow then fade in (CSS .active handles display:flex + opacity:1)
+        // Two-step: show at opacity 0, then transition to opacity 1
+        overlay.style.display = 'flex';
         void overlay.offsetWidth;
         overlay.classList.add('active');
 
@@ -327,6 +328,7 @@ const HydraApp = (() => {
         function glitchOut() {
             overlay.classList.add('glitch');
             setTimeout(() => {
+                overlay.style.display = 'none';
                 overlay.classList.remove('active', 'glitch');
                 terminal.textContent = '';
                 crosshair.classList.remove('pulse');

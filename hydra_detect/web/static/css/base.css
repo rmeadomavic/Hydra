@@ -233,7 +233,6 @@ input[type="range"]::-webkit-slider-thumb {
     transition: opacity 0.5s ease;
 }
 #sentience-overlay.active {
-    display: flex;
     opacity: 1;
 }
 #sentience-overlay.glitch {
