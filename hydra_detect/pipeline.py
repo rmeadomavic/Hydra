@@ -799,6 +799,8 @@ class Pipeline:
                 if self._mavlink is not None:
                     self._mavlink.send_statustext("TGT LOCK RELEASED", severity=5)
                     self._mavlink.clear_roi()
+        if self._servo_tracker is not None:
+            self._servo_tracker.safe()
 
     def _handle_strike_command(self, track_id: int) -> bool:
         """Command vehicle to navigate toward a tracked target.
@@ -827,6 +829,8 @@ class Pipeline:
         # If no MAVLink, just visual — no vehicle command
         if self._mavlink is None:
             logger.warning("Strike visual only — MAVLink not connected.")
+            if self._servo_tracker is not None:
+                self._servo_tracker.fire_strike()
             return True
 
         # Compute target bearing from frame position
@@ -849,6 +853,9 @@ class Pipeline:
             with self._state_lock:
                 self._locked_track_id = prev_lock_id
                 self._lock_mode = prev_lock_mode
+            # Fire strike servo even if GPS failed — servo doesn't need GPS
+            if self._servo_tracker is not None:
+                self._servo_tracker.fire_strike()
             return False
 
         target_lat, target_lon = target_pos
@@ -868,6 +875,9 @@ class Pipeline:
             with self._state_lock:
                 self._locked_track_id = prev_lock_id
                 self._lock_mode = prev_lock_mode
+        # Fire strike servo (works even without GPS — it's a direct PWM command)
+        if self._servo_tracker is not None:
+            self._servo_tracker.fire_strike()
         return success
 
     def _get_active_tracks(self) -> list[dict]:
@@ -1091,6 +1101,8 @@ class Pipeline:
             self._rtsp.stop()
         if self._mavlink_video is not None:
             self._mavlink_video.stop()
+        if self._servo_tracker is not None:
+            self._servo_tracker.safe()
         self._camera.close()
         self._detector.unload()
         self._det_logger.stop()

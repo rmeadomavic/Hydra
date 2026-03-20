@@ -283,3 +283,69 @@ class TestServoTrackerSetup:
     def test_no_collision_distinct_channels(self):
         channels = [1, 2, 4]
         assert len(channels) == len(set(channels))
+
+
+# ---------------------------------------------------------------------------
+# ServoTracker integration (strike, unlock, shutdown)
+# ---------------------------------------------------------------------------
+
+class TestServoTrackerIntegration:
+    def _pipeline_with_servo(self):
+        """Build a pipeline with a mock servo tracker."""
+        p = _make_pipeline()
+        p._mavlink = MagicMock()
+        p._mavlink.estimate_target_position.return_value = (34.0, -118.0)
+        p._mavlink.command_guided_to.return_value = True
+        p._servo_tracker = MagicMock()
+        p._servo_tracker.replaces_yaw = False
+        return p
+
+    def test_strike_fires_servo(self):
+        p = self._pipeline_with_servo()
+        p._last_track_result = _sample_track(track_id=3)
+        p._handle_strike_command(3)
+        p._servo_tracker.fire_strike.assert_called_once()
+
+    def test_strike_fires_servo_even_without_gps(self):
+        p = self._pipeline_with_servo()
+        p._mavlink.estimate_target_position.return_value = None
+        p._last_track_result = _sample_track(track_id=3)
+        p._handle_strike_command(3)
+        p._servo_tracker.fire_strike.assert_called_once()
+
+    def test_unlock_safes_servo(self):
+        p = self._pipeline_with_servo()
+        p._locked_track_id = 3
+        p._lock_mode = "track"
+        p._handle_target_unlock()
+        p._servo_tracker.safe.assert_called_once()
+
+    def test_unlock_lost_safes_servo(self):
+        p = self._pipeline_with_servo()
+        p._locked_track_id = 3
+        p._lock_mode = "track"
+        p._handle_target_unlock(reason="lost")
+        p._servo_tracker.safe.assert_called_once()
+
+    def test_no_servo_tracker_no_error(self):
+        """Strike and unlock work fine without servo tracker."""
+        p = _make_pipeline()
+        p._mavlink = MagicMock()
+        p._mavlink.estimate_target_position.return_value = (34.0, -118.0)
+        p._mavlink.command_guided_to.return_value = True
+        p._servo_tracker = None
+        p._last_track_result = _sample_track(track_id=3)
+        assert p._handle_strike_command(3) is True
+        p._handle_target_unlock()
+
+    def test_shutdown_safes_servo(self):
+        p = self._pipeline_with_servo()
+        p._rf_hunt = None
+        p._kismet_manager = None
+        p._rtsp = None
+        p._mavlink_video = None
+        p._camera = MagicMock()
+        p._detector = MagicMock()
+        p._det_logger = MagicMock()
+        p._shutdown()
+        p._servo_tracker.safe.assert_called_once()
