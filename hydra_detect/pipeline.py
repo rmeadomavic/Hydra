@@ -143,6 +143,12 @@ class Pipeline:
                     "mavlink", "guided_roi_on_detect", fallback=False
                 ),
                 alert_classes=alert_classes,
+                sim_gps_lat=self._cfg.getfloat("mavlink", "sim_gps_lat", fallback=None)
+                if self._cfg.get("mavlink", "sim_gps_lat", fallback="").strip()
+                else None,
+                sim_gps_lon=self._cfg.getfloat("mavlink", "sim_gps_lon", fallback=None)
+                if self._cfg.get("mavlink", "sim_gps_lon", fallback="").strip()
+                else None,
             )
 
         # FPV OSD overlay (requires MAVLink and FC with OSD chip)

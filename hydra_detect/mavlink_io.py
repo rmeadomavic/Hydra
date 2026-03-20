@@ -35,6 +35,8 @@ class MAVLinkIO:
         auto_loiter: bool = False,
         guided_roi: bool = False,
         alert_classes: set[str] | None = None,
+        sim_gps_lat: float | None = None,
+        sim_gps_lon: float | None = None,
     ):
         self._conn_str = connection_string
         self._baud = baud
@@ -46,6 +48,10 @@ class MAVLinkIO:
         self._auto_loiter = auto_loiter
         self._guided_roi = guided_roi
         self._alert_classes = alert_classes  # None = alert on all classes
+        self._sim_gps_lat = sim_gps_lat
+        self._sim_gps_lon = sim_gps_lon
+        self._sim_gps_alt = 30.0
+        self._is_sim_gps = False
 
         self._mav = None
         self._last_alert_times: Dict[str, float] = {}
@@ -359,7 +365,16 @@ class MAVLinkIO:
     @property
     def gps_fix_ok(self) -> bool:
         with self._gps_lock:
-            return self._gps["fix"] >= self._min_gps_fix
+            if self._gps["fix"] >= self._min_gps_fix:
+                return True
+        if self._sim_gps_lat is not None and self._sim_gps_lon is not None:
+            return True
+        return False
+
+    @property
+    def is_sim_gps(self) -> bool:
+        """True if currently using simulated GPS coordinates."""
+        return self._is_sim_gps
 
     def get_position_string(self) -> Optional[str]:
         """Return MGRS or lat/lon string if GPS fix is good, else None."""
@@ -379,13 +394,19 @@ class MAVLinkIO:
     def get_lat_lon(self) -> tuple[Optional[float], Optional[float], Optional[float]]:
         """Return (lat, lon, alt) in decimal degrees / metres, or Nones."""
         with self._gps_lock:
-            if self._gps["fix"] < self._min_gps_fix or self._gps["lat"] is None:
-                return None, None, None
-            return (
-                self._gps["lat"] / 1e7,
-                self._gps["lon"] / 1e7,
-                self._gps["alt"] / 1000,
-            )
+            if self._gps["fix"] >= self._min_gps_fix and self._gps["lat"] is not None:
+                self._is_sim_gps = False
+                return (
+                    self._gps["lat"] / 1e7,
+                    self._gps["lon"] / 1e7,
+                    self._gps["alt"] / 1000,
+                )
+        # Fallback to simulated GPS if configured
+        if self._sim_gps_lat is not None and self._sim_gps_lon is not None:
+            self._is_sim_gps = True
+            return (self._sim_gps_lat, self._sim_gps_lon, self._sim_gps_alt)
+        self._is_sim_gps = False
+        return None, None, None
 
     # ------------------------------------------------------------------
     # STATUSTEXT alerts
