@@ -281,6 +281,7 @@ class Pipeline:
                     password=self._cfg.get("rf_homing", "kismet_pass", fallback="kismet"),
                     log_dir=self._cfg.get("logging", "log_dir", fallback="./output_data/logs"),
                     max_capture_mb=self._cfg.getfloat("rf_homing", "kismet_max_capture_mb", fallback=100.0),
+                    auto_spawn=self._cfg.getboolean("rf_homing", "kismet_auto_spawn", fallback=True),
                 )
                 if self._kismet_manager.start():
                     self._rf_hunt = RFHuntController(
@@ -1011,6 +1012,7 @@ class Pipeline:
                 password=self._cfg.get("rf_homing", "kismet_pass", fallback="kismet"),
                 log_dir=self._cfg.get("logging", "log_dir", fallback="./output_data/logs"),
                 max_capture_mb=self._cfg.getfloat("rf_homing", "kismet_max_capture_mb", fallback=100.0),
+                auto_spawn=self._cfg.getboolean("rf_homing", "kismet_auto_spawn", fallback=True),
             )
             if not self._kismet_manager.start():
                 logger.error("Kismet auto-start failed — RF hunt aborted")

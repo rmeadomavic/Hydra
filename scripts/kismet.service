@@ -1,0 +1,16 @@
+[Unit]
+Description=Kismet Wireless Monitor (Hydra RF Hunt)
+Before=hydra-detect.service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/kismet -c rtl433-0 --no-ncurses
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
