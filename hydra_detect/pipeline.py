@@ -701,6 +701,7 @@ class Pipeline:
                     gps_data = self._mavlink.get_gps()
                     stats_update["gps_fix"] = gps_data.get("fix", 0)
                     stats_update["position"] = self._mavlink.get_position_string()
+                    stats_update["is_sim_gps"] = self._mavlink.is_sim_gps
                 # Refresh Jetson stats every ~5 seconds (not every frame).
                 # sysfs reads (temp, RAM, GPU load) happen inline; the
                 # nvpmodel subprocess is dispatched to a background thread

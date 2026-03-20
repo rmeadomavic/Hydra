@@ -323,7 +323,11 @@ const HydraOperations = (() => {
 
         // GPS
         setText('ctrl-gps-fix', (!s.mavlink || s.gps_fix === undefined) ? '--' : (s.gps_fix === 0 ? 'No Fix' : s.gps_fix + 'D'));
-        setText('ctrl-gps-pos', s.position || '--');
+        var posText = s.position || '--';
+        if (s.is_sim_gps) {
+            posText += ' (SIM)';
+        }
+        setText('ctrl-gps-pos', posText);
     }
 
     // ── Pipeline Panel ──
@@ -523,11 +527,13 @@ const HydraOperations = (() => {
     // ── RF Panel ──
     const RF_STATE_COLORS = {
         idle: 'off', searching: 'on', homing: 'on',
-        converged: 'on', lost: 'off', aborted: 'off', unavailable: 'off'
+        converged: 'on', lost: 'off', aborted: 'off', unavailable: 'off',
+        scanning: 'on'
     };
     const RF_STATE_LABELS = {
         idle: 'IDLE', searching: 'SEARCHING', homing: 'HOMING',
-        converged: 'CONVERGED', lost: 'LOST', aborted: 'ABORTED', unavailable: 'N/A'
+        converged: 'CONVERGED', lost: 'LOST', aborted: 'ABORTED', unavailable: 'N/A',
+        scanning: 'SCAN ONLY'
     };
 
     // ── RF Visualization ──
@@ -655,7 +661,13 @@ const HydraOperations = (() => {
         ctx.clearRect(0, 0, W, H);
 
         var gpsData = data.filter(function(d) { return d.lat != null && d.lon != null; });
-        if (gpsData.length === 0) return;
+        if (gpsData.length === 0) {
+            ctx.fillStyle = '#555';
+            ctx.font = '12px "Barlow Condensed", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('NO GPS \u2014 RSSI ONLY', W / 2, H / 2);
+            return;
+        }
 
         var minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
         gpsData.forEach(function(d) {
@@ -748,9 +760,13 @@ const HydraOperations = (() => {
                 badge.style.background = '#4a7c2e';
                 badge.style.color = '#fff';
             }
+            if (state === 'scanning') {
+                badge.style.background = '#1e3a5f';
+                badge.style.color = '#93c5fd';
+            }
         }
 
-        const isActive = ['searching', 'homing', 'lost'].includes(state);
+        const isActive = ['searching', 'homing', 'lost', 'scanning'].includes(state);
         const isDone = ['converged', 'aborted'].includes(state);
 
         const statusPanel = document.getElementById('ctrl-rf-status-panel');
