@@ -888,6 +888,58 @@ async def api_review_log(filename: str):
     return {"filename": filename, "count": len(records), "detections": records}
 
 
+@app.get("/api/logs")
+async def api_app_logs(lines: int = 50, level: str = "INFO"):
+    """Tail the application log file for remote debugging."""
+    import re
+    from collections import deque
+
+    lines = max(1, min(lines, 500))
+    level_order = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
+    min_ord = level_order.get(level.upper(), 1)
+
+    log_re = re.compile(
+        r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) "
+        r"\[([^\]]+)\] "
+        r"(\w+): "
+        r"(.*)$"
+    )
+
+    # Find the log file
+    cb = stream_state.get_callback("get_log_dir")
+    log_dir = cb() if cb else "/data/logs"
+    log_path = Path(log_dir) / "hydra.log"
+
+    if not log_path.exists():
+        return []
+
+    result = deque(maxlen=lines)
+    try:
+        with open(log_path, "r") as f:
+            for raw_line in f:
+                m = log_re.match(raw_line.strip())
+                if m:
+                    entry_level = m.group(3)
+                    if level_order.get(entry_level, 0) >= min_ord:
+                        result.append({
+                            "timestamp": m.group(1),
+                            "level": entry_level,
+                            "module": m.group(2),
+                            "message": m.group(4),
+                        })
+                elif raw_line.strip():
+                    result.append({
+                        "timestamp": "",
+                        "level": "RAW",
+                        "module": "",
+                        "message": raw_line.strip(),
+                    })
+    except OSError:
+        return []
+
+    return list(result)
+
+
 @app.get("/api/review/images/{filename}")
 async def api_review_image(filename: str):
     """Serve a saved detection image."""
