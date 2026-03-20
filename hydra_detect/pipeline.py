@@ -1016,6 +1016,7 @@ class Pipeline:
             poll_interval_sec=self._cfg.getfloat("rf_homing", "poll_interval_sec", fallback=0.5),
             arrival_tolerance_m=self._cfg.getfloat("rf_homing", "arrival_tolerance_m", fallback=3.0),
             kismet_manager=self._kismet_manager,
+            gps_required=self._cfg.getboolean("rf_homing", "gps_required", fallback=True),
         )
         return self._rf_hunt.start()
 
