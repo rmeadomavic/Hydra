@@ -18,9 +18,10 @@ logger = logging.getLogger(__name__)
 class KismetManager:
     """Manages Kismet as a subprocess for RF homing.
 
-    Spawns Kismet when start() is called, monitors health, and cleans up
-    on stop(). If Kismet is already running, adopts the existing instance
-    without spawning a new process.
+    Uses a connect-first strategy: tries to reach an existing Kismet
+    instance via HTTP before attempting to spawn a new subprocess. This
+    allows operation inside Docker where the binary is not available but
+    Kismet runs on the host.
 
     Args:
         source: Kismet capture source (e.g. "rtl433-0").
@@ -30,6 +31,9 @@ class KismetManager:
         password: Kismet API password.
         log_dir: Directory for kismet.log (stdout/stderr).
         max_capture_mb: Max disk usage for capture files in MB (0 = unlimited).
+        auto_spawn: If True, spawn Kismet subprocess when no existing
+            instance is reachable. Set to False in Docker deployments
+            where Kismet runs on the host.
     """
 
     def __init__(
@@ -42,6 +46,7 @@ class KismetManager:
         password: str = "kismet",
         log_dir: str = "./output_data/logs",
         max_capture_mb: float = 100.0,
+        auto_spawn: bool = True,
     ):
         self._source = source
         self._capture_dir = capture_dir
@@ -50,6 +55,7 @@ class KismetManager:
         self._password = password
         self._log_dir = log_dir
         self._max_capture_bytes = int(max_capture_mb * 1_048_576)
+        self._auto_spawn = auto_spawn
         self._process: subprocess.Popen | None = None
         self._we_own_process = False
         self._log_file = None
@@ -69,23 +75,36 @@ class KismetManager:
     def start(self, timeout_sec: float = 15.0) -> bool:
         """Start Kismet or adopt an existing instance.
 
-        Returns True if Kismet is running and API is reachable.
+        Flow:
+        1. Try HTTP connection — adopt if Kismet is already running
+        2. If not running and auto_spawn enabled, spawn subprocess
+        3. If auto_spawn disabled or binary missing, fail gracefully
         """
-        if shutil.which("kismet") is None:
-            logger.error(
-                "Kismet is not installed (not found in PATH). "
-                "Run hydra-setup.sh to install it."
-            )
-            return False
-
+        # Step 1: Try to connect to existing Kismet
         if self._check_api():
-            logger.info("Kismet already running at %s, adopting existing instance", self._host)
+            logger.info("Connected to existing Kismet at %s", self._host)
             self._we_own_process = False
             return True
 
+        # Step 2: Check if we should try spawning
+        if not self._auto_spawn:
+            logger.error(
+                "Kismet not reachable at %s and auto_spawn is disabled. "
+                "Start Kismet on the host first (systemctl start kismet)",
+                self._host,
+            )
+            return False
+
+        if shutil.which("kismet") is None:
+            logger.error(
+                "Kismet not reachable and binary not found in PATH. "
+                "Run hydra-setup.sh to install Kismet, or start it on the host."
+            )
+            return False
+
+        # Step 3: Spawn subprocess
         os.makedirs(self._capture_dir, exist_ok=True)
         os.makedirs(self._log_dir, exist_ok=True)
-
         self._enforce_capture_limit()
 
         cmd = [
@@ -107,7 +126,7 @@ class KismetManager:
                 cmd,
                 stdout=self._log_file,
                 stderr=subprocess.STDOUT,
-                start_new_session=True,  # own process group for clean shutdown
+                start_new_session=True,
             )
         except FileNotFoundError:
             logger.error("Kismet binary not found despite which() check")

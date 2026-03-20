@@ -9,6 +9,7 @@ import threading
 from unittest.mock import MagicMock, patch, mock_open
 
 import pytest
+import requests
 
 from hydra_detect.rf.kismet_manager import KismetManager
 
@@ -262,6 +263,43 @@ class TestKismetManagerRestart:
         assert mgr.restart(stop_event=evt) is False
         mock_stop.assert_called_once()
         mock_start.assert_not_called()
+
+
+class TestConnectFirst:
+    """start() should try HTTP connection before subprocess spawn."""
+
+    @patch("hydra_detect.rf.kismet_manager.requests.get")
+    def test_connect_first_adopts_existing(self, mock_get):
+        """If Kismet is already running, adopt without checking shutil.which."""
+        response = MagicMock()
+        response.status_code = 200
+        mock_get.return_value = response
+
+        mgr = KismetManager(auto_spawn=False)
+        assert mgr.start() is True
+        assert mgr.we_own_process is False
+
+    @patch("hydra_detect.rf.kismet_manager.requests.get",
+           side_effect=requests.ConnectionError("refused"))
+    def test_auto_spawn_false_does_not_spawn(self, mock_get):
+        """auto_spawn=False should not attempt subprocess.Popen."""
+        mgr = KismetManager(auto_spawn=False)
+        result = mgr.start()
+        assert result is False
+        assert mgr.pid is None
+
+    @patch("hydra_detect.rf.kismet_manager.requests.get",
+           side_effect=requests.ConnectionError("refused"))
+    @patch("hydra_detect.rf.kismet_manager.shutil.which", return_value=None)
+    def test_auto_spawn_true_but_no_binary(self, mock_which, mock_get):
+        """auto_spawn=True but binary missing should fail gracefully."""
+        mgr = KismetManager(auto_spawn=True)
+        result = mgr.start()
+        assert result is False
+
+    def test_auto_spawn_defaults_true(self):
+        mgr = KismetManager()
+        assert mgr._auto_spawn is True
 
 
 class TestKismetManagerCaptureLimit:
