@@ -458,6 +458,7 @@ class Pipeline:
                 get_log_dir=lambda: self._cfg.get("logging", "log_dir", fallback="/data/logs"),
                 get_image_dir=lambda: self._cfg.get("logging", "image_dir", fallback="/data/images"),
                 get_rf_status=self._get_rf_status,
+                get_rf_rssi_history=self._get_rf_rssi_history,
                 on_rf_start=self._handle_rf_start,
                 on_rf_stop=self._handle_rf_stop,
                 on_set_mode_command=self._handle_set_mode_command,
@@ -954,6 +955,12 @@ class Pipeline:
         if self._rf_hunt is not None:
             return self._rf_hunt.get_status()
         return {"state": "unavailable"}
+
+    def _get_rf_rssi_history(self) -> list[dict]:
+        """Return RSSI history for the web API."""
+        if self._rf_hunt is not None:
+            return self._rf_hunt.get_rssi_history()
+        return []
 
     def _handle_rf_start(self, params: dict) -> bool:
         """Start (or restart) an RF hunt from the web UI."""

@@ -583,6 +583,15 @@ async def api_rf_status():
     return {"state": "unavailable"}
 
 
+@app.get("/api/rf/rssi_history")
+async def api_rf_rssi_history():
+    """Return RSSI history for visualization."""
+    cb = stream_state.get_callback("get_rf_rssi_history")
+    if cb:
+        return cb()
+    return []
+
+
 @app.post("/api/rf/start")
 async def api_rf_start(request: Request, authorization: Optional[str] = Header(None)):
     """Start an RF hunt with the given parameters.
