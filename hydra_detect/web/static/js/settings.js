@@ -158,6 +158,12 @@ const HydraSettings = (() => {
             warning.style.display = section === 'autonomous' ? '' : 'none';
         }
 
+        // Show power user link only in logging section
+        const powerFooter = document.getElementById('settings-power-footer');
+        if (powerFooter) {
+            powerFooter.style.display = section === 'logging' ? '' : 'none';
+        }
+
         const sectionData = configData[section];
         if (!sectionData) {
             form.textContent = 'Section not found in configuration.';
