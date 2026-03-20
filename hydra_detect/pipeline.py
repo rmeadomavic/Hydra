@@ -327,6 +327,7 @@ class Pipeline:
             self._geo_tracker = GeoTracker(
                 self._mavlink,
                 camera_hfov_deg=self._cfg.getfloat("camera", "hfov_deg", fallback=60.0),
+                min_interval=self._cfg.getfloat("mavlink", "geo_tracking_interval", fallback=2.0),
             )
             logger.info("Geo-tracking enabled (CAMERA_TRACKING_GEO_STATUS)")
 

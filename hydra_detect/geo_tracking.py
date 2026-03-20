@@ -20,11 +20,12 @@ class GeoTracker:
         self,
         mavlink_io: MAVLinkIO,
         camera_hfov_deg: float = 60.0,
+        min_interval: float = 2.0,
     ):
         self._mav = mavlink_io
         self._hfov = camera_hfov_deg
         self._last_send = 0.0
-        self._min_interval = 0.5  # 2 Hz cap
+        self._min_interval = min_interval
 
     def send(
         self,

@@ -95,6 +95,10 @@ class MAVLinkIO:
         self.NV_STRIKE = "HYDRA_STK"    # value=track_id
         self.NV_UNLOCK = "HYDRA_ULK"    # value=0
 
+        # STATUSTEXT send-rate diagnostic
+        self._st_send_count = 0
+        self._st_count_start = time.monotonic()
+
         # MGRS converter (optional)
         self._mgrs = None
         try:
@@ -415,6 +419,15 @@ class MAVLinkIO:
         """Send a STATUSTEXT message to the GCS."""
         if self._mav is None:
             return
+        # Diagnostic: log send rate every 30s
+        self._st_send_count += 1
+        now = time.monotonic()
+        elapsed = now - self._st_count_start
+        if elapsed >= 30.0:
+            logger.info("STATUSTEXT rate: %.1f msg/sec (last %.0fs)",
+                        self._st_send_count / elapsed, elapsed)
+            self._st_send_count = 0
+            self._st_count_start = now
         sev = severity if severity is not None else self._severity
         with self._lock:
             try:

@@ -129,7 +129,7 @@ class TestFpvOsdStatustext:
     def test_rate_limiting(self):
         mav = _make_mavlink_mock()
         osd = FpvOsd(mav, mode="statustext", update_interval=1.0)
-        state = OSDState(fps=10.0, inference_ms=20.0, active_tracks=0)
+        state = OSDState(fps=10.0, inference_ms=20.0, active_tracks=1)
 
         osd.update(state)
         osd.update(state)  # Should be throttled

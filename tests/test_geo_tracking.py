@@ -42,7 +42,8 @@ class TestGeoTrackerSend:
         gt.send(tracks, alert_classes={"person"}, locked_track_id=None)
         mav.estimate_target_position.assert_not_called()
 
-    def test_throttle_2hz(self):
+    def test_throttle_default_2s(self):
+        """Default min_interval=2.0 throttles rapid sends."""
         mav = MagicMock()
         mav.get_lat_lon.return_value = (34.0, -118.0, 100.0)
         mav.estimate_target_position.return_value = (34.001, -117.999)
@@ -51,3 +52,11 @@ class TestGeoTrackerSend:
         gt.send(tracks, alert_classes=None, locked_track_id=1)
         gt.send(tracks, alert_classes=None, locked_track_id=1)
         assert mav.estimate_target_position.call_count == 1
+
+    def test_configurable_interval(self):
+        """Custom min_interval is respected."""
+        mav = MagicMock()
+        mav.get_lat_lon.return_value = (34.0, -118.0, 100.0)
+        mav.estimate_target_position.return_value = (34.001, -117.999)
+        gt = GeoTracker(mav, min_interval=5.0)
+        assert gt._min_interval == 5.0

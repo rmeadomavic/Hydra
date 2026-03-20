@@ -41,8 +41,10 @@ class TestKismetManagerInit:
 
 
 class TestKismetManagerStart:
+    @patch("hydra_detect.rf.kismet_manager.requests.get",
+           side_effect=requests.ConnectionError("refused"))
     @patch("hydra_detect.rf.kismet_manager.shutil.which", return_value=None)
-    def test_start_fails_if_kismet_not_installed(self, mock_which):
+    def test_start_fails_if_kismet_not_installed(self, mock_which, mock_get):
         mgr = KismetManager(
             source="rtl433-0",
             capture_dir="/tmp/test_kismet",

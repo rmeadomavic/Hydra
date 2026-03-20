@@ -142,6 +142,10 @@ tegrastats
 - ArduPilot does **NOT** support `ENCAPSULATED_DATA` messages
 - Always verify serial port mappings against the `/hydra` skill or
   `docs/pixhawk-setup.md` (if it exists) before changing ArduPilot parameters
+- **Lua OSD script (`hydra_osd.lua`):** The script on the Pixhawk SD card
+  (`APM/scripts/hydra_osd.lua`) sends STATUSTEXT at 5 Hz, flooding the GCS log.
+  To disable: set `SCR_ENABLE = 0` in ArduPilot params, or delete the script
+  from the SD card. Only used when OSD mode is `named_value` (Lua-based).
 
 ## Live Logs API
 

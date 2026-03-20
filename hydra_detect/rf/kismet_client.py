@@ -103,7 +103,7 @@ class KismetClient:
                 f"{self._host}/system/status.json", timeout=self._timeout,
             )
             if r.status_code == 200:
-                logger.info("Kismet API connected at %s", self._host)
+                logger.debug("Kismet API connected at %s", self._host)
                 return True
             # Session may have expired — retry auth once
             self._authenticated = False
@@ -113,7 +113,7 @@ class KismetClient:
                 f"{self._host}/system/status.json", timeout=self._timeout,
             )
             if r.status_code == 200:
-                logger.info("Kismet API reconnected at %s", self._host)
+                logger.debug("Kismet API reconnected at %s", self._host)
                 return True
             logger.error("Kismet API returned %d", r.status_code)
             return False
