@@ -108,3 +108,34 @@ docker build -t hydra-detect .
 # Monitor Jetson resources
 tegrastats
 ```
+
+## Hardware Environment
+
+- **Architecture:** Jetson Orin Nano is ARM64/aarch64 — always check architecture
+  compatibility before suggesting packages or tools
+- **Packages:** Snap packages have known kernel compatibility issues on Jetson —
+  prefer `apt` or `pip` installs when possible
+- **Permissions:** Use udev rules for persistent `/dev/tty*` permissions, never
+  `chmod` (resets on replug/reboot)
+- **Models:** ML models belong in the `models/` directory, not the project root —
+  always verify download destinations match what the code expects
+
+## Serial / MAVLink Conventions
+
+- `SERIAL5` = TELEM3 on this Pixhawk 6C setup
+- HDZero DisplayPort protocol = **42** (not 33)
+- ArduPilot does **NOT** support `ENCAPSULATED_DATA` messages
+- Always verify serial port mappings against the `/hydra` skill or
+  `docs/pixhawk-setup.md` (if it exists) before changing ArduPilot parameters
+
+## Debugging Rules
+
+- When facing unfamiliar system issues (snap, kernel modules, hardware protocols):
+  **research first, fix second**
+- Search project docs, git history, and reference materials before attempting any fix
+- If your first two approaches fail, **STOP and ask the user** — they likely know
+  the answer or can point to docs
+- When spawning external processes (rtl_power, Kismet, etc.), always implement
+  proper cleanup with `try/finally` or `atexit` handlers to prevent orphaned processes
+- Before spawning a subprocess, check for existing instances (`pgrep`, `fuser`)
+  to avoid dual-instance problems
