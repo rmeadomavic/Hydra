@@ -33,6 +33,7 @@ def _make_controller(mav=None, **overrides):
         rssi_converge_dbm=-40.0,
         poll_interval_sec=0.01,
         arrival_tolerance_m=3.0,
+        gps_required=True,
     )
     defaults.update(overrides)
     return RFHuntController(mav, **defaults)
@@ -346,3 +347,50 @@ class TestRssiHistory:
         after = time.time()
         t = ctrl.get_rssi_history()[0]["t"]
         assert before <= t <= after
+
+
+class TestScanOnlyMode:
+    """Scan-only mode: RSSI polling without GPS/navigation."""
+
+    def test_scan_only_flag_stored(self):
+        ctrl = _make_controller(gps_required=False)
+        assert ctrl._gps_required is False
+
+    def test_gps_required_defaults_true(self):
+        ctrl = _make_controller()
+        assert ctrl._gps_required is True
+
+    @patch.object(RFHuntController, "_poll_rssi", return_value=-65.0)
+    def test_scan_only_start_succeeds_without_gps(self, mock_poll):
+        mav = _make_mavlink()
+        mav.get_lat_lon.return_value = (None, None, None)
+        ctrl = _make_controller(mav=mav, gps_required=False)
+        with patch.object(ctrl._kismet, "check_connection", return_value=True):
+            assert ctrl.start() is True
+            assert ctrl.state == HuntState.SCANNING
+
+    def test_scan_only_get_status_includes_flag(self):
+        ctrl = _make_controller(gps_required=False)
+        status = ctrl.get_status()
+        assert status["gps_required"] is False
+
+    @patch.object(RFHuntController, "_poll_rssi", return_value=-65.0)
+    def test_do_scan_records_rssi(self, mock_poll):
+        mav = _make_mavlink()
+        mav.get_lat_lon.return_value = (None, None, None)
+        ctrl = _make_controller(mav=mav, gps_required=False)
+        ctrl._set_state(HuntState.SCANNING)
+        ctrl._do_scan()
+        history = ctrl.get_rssi_history()
+        assert len(history) == 1
+        assert history[0]["rssi"] == -65.0
+        assert history[0]["lat"] is None
+
+    @patch.object(RFHuntController, "_poll_rssi", return_value=None)
+    def test_do_scan_tolerates_no_reading(self, mock_poll):
+        mav = _make_mavlink()
+        mav.get_lat_lon.return_value = (None, None, None)
+        ctrl = _make_controller(mav=mav, gps_required=False)
+        ctrl._set_state(HuntState.SCANNING)
+        ctrl._do_scan()
+        assert len(ctrl.get_rssi_history()) == 0

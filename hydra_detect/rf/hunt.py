@@ -38,6 +38,7 @@ _SEARCH_ALT_MIN, _SEARCH_ALT_MAX = 3.0, 120.0
 
 class HuntState(Enum):
     IDLE = "idle"
+    SCANNING = "scanning"
     SEARCHING = "searching"
     HOMING = "homing"
     CONVERGED = "converged"
@@ -108,6 +109,7 @@ class RFHuntController:
         # Callbacks
         on_state_change: Callable[[HuntState], None] | None = None,
         kismet_manager: KismetManager | None = None,
+        gps_required: bool = True,
     ):
         self._mavlink = mavlink
         self._mode = mode
@@ -123,6 +125,7 @@ class RFHuntController:
         self._arrival_tolerance = arrival_tolerance_m
         self._on_state_change = on_state_change
         self._kismet_manager = kismet_manager
+        self._gps_required = gps_required
 
         self._kismet = KismetClient(
             host=kismet_host, user=kismet_user, password=kismet_pass,
@@ -188,6 +191,7 @@ class RFHuntController:
                 "best_lon": round(best_pos[1], 7),
                 "samples": sample_count,
                 "wp_progress": f"{self._wp_index}/{len(self._waypoints)}",
+                "gps_required": self._gps_required,
             }
 
     def start(self) -> bool:
@@ -204,43 +208,45 @@ class RFHuntController:
             logger.error("Cannot reach Kismet — aborting RF hunt")
             return False
 
-        # Get current position for search pattern center
-        lat, lon, alt = self._mavlink.get_lat_lon()
-        if lat is None or lon is None:
-            logger.error("RF hunt requires GPS fix — aborting")
-            return False
+        if self._gps_required:
+            # Get current position for search pattern center
+            lat, lon, alt = self._mavlink.get_lat_lon()
+            if lat is None or lon is None:
+                logger.error("RF hunt requires GPS fix — aborting")
+                return False
 
-        # Generate search pattern
-        if self._search_pattern == "spiral":
-            self._waypoints = generate_spiral(
-                lat, lon,
-                max_radius_m=self._search_area_m / 2,
-                spacing_m=self._search_spacing_m,
-                alt=self._search_alt_m,
-            )
-        else:
-            self._waypoints = generate_lawnmower(
-                lat, lon,
-                width_m=self._search_area_m,
-                height_m=self._search_area_m,
-                spacing_m=self._search_spacing_m,
-                alt=self._search_alt_m,
-            )
-        self._wp_index = 0
+            # Generate search pattern
+            if self._search_pattern == "spiral":
+                self._waypoints = generate_spiral(
+                    lat, lon,
+                    max_radius_m=self._search_area_m / 2,
+                    spacing_m=self._search_spacing_m,
+                    alt=self._search_alt_m,
+                )
+            else:
+                self._waypoints = generate_lawnmower(
+                    lat, lon,
+                    width_m=self._search_area_m,
+                    height_m=self._search_area_m,
+                    spacing_m=self._search_spacing_m,
+                    alt=self._search_alt_m,
+                )
+            self._wp_index = 0
 
-        audit_log.info(
-            "RF HUNT START: mode=%s target=%s pattern=%s area=%.0fm "
-            "threshold=%.0f dBm waypoints=%d",
-            self._mode,
-            self._target_bssid or f"{self._target_freq_mhz}MHz",
-            self._search_pattern,
-            self._search_area_m,
-            self._rssi_threshold,
-            len(self._waypoints),
-        )
+            audit_log.info(
+                "RF HUNT START: mode=%s target=%s pattern=%s area=%.0fm "
+                "threshold=%.0f dBm waypoints=%d",
+                self._mode,
+                self._target_bssid or f"{self._target_freq_mhz}MHz",
+                self._search_pattern,
+                self._search_area_m,
+                self._rssi_threshold,
+                len(self._waypoints),
+            )
 
         self._stop_evt.clear()
-        self._set_state(HuntState.SEARCHING)
+        initial_state = HuntState.SCANNING if not self._gps_required else HuntState.SEARCHING
+        self._set_state(initial_state)
 
         self._thread = threading.Thread(
             target=self._run_loop, daemon=True, name="rf-hunt",
@@ -281,7 +287,9 @@ class RFHuntController:
         try:
             while not self._stop_evt.is_set():
                 state = self.state
-                if state == HuntState.SEARCHING:
+                if state == HuntState.SCANNING:
+                    self._do_scan()
+                elif state == HuntState.SEARCHING:
                     self._do_search()
                 elif state == HuntState.HOMING:
                     self._do_homing()
@@ -311,6 +319,14 @@ class RFHuntController:
                 "lat": round(lat, 7) if lat is not None else None,
                 "lon": round(lon, 7) if lon is not None else None,
             })
+
+    def _do_scan(self) -> None:
+        """Poll RSSI without navigation — scan-only mode."""
+        rssi = self._poll_rssi()
+        if rssi is not None:
+            smoothed = self._filter.add(rssi)
+            self._record_rssi(rssi)
+            logger.info("[SCAN] Signal: %.1f dBm (avg %.1f)", rssi, smoothed)
 
     def _poll_rssi(self) -> float | None:
         """Poll Kismet for current RSSI, restarting Kismet once on failure."""
