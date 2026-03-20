@@ -12,6 +12,8 @@
 
 **Testing:** These are frontend-only visual features with no backend logic. Testing is manual browser verification — no pytest tests apply. Each task includes verification steps.
 
+**Note:** The spec mentions a "~50ms per character" typewriter effect. This plan simplifies to whole-line reveal (opacity toggle, 400ms between lines). This is simpler, looks clean, and avoids complex per-character DOM manipulation. The visual impact is equivalent.
+
 ---
 
 ### Task 1: Add toast type CSS classes
@@ -23,7 +25,7 @@ The codebase has `showToast(msg, type)` but only the base `.toast` class (red/da
 
 - [ ] **Step 1: Add `.toast-info` and `.toast-success` CSS classes**
 
-Add after the `.toast` rule (after line 164 in `base.css`):
+Add after the toast animation keyframes (after line 175 in `base.css`, after `@keyframes toast-out`):
 
 ```css
 .toast-info {
