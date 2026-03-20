@@ -118,9 +118,12 @@ class MAVLinkIO:
                 self._conn_str,
                 baud=self._baud,
                 source_system=self._source_system,
+                source_component=191,  # MAV_COMP_ID_ONBOARD_COMPUTER
                 autoreconnect=True,
             )
-            self._mav.wait_heartbeat(timeout=10)
+            hb = self._mav.wait_heartbeat(timeout=10)
+            if hb is None:
+                logger.warning("MAVLink heartbeat timeout — continuing without target")
             logger.info(
                 "MAVLink heartbeat from system %d component %d",
                 self._mav.target_system,
@@ -434,8 +437,6 @@ class MAVLinkIO:
                 from pymavlink.dialects.v20 import common as mavlink2
                 payload = text[:50].ljust(50, '\0').encode('utf-8')
                 msg = mavlink2.MAVLink_statustext_message(severity=sev, text=payload)
-                msg._header.srcSystem = self._source_system
-                msg._header.srcComponent = mavlink2.MAV_COMP_ID_ONBOARD_COMPUTER
                 with self._send_lock:
                     self._mav.mav.send(msg, force_mavlink1=False)
             except Exception as exc:
@@ -470,7 +471,7 @@ class MAVLinkIO:
 
         if self._alert_statustext:
             self.send_statustext(msg, severity=6)  # INFO — green in Mission Planner
-            logger.info("Alert sent: %s", msg)
+        logger.info("Alert sent: %s", msg)
 
     # ------------------------------------------------------------------
     # Vehicle commands
