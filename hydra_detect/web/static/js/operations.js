@@ -530,6 +530,206 @@ const HydraOperations = (() => {
         converged: 'CONVERGED', lost: 'LOST', aborted: 'ABORTED', unavailable: 'N/A'
     };
 
+    // ── RF Visualization ──
+    function renderRssiSparkline(data, thresholds) {
+        var container = document.getElementById('ctrl-rf-rssi-chart');
+        if (!container || !data || data.length < 2) {
+            if (container) {
+                while (container.firstChild) container.removeChild(container.firstChild);
+            }
+            return;
+        }
+
+        var W = container.clientWidth || 300;
+        var H = container.clientHeight || 120;
+        var PAD = { top: 10, right: 10, bottom: 20, left: 40 };
+        var plotW = W - PAD.left - PAD.right;
+        var plotH = H - PAD.top - PAD.bottom;
+
+        var yMin = -100, yMax = -20;
+        var yScale = function(v) { return PAD.top + plotH - ((v - yMin) / (yMax - yMin)) * plotH; };
+        var tMin = data[0].t, tMax = data[data.length - 1].t;
+        var tSpan = Math.max(tMax - tMin, 1);
+        var xScale = function(t) { return PAD.left + ((t - tMin) / tSpan) * plotW; };
+
+        var points = data.map(function(d) {
+            return xScale(d.t).toFixed(1) + ',' + yScale(d.rssi).toFixed(1);
+        }).join(' ');
+
+        // Trend color
+        var recent = data.slice(-10);
+        var trend = 'var(--color-warn)';
+        if (recent.length >= 2) {
+            var diff = recent[recent.length - 1].rssi - recent[0].rssi;
+            if (diff > 3) trend = 'var(--color-ok)';
+            else if (diff < -3) trend = 'var(--color-danger)';
+        }
+
+        var detectTh = thresholds.detect || -80;
+        var convergeTh = thresholds.converge || -40;
+
+        var ns = 'http://www.w3.org/2000/svg';
+        var svg = document.createElementNS(ns, 'svg');
+        svg.setAttribute('width', W);
+        svg.setAttribute('height', H);
+        svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+
+        function svgEl(tag, attrs) {
+            var el = document.createElementNS(ns, tag);
+            for (var k in attrs) {
+                if (attrs.hasOwnProperty(k)) el.setAttribute(k, attrs[k]);
+            }
+            return el;
+        }
+
+        // Background
+        svg.appendChild(svgEl('rect', {
+            x: PAD.left, y: PAD.top, width: plotW, height: plotH,
+            fill: 'rgba(0,0,0,0.2)', rx: '2'
+        }));
+
+        // Threshold dashed lines
+        [
+            { val: detectTh, label: 'det ' + detectTh },
+            { val: convergeTh, label: 'conv ' + convergeTh }
+        ].forEach(function(th) {
+            var y = yScale(th.val);
+            if (y >= PAD.top && y <= PAD.top + plotH) {
+                svg.appendChild(svgEl('line', {
+                    x1: PAD.left, y1: y, x2: PAD.left + plotW, y2: y,
+                    stroke: 'rgba(255,255,255,0.3)', 'stroke-dasharray': '4,3', 'stroke-width': '1'
+                }));
+                var text = document.createElementNS(ns, 'text');
+                text.setAttribute('x', PAD.left + 3);
+                text.setAttribute('y', y - 3);
+                text.setAttribute('fill', 'rgba(255,255,255,0.5)');
+                text.setAttribute('font-size', '9');
+                text.textContent = th.label;
+                svg.appendChild(text);
+            }
+        });
+
+        // Data polyline
+        svg.appendChild(svgEl('polyline', {
+            points: points, fill: 'none', stroke: trend, 'stroke-width': '1.5'
+        }));
+
+        // Y-axis labels
+        [-100, -80, -60, -40, -20].forEach(function(v) {
+            var text = document.createElementNS(ns, 'text');
+            text.setAttribute('x', PAD.left - 3);
+            text.setAttribute('y', yScale(v) + 3);
+            text.setAttribute('fill', 'rgba(255,255,255,0.4)');
+            text.setAttribute('font-size', '9');
+            text.setAttribute('text-anchor', 'end');
+            text.textContent = v;
+            svg.appendChild(text);
+        });
+
+        // X-axis "now" label
+        var xLabel = document.createElementNS(ns, 'text');
+        xLabel.setAttribute('x', PAD.left + plotW);
+        xLabel.setAttribute('y', H - 3);
+        xLabel.setAttribute('fill', 'rgba(255,255,255,0.4)');
+        xLabel.setAttribute('font-size', '9');
+        xLabel.setAttribute('text-anchor', 'end');
+        xLabel.textContent = 'now';
+        svg.appendChild(xLabel);
+
+        // Replace container content using DOM methods
+        while (container.firstChild) container.removeChild(container.firstChild);
+        container.appendChild(svg);
+    }
+
+    function renderSignalMap(data) {
+        var canvas = document.getElementById('ctrl-rf-signal-map');
+        if (!canvas || !data || data.length < 1) return;
+        var ctx = canvas.getContext('2d');
+
+        var rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * (window.devicePixelRatio || 1);
+        canvas.height = rect.height * (window.devicePixelRatio || 1);
+        ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+        var W = rect.width, H = rect.height;
+
+        ctx.clearRect(0, 0, W, H);
+
+        var gpsData = data.filter(function(d) { return d.lat != null && d.lon != null; });
+        if (gpsData.length === 0) return;
+
+        var minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+        gpsData.forEach(function(d) {
+            if (d.lat < minLat) minLat = d.lat;
+            if (d.lat > maxLat) maxLat = d.lat;
+            if (d.lon < minLon) minLon = d.lon;
+            if (d.lon > maxLon) maxLon = d.lon;
+        });
+
+        var latSpan = Math.max(maxLat - minLat, 0.00005);
+        var lonSpan = Math.max(maxLon - minLon, 0.00005);
+        var padFrac = 0.1;
+        minLat -= latSpan * padFrac; maxLat += latSpan * padFrac;
+        minLon -= lonSpan * padFrac; maxLon += lonSpan * padFrac;
+
+        var PAD = 15;
+        var plotW = W - 2 * PAD, plotH = H - 2 * PAD;
+        function toX(lon) { return PAD + ((lon - minLon) / (maxLon - minLon)) * plotW; }
+        function toY(lat) { return PAD + plotH - ((lat - minLat) / (maxLat - minLat)) * plotH; }
+
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.fillRect(PAD, PAD, plotW, plotH);
+
+        var rf = HydraApp.state.rfStatus || {};
+        var detectTh = rf.rssi_threshold || -80;
+        var convergeTh = rf.rssi_converge || -40;
+
+        var bestIdx = 0;
+        gpsData.forEach(function(d, i) {
+            if (d.rssi > gpsData[bestIdx].rssi) bestIdx = i;
+        });
+
+        // Draw dots
+        gpsData.forEach(function(d, i) {
+            var alpha = 0.3 + 0.7 * (i / (gpsData.length - 1 || 1));
+            var color;
+            if (d.rssi >= convergeTh) color = 'rgba(74,124,46,' + alpha + ')';
+            else if (d.rssi >= detectTh) color = 'rgba(234,179,8,' + alpha + ')';
+            else color = 'rgba(197,48,48,' + alpha + ')';
+
+            ctx.beginPath();
+            ctx.arc(toX(d.lon), toY(d.lat), 4, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+        });
+
+        // Current position triangle
+        var last = gpsData[gpsData.length - 1];
+        var cx = toX(last.lon), cy = toY(last.lat);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - 7);
+        ctx.lineTo(cx - 5, cy + 4);
+        ctx.lineTo(cx + 5, cy + 4);
+        ctx.closePath();
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+
+        // Best position star
+        if (bestIdx !== gpsData.length - 1) {
+            var best = gpsData[bestIdx];
+            var bx = toX(best.lon), by = toY(best.lat);
+            ctx.beginPath();
+            for (var j = 0; j < 10; j++) {
+                var angle = -Math.PI / 2 + j * (Math.PI / 5);
+                var r = j % 2 === 0 ? 6 : 3;
+                if (j === 0) ctx.moveTo(bx + r * Math.cos(angle), by + r * Math.sin(angle));
+                else ctx.lineTo(bx + r * Math.cos(angle), by + r * Math.sin(angle));
+            }
+            ctx.closePath();
+            ctx.fillStyle = '#ffd700';
+            ctx.fill();
+        }
+    }
+
     function updateRFPanel() {
         const rf = HydraApp.state.rfStatus;
         if (!rf) return;
@@ -582,6 +782,21 @@ const HydraOperations = (() => {
             if (rssiLabel) {
                 rssiLabel.textContent = rssi.toFixed(0) + ' dBm';
                 rssiLabel.style.color = barColor;
+            }
+
+            // Fetch and render RSSI history charts
+            if (isActive) {
+                fetch('/api/rf/rssi_history')
+                    .then(function(r) { return r.json(); })
+                    .then(function(historyData) {
+                        var rf = HydraApp.state.rfStatus || {};
+                        renderRssiSparkline(historyData, {
+                            detect: rf.rssi_threshold || -80,
+                            converge: rf.rssi_converge || -40
+                        });
+                        renderSignalMap(historyData);
+                    })
+                    .catch(function() {});
             }
         }
     }
