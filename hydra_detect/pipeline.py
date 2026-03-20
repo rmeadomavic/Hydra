@@ -688,6 +688,8 @@ class Pipeline:
                     stats_update["mavlink_video_kbps"] = round(mv_status["bytes_per_sec"] / 1024, 1)
                 if self._rf_hunt is not None:
                     stats_update["rf_hunt"] = self._rf_hunt.get_status()
+                if self._servo_tracker is not None:
+                    stats_update["servo_tracking"] = self._servo_tracker.get_status()
                 stats_update.update(self._jetson_stats)
                 stream_state.update_stats(**stats_update)
 
