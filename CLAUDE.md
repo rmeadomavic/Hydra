@@ -103,11 +103,26 @@ flake8 hydra_detect/ tests/
 mypy hydra_detect/
 
 # Build Docker image (on Jetson)
-docker build -t hydra-detect .
+docker build --no-cache -t hydra-detect .
 
 # Monitor Jetson resources
 tegrastats
 ```
+
+## Web Frontend (SPA)
+
+- **SPA structure:** `base.html` includes `operations.html` + `settings.html` via
+  Jinja2 `{% include %}`. Both views always exist in DOM, shown/hidden via CSS.
+  `review.html` is standalone — does not share `base.html`, `app.js`, or CSS.
+- **CSS transitions + display:** Cannot transition `opacity` in the same class toggle
+  that changes `display: none` → `display: flex`. Use JS to set `display` first,
+  force reflow (`void el.offsetWidth`), then add class for opacity transition.
+- **Event listeners in settings:** `HydraSettings.onEnter()` fires on every view
+  switch. Use event delegation (`document.addEventListener`) for features that
+  should only bind once — avoid stacking duplicate listeners.
+- **Toast types:** `showToast(msg, type)` supports `error` (default/red),
+  `info` (blue), `success` (green). CSS classes are in `base.css`.
+- **YouTube embeds:** Use `youtube-nocookie.com` domain for reliability.
 
 ## Hardware Environment
 
