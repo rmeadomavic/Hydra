@@ -124,29 +124,52 @@ On strike command:
 2. After `strike_duration` seconds, set to `strike_pwm_safe`
 3. Uses existing `flash_servo()` pattern (daemon thread for the delay)
 
+### Rate Limiting
+
+`update()` skips the `set_servo()` call if the computed PWM has not changed
+since the last call. Most hobby servos have mechanical response times of
+100-200ms, so sending identical PWM values at 10-15 FPS wastes serial bandwidth.
+Combined with the dead zone, this significantly reduces MAVLink bus traffic when
+the target is stable or centered.
+
+### Strike Re-entrancy
+
+`fire_strike()` uses a `_strike_active` threading.Event to prevent overlapping
+actuations. If a strike is already in progress (daemon thread hasn't returned
+the servo to safe yet), subsequent calls are logged and ignored. The event is
+cleared after the safe PWM is set.
+
 ### Safety
 
 - On init: strike servo set to `strike_pwm_safe`, pan servo centered
-- On target unlock: pan servo returns to center
+- On target unlock: pan servo returns to center, **EMA state reset to 0.0**
+  (prevents stale smoothing from a previous target bleeding into a new lock)
 - On pipeline shutdown: both servos return to safe/center positions
 - All PWM values clamped by existing `set_servo()` (500-2500 range)
 - Strike servo uses same daemon thread pattern as light bar (no hot-loop blocking)
+- **Channel collision check:** Pipeline `__init__` validates that `pan_channel`,
+  `strike_channel`, and `light_bar_channel` are all distinct. Logs a warning and
+  disables servo tracking if channels overlap.
 
 ### Methods
 
 ```python
 def update(self, error_x: float) -> None:
-    """Update pan servo from pixel-lock error. Called every frame."""
+    """Update pan servo from pixel-lock error. Called every frame.
+    Skips set_servo() if computed PWM matches previous value (rate limiting)."""
 
 def fire_strike(self) -> None:
-    """Actuate strike servo (fire → safe after duration)."""
+    """Actuate strike servo (fire → safe after duration).
+    No-op if a strike is already in progress (_strike_active guard)."""
 
 def safe(self) -> None:
-    """Return all servos to safe positions. Called on unlock/shutdown."""
+    """Return all servos to safe positions. Resets EMA smoothing state.
+    Called on unlock/shutdown/target-lost."""
 
 def get_status(self) -> dict:
     """Return current state for web API / logging."""
-    # Returns: {"pan_pwm": 1500, "strike_armed": False, "error_x": 0.0, ...}
+    # Returns: {"pan_pwm": 1500, "tracking": True, "strike_active": False,
+    #           "error_x": 0.0, "smoothing_alpha": 0.3, ...}
 
 @property
 def replaces_yaw(self) -> bool:
@@ -177,6 +200,11 @@ strike_duration = 0.5
 # Use alongside (false) for vehicle + turret, or replace (true) for direct steering
 replaces_yaw = false
 ```
+
+**Config validation (at startup):**
+- `pan_pwm_center ± pan_pwm_range` must stay within 500-2500 (warn if not)
+- `pan_channel` and `strike_channel` must differ from each other and from
+  `[alerts] light_bar_channel` (disable servo tracking with warning if overlap)
 
 ## Pipeline Integration
 
@@ -215,11 +243,20 @@ if current_lock_id is not None and self._mavlink is not None:
             if self._servo_tracker is not None:
                 self._servo_tracker.update(error_x)
     else:
-        # Target lost — existing auto-unlock logic
-        # Also safe the servos:
-        if self._servo_tracker is not None:
-            self._servo_tracker.safe()
+        # Target lost — refactor: call _handle_target_unlock() instead of
+        # inline unlock logic. This ensures servo safing, ROI clearing, and
+        # STATUSTEXT notification all go through one code path.
+        # (Currently pipeline.py:563-579 duplicates unlock logic inline —
+        # must be consolidated to avoid missing servo safe on target loss.)
+        self._handle_target_unlock()
 ```
+
+**Important:** The existing target-lost code at pipeline.py:563-579 performs an
+inline unlock (directly sets `_locked_track_id = None`). This MUST be refactored
+to call `_handle_target_unlock()` so that servo safing, ROI clearing, and status
+notifications all go through one path. The inline code also sends a custom
+"TGT LOST" STATUSTEXT — move this to a `reason` parameter on
+`_handle_target_unlock(reason="lost")` to preserve the message.
 
 **Strike command (`_handle_strike_command`):** Add servo actuation after the
 existing GUIDED waypoint logic:
@@ -286,6 +323,11 @@ USB Webcam → Jetson → YOLO → ByteTrack → pixel-lock → set_servo
 ```
 
 Config: `replaces_yaw = true` (no vehicle, so skip yaw commands)
+
+**Requires:** Pixhawk must be powered and connected via UART (MAVLink enabled).
+GPS fix is NOT required — `set_servo()` works without GPS. The Pixhawk just
+needs to be on and responding to heartbeats so the MAVLink connection succeeds
+and `self._mavlink` is not None.
 
 Demo flow:
 1. Point webcam at a person
