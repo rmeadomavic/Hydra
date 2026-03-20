@@ -173,6 +173,16 @@ input[type="range"]::-webkit-slider-thumb {
     from { transform: translateX(0); opacity: 1; }
     to { transform: translateX(100%); opacity: 0; }
 }
+.toast-info {
+    background: rgba(30, 58, 95, 0.95);
+    border-color: #3b82f6;
+    color: #93c5fd;
+}
+.toast-success {
+    background: rgba(20, 60, 30, 0.95);
+    border-color: var(--ogt-green);
+    color: var(--ogt-light);
+}
 
 /* ── Hex Pattern Overlay ── */
 .hex-pattern {
