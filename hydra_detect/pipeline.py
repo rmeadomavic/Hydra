@@ -564,22 +564,7 @@ class Pipeline:
                     elif current_lock_mode == "strike":
                         self._mavlink.adjust_yaw(error_x, yaw_rate_max=15.0)
                 else:
-                    # Target lost — auto-unlock and notify operator.
-                    # NOTE: The lock is released automatically so the vehicle
-                    # stops yaw corrections toward a stale position. The
-                    # operator is notified via MAVLink STATUSTEXT and can
-                    # re-acquire manually if the target reappears.
-                    logger.warning(
-                        "Locked target #%d lost from tracker — auto-unlocking.",
-                        current_lock_id,
-                    )
-                    with self._state_lock:
-                        self._locked_track_id = None
-                        self._lock_mode = None
-                    if self._mavlink is not None:
-                        self._mavlink.send_statustext(
-                            f"TGT LOST: #{current_lock_id} — lock released", severity=4
-                        )
+                    self._handle_target_unlock(reason="lost")
 
             # Log with GPS data
             self._det_logger.log(track_result, frame, gps=gps)
@@ -743,17 +728,31 @@ class Pipeline:
                 )
             return True
 
-    def _handle_target_unlock(self) -> None:
-        """Release target lock."""
+    def _handle_target_unlock(self, reason: str = "") -> None:
+        """Release target lock.
+
+        Args:
+            reason: If "lost", sends a TGT LOST message instead of generic release.
+        """
         with self._state_lock:
             prev_id = self._locked_track_id
             self._locked_track_id = None
             self._lock_mode = None
         if prev_id is not None:
-            logger.info("Target UNLOCKED: #%d", prev_id)
-            if self._mavlink is not None:
-                self._mavlink.send_statustext("TGT LOCK RELEASED", severity=5)
-                self._mavlink.clear_roi()
+            if reason == "lost":
+                logger.warning(
+                    "Locked target #%d lost from tracker — auto-unlocking.",
+                    prev_id,
+                )
+                if self._mavlink is not None:
+                    self._mavlink.send_statustext(
+                        f"TGT LOST: #{prev_id} — lock released", severity=4
+                    )
+            else:
+                logger.info("Target UNLOCKED: #%d", prev_id)
+                if self._mavlink is not None:
+                    self._mavlink.send_statustext("TGT LOCK RELEASED", severity=5)
+                    self._mavlink.clear_roi()
 
     def _handle_strike_command(self, track_id: int) -> bool:
         """Command vehicle to navigate toward a tracked target.

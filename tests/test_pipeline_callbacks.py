@@ -234,3 +234,29 @@ class TestMAVLinkVideoCallbacks:
         result = p._handle_mavlink_video_toggle(False)
         assert result["status"] == "ok"
         assert p._mavlink_video is None
+
+
+# ---------------------------------------------------------------------------
+# Target unlock reason (lost vs manual)
+# ---------------------------------------------------------------------------
+
+class TestTargetUnlockReason:
+    def test_unlock_lost_sends_tgt_lost_statustext(self):
+        p = _make_pipeline()
+        p._mavlink = MagicMock()
+        p._locked_track_id = 5
+        p._lock_mode = "track"
+        p._handle_target_unlock(reason="lost")
+        assert p._locked_track_id is None
+        p._mavlink.send_statustext.assert_called_once()
+        msg = p._mavlink.send_statustext.call_args[0][0]
+        assert "TGT LOST" in msg
+
+    def test_unlock_manual_sends_released_statustext(self):
+        p = _make_pipeline()
+        p._mavlink = MagicMock()
+        p._locked_track_id = 5
+        p._lock_mode = "track"
+        p._handle_target_unlock()
+        msg = p._mavlink.send_statustext.call_args[0][0]
+        assert "RELEASED" in msg
