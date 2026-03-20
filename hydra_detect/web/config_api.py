@@ -1,4 +1,4 @@
-"""Config file read/write with atomic writes and file locking for Jetson safety."""
+"""Config file read/write with file locking for Jetson safety."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import fcntl
 import logging
 import os
 import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -107,21 +106,15 @@ def write_config(updates: dict[str, dict[str, str]]) -> dict[str, Any]:
     if path.exists():
         shutil.copy2(path, bak_path)
 
-    # Atomic write with file locking on the TARGET file (not temp file).
-    dir_path = path.parent
-    lock_fd = os.open(str(path), os.O_RDONLY | os.O_CREAT)
+    # Write config with file locking.
+    # NOTE: os.replace() / os.rename() fail on Docker bind mounts (EXDEV —
+    # cross-device link).  Instead, lock-then-write directly to the target.
+    lock_fd = os.open(str(path), os.O_RDWR | os.O_CREAT)
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
-        fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w") as f:
-                config.write(f)
-            os.replace(tmp_path, path)
-            logger.info("Config written to %s (%d fields updated)", path, len(restart_needed))
-        except Exception:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-            raise
+        with open(path, "w") as f:
+            config.write(f)
+        logger.info("Config written to %s (%d fields updated)", path, len(restart_needed))
     finally:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         os.close(lock_fd)

@@ -53,6 +53,20 @@ const HydraPanels = (() => {
             });
         });
 
+        // Make entire header clickable to expand collapsed panels
+        container.querySelectorAll('.panel-header').forEach(header => {
+            header.style.cursor = 'pointer';
+            header.addEventListener('click', function (e) {
+                // Don't interfere with the collapse button or drag handle
+                if (e.target.closest('.panel-collapse-btn') || e.target.closest('.panel-drag-handle')) return;
+                const panel = header.closest('.panel');
+                if (panel) {
+                    panel.classList.toggle('collapsed');
+                    saveLayout();
+                }
+            });
+        });
+
         // Wire visibility menu
         initVisibilityMenu();
 
