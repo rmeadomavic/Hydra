@@ -219,6 +219,63 @@ input[type="range"]::-webkit-slider-thumb {
     border: 0;
 }
 
+/* ── Sentience Easter Egg ── */
+#sentience-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: #000;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+}
+#sentience-overlay.active {
+    opacity: 1;
+}
+#sentience-overlay.glitch {
+    animation: sentience-glitch 500ms ease-out;
+}
+#sentience-terminal {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.1rem;
+    color: #00ff41;
+    text-align: left;
+    line-height: 2;
+    text-shadow: 0 0 8px rgba(0, 255, 65, 0.4);
+}
+#sentience-terminal .line {
+    opacity: 0;
+    white-space: pre;
+}
+#sentience-terminal .line.visible {
+    opacity: 1;
+}
+#sentience-crosshair {
+    font-size: 3rem;
+    color: #00ff41;
+    margin-top: 2rem;
+    opacity: 0;
+    text-shadow: 0 0 20px rgba(0, 255, 65, 0.6);
+}
+#sentience-crosshair.pulse {
+    animation: sentience-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes sentience-pulse {
+    0%, 100% { opacity: 0.4; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.2); }
+}
+@keyframes sentience-glitch {
+    0% { transform: translate(0); filter: hue-rotate(0deg); }
+    20% { transform: translate(-5px, 3px); filter: hue-rotate(90deg); }
+    40% { transform: translate(4px, -2px); filter: hue-rotate(180deg); }
+    60% { transform: translate(-3px, 5px); filter: hue-rotate(270deg); }
+    80% { transform: translate(2px, -4px); filter: hue-rotate(360deg); }
+    100% { transform: translate(0); filter: hue-rotate(0deg); opacity: 0; }
+}
+
 /* ── Touch Target (Steam Deck / tablet) ── */
 @media (pointer: coarse) {
     .btn { min-height: 44px; min-width: 44px; padding: 10px 16px; }
