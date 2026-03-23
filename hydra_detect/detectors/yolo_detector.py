@@ -34,6 +34,16 @@ class YOLODetector(BaseDetector):
 
         logger.info("Loading YOLO model: %s", self._model_path)
         self._model = YOLO(self._model_path)
+        # Force GPU inference on Jetson — CPU gives 1-2 FPS, GPU gives 5-10+
+        try:
+            import torch
+            if torch.cuda.is_available():
+                self._model.to("cuda:0")
+                logger.info("YOLO model loaded on GPU (CUDA).")
+            else:
+                logger.warning("CUDA not available — running YOLO on CPU (expect slow inference).")
+        except ImportError:
+            logger.warning("torch not available for device check — YOLO using default device.")
         logger.info("YOLO model loaded.")
 
     def detect(self, frame: np.ndarray) -> DetectionResult:
@@ -100,6 +110,12 @@ class YOLODetector(BaseDetector):
         logger.info("Switching YOLO model: %s -> %s", old_path, model_path)
         try:
             new_model = YOLO(model_path)
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    new_model.to("cuda:0")
+            except ImportError:
+                pass
             self._model = new_model
             self._model_path = model_path
             logger.info("YOLO model switched to: %s", model_path)

@@ -2,10 +2,10 @@
 title: "FPV OSD overlay"
 sidebarTitle: "FPV OSD"
 icon: "tv"
-description: "Detection telemetry on your FPV feed through the flight controller's OSD chip"
+description: "Detection telemetry on your FPV feed via analog OSD chip or HDZero MSP DisplayPort"
 ---
 
-Hydra can push detection telemetry directly onto your FPV video feed through the flight controller's onboard analog OSD chip (MAX7456 / AT7456E). No extra hardware, no video passthrough, no added latency.
+Hydra can push detection telemetry directly onto your FPV video feed. For analog systems, this uses the FC's onboard OSD chip (MAX7456 / AT7456E). For HDZero digital systems, it uses MSP DisplayPort over a serial UART — no OSD chip needed.
 
 ## What it looks like
 
@@ -22,23 +22,20 @@ That reads as:
 - **35ms**: inference time per frame
 - **LK#5TRK**: target lock active on track #5, currently tracking
 
-All composited by the FC's OSD chip with sub-millisecond delay.
+Composited by the FC's OSD engine with minimal delay.
 
 ## Compatible hardware
 
-<Note>
-  The OSD overlay requires a flight controller with an onboard OSD chip. This is a hardware requirement. No OSD chip means no overlay.
-</Note>
+**Analog OSD (MAX7456 chip):**
+- Matek H743, SpeedyBee F405-Wing, any FC with AT7456E/MAX7456
 
-**Works with:**
-- Matek H743
-- SpeedyBee F405-Wing
-- Any FC with an AT7456E or MAX7456 chip
+**HDZero MSP DisplayPort (no OSD chip needed):**
+- Pixhawk 6C, Cube, or any ArduPilot FC with a spare UART
+- See the [HDZero OSD setup guide](/setup/hdzero-osd) for wiring and parameters
 
-**Does not work with:**
-- Pixhawk 6C (no OSD chip). Use the [web dashboard](/features/dashboard) overlay instead.
-
-**Running HDZero?** See the [HDZero OSD setup guide](/setup/hdzero-osd) for MSP DisplayPort wiring and parameters. MSP DisplayPort works on any FC with a spare UART, including Pixhawk.
+<Warning>
+**Pixhawk 6C:** Has no onboard OSD chip. The `statustext` mode only shows alerts in Mission Planner, NOT on goggles. Use `named_value` mode with the Lua script for HDZero OSD display. See [HDZero OSD setup](/setup/hdzero-osd).
+</Warning>
 
 ## Modes
 
@@ -92,8 +89,13 @@ If you choose `named_value` mode:
     ```
     SCR_ENABLE = 1
     SCR_HEAP_SIZE = 65536
-    OSD_TYPE = 1
+    OSD_TYPE = 5             ; MSP DisplayPort HD (use 1 for analog MAX7456)
+    OSD1_TXT_RES = 1         ; HD resolution
+    MSP_OPTIONS = 0
     OSD1_ENABLE = 1
+    OSD1_MESSAGE_EN = 1
+    SERIAL5_PROTOCOL = 42    ; MSP DisplayPort on TELEM3 (Pixhawk 6C)
+    SERIAL5_BAUD = 115       ; 115200
     ```
   </Step>
   <Step title="Update config.ini">
@@ -119,6 +121,6 @@ update_interval = 0.2
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `enabled` | `false` | Turn FPV OSD overlay on or off (requires MAVLink + FC with OSD chip) |
+| `enabled` | `false` | Turn FPV OSD overlay on or off (requires MAVLink connection to FC) |
 | `mode` | `statustext` | `statustext` (simple) or `named_value` (requires Lua script on FC) |
 | `update_interval` | `0.2` | Seconds between OSD updates. Lower is snappier but chattier on the MAVLink bus |
