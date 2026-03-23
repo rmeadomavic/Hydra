@@ -15,7 +15,7 @@
     2. Set these ArduPilot parameters and reboot:
          SCR_ENABLE    = 1
          SCR_HEAP_SIZE = 65536
-         OSD_TYPE      = 3      (MSP DisplayPort) or 1 (MAX7456)
+         OSD_TYPE      = 5      (MSP DisplayPort HD) or 1 (MAX7456)
          OSD1_ENABLE   = 1
          OSD1_MESSAGE_EN = 1
     3. In Hydra config.ini set:
@@ -297,12 +297,12 @@ local function update_display()
 end
 
 -- ---------------------------------------------------------------
--- Main update function — called every 200ms (5 Hz)
+-- Main update function — called every 1000ms (1 Hz)
 -- ---------------------------------------------------------------
 function update()
     read_params()
     update_display()
-    return update, 200
+    return update, 1000
 end
 
 gcs:send_text(6, "Hydra OSD v2 loaded (3-panel cycle)")
