@@ -200,7 +200,9 @@ class AutonomousController:
 
         for track in tracks:
             # Class whitelist
-            if self._allowed_classes and track.label.lower().strip() not in self._allowed_classes:
+            if not self._allowed_classes:
+                continue  # no whitelist = no valid targets (fail-closed)
+            if track.label.lower().strip() not in self._allowed_classes:
                 continue
             # Confidence threshold
             if track.confidence < self._min_confidence:

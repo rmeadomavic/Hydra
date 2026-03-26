@@ -292,7 +292,7 @@ class TestEvaluate:
 
         strike_cb.assert_not_called()
 
-    def test_empty_allowed_classes_means_all(self):
+    def test_empty_allowed_classes_blocks_all_strikes(self):
         ctrl = _make_controller(allowed_classes=[])
         mav = _make_mavlink()
         strike_cb = MagicMock(return_value=True)
@@ -301,7 +301,7 @@ class TestEvaluate:
         for _ in range(3):
             ctrl.evaluate(tracks, mav, MagicMock(return_value=True), strike_cb)
 
-        strike_cb.assert_called_once()
+        strike_cb.assert_not_called()
 
     def test_track_persistence_resets_on_disappearance(self):
         ctrl = _make_controller(min_track_frames=3)

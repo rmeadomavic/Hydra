@@ -264,7 +264,7 @@ class Pipeline:
                 self._cfg.getfloat("autonomous", "geofence_radius_m", fallback=100.0),
                 self._cfg.getfloat("autonomous", "min_confidence", fallback=0.85),
                 self._cfg.getint("autonomous", "min_track_frames", fallback=5),
-                classes_raw or "ALL",
+                classes_raw or "NONE (fail-closed)",
             )
 
         # RF homing controller
@@ -281,7 +281,7 @@ class Pipeline:
                     password=self._cfg.get("rf_homing", "kismet_pass", fallback="kismet"),
                     log_dir=self._cfg.get("logging", "log_dir", fallback="./output_data/logs"),
                     max_capture_mb=self._cfg.getfloat("rf_homing", "kismet_max_capture_mb", fallback=100.0),
-                    auto_spawn=self._cfg.getboolean("rf_homing", "kismet_auto_spawn", fallback=True),
+                    auto_spawn=self._cfg.getboolean("rf_homing", "kismet_auto_spawn", fallback=False),
                 )
                 if self._kismet_manager.start():
                     self._rf_hunt = RFHuntController(
@@ -359,7 +359,7 @@ class Pipeline:
         # MAVLink video thumbnails
         self._mavlink_video: MAVLinkVideoSender | None = None
         self._mavlink_video_enabled = self._cfg.getboolean(
-            "mavlink_video", "enabled", fallback=True
+            "mavlink_video", "enabled", fallback=False
         )
 
         self._running = False
@@ -1018,7 +1018,7 @@ class Pipeline:
                 password=self._cfg.get("rf_homing", "kismet_pass", fallback="kismet"),
                 log_dir=self._cfg.get("logging", "log_dir", fallback="./output_data/logs"),
                 max_capture_mb=self._cfg.getfloat("rf_homing", "kismet_max_capture_mb", fallback=100.0),
-                auto_spawn=self._cfg.getboolean("rf_homing", "kismet_auto_spawn", fallback=True),
+                auto_spawn=self._cfg.getboolean("rf_homing", "kismet_auto_spawn", fallback=False),
             )
             if not self._kismet_manager.start():
                 logger.error("Kismet auto-start failed — RF hunt aborted")
