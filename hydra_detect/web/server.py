@@ -920,6 +920,14 @@ async def api_pipeline_pause(request: Request, authorization: Optional[str] = He
     return JSONResponse({"error": "Pause/resume not available"}, status_code=503)
 
 
+# ── Operator Control (mobile) ─────────────────────────────────────
+
+@app.get("/control", response_class=HTMLResponse)
+async def control_page(request: Request):
+    """Serve the mobile operator control page."""
+    return templates.TemplateResponse(request, "control.html")
+
+
 # ── Mission Review ────────────────────────────────────────────────
 
 @app.get("/review", response_class=HTMLResponse)
