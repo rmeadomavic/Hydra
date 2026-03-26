@@ -5,10 +5,6 @@ from __future__ import annotations
 import configparser
 from unittest.mock import MagicMock, patch
 
-import numpy as np
-import pytest
-
-from hydra_detect.detectors.base import DetectionResult
 from hydra_detect.detectors.yolo_detector import YOLODetector
 from hydra_detect.pipeline import Pipeline
 from hydra_detect.tracker import TrackedObject, TrackingResult
@@ -367,7 +363,7 @@ class TestKismetAutoStart:
         p._rf_hunt = None
         p._kismet_manager = None
 
-        with patch.object(KismetManager, "__init__", return_value=None) as mock_init, \
+        with patch.object(KismetManager, "__init__", return_value=None), \
              patch.object(KismetManager, "start", return_value=True), \
              patch("hydra_detect.pipeline.RFHuntController") as mock_ctrl:
             mock_ctrl.return_value.start.return_value = True

@@ -104,6 +104,12 @@
         ];
         let classColorMap = {};
 
+        function esc(s) {
+            const el = document.createElement('span');
+            el.textContent = String(s);
+            return el.innerHTML;
+        }
+
         function getClassColor(label) {
             if (!(label in classColorMap)) {
                 const idx = Object.keys(classColorMap).length % CLASS_COLORS.length;
@@ -224,13 +230,13 @@
                         fillOpacity: 0.8,
                     });
 
-                    let popup = `<b>${d.label}</b> #${d.track_id}<br>` +
+                    let popup = `<b>${esc(d.label)}</b> #${esc(d.track_id)}<br>` +
                         `Conf: ${((d.confidence || 0) * 100).toFixed(0)}%<br>` +
-                        `Time: ${(d.timestamp || '').slice(11, 19)}<br>` +
+                        `Time: ${esc((d.timestamp || '').slice(11, 19))}<br>` +
                         `Pos: ${lat.toFixed(6)}, ${lon.toFixed(6)}`;
 
                     if (d.image) {
-                        popup += `<br><img class="popup-img" src="/api/review/images/${d.image}" loading="lazy">`;
+                        popup += `<br><img class="popup-img" src="/api/review/images/${encodeURIComponent(d.image)}" loading="lazy">`;
                     }
 
                     marker.bindPopup(popup, { maxWidth: 300 });
@@ -268,8 +274,8 @@
 
             for (const [cls, count] of Object.entries(classCounts).sort((a, b) => b[1] - a[1])) {
                 const color = getClassColor(cls);
-                container.innerHTML += `<div class="stat">${cls}: <span>${count}</span></div>`;
-                legend.innerHTML += `<div class="legend-item"><div class="legend-dot" style="background:${color}"></div>${cls}</div>`;
+                container.innerHTML += `<div class="stat">${esc(cls)}: <span>${count}</span></div>`;
+                legend.innerHTML += `<div class="legend-item"><div class="legend-dot" style="background:${color}"></div>${esc(cls)}</div>`;
             }
         }
 

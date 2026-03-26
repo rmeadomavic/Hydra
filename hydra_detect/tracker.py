@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import numpy as np
 
-from .detectors.base import Detection, DetectionResult
+from .detectors.base import DetectionResult
 
 logger = logging.getLogger(__name__)
 

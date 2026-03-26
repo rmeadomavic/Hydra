@@ -1,7 +1,5 @@
 """Smoke tests for detector base classes."""
 
-import numpy as np
-
 from hydra_detect.detectors.base import Detection, DetectionResult
 
 

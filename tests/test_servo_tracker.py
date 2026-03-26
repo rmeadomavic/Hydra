@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, call
 
-import pytest
-
 from hydra_detect.servo_tracker import ServoTracker
 
 

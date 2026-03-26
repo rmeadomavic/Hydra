@@ -18,7 +18,6 @@ from .camera import Camera, list_video_sources
 from .rf.hunt import RFHuntController
 from .rf.kismet_manager import KismetManager
 from .detection_logger import DetectionLogger
-from .detectors.base import BaseDetector
 from .detectors.yolo_detector import YOLODetector
 from .mavlink_io import MAVLinkIO
 from .osd import FpvOsd, build_osd_state
@@ -1036,6 +1035,9 @@ class Pipeline:
 
     def _handle_model_switch(self, model_name: str) -> bool:
         """Switch YOLO model at runtime."""
+        if Path(model_name).name != model_name:
+            logger.warning("Rejected model name with path components: %s", model_name)
+            return False
         # Search /models (Docker), then local models/, then project root
         for candidate_dir in [Path("/models"), self._models_dir, self._project_dir]:
             candidate = candidate_dir / model_name

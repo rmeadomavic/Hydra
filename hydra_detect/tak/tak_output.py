@@ -214,7 +214,6 @@ class TAKOutput:
         with self._data_lock:
             tracks = self._latest_tracks
             alert_classes = self._alert_classes
-            locked_id = self._locked_track_id
 
         for track in tracks:
             if alert_classes is not None and track.label not in alert_classes:

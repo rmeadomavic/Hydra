@@ -14,7 +14,15 @@ crops/
 venv/
 hydra-docs-rewrite/
 
+# Runtime output
+output_data/
+
 # Kismet capture files
 *.kismet
 *.kismet-journal
-output_data/kismet/
+
+# Backup / temp files
+*.bak
+
+# Claude Code / Superpowers
+.superpowers/

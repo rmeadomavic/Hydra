@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 import math
 import time
-from typing import Optional
-
 from .mavlink_io import MAVLinkIO
 from .tracker import TrackingResult
 

@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
-from unittest.mock import MagicMock, mock_open, patch
-
-import pytest
+from unittest.mock import mock_open, patch
 
 from hydra_detect.detection_logger import DetectionLogger
 from hydra_detect.tracker import TrackedObject, TrackingResult

@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import os
-import signal
 import subprocess
 import threading
 from unittest.mock import MagicMock, patch, mock_open
 
-import pytest
 import requests
 
 from hydra_detect.rf.kismet_manager import KismetManager
