@@ -343,8 +343,10 @@ class Pipeline:
             if self._mavlink is not None:
                 rtsp_url = None
                 tak_host = self._cfg.get("tak", "advertise_host", fallback="").strip()
-                if tak_host and self._rtsp_enabled:
-                    rtsp_url = f"rtsp://{tak_host}:{self._rtsp_port}{self._rtsp_mount}"
+                if tak_host and self._cfg.getboolean("rtsp", "enabled", fallback=True):
+                    rtsp_port = self._cfg.getint("rtsp", "port", fallback=8554)
+                    rtsp_mount = self._cfg.get("rtsp", "mount", fallback="/hydra")
+                    rtsp_url = f"rtsp://{tak_host}:{rtsp_port}{rtsp_mount}"
                 self._tak = TAKOutput(
                     mavlink_io=self._mavlink,
                     callsign=self._cfg.get("tak", "callsign", fallback="HYDRA-1"),

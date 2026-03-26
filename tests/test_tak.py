@@ -146,12 +146,15 @@ class TestBuildVideoFeed:
         ))
         assert root.get("type") == "b-i-v"
 
-    def test_contains_rtsp_url(self):
+    def test_contains_connection_entry(self):
         url = "rtsp://10.41.113.5:8554/hydra"
         root = _parse_cot(build_video_feed("V", "C", url, 0, 0, 0))
-        video = root.find("detail/__video")
-        assert video is not None
-        assert video.get("url") == url
+        conn = root.find("detail/__video/ConnectionEntry")
+        assert conn is not None
+        assert conn.get("protocol") == "rtsp"
+        assert conn.get("address") == "10.41.113.5"
+        assert conn.get("port") == "8554"
+        assert conn.get("path") == "/hydra"
 
     def test_callsign_has_video_suffix(self):
         root = _parse_cot(build_video_feed("V", "HYDRA-1", "rtsp://x", 0, 0, 0))

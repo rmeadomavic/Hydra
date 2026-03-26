@@ -157,8 +157,32 @@ def build_video_feed(
     contact = ET.SubElement(detail, "contact")
     contact.set("callsign", f"{callsign} Video")
 
+    # Parse RTSP URL into components for ConnectionEntry
+    # Expected format: rtsp://host:port/path
+    _host, _port, _path = "", "8554", "/hydra"
+    if rtsp_url.startswith("rtsp://"):
+        parts = rtsp_url[7:].split("/", 1)
+        host_port = parts[0]
+        _path = "/" + parts[1] if len(parts) > 1 else "/hydra"
+        if ":" in host_port:
+            _host, _port = host_port.rsplit(":", 1)
+        else:
+            _host = host_port
+
     video = ET.SubElement(detail, "__video")
-    video.set("url", rtsp_url)
+    video.set("uid", uid)
+    conn = ET.SubElement(video, "ConnectionEntry")
+    conn.set("protocol", "rtsp")
+    conn.set("address", _host)
+    conn.set("port", _port)
+    conn.set("path", _path)
+    conn.set("uid", uid)
+    conn.set("alias", f"{callsign} Video")
+    conn.set("roverPort", "-1")
+    conn.set("rtspReliable", "0")
+    conn.set("ignoreEmbeddedKLV", "false")
+    conn.set("networkTimeout", "5000")
+    conn.set("bufferTime", "-1")
 
     ET.SubElement(detail, "remarks").text = "Hydra Detect RTSP feed"
 
