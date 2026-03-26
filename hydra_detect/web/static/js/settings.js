@@ -14,7 +14,7 @@ const HydraSettings = (() => {
     };
 
     // Fields that should use textarea
-    const TEXTAREA_FIELDS = ['geofence_polygon', 'alert_classes', 'allowed_classes'];
+    const TEXTAREA_FIELDS = ['geofence_polygon', 'alert_classes', 'allowed_classes', 'unicast_targets'];
 
     // Boolean fields
     const BOOLEAN_FIELDS = [

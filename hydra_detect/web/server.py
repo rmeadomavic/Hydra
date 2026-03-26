@@ -747,6 +747,37 @@ async def api_mavlink_video_toggle(request: Request, authorization: Optional[str
     return JSONResponse({"error": "MAVLink video not available"}, status_code=503)
 
 
+# ── TAK/ATAK CoT Output ─────────────────────────────────────
+
+@app.get("/api/tak/status")
+async def api_tak_status():
+    """Return TAK CoT output status."""
+    cb = stream_state.get_callback("get_tak_status")
+    if cb:
+        return cb()
+    return {"enabled": False, "running": False, "callsign": "", "events_sent": 0}
+
+
+@app.post("/api/tak/toggle")
+async def api_tak_toggle(request: Request, authorization: Optional[str] = Header(None)):
+    """Start or stop TAK CoT output. Body: {"enabled": true/false}"""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    enabled = body.get("enabled")
+    if enabled is None:
+        return JSONResponse({"error": "enabled field required"}, status_code=400)
+    cb = stream_state.get_callback("on_tak_toggle")
+    if cb:
+        result = cb(bool(enabled))
+        _audit(request, "tak_toggle", target=str(enabled))
+        if result.get("status") == "ok":
+            return result
+        return JSONResponse(result, status_code=500)
+    return JSONResponse({"error": "TAK output not available"}, status_code=503)
+
+
 @app.post("/api/mavlink-video/tune")
 async def api_mavlink_video_tune(request: Request, authorization: Optional[str] = Header(None)):
     """Live-tune MAVLink video params. Body: {width, height, quality, max_fps} (all optional)"""

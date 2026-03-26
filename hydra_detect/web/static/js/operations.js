@@ -46,6 +46,7 @@ const HydraOperations = (() => {
         rfModeChanged();
         loadRTSPStatus();
         loadMAVLinkVideoStatus();
+        loadTAKStatus();
     }
 
     async function loadModels() {
@@ -238,6 +239,9 @@ const HydraOperations = (() => {
                 tuneMAVLinkVideo({ quality: parseInt(this.value) });
             });
         }
+
+        // TAK/ATAK
+        addClick('ctrl-tak-toggle', () => toggleTAK());
     }
 
     function addClick(id, handler) {
@@ -1095,6 +1099,40 @@ const HydraOperations = (() => {
 
     async function tuneMAVLinkVideo(params) {
         await HydraApp.apiPost('/api/mavlink-video/tune', params);
+    }
+
+    // -- TAK/ATAK CoT Output -----------------------------------------------
+
+    async function loadTAKStatus() {
+        const data = await HydraApp.apiGet('/api/tak/status');
+        if (!data) return;
+        const toggle = document.getElementById('ctrl-tak-toggle');
+        const status = document.getElementById('ctrl-tak-status');
+        const details = document.getElementById('ctrl-tak-details');
+        if (!toggle || !status) return;
+
+        if (data.enabled || data.running) {
+            toggle.classList.add('active');
+            status.textContent = data.events_sent > 0
+                ? data.events_sent + ' events'
+                : 'ON';
+            if (details) {
+                details.textContent = data.callsign + ' \u2192 ' + data.multicast;
+                details.style.display = 'block';
+            }
+        } else {
+            toggle.classList.remove('active');
+            status.textContent = 'OFF';
+            if (details) details.style.display = 'none';
+        }
+    }
+
+    async function toggleTAK() {
+        const toggle = document.getElementById('ctrl-tak-toggle');
+        if (!toggle) return;
+        const nowActive = toggle.classList.contains('active');
+        await HydraApp.apiPost('/api/tak/toggle', { enabled: !nowActive });
+        loadTAKStatus();
     }
 
     // ── Stream Watcher ──
