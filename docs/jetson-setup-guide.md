@@ -5,7 +5,7 @@ NVIDIA Jetson Orin Nano using Docker. Written for students and instructors
 to reproduce the setup.
 
 For initial JetPack flashing and OS setup, see
-[jetson-initial-setup.md](jetson-initial-setup.md) first.
+[Jetson Flash Guide](setup/jetson-flash.mdx) first.
 
 > **Prefer the automated path?** Run `bash scripts/hydra-setup.sh` instead —
 > it handles everything below in one interactive script. See the

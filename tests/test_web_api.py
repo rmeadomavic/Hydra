@@ -7,13 +7,14 @@ import logging
 import pytest
 from fastapi.testclient import TestClient
 
-from hydra_detect.web.server import MAX_PROMPT_LENGTH, MAX_PROMPTS, app, configure_auth, stream_state
+from hydra_detect.web.server import MAX_PROMPT_LENGTH, MAX_PROMPTS, _auth_failures, app, configure_auth, stream_state
 
 
 @pytest.fixture(autouse=True)
 def _reset_state():
     """Reset stream_state and auth between tests."""
     configure_auth(None)
+    _auth_failures.clear()
     stream_state.target_lock = {"locked": False, "track_id": None, "mode": None, "label": None}
     stream_state.runtime_config = {"prompts": ["person"], "threshold": 0.25, "auto_loiter": False}
     # Clear callbacks

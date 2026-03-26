@@ -89,8 +89,8 @@ class RFHuntController:
         target_freq_mhz: float | None = None,
         # Kismet connection
         kismet_host: str = "http://localhost:2501",
-        kismet_user: str = "kismet",
-        kismet_pass: str = "kismet",
+        kismet_user: str = "",
+        kismet_pass: str = "",
         # Search pattern
         search_pattern: str = "lawnmower",  # "lawnmower" or "spiral"
         search_area_m: float = 100.0,

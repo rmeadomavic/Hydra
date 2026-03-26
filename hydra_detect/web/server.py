@@ -3,19 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import datetime
 import hmac
 import logging
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, Header, Request
+from fastapi import FastAPI, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -42,6 +45,25 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Inject defense-in-depth HTTP security headers."""
+
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "img-src 'self' data: https://*.tile.openstreetmap.org; "
+            "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+            "style-src 'self' 'unsafe-inline' https://unpkg.com; "
+            "connect-src 'self'"
+        )
+        return response
+
+
+app.add_middleware(_SecurityHeadersMiddleware)
+
 if STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -49,6 +71,11 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 # API token for control endpoints — set via configure_auth()
 _api_token: Optional[str] = None
+
+# Rate limiting for auth failures — per-IP, sliding window
+_AUTH_FAIL_WINDOW = 60  # seconds
+_AUTH_FAIL_MAX = 50  # max failures per window before lockout
+_auth_failures: Dict[str, list] = collections.defaultdict(list)
 
 
 def configure_auth(token: Optional[str]) -> None:
@@ -61,14 +88,29 @@ def configure_auth(token: Optional[str]) -> None:
         logger.info("API token auth disabled (no token configured).")
 
 
-def _check_auth(authorization: Optional[str]) -> Optional[JSONResponse]:
+def _check_auth(
+    authorization: Optional[str],
+    request: Optional[Request] = None,
+) -> Optional[JSONResponse]:
     """Validate Bearer token. Returns an error response if auth fails, None if OK."""
     if _api_token is None:
         return None  # Auth disabled
+
+    # Rate limit check — reject if too many recent failures from this IP
+    client_ip = request.client.host if request and request.client else "unknown"
+    now = time.monotonic()
+    failures = _auth_failures[client_ip]
+    # Expire old entries outside the window
+    _auth_failures[client_ip] = [t for t in failures if now - t < _AUTH_FAIL_WINDOW]
+    if len(_auth_failures[client_ip]) >= _AUTH_FAIL_MAX:
+        return JSONResponse({"error": "Too many failed attempts, try again later"}, status_code=429)
+
     if not authorization or not authorization.startswith("Bearer "):
+        _auth_failures[client_ip].append(now)
         return JSONResponse({"error": "Authorization header with Bearer token required"}, status_code=401)
     provided = authorization[len("Bearer "):]
     if not hmac.compare_digest(provided, _api_token):
+        _auth_failures[client_ip].append(now)
         return JSONResponse({"error": "Invalid API token"}, status_code=403)
     return None
 
@@ -228,7 +270,7 @@ async def api_set_prompts(request: Request, authorization: Optional[str] = Heade
 
     Body: {"prompts": ["person", "car", "dog"]}
     """
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     body = await request.json()
@@ -264,7 +306,7 @@ async def api_set_prompts(request: Request, authorization: Optional[str] = Heade
 @app.post("/api/config/threshold")
 async def api_set_threshold(request: Request, authorization: Optional[str] = Header(None)):
     """Update detection confidence threshold at runtime."""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     body = await request.json()
@@ -303,7 +345,7 @@ async def api_get_alert_classes():
 @app.post("/api/config/alert-classes")
 async def api_set_alert_classes(request: Request, authorization: Optional[str] = Header(None)):
     """Update alert class filter. Body: {"classes": ["person", "car"]} or {"classes": []} for all."""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     body = await request.json()
@@ -330,7 +372,7 @@ async def api_set_alert_classes(request: Request, authorization: Optional[str] =
 @app.post("/api/vehicle/loiter")
 async def api_command_loiter(request: Request, authorization: Optional[str] = Header(None)):
     """Command vehicle to LOITER/HOLD at current position."""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     cb = stream_state.get_callback("on_loiter_command")
@@ -345,13 +387,16 @@ async def api_command_loiter(request: Request, authorization: Optional[str] = He
 @app.post("/api/vehicle/mode")
 async def api_set_vehicle_mode(request: Request, authorization: Optional[str] = Header(None)):
     """Set vehicle flight mode. Body: {"mode": "AUTO"}"""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
+    _ALLOWED_MODES = {"AUTO", "RTL", "LOITER", "HOLD", "GUIDED"}
     body = await request.json()
     mode = body.get("mode")
     if not mode or not isinstance(mode, str):
         return JSONResponse({"error": "mode is required (string)"}, status_code=400)
+    if mode not in _ALLOWED_MODES:
+        return JSONResponse({"error": f"mode must be one of: {', '.join(sorted(_ALLOWED_MODES))}"}, status_code=400)
     cb = stream_state.get_callback("on_set_mode_command")
     if cb:
         success = cb(mode)
@@ -385,7 +430,7 @@ async def api_target_lock(request: Request, authorization: Optional[str] = Heade
 
     Body: {"track_id": 5}
     """
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     body = await request.json()
@@ -412,7 +457,7 @@ async def api_target_lock(request: Request, authorization: Optional[str] = Heade
 @app.post("/api/target/unlock")
 async def api_target_unlock(request: Request, authorization: Optional[str] = Header(None)):
     """Release target lock."""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     cb = stream_state.get_callback("on_target_unlock")
@@ -431,7 +476,7 @@ async def api_strike_command(request: Request, authorization: Optional[str] = He
     Body: {"track_id": 5, "confirm": true}
     The confirm field MUST be true — this is a safety check.
     """
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     body = await request.json()
@@ -489,7 +534,7 @@ async def api_camera_switch(request: Request, authorization: Optional[str] = Hea
 
     Body: {"source": 2}  (device index or RTSP URL)
     """
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     body = await request.json()
@@ -520,7 +565,7 @@ async def api_power_modes():
 @app.post("/api/system/power-mode")
 async def api_set_power_mode(request: Request, authorization: Optional[str] = Header(None)):
     """Set Jetson power mode. Body: {"mode_id": 0}"""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     body = await request.json()
@@ -554,7 +599,7 @@ async def api_list_models():
 @app.post("/api/models/switch")
 async def api_switch_model(request: Request, authorization: Optional[str] = Header(None)):
     """Switch YOLO model at runtime. Body: {"model": "yolov8s.pt"}"""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     body = await request.json()
@@ -586,7 +631,7 @@ async def api_list_profiles():
 @app.post("/api/profiles/switch")
 async def api_switch_profile(request: Request, authorization: Optional[str] = Header(None)):
     """Switch to a mission profile. Body: {"profile": "counter-uas"}"""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     body = await request.json()
@@ -633,7 +678,7 @@ async def api_rf_start(request: Request, authorization: Optional[str] = Header(N
            rssi_threshold_dbm, rssi_converge_dbm, gradient_step_m}
     All fields optional — unset fields keep current config values.
     """
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     body = await request.json()
@@ -703,7 +748,7 @@ async def api_rf_start(request: Request, authorization: Optional[str] = Header(N
 @app.post("/api/rf/stop")
 async def api_rf_stop(request: Request, authorization: Optional[str] = Header(None)):
     """Stop an active RF hunt."""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     cb = stream_state.get_callback("on_rf_stop")
@@ -729,7 +774,7 @@ async def api_rtsp_status():
 @app.post("/api/rtsp/toggle")
 async def api_rtsp_toggle(request: Request, authorization: Optional[str] = Header(None)):
     """Start or stop the RTSP server at runtime. Body: {"enabled": true/false}"""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     body = await request.json()
@@ -762,7 +807,7 @@ async def api_mavlink_video_status():
 @app.post("/api/mavlink-video/toggle")
 async def api_mavlink_video_toggle(request: Request, authorization: Optional[str] = Header(None)):
     """Start or stop MAVLink video. Body: {"enabled": true/false}"""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     body = await request.json()
@@ -793,7 +838,7 @@ async def api_tak_status():
 @app.post("/api/tak/toggle")
 async def api_tak_toggle(request: Request, authorization: Optional[str] = Header(None)):
     """Start or stop TAK CoT output. Body: {"enabled": true/false}"""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     body = await request.json()
@@ -813,7 +858,7 @@ async def api_tak_toggle(request: Request, authorization: Optional[str] = Header
 @app.post("/api/mavlink-video/tune")
 async def api_mavlink_video_tune(request: Request, authorization: Optional[str] = Header(None)):
     """Live-tune MAVLink video params. Body: {width, height, quality, max_fps} (all optional)"""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     body = await request.json()
@@ -840,7 +885,7 @@ async def api_mavlink_video_tune(request: Request, authorization: Optional[str] 
 @app.post("/api/pipeline/stop")
 async def api_pipeline_stop(request: Request, authorization: Optional[str] = Header(None)):
     """Gracefully stop the pipeline and shut down."""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     cb = stream_state.get_callback("on_stop_command")
@@ -855,7 +900,7 @@ async def api_pipeline_stop(request: Request, authorization: Optional[str] = Hea
 @app.post("/api/pipeline/pause")
 async def api_pipeline_pause(request: Request, authorization: Optional[str] = Header(None)):
     """Pause or resume the detection pipeline."""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     body = await request.json()
@@ -1059,9 +1104,9 @@ async def _generate_mjpeg():
 # ── Full Config ────────────────────────────────────────────────
 
 @app.get("/api/config/full")
-async def api_get_full_config(authorization: str | None = Header(None)):
+async def api_get_full_config(request: Request, authorization: str | None = Header(None)):
     """Return all config.ini sections as JSON. Sensitive fields are redacted."""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     try:
@@ -1074,7 +1119,7 @@ async def api_get_full_config(authorization: str | None = Header(None)):
 @app.post("/api/config/full")
 async def api_set_full_config(request: Request, authorization: str | None = Header(None)):
     """Update config.ini fields. Returns list of fields requiring restart."""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     import json as _json
@@ -1097,7 +1142,7 @@ async def api_set_full_config(request: Request, authorization: str | None = Head
 @app.post("/api/config/restore-backup")
 async def api_restore_config_backup(request: Request, authorization: str | None = Header(None)):
     """Restore config.ini from backup."""
-    auth_err = _check_auth(authorization)
+    auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     if not has_backup():

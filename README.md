@@ -33,7 +33,7 @@ Kismet (WiFi/SDR) -> RF Hunt Controller -> RSSI Gradient Ascent -> MAVLink Nav
 
 ### Automated Setup (Recommended)
 
-After flashing JetPack ([guide](docs/jetson-initial-setup.md)), run: `bash scripts/hydra-setup.sh` — it handles everything interactively.
+After flashing JetPack ([guide](docs/setup/jetson-flash.mdx)), run: `bash scripts/hydra-setup.sh` — it handles everything interactively.
 
 ### Docker (Manual)
 
@@ -265,7 +265,7 @@ Everything lives in `config.ini`. Full reference below.
 | Key | Default | Description |
 |-----|---------|-------------|
 | `enabled` | `true` | Turn MAVLink on or off |
-| `connection_string` | `/dev/ttyACM0` | Serial device or `udp:127.0.0.1:14550` |
+| `connection_string` | `/dev/ttyTHS1` | Serial device or `udp:127.0.0.1:14550` |
 | `baud` | `115200` | Serial baud rate |
 | `source_system` | `1` | MAVLink system ID |
 | `min_gps_fix` | `3` | Minimum GPS fix type required (3 = 3D fix) |
@@ -341,6 +341,7 @@ Everything lives in `config.ini`. Full reference below.
 ```
 Hydra/
   config.ini                          # All settings
+  profiles.json                       # Mission profiles (class filters, thresholds)
   requirements.txt                    # Python dependencies
   Dockerfile                          # Jetson container build
   scripts/
@@ -350,6 +351,7 @@ Hydra/
     setup_headless.sh                 # Headless field boot configuration
     setup_tailscale.sh                # Tailscale remote access setup
     hydra_sync.sh                     # One-command code sync to Jetsons
+    hydra-launch.sh                   # tmux session launcher
 
   hydra_detect/
     __init__.py
@@ -359,10 +361,17 @@ Hydra/
     tracker.py                        # ByteTrack multi-object tracker
     overlay.py                        # Bounding boxes, HUD, target lock rendering
     osd.py                            # FPV OSD overlay via MAVLink
+    msp_displayport.py                # MSP DisplayPort protocol for HDZero VTX
     mavlink_io.py                     # MAVLink connection, alerts, vehicle commands
+    mavlink_video.py                  # Detection thumbnails over MAVLink telemetry
+    geo_tracking.py                   # CAMERA_TRACKING_GEO_STATUS for GCS map
     detection_logger.py               # CSV/JSONL logging with image snapshots
     autonomous.py                     # Geofenced autonomous strike controller
+    profiles.py                       # Mission profile loading and validation
     review_export.py                  # Post-mission review: CLI + standalone HTML export
+    rtsp_server.py                    # GStreamer RTSP output stream
+    servo_tracker.py                  # Pixel-lock servo/gimbal tracker
+    system.py                         # Jetson stats, model listing, power modes
 
     detectors/
       __init__.py
@@ -373,16 +382,28 @@ Hydra/
       __init__.py
       hunt.py                         # RF hunt state machine (IDLE->SEARCHING->HOMING->CONVERGED)
       kismet_client.py                # Kismet REST API client for RSSI polling
+      kismet_manager.py               # Kismet subprocess lifecycle manager
+      rtl_power_client.py             # RTL-SDR power scanning client
+      rssi_protocol.py                # RSSI client protocol interface
       navigator.py                    # Waypoint navigation for search patterns
       search.py                       # Lawnmower and spiral search pattern generators
       signal.py                       # RSSI filtering and gradient analysis
 
+    tak/
+      __init__.py
+      cot_builder.py                  # Cursor-on-Target XML message builder
+      tak_output.py                   # TAK multicast/unicast CoT output thread
+      type_mapping.py                 # YOLO class -> MIL-STD-2525 type mapping
+
     web/
       __init__.py
       server.py                       # FastAPI: REST API + MJPEG stream
+      config_api.py                   # Config read/write API endpoints
       templates/
-        index.html                    # Operator dashboard (includes RF hunt UI)
-        review.html                   # Post-mission review map
+        base.html                     # SPA shell (nav, layout, shared CSS/JS)
+        operations.html               # Operator dashboard (detection, RF hunt, controls)
+        settings.html                 # Settings panel (camera, model, config)
+        review.html                   # Post-mission review map (standalone)
 ```
 
 ## API Reference

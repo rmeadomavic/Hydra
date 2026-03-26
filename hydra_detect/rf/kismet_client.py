@@ -33,8 +33,8 @@ class KismetClient:
     def __init__(
         self,
         host: str = "http://localhost:2501",
-        user: str = "kismet",
-        password: str = "kismet",
+        user: str = "",
+        password: str = "",
         timeout: float = 2.0,
     ):
         host = host.strip()
