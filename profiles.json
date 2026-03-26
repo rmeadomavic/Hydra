@@ -1,0 +1,71 @@
+{
+    "default_profile": "military",
+    "profiles": [
+        {
+            "id": "general",
+            "name": "General (COCO)",
+            "description": "Standard 80-class detection — person, vehicle, boat, animal",
+            "model": "yolov8n.pt",
+            "confidence": 0.45,
+            "yolo_classes": [0, 1, 2, 3, 5, 7, 8, 14, 15, 16, 24, 25, 28],
+            "alert_classes": ["person", "car", "motorcycle", "truck", "bus", "boat", "dog"],
+            "auto_loiter_on_detect": false,
+            "strike_distance_m": 20.0
+        },
+        {
+            "id": "military",
+            "name": "Military (General)",
+            "description": "Broad military — air, ground, and maritime targets",
+            "model": "yolov8m-defence.pt",
+            "confidence": 0.40,
+            "yolo_classes": null,
+            "alert_classes": ["tank", "fighter jet", "warship", "drone", "missile", "helicopter", "truck", "cargo ship"],
+            "auto_loiter_on_detect": false,
+            "strike_distance_m": 30.0
+        },
+        {
+            "id": "counter-uas",
+            "name": "Counter-UAS",
+            "description": "Detect drones, helicopters, and aircraft in the sky",
+            "model": "yolo11n-aerodetect.pt",
+            "confidence": 0.35,
+            "yolo_classes": null,
+            "alert_classes": ["Drone", "Helicopter", "AirPlane"],
+            "auto_loiter_on_detect": true,
+            "strike_distance_m": 50.0
+        },
+        {
+            "id": "aerial-surveillance",
+            "name": "Aerial Surveillance",
+            "description": "People and vehicles from a drone's aerial perspective",
+            "model": "yolo11n-visdrone.pt",
+            "confidence": 0.30,
+            "yolo_classes": null,
+            "alert_classes": ["pedestrian", "people", "car", "van", "truck", "bus"],
+            "auto_loiter_on_detect": false,
+            "strike_distance_m": 20.0
+        },
+        {
+            "id": "ground-vehicles",
+            "name": "Ground Vehicles",
+            "description": "Armored and light military vehicles",
+            "model": "yolo12n-orion.pt",
+            "confidence": 0.40,
+            "yolo_classes": null,
+            "alert_classes": ["AFV", "APC", "MEV", "LAV"],
+            "auto_loiter_on_detect": false,
+            "strike_distance_m": 25.0
+        },
+        {
+            "id": "force-protection",
+            "name": "Force Protection",
+            "description": "Weapons and explosive threat detection",
+            "model": "yolov8n-threat.pt",
+            "confidence": 0.50,
+            "yolo_classes": null,
+            "alert_classes": ["Gun", "explosion", "grenade", "knife"],
+            "auto_loiter_on_detect": true,
+            "strike_distance_m": 15.0
+        }
+    ]
+}
