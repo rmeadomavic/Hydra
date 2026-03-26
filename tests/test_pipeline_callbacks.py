@@ -403,3 +403,87 @@ class TestKismetAutoStart:
             p._handle_rf_start({"mode": "wifi"})
 
         assert p._kismet_manager is existing_mgr
+
+
+# ---------------------------------------------------------------------------
+# Profile switch
+# ---------------------------------------------------------------------------
+
+from hydra_detect.profiles import load_profiles
+
+
+class TestProfileSwitch:
+    def test_handle_profile_switch_applies_settings(self, tmp_path):
+        import json
+        pf = tmp_path / "profiles.json"
+        pf.write_text(json.dumps({
+            "default_profile": "a",
+            "profiles": [{
+                "id": "a", "name": "A", "description": "test",
+                "model": "yolov8n.pt", "confidence": 0.30,
+                "yolo_classes": [0, 2], "alert_classes": ["person", "car"],
+                "auto_loiter_on_detect": True, "strike_distance_m": 50.0,
+            }],
+        }))
+        p = _make_pipeline()
+        p._profiles = load_profiles(str(pf))
+        p._active_profile = None
+        p._models_dir = tmp_path / "models"
+        p._models_dir.mkdir()
+        p._project_dir = tmp_path
+        (p._project_dir / "yolov8n.pt").touch()
+        p._detector.switch_model.return_value = True
+        p._alert_classes = None
+
+        result = p._handle_profile_switch("a")
+        assert result is True
+        assert p._active_profile == "a"
+        p._detector.set_threshold.assert_called_with(0.30)
+        p._detector.set_classes.assert_called_with([0, 2])
+        assert p._alert_classes == {"person", "car"}
+
+    def test_handle_profile_switch_unknown_profile(self):
+        p = _make_pipeline()
+        p._profiles = {"profiles": [], "default_profile": None}
+        p._active_profile = None
+        result = p._handle_profile_switch("nonexistent")
+        assert result is False
+
+    def test_handle_profile_switch_null_yolo_classes(self, tmp_path):
+        import json
+        pf = tmp_path / "profiles.json"
+        pf.write_text(json.dumps({
+            "default_profile": "b",
+            "profiles": [{
+                "id": "b", "name": "B", "description": "test",
+                "model": "yolov8n.pt", "confidence": 0.50,
+                "yolo_classes": None, "alert_classes": [],
+                "auto_loiter_on_detect": False, "strike_distance_m": 20.0,
+            }],
+        }))
+        p = _make_pipeline()
+        p._profiles = load_profiles(str(pf))
+        p._active_profile = None
+        p._models_dir = tmp_path / "models"
+        p._models_dir.mkdir()
+        p._project_dir = tmp_path
+        (p._project_dir / "yolov8n.pt").touch()
+        p._detector.switch_model.return_value = True
+        p._alert_classes = {"old"}
+
+        result = p._handle_profile_switch("b")
+        assert result is True
+        p._detector.set_classes.assert_called_with(None)
+        assert p._alert_classes is None
+
+    def test_threshold_change_clears_active_profile(self):
+        p = _make_pipeline()
+        p._active_profile = "some-profile"
+        p._handle_threshold_change(0.7)
+        assert p._active_profile is None
+
+    def test_alert_classes_change_clears_active_profile(self):
+        p = _make_pipeline()
+        p._active_profile = "some-profile"
+        p._handle_alert_classes_change(["person"])
+        assert p._active_profile is None

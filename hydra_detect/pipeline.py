@@ -35,6 +35,7 @@ from .rtsp_server import RTSPServer
 from .mavlink_video import MAVLinkVideoSender
 from .tak.tak_output import TAKOutput
 from .tracker import ByteTracker
+from .profiles import get_profile, load_profiles
 from .web.config_api import set_config_path
 from .web.server import configure_auth, run_server, stream_state
 
@@ -90,6 +91,11 @@ class Pipeline:
         # Models search: /models (Docker mount), then ./models, then project root
         self._project_dir = Path(config_path).resolve().parent
         self._models_dir = self._project_dir / "models"
+
+        # Mission profiles
+        profiles_path = self._project_dir / "profiles.json"
+        self._profiles = load_profiles(str(profiles_path))
+        self._active_profile: str | None = None
 
         # Camera
         self._camera = Camera(
@@ -497,7 +503,15 @@ class Pipeline:
                     "mavlink", "auto_loiter_on_detect", fallback=False
                 ),
                 "alert_classes": list(self._alert_classes) if self._alert_classes else [],
+                "active_profile": None,
             })
+
+            # Apply default mission profile if configured
+            default_id = self._profiles.get("default_profile")
+            if default_id:
+                if not self._handle_profile_switch(default_id):
+                    logger.warning("Default profile '%s' failed to apply — "
+                                   "using config.ini defaults.", default_id)
 
             # Wire runtime config callbacks
             stream_state.set_callbacks(
@@ -533,6 +547,8 @@ class Pipeline:
                 get_mavlink_video_status=self._get_mavlink_video_status,
                 on_tak_toggle=self._handle_tak_toggle,
                 get_tak_status=self._get_tak_status,
+                get_profiles=self._get_profiles,
+                on_profile_switch=self._handle_profile_switch,
             )
 
             stream_state.update_stats(
@@ -798,6 +814,8 @@ class Pipeline:
         """Update detector confidence threshold at runtime."""
         self._detector.set_threshold(threshold)
         logger.info("Detection threshold updated: %.2f", threshold)
+        self._active_profile = None
+        stream_state.update_runtime_config({"active_profile": None})
 
     def _handle_loiter_command(self) -> None:
         """Manual loiter command from web UI."""
@@ -833,6 +851,8 @@ class Pipeline:
             "alert_classes": classes,
         })
         logger.info("Alert classes updated: %s", classes or "ALL")
+        self._active_profile = None
+        stream_state.update_runtime_config({"active_profile": None})
 
     def _handle_target_lock(self, track_id: int, mode: str = "track") -> bool:
         """Lock onto a tracked object for keep-in-frame or strike."""
@@ -1020,9 +1040,78 @@ class Pipeline:
         for candidate_dir in [Path("/models"), self._models_dir, self._project_dir]:
             candidate = candidate_dir / model_name
             if candidate.exists():
-                return self._detector.switch_model(str(candidate))
+                success = self._detector.switch_model(str(candidate))
+                if success:
+                    self._active_profile = None
+                    stream_state.update_runtime_config({"active_profile": None})
+                return success
         logger.error("Model not found: %s", model_name)
         return False
+
+    def _get_profiles(self) -> dict:
+        """Return profiles data for the web API."""
+        models_on_disk = {m["name"] for m in self._get_models()}
+        profiles_list = []
+        for p in self._profiles.get("profiles", []):
+            profiles_list.append({
+                "id": p["id"],
+                "name": p["name"],
+                "description": p["description"],
+                "model": p["model"],
+                "confidence": p["confidence"],
+                "alert_classes": p["alert_classes"],
+                "auto_loiter_on_detect": p["auto_loiter_on_detect"],
+                "model_exists": p["model"] in models_on_disk,
+            })
+        return {
+            "profiles": profiles_list,
+            "active_profile": self._active_profile,
+        }
+
+    def _handle_profile_switch(self, profile_id: str) -> bool:
+        """Apply a mission profile: model + confidence + classes + engagement."""
+        profile = get_profile(self._profiles, profile_id)
+        if profile is None:
+            logger.warning("Unknown profile: %s", profile_id)
+            return False
+
+        # 1. Switch model
+        model_name = profile["model"]
+        if Path(self._detector.model_path).name != model_name:
+            if not self._handle_model_switch(model_name):
+                logger.error("Profile %s: model switch failed for %s",
+                             profile_id, model_name)
+                return False
+
+        # 2. Set confidence threshold
+        self._detector.set_threshold(profile["confidence"])
+
+        # 3. Set YOLO class filter
+        self._detector.set_classes(profile["yolo_classes"])
+
+        # 4. Set alert classes
+        alert_classes = profile["alert_classes"]
+        if alert_classes:
+            self._alert_classes = set(alert_classes)
+        else:
+            self._alert_classes = None
+        if self._mavlink is not None:
+            self._mavlink.alert_classes = self._alert_classes
+
+        # 5. Set engagement settings
+        if self._mavlink is not None:
+            self._mavlink.auto_loiter = profile["auto_loiter_on_detect"]
+
+        # 6. Update runtime config for web UI
+        self._active_profile = profile_id
+        stream_state.update_runtime_config({
+            "threshold": profile["confidence"],
+            "alert_classes": alert_classes,
+            "auto_loiter": profile["auto_loiter_on_detect"],
+            "active_profile": profile_id,
+        })
+        logger.info("Profile switched: %s (%s)", profile["name"], profile_id)
+        return True
 
     # ------------------------------------------------------------------
     # RF Hunt handlers (web UI)
