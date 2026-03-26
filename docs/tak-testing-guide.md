@@ -115,53 +115,57 @@ big screen, can run Wireshark alongside.
 
 ---
 
-## Phase 3: ATAK-CIV on Personal Android Phone
+## Phase 3: ATAK-CIV on Android Phone
 
-### Get ATAK-CIV
+> **Verified 2026-03-26:** Pixel 7 Pro on same WiFi as Jetson — multicast
+> worked immediately with zero ATAK network configuration. ATAK's default SA
+> multicast input on `239.2.3.1:6969` is already enabled out of the box.
+
+### Install ATAK-CIV
 
 1. Create a free account at **https://tak.gov** (any email works for CIV version)
-2. Download **ATAK-CIV** APK (~200 MB)
-3. Transfer to phone (USB, Google Drive, or download directly in Chrome)
-4. Enable **Settings → Security → Install Unknown Apps** for your file manager
-5. Install the APK
+2. Log in, go to **Products → ATAK → ATAK-CIV**, download the APK (~200 MB)
+3. Transfer to phone (download directly in Chrome, or USB/Google Drive)
+4. On the phone: **Settings → Apps → Chrome → Install Unknown Apps → Allow**
+5. Open the APK to install, accept all permissions
 
-### Initial setup
+### First launch
 
 1. Set callsign (e.g., "TEST-1")
-2. Select team color and role
+2. Select team color and role (defaults are fine)
 3. GPS source: Internal GPS
-4. Default maps are fine for testing
+4. Accept default maps
 
-### Configure multicast input
+### Network — just same WiFi
 
-1. Hamburger menu → **Settings → Network Preferences → Network Connection Preferences**
-2. Verify **SA Multicast** is enabled on `239.2.3.1:6969`
-3. If not present, add: Protocol UDP, Address `239.2.3.1`, Port `6969`
+Connect the phone to the **same WiFi network** as the Jetson. That's it.
 
-### Configure unicast input (alternative — more reliable)
+ATAK's default SA multicast input on `239.2.3.1:6969` is already enabled —
+no manual network configuration needed. You should see the drone icon
+immediately.
 
-If multicast doesn't work on your WiFi, use unicast instead:
+### Android battery settings (recommended)
 
-1. Same menu → **Add Input Connection**
-2. Protocol: UDP, Address: `0.0.0.0`, Port: `4242`
-3. In Hydra `config.ini`: `unicast_targets = <phone-ip>:4242`
+Android can kill ATAK's multicast listener in the background. To prevent this:
 
-### Critical Android settings
+- **Settings → Apps → ATAK → Battery → "Unrestricted"** (prevents Android
+  from throttling ATAK's network when screen is off)
+- Inside ATAK: **Settings → Display → Keep screen on** during testing
 
-Android aggressively kills multicast. **Do all of these:**
+### If markers don't appear
 
-- [ ] **Battery optimization:** Settings → Battery → ATAK → "Don't optimize"
-- [ ] **WiFi sleep:** Settings → WiFi → Advanced → Keep WiFi on during sleep → **Always**
-- [ ] **Keep screen on:** Inside ATAK: Settings → Display → Keep screen on
-- [ ] **AP isolation:** On your WiFi router, **disable client isolation** (blocks device-to-device traffic)
-- [ ] **Location permission:** ATAK needs fine location for GPS — grant it
+Try these in order:
 
-### Network
-
-Phone and Jetson must be on the **same WiFi network**. For field testing,
-a portable WiFi AP with both devices connected works best.
-
-### Troubleshooting
+1. **Verify Hydra is sending:** Run the Python listener (Phase 1) on the Jetson
+   to confirm packets are going out
+2. **Check WiFi AP isolation:** Some routers block device-to-device traffic
+   by default (especially guest networks). Disable "client isolation" or
+   "AP isolation" in your router settings.
+3. **Use unicast fallback:** If multicast just won't work on your network:
+   - In Hydra `config.ini`: `unicast_targets = <phone-ip>:4242`
+   - In ATAK: Hamburger menu → Settings → Network Preferences →
+     Network Connection Preferences → Add Input → Protocol: UDP,
+     Address: `0.0.0.0`, Port: `4242`
 
 | Problem | Fix |
 |---------|-----|
