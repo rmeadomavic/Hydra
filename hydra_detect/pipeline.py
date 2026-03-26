@@ -32,6 +32,7 @@ from .system import (
 )
 from .rtsp_server import RTSPServer
 from .mavlink_video import MAVLinkVideoSender
+from .tak.tak_input import TAKInput
 from .tak.tak_output import TAKOutput
 from .tracker import ByteTracker
 from .profiles import get_profile, load_profiles
@@ -369,6 +370,24 @@ class Pipeline:
             else:
                 logger.warning("TAK output requires MAVLink for GPS — skipping")
 
+        # TAK / ATAK CoT command listener
+        self._tak_input: TAKInput | None = None
+        if (
+            self._cfg.getboolean("tak", "enabled", fallback=False)
+            and self._cfg.getboolean("tak", "listen_commands", fallback=False)
+        ):
+            self._tak_input = TAKInput(
+                listen_port=self._cfg.getint("tak", "listen_port", fallback=4243),
+                multicast_group=self._cfg.get("tak", "multicast_group", fallback="239.2.3.1"),
+                on_lock=lambda tid: self._handle_target_lock(tid, mode="track"),
+                on_strike=self._handle_strike_command,
+                on_unlock=self._handle_target_unlock,
+            )
+            logger.info(
+                "TAK command listener configured: port=%d",
+                self._cfg.getint("tak", "listen_port", fallback=4243),
+            )
+
         # Logger
         self._det_logger = DetectionLogger(
             log_dir=self._cfg.get("logging", "log_dir", fallback="/data/logs"),
@@ -601,6 +620,14 @@ class Pipeline:
             else:
                 logger.warning("TAK output failed to start — continuing without")
                 self._tak = None
+
+        # Start TAK command listener
+        if self._tak_input is not None:
+            if self._tak_input.start():
+                logger.info("TAK command listener started")
+            else:
+                logger.warning("TAK command listener failed to start — continuing without")
+                self._tak_input = None
 
         # Register signal handlers after init is complete
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -1348,6 +1375,8 @@ class Pipeline:
             self._mavlink_video.stop()
         if self._tak is not None:
             self._tak.stop()
+        if self._tak_input is not None:
+            self._tak_input.stop()
         if self._servo_tracker is not None:
             self._servo_tracker.safe()
         self._camera.close()
