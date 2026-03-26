@@ -15,6 +15,7 @@ const HydraOperations = (() => {
     let pendingMode = null;
     let pendingModeTime = 0;
     let alertClassData = { all: [], categories: {}, selected: new Set() };
+    let profileData = { profiles: [], active: null };
     let dropdownsLoaded = false;
 
     // ── Lifecycle ──
@@ -39,7 +40,7 @@ const HydraOperations = (() => {
 
     // ── Load dropdowns (models, power modes, config, alert classes) ──
     async function loadDropdowns() {
-        loadModels();
+        loadProfiles();
         loadPowerModes();
         loadConfig();
         loadAlertClasses();
@@ -49,24 +50,37 @@ const HydraOperations = (() => {
         loadTAKStatus();
     }
 
-    async function loadModels() {
-        const data = await HydraApp.apiGet('/api/models');
-        const sel = document.getElementById('ctrl-model-select');
+    async function loadProfiles() {
+        const data = await HydraApp.apiGet('/api/profiles');
+        const sel = document.getElementById('ctrl-profile-select');
+        const descEl = document.getElementById('ctrl-profile-desc');
+        const modelEl = document.getElementById('ctrl-model-display');
         if (!sel || !data) return;
+        profileData.profiles = data.profiles || [];
+        profileData.active = data.active_profile;
         clearChildren(sel);
-        if (!data.length) {
+
+        const customOpt = document.createElement('option');
+        customOpt.value = '';
+        customOpt.textContent = '\u2014 Custom \u2014';
+        if (!profileData.active) customOpt.selected = true;
+        sel.appendChild(customOpt);
+
+        for (const p of profileData.profiles) {
             const opt = document.createElement('option');
-            opt.value = '';
-            opt.textContent = 'No models in /models';
+            opt.value = p.id;
+            opt.textContent = p.name;
+            if (!p.model_exists) opt.textContent += ' (model missing)';
+            if (p.id === profileData.active) opt.selected = true;
             sel.appendChild(opt);
-            return;
         }
-        for (const m of data) {
-            const opt = document.createElement('option');
-            opt.value = m.name;
-            opt.textContent = m.name + ' (' + m.size_mb + ' MB)';
-            if (m.active) opt.selected = true;
-            sel.appendChild(opt);
+
+        const active = profileData.profiles.find(p => p.id === profileData.active);
+        if (descEl) descEl.textContent = active ? active.description : '';
+        if (modelEl) {
+            const models = await HydraApp.apiGet('/api/models');
+            const current = models ? models.find(m => m.active) : null;
+            modelEl.textContent = current ? current.name + ' (' + current.size_mb + ' MB)' : '\u2014';
         }
     }
 
@@ -175,7 +189,7 @@ const HydraOperations = (() => {
         addChange('ctrl-power-mode', (e) => setPowerMode(e.target.value));
 
         // Model select
-        addChange('ctrl-model-select', (e) => switchModel(e.target.value));
+        addChange('ctrl-profile-select', (e) => switchProfile(e.target.value));
 
         // Confidence slider
         const slider = document.getElementById('ctrl-thresh-slider');
@@ -945,15 +959,19 @@ const HydraOperations = (() => {
         }, 2000);
     }
 
-    async function switchModel(modelName) {
-        if (!modelName) return;
-        const sel = document.getElementById('ctrl-model-select');
+    async function switchProfile(profileId) {
+        if (!profileId) return;
+        const sel = document.getElementById('ctrl-profile-select');
         if (sel) sel.disabled = true;
-        const result = await HydraApp.apiPost('/api/models/switch', { model: modelName });
+        const result = await HydraApp.apiPost('/api/profiles/switch', { profile: profileId });
         if (result && result.status === 'ok') {
+            HydraApp.showToast('Profile: ' + profileId, 'success');
+            loadProfiles();
+            loadConfig();
             loadAlertClasses();
         } else {
-            loadModels();
+            HydraApp.showToast('Profile switch failed', 'error');
+            loadProfiles();
         }
         if (sel) sel.disabled = false;
     }
@@ -963,6 +981,10 @@ const HydraOperations = (() => {
         if (!slider) return;
         const threshold = parseFloat(slider.value);
         await HydraApp.apiPost('/api/config/threshold', { threshold: threshold });
+        const profSel = document.getElementById('ctrl-profile-select');
+        if (profSel) profSel.value = '';
+        const descEl = document.getElementById('ctrl-profile-desc');
+        if (descEl) descEl.textContent = '';
     }
 
     async function applyAlertClasses() {
@@ -970,6 +992,10 @@ const HydraOperations = (() => {
             ? []
             : Array.from(alertClassData.selected);
         await HydraApp.apiPost('/api/config/alert-classes', { classes: classes });
+        const profSel = document.getElementById('ctrl-profile-select');
+        if (profSel) profSel.value = '';
+        const descEl = document.getElementById('ctrl-profile-desc');
+        if (descEl) descEl.textContent = '';
     }
 
     // ── RF Hunt ──
