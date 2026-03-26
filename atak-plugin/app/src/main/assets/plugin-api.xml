@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<plugin>
+    <extension
+        type="transapps.maps.plugin.lifecycle.Lifecycle"
+        impl="com.hydra.atak.plugin.plugin.HydraPluginLifecycle"
+        singleton="true" />
+    <extension
+        type="transapps.maps.plugin.tool.ToolDescriptor"
+        impl="com.hydra.atak.plugin.plugin.HydraPluginTool"
+        singleton="true" />
+</plugin>

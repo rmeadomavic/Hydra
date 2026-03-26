@@ -1,0 +1,11 @@
+<set>
+    <broadcast>
+        <action>com.hydra.atak.plugin.STRIKE_TARGET</action>
+        <extras>
+            <string key="targetUID">${uid}</string>
+        </extras>
+    </broadcast>
+    <broadcast>
+        <action>com.atakmap.android.maps.HIDE_MENU</action>
+    </broadcast>
+</set>

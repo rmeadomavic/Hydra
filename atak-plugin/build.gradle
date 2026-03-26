@@ -1,0 +1,22 @@
+// Top-level build file for Hydra ATAK Plugin
+// NOTE: This is a template. The actual SDK integration requires placing
+// this project inside the ATAK SDK directory structure:
+//   atak-civ-sdk/atak-civ/plugins/hydra-atak-plugin/
+// and using the SDK's Gradle configuration.
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.9.0'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}

@@ -1,0 +1,11 @@
+<menu buttonRadius='65' buttonSpan='90' buttonWidth='90'>
+    <button angle='-90'
+            icon='icons/close.png'
+            onClick='actions/cancel.xml' />
+    <button icon='icons/lock.png'
+            onClick='actions/lock_target.xml' />
+    <button icon='icons/strike.png'
+            onClick='actions/strike_target.xml' />
+    <button icon='icons/details.png'
+            onClick='actions/showdetails.xml' />
+</menu>

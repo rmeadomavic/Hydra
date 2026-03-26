@@ -1,0 +1,2 @@
+rootProject.name = 'hydra-atak-plugin'
+include ':app'

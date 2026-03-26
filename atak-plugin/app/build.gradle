@@ -1,0 +1,42 @@
+// NOTE: When placed inside the ATAK SDK directory structure, this file
+// should use the SDK's plugin template build.gradle instead. This is a
+// simplified standalone reference.
+//
+// To build with the ATAK SDK:
+// 1. Copy this project into atak-civ-sdk/atak-civ/plugins/
+// 2. Replace this build.gradle with the SDK's plugintemplate/app/build.gradle
+// 3. Update the applicationId and package references
+// 4. Run: ./gradlew assembleCivDebug
+
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'com.hydra.atak.plugin'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.hydra.atak.plugin"
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    // The ATAK SDK provides these as compileOnly dependencies.
+    // When using the SDK's build.gradle, these are handled automatically.
+    // For reference, you need:
+    //   - atak.jar (main.jar from SDK)
+    //   - transapps APIs
+}
+
+dependencies {
+    // These are provided by ATAK at runtime — use compileOnly
+    // compileOnly files('../../atak.jar')  // from SDK
+    // compileOnly files('../../atak-gradle-takdev.jar')  // from SDK
+}
