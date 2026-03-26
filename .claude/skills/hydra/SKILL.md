@@ -62,6 +62,17 @@ Camera Source --> YOLO Detector --> ByteTrack Tracker --> MAVLink Alerts
 7. **Autonomous strike safety** — validate all safeguards on real hardware
 8. **Performance profiling** — thermal, memory, FPS across power modes
 
+## Audiences
+
+Hydra serves three audiences — tag features and ideas by which they serve:
+
+- **Demo** — leadership/brass. Visual impact, capability showcase. (live video,
+  RTSP, web dashboard, signal map, recording, TAK/CoT)
+- **Ops** — instructor + students in the field. Reliable, safe, practical.
+  (MAVLink alerts, auto-loiter, OSD, RF homing, geofence, detection logs)
+- **Dev** — building and extending. Maintainable, testable, debuggable.
+  (/jetson-check, test suite, Docker, sim GPS, debug logging, ML fine-tuning)
+
 ## Constraints (Safety-Critical)
 
 - **Memory:** 4-8 GB shared CPU/GPU. Fixed-size ring buffers only. No unbounded caches.
@@ -100,7 +111,8 @@ note it clearly and suggest adding it to one of these places:
 3. **GitHub issue** — for bugs or feature requests that need tracking
 4. **`CLAUDE.md`** — for permanent coding guidelines and constraints
 
-Always ask: "Want me to add this to the testing checklist / Todoist / an issue?"
+Always tag ideas by audience (demo/ops/dev) and ask:
+"Want me to add this to the testing checklist / Todoist / an issue?"
 
 ## Live Debugging
 

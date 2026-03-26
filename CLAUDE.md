@@ -9,6 +9,9 @@ Orin Nano** hardware and communicates with ground control stations via MAVLink.
 This is safety-critical software with real-time and hardware constraints. Changes
 must preserve deterministic timing, bounded memory usage, and fail-safe behavior.
 
+The system serves three audiences: **demo** (leadership showcases), **ops**
+(field use by instructor + students), and **dev** (building + extending).
+
 ### Architecture Overview
 
 ```
