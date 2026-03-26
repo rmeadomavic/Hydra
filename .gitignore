@@ -24,5 +24,9 @@ output_data/
 # Backup / temp files
 *.bak
 
+# Large reference material (not source — keep local only)
+docs/reference/
+docs/sorcc manuals/
+
 # Claude Code / Superpowers
 .superpowers/
