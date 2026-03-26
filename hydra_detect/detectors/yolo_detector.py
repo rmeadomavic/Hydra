@@ -85,6 +85,10 @@ class YOLODetector(BaseDetector):
         """Update confidence threshold at runtime."""
         self._confidence = threshold
 
+    def set_classes(self, classes: list[int] | None) -> None:
+        """Update YOLO class filter at runtime."""
+        self._classes = classes
+
     def get_threshold(self) -> float:
         return self._confidence
 

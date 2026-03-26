@@ -38,3 +38,18 @@ class TestGetClassNames:
         det._model = MagicMock()
         det._model.names = {0: "person", 1: "car", 2: "truck"}
         assert det.get_class_names() == ["person", "car", "truck"]
+
+
+class TestSetClasses:
+    def test_set_classes_updates_filter(self):
+        from hydra_detect.detectors.yolo_detector import YOLODetector
+        det = YOLODetector(model_path="yolov8n.pt", confidence=0.5)
+        assert det._classes is None
+        det.set_classes([0, 2, 7])
+        assert det._classes == [0, 2, 7]
+
+    def test_set_classes_none_clears_filter(self):
+        from hydra_detect.detectors.yolo_detector import YOLODetector
+        det = YOLODetector(model_path="yolov8n.pt", confidence=0.5, classes=[0, 1])
+        det.set_classes(None)
+        assert det._classes is None
