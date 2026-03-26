@@ -174,6 +174,7 @@ class StreamState:
             "position": None,
         }
         self._lock = threading.Lock()
+        self._frame_event = asyncio.Event()
 
         # Runtime config callbacks (set by pipeline via set_callbacks)
         self._callbacks: Dict[str, Callable] = {}
@@ -195,6 +196,7 @@ class StreamState:
     def update_frame(self, frame: np.ndarray) -> None:
         with self._lock:
             self.frame = frame
+        self._frame_event.set()
 
     def get_frame(self) -> Optional[np.ndarray]:
         with self._lock:
@@ -1086,11 +1088,21 @@ async def mjpeg_stream():
 async def _generate_mjpeg():
     """Async generator that yields JPEG frames.
 
-    Catches GeneratorExit / CancelledError to clean up when the client disconnects.
+    Uses an asyncio.Event to wake instantly when a new frame is available
+    instead of polling with sleep. Falls back to a 100ms timeout to handle
+    cases where the event isn't set (e.g., pipeline paused).
     """
     quality = 70
     try:
         while True:
+            # Wait for a new frame signal (or timeout after 100ms)
+            try:
+                await asyncio.wait_for(
+                    stream_state._frame_event.wait(), timeout=0.1,
+                )
+                stream_state._frame_event.clear()
+            except asyncio.TimeoutError:
+                pass
             frame = stream_state.get_frame()
             if frame is not None:
                 ok, buf = cv2.imencode(

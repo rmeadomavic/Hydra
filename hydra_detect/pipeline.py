@@ -377,7 +377,7 @@ class Pipeline:
             and self._cfg.getboolean("tak", "listen_commands", fallback=False)
         ):
             self._tak_input = TAKInput(
-                listen_port=self._cfg.getint("tak", "listen_port", fallback=4243),
+                listen_port=self._cfg.getint("tak", "listen_port", fallback=6969),
                 multicast_group=self._cfg.get("tak", "multicast_group", fallback="239.2.3.1"),
                 on_lock=lambda tid: self._handle_target_lock(tid, mode="track"),
                 on_strike=self._handle_strike_command,
@@ -385,7 +385,7 @@ class Pipeline:
             )
             logger.info(
                 "TAK command listener configured: port=%d",
-                self._cfg.getint("tak", "listen_port", fallback=4243),
+                self._cfg.getint("tak", "listen_port", fallback=6969),
             )
 
         # Logger
@@ -483,6 +483,11 @@ class Pipeline:
             logger.error("Failed to open camera — aborting.")
             self._detector.unload()
             sys.exit(1)
+
+        # Push a placeholder frame so the MJPEG stream has something immediately
+        preview = self._camera.read()
+        if preview is not None:
+            stream_state.update_frame(preview)
 
         if self._mavlink is not None:
             if not self._mavlink.connect():

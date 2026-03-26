@@ -54,7 +54,7 @@ const HydraOperations = (() => {
         const data = await HydraApp.apiGet('/api/profiles');
         const sel = document.getElementById('ctrl-profile-select');
         const descEl = document.getElementById('ctrl-profile-desc');
-        const modelEl = document.getElementById('ctrl-model-display');
+        const modelEl = document.getElementById('ctrl-model-select');
         if (!sel || !data) return;
         profileData.profiles = data.profiles || [];
         profileData.active = data.active_profile;
@@ -79,8 +79,16 @@ const HydraOperations = (() => {
         if (descEl) descEl.textContent = active ? active.description : '';
         if (modelEl) {
             const models = await HydraApp.apiGet('/api/models');
-            const current = models ? models.find(m => m.active) : null;
-            modelEl.textContent = current ? current.name + ' (' + current.size_mb + ' MB)' : '\u2014';
+            if (models && models.length) {
+                clearChildren(modelEl);
+                for (const m of models) {
+                    const opt = document.createElement('option');
+                    opt.value = m.name;
+                    opt.textContent = m.name + ' (' + m.size_mb + ' MB)';
+                    if (m.active) opt.selected = true;
+                    modelEl.appendChild(opt);
+                }
+            }
         }
     }
 
@@ -188,8 +196,19 @@ const HydraOperations = (() => {
         // Power mode
         addChange('ctrl-power-mode', (e) => setPowerMode(e.target.value));
 
-        // Model select
+        // Profile select
         addChange('ctrl-profile-select', (e) => switchProfile(e.target.value));
+
+        // Model select
+        addChange('ctrl-model-select', async function() {
+            const model = this.value;
+            if (!model) return;
+            const resp = await HydraApp.apiPost('/api/models/switch', { model });
+            if (resp && resp.status === 'ok') {
+                HydraApp.showToast('Model switched to ' + model, 'success');
+                loadProfiles();
+            }
+        });
 
         // Confidence slider
         const slider = document.getElementById('ctrl-thresh-slider');
