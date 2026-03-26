@@ -531,6 +531,8 @@ class Pipeline:
                 on_mavlink_video_toggle=self._handle_mavlink_video_toggle,
                 on_mavlink_video_tune=self._handle_mavlink_video_tune,
                 get_mavlink_video_status=self._get_mavlink_video_status,
+                on_tak_toggle=self._handle_tak_toggle,
+                get_tak_status=self._get_tak_status,
             )
 
             stream_state.update_stats(
@@ -1180,6 +1182,49 @@ class Pipeline:
             "running": False,
             "width": 0, "height": 0, "quality": 0,
             "current_fps": 0, "bytes_per_sec": 0,
+        }
+
+    def _handle_tak_toggle(self, enabled: bool) -> dict:
+        """Start or stop TAK CoT output at runtime."""
+        if enabled and self._tak is None:
+            if self._mavlink is None:
+                return {"status": "error", "message": "MAVLink not connected"}
+            rtsp_url = None
+            tak_host = self._cfg.get("tak", "advertise_host", fallback="").strip()
+            if tak_host and self._rtsp is not None and self._rtsp.running:
+                rtsp_url = f"rtsp://{tak_host}:{self._rtsp_port}{self._rtsp_mount}"
+            self._tak = TAKOutput(
+                mavlink_io=self._mavlink,
+                callsign=self._cfg.get("tak", "callsign", fallback="HYDRA-1"),
+                multicast_group=self._cfg.get("tak", "multicast_group", fallback="239.2.3.1"),
+                multicast_port=self._cfg.getint("tak", "multicast_port", fallback=6969),
+                emit_interval=self._cfg.getfloat("tak", "emit_interval", fallback=2.0),
+                sa_interval=self._cfg.getfloat("tak", "sa_interval", fallback=5.0),
+                stale_detection=self._cfg.getfloat("tak", "stale_detection", fallback=60.0),
+                stale_sa=self._cfg.getfloat("tak", "stale_sa", fallback=30.0),
+                camera_hfov_deg=self._cfg.getfloat("camera", "hfov_deg", fallback=60.0),
+                unicast_targets=self._cfg.get("tak", "unicast_targets", fallback=""),
+                rtsp_url=rtsp_url,
+            )
+            if self._tak.start():
+                return {"status": "ok", "running": True}
+            self._tak = None
+            return {"status": "error", "message": "Failed to start TAK output"}
+        elif not enabled and self._tak is not None:
+            self._tak.stop()
+            self._tak = None
+            return {"status": "ok", "running": False}
+        return {"status": "ok", "running": self._tak is not None}
+
+    def _get_tak_status(self) -> dict:
+        """Return TAK output status for the web API."""
+        if self._tak is not None:
+            return self._tak.get_status()
+        return {
+            "enabled": self._cfg.getboolean("tak", "enabled", fallback=False),
+            "running": False,
+            "callsign": self._cfg.get("tak", "callsign", fallback="HYDRA-1"),
+            "events_sent": 0,
         }
 
     def _handle_stop_command(self) -> None:
