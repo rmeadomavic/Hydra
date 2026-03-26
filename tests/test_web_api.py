@@ -74,6 +74,7 @@ class TestAuthEnforcement:
         ("POST", "/api/rtsp/toggle", {"enabled": True}),
         ("POST", "/api/mavlink-video/toggle", {"enabled": True}),
         ("POST", "/api/mavlink-video/tune", {"width": 80}),
+        ("POST", "/api/profiles/switch", {"profile": "general"}),
     ]
 
     def test_no_auth_when_disabled(self, client):
@@ -427,3 +428,62 @@ class TestMAVLinkVideoEndpoints:
         stream_state.set_callbacks(on_mavlink_video_tune=on_tune)
         resp = client.post("/api/mavlink-video/tune", json={"width": 80, "height": 60})
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Mission Profile endpoints
+# ---------------------------------------------------------------------------
+
+class TestProfileEndpoints:
+    def test_get_profiles(self, client):
+        stream_state.set_callbacks(
+            get_profiles=lambda: {
+                "profiles": [
+                    {"id": "general", "name": "General", "description": "test",
+                     "model": "yolov8n.pt", "model_exists": True,
+                     "confidence": 0.45, "alert_classes": ["person"],
+                     "auto_loiter_on_detect": False},
+                ],
+                "active_profile": "general",
+            },
+        )
+        resp = client.get("/api/profiles")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["profiles"]) == 1
+        assert data["active_profile"] == "general"
+
+    def test_get_profiles_no_callback(self, client):
+        resp = client.get("/api/profiles")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["profiles"] == []
+
+    def test_switch_profile_requires_auth(self, client):
+        configure_auth("secret-token")
+        resp = client.post("/api/profiles/switch", json={"profile": "general"})
+        assert resp.status_code == 401
+
+    def test_switch_profile_success(self, client):
+        configure_auth("secret-token")
+        stream_state.set_callbacks(on_profile_switch=lambda pid: True)
+        resp = client.post("/api/profiles/switch",
+                           json={"profile": "general"},
+                           headers={"Authorization": "Bearer secret-token"})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    def test_switch_profile_failure(self, client):
+        configure_auth("secret-token")
+        stream_state.set_callbacks(on_profile_switch=lambda pid: False)
+        resp = client.post("/api/profiles/switch",
+                           json={"profile": "bad"},
+                           headers={"Authorization": "Bearer secret-token"})
+        assert resp.status_code == 400
+
+    def test_switch_profile_missing_id(self, client):
+        configure_auth("secret-token")
+        resp = client.post("/api/profiles/switch",
+                           json={},
+                           headers={"Authorization": "Bearer secret-token"})
+        assert resp.status_code == 400

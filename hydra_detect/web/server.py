@@ -572,6 +572,38 @@ async def api_switch_model(request: Request, authorization: Optional[str] = Head
     return JSONResponse({"error": "Model switching not available"}, status_code=503)
 
 
+# ── Mission Profiles ──────────────────────────────────────────
+
+@app.get("/api/profiles")
+async def api_list_profiles():
+    """Return available mission profiles."""
+    cb = stream_state.get_callback("get_profiles")
+    if cb:
+        return cb()
+    return {"profiles": [], "active_profile": None}
+
+
+@app.post("/api/profiles/switch")
+async def api_switch_profile(request: Request, authorization: Optional[str] = Header(None)):
+    """Switch to a mission profile. Body: {"profile": "counter-uas"}"""
+    auth_err = _check_auth(authorization)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    profile_id = body.get("profile")
+    if not profile_id:
+        return JSONResponse({"error": "profile ID required"}, status_code=400)
+    cb = stream_state.get_callback("on_profile_switch")
+    if cb:
+        success = cb(profile_id)
+        if success:
+            _audit(request, "profile_switch", target=profile_id)
+            return {"status": "ok", "profile": profile_id}
+        _audit(request, "profile_switch", target=profile_id, outcome="failed")
+        return JSONResponse({"error": f"Failed to switch to profile '{profile_id}'"}, status_code=400)
+    return JSONResponse({"error": "Profile switching not available"}, status_code=503)
+
+
 # ── RF Hunt ─────────────────────────────────────────────────────
 
 @app.get("/api/rf/status")
