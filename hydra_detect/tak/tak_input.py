@@ -31,7 +31,7 @@ class TAKInput:
 
     def __init__(
         self,
-        listen_port: int = 4243,
+        listen_port: int = 6969,
         multicast_group: str = "239.2.3.1",
         on_lock: Callable[[int], bool] | None = None,
         on_strike: Callable[[int], bool] | None = None,

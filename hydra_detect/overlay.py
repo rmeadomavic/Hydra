@@ -163,7 +163,11 @@ def draw_tracks(
         y = 24 + i * 22
         cv2.putText(
             frame, line, (10, y),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1, cv2.LINE_AA,
+            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 2, cv2.LINE_AA,
+        )
+        cv2.putText(
+            frame, line, (10, y),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA,
         )
 
     return frame

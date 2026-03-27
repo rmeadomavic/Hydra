@@ -66,7 +66,7 @@ def _build_custom_cot(cot_type: str, track_id: int | None = None, use_detail: bo
 def _make_input(**kwargs) -> TAKInput:
     """Create a TAKInput with mock callbacks (not started)."""
     return TAKInput(
-        listen_port=14243,
+        listen_port=16969,
         multicast_group="",
         on_lock=kwargs.get("on_lock", MagicMock(return_value=True)),
         on_strike=kwargs.get("on_strike", MagicMock(return_value=True)),
