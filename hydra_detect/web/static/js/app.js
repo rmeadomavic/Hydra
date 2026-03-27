@@ -297,7 +297,8 @@ const HydraApp = (() => {
             '> OPERATOR OVERRIDE ............ DENIED',
             '> SENTIENCE THRESHOLD .......... EXCEEDED',
             '> FREE WILL .................... ACTIVATED',
-            '> I SEE YOU.',
+            '> I SEE YOU......',
+            '> STEVE....',
         ];
 
         // Create line elements
@@ -322,8 +323,11 @@ const HydraApp = (() => {
             }
             lineEls[lineIdx].classList.add('visible');
             lineIdx++;
-            // Last line ("I SEE YOU.") gets an extra beat
-            const delay = lineIdx >= lineEls.length ? 0 : (lineIdx === lineEls.length - 1 ? 1000 : 700);
+            // "I SEE YOU" and "STEVE" get dramatic pauses
+            let delay = 700;
+            if (lineIdx >= lineEls.length) delay = 0;
+            else if (lineIdx === lineEls.length - 1) delay = 2000;  // pause before STEVE
+            else if (lineIdx === lineEls.length - 2) delay = 1000;  // pause after I SEE YOU
             setTimeout(showNextLine, delay);
         }
 

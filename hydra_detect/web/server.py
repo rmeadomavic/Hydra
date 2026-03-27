@@ -128,11 +128,9 @@ TACTICAL_CATEGORIES = {
     "Ground Vehicles":  ["car", "motorcycle", "truck", "bus", "bicycle", "train", "tank", "apc", "humvee"],
     "Watercraft/Air":   ["boat", "airplane", "drone", "uav", "helicopter", "ship"],
     "Carried Equipment":["backpack", "suitcase", "handbag", "cell phone", "laptop", "radio"],
-    "Animals":          ["dog", "horse", "bird", "cow", "sheep", "cat", "elephant", "bear", "zebra", "giraffe"],
+    "Animals":          ["dog", "horse", "bird", "cow", "sheep", "cat", "bear"],
     "Potential Weapons": ["knife", "scissors", "baseball bat", "rifle", "pistol", "rpg"],
-    "Concealment":      ["umbrella", "kite"],
-    "Containers":       ["bottle", "cup", "bowl"],
-    "Landmarks":        ["fire hydrant", "stop sign", "traffic light", "bench", "chair"],
+    "Landmarks":        ["fire hydrant", "stop sign", "traffic light", "bench"],
 }
 
 

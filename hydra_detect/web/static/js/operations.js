@@ -76,11 +76,18 @@ const HydraOperations = (() => {
         }
 
         const active = profileData.profiles.find(p => p.id === profileData.active);
-        if (descEl) descEl.textContent = active ? active.description : '';
+        if (descEl) descEl.textContent = active ? active.description : 'Select a mission profile or configure manually below.';
+
+        const modelInfoEl = document.getElementById('ctrl-model-info');
+        const modelNameEl = document.getElementById('ctrl-model-name');
+        const modelSelectField = document.getElementById('ctrl-model-select-field');
+        const isCustom = !profileData.active;
+
         if (modelEl) {
             const models = await HydraApp.apiGet('/api/models');
             if (models && models.length) {
                 clearChildren(modelEl);
+                const activeModel = models.find(m => m.active);
                 for (const m of models) {
                     const opt = document.createElement('option');
                     opt.value = m.name;
@@ -88,8 +95,14 @@ const HydraOperations = (() => {
                     if (m.active) opt.selected = true;
                     modelEl.appendChild(opt);
                 }
+                if (modelNameEl && activeModel) {
+                    modelNameEl.textContent = activeModel.name;
+                }
             }
         }
+
+        if (modelInfoEl) modelInfoEl.style.display = isCustom ? 'none' : '';
+        if (modelSelectField) modelSelectField.style.display = isCustom ? '' : 'none';
     }
 
     async function loadPowerModes() {
