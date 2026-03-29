@@ -1205,7 +1205,11 @@ class Pipeline:
                     if self._servo_tracker is not None:
                         self._servo_tracker.update(error_x)
                 else:
-                    self._handle_target_unlock(reason="lost")
+                    # In pixel-lock mode, let the guidance controller's
+                    # track-loss timeout handle it (sends zero velocity,
+                    # then auto-aborts).  Other modes unlock immediately.
+                    if current_lock_mode != "pixel_lock":
+                        self._handle_target_unlock(reason="lost")
 
             # Approach controller update (Follow / Drop / Strike)
             if self._approach is not None and current_lock_id is not None:

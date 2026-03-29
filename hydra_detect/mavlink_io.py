@@ -758,18 +758,11 @@ class MAVLinkIO:
         try:
             from pymavlink import mavutil
 
-            # type_mask: use velocity (bits 3-5) + yaw rate (bit 11)
-            # Ignore position (bits 0-2), acceleration (bits 6-8), yaw (bit 10)
-            type_mask = (
-                0b0000_1_0_000_111_000  # ignore pos (0-2), ignore accel (6-8), ignore yaw (10)
-                & ~(1 << 3)             # use vx (bit 3 = 0)
-                & ~(1 << 4)             # use vy (bit 4 = 0)
-                & ~(1 << 5)             # use vz (bit 5 = 0)
-                & ~(1 << 11)            # use yaw_rate (bit 11 = 0)
-            )
-            # Simplified: bits 0-2 set (ignore pos), 3-5 clear (use vel),
-            # 6-8 set (ignore accel), 10 set (ignore yaw), 11 clear (use yaw_rate)
-            type_mask = 0b0000_0_1_000_000_111  # 0x0C07
+            # type_mask bits: 0-2=pos, 3-5=vel, 6-8=accel, 9=force, 10=yaw, 11=yaw_rate
+            # Set bit = IGNORE that field.  Clear bit = USE that field.
+            # We use: velocity (3-5) + yaw_rate (11)
+            # We ignore: position (0-2) + acceleration (6-8) + yaw (10)
+            type_mask = 0x05C7  # 0b0101_1100_0111
 
             yaw_rate_rad = math.radians(yaw_rate)
 
