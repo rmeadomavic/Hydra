@@ -408,7 +408,7 @@ if [ "$MAVLINK_ENABLED" = true ] && [ -n "$MAVLINK_DEVICE" ]; then
     DEVICE_FLAGS+=" --device $MAVLINK_DEVICE:$MAVLINK_DEVICE"
 fi
 
-DOCKER_CMD="docker run --rm --privileged --runtime nvidia \
+DOCKER_CMD="docker run --restart unless-stopped --privileged --runtime nvidia \
 $DEVICE_FLAGS \
   -v $HYDRA_DIR/config.ini:/app/config.ini:ro \
   -v /usr/sbin/nvpmodel:/usr/sbin/nvpmodel:ro \

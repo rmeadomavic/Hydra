@@ -38,6 +38,17 @@
         <button class="btn" id="settings-restore" title="Restore from last backup">Restore Backup</button>
     </div>
 
+    <!-- Recovery Tools — visually separated from normal settings -->
+    <div class="settings-recovery">
+        <div class="settings-recovery-label">Recovery Tools</div>
+        <div class="settings-recovery-actions">
+            <button class="btn btn-recovery btn-danger-outline" id="settings-factory-reset" title="Restore factory default configuration">Factory Reset</button>
+            <button class="btn btn-recovery" id="settings-export" title="Download current config as JSON">Export Config</button>
+            <button class="btn btn-recovery" id="settings-import" title="Upload a JSON config file">Import Config</button>
+            <input type="file" id="settings-import-file" accept=".json" style="display:none;">
+        </div>
+    </div>
+
     <div class="settings-footer" id="settings-power-footer" style="display:none;">
         <span class="settings-footer-link" id="settings-power-user">Power User Options</span>
     </div>

@@ -25,8 +25,10 @@ from fastapi.templating import Jinja2Templates
 from hydra_detect.web.config_api import (
     MAX_BODY_SIZE,
     has_backup,
+    has_factory,
     read_config,
     restore_backup,
+    restore_factory,
     write_config,
 )
 
@@ -1189,6 +1191,154 @@ async def api_restore_config_backup(request: Request, authorization: str | None 
     except Exception as e:
         logger.error("Failed to restore config backup: %s", e)
         return JSONResponse({"error": f"Failed to restore: {e}"}, status_code=500)
+
+
+@app.post("/api/config/factory-reset")
+async def api_factory_reset(request: Request, authorization: str | None = Header(None)):
+    """Restore factory defaults from config.ini.factory."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    if not has_factory():
+        return JSONResponse({"error": "No factory defaults available"}, status_code=404)
+    try:
+        restore_factory()
+        _audit(request, "config_factory_reset")
+        # Trigger pipeline restart
+        cb = stream_state.get_callback("on_restart_command")
+        if cb:
+            cb()
+        return {"status": "ok", "message": "Factory defaults restored"}
+    except Exception as e:
+        logger.error("Failed to restore factory defaults: %s", e)
+        return JSONResponse({"error": f"Failed to restore: {e}"}, status_code=500)
+
+
+@app.get("/api/config/export")
+async def api_config_export(request: Request, authorization: str | None = Header(None)):
+    """Export current config as JSON download."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    try:
+        config = read_config()
+        _audit(request, "config_export")
+        return config
+    except Exception as e:
+        logger.error("Failed to export config: %s", e)
+        return JSONResponse({"error": "Failed to export configuration"}, status_code=500)
+
+
+@app.post("/api/config/import")
+async def api_config_import(request: Request, authorization: str | None = Header(None)):
+    """Import config from uploaded JSON."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    import json as _json
+    body_bytes = await request.body()
+    if len(body_bytes) > MAX_BODY_SIZE:
+        return JSONResponse({"error": "Request body too large"}, status_code=413)
+    try:
+        body = _json.loads(body_bytes)
+    except (ValueError, _json.JSONDecodeError):
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "Expected JSON object with config sections"}, status_code=400)
+    try:
+        result = write_config(body)
+        _audit(request, "config_import", target=str(len(body)))
+        return {"status": "imported", **result}
+    except Exception as e:
+        logger.error("Failed to import config: %s", e)
+        return JSONResponse({"error": f"Failed to import configuration: {e}"}, status_code=500)
+
+
+# ── Setup Wizard ─────────────────────────────────────────────────────
+
+@app.get("/setup", response_class=HTMLResponse)
+async def setup_page(request: Request):
+    """Serve the first-boot setup wizard page."""
+    return templates.TemplateResponse(request, "setup.html")
+
+
+@app.get("/api/setup/devices")
+async def api_setup_devices():
+    """List available cameras and serial ports for setup wizard."""
+    import glob
+    cameras = []
+    serial_ports = []
+
+    # Detect V4L2 cameras
+    for dev in sorted(glob.glob("/dev/video*")):
+        cameras.append({"path": dev, "name": dev})
+
+    # Detect serial ports (potential Pixhawk connections)
+    for dev in sorted(glob.glob("/dev/tty*")):
+        if any(prefix in dev for prefix in ["ttyACM", "ttyUSB", "ttyTHS", "ttyAMA"]):
+            serial_ports.append({"path": dev, "name": dev})
+
+    return {"cameras": cameras, "serial_ports": serial_ports}
+
+
+@app.post("/api/setup/save")
+async def api_setup_save(request: Request):
+    """Save setup wizard configuration and trigger restart."""
+    import json as _json
+    body_bytes = await request.body()
+    if len(body_bytes) > MAX_BODY_SIZE:
+        return JSONResponse({"error": "Request body too large"}, status_code=413)
+    try:
+        body = _json.loads(body_bytes)
+    except (ValueError, _json.JSONDecodeError):
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    camera_source = body.get("camera_source", "auto")
+    serial_port = body.get("serial_port", "/dev/ttyTHS1")
+    vehicle_type = body.get("vehicle_type", "")
+    team_number = body.get("team_number", "")
+    callsign = body.get("callsign", "")
+
+    # Validate inputs — bounded lengths
+    if len(camera_source) > 200:
+        return JSONResponse({"error": "camera_source too long"}, status_code=400)
+    if len(serial_port) > 200:
+        return JSONResponse({"error": "serial_port too long"}, status_code=400)
+    if len(vehicle_type) > 20:
+        return JSONResponse({"error": "vehicle_type too long"}, status_code=400)
+    if len(team_number) > 20:
+        return JSONResponse({"error": "team_number too long"}, status_code=400)
+    if len(callsign) > 50:
+        return JSONResponse({"error": "callsign too long"}, status_code=400)
+    if vehicle_type and vehicle_type not in ("drone", "usv", "ugv", "fw"):
+        return JSONResponse({"error": "vehicle_type must be drone, usv, ugv, or fw"}, status_code=400)
+
+    # Build callsign from team + vehicle if not explicitly set
+    if not callsign and team_number and vehicle_type:
+        callsign = f"HYDRA-{team_number}-{vehicle_type.upper()}"
+
+    # Write to config
+    updates: dict[str, dict[str, str]] = {
+        "camera": {"source": camera_source},
+        "mavlink": {"connection_string": serial_port},
+    }
+    if callsign:
+        updates["tak"] = {"callsign": callsign}
+
+    try:
+        result = write_config(updates)
+    except Exception as e:
+        logger.error("Setup save failed: %s", e)
+        return JSONResponse({"error": f"Failed to save: {e}"}, status_code=500)
+
+    _audit(request, "setup_save", target=callsign or "no-callsign")
+
+    # Trigger pipeline restart
+    cb = stream_state.get_callback("on_restart_command")
+    if cb:
+        cb()
+
+    return {"status": "saved", "callsign": callsign, **result}
 
 
 # ── Server launcher ──────────────────────────────────────────────────
