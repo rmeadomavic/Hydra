@@ -1073,6 +1073,38 @@ async def api_app_logs(lines: int = 50, level: str = "INFO"):
     return list(result)
 
 
+@app.get("/api/export")
+async def api_export_logs(request: Request, authorization: str | None = Header(None)):
+    """Export current session logs + images as a ZIP download."""
+    import io
+    import zipfile
+
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+
+    log_dir_cb = stream_state.get_callback("get_log_dir")
+    log_dir = log_dir_cb() if log_dir_cb else "./output_data/logs"
+    image_dir_cb = stream_state.get_callback("get_image_dir")
+    image_dir = image_dir_cb() if image_dir_cb else "./output_data/images"
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for dir_path, dir_name in [(log_dir, "logs"), (image_dir, "images")]:
+            p = Path(dir_path)
+            if p.exists():
+                for f in p.rglob("*"):
+                    if f.is_file():
+                        zf.write(f, f"{dir_name}/{f.relative_to(p)}")
+
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=hydra-export.zip"},
+    )
+
+
 @app.get("/api/review/images/{filename}")
 async def api_review_image(filename: str):
     """Serve a saved detection image."""
@@ -1193,14 +1225,25 @@ async def api_restore_config_backup(request: Request, authorization: str | None 
 
 # ── Server launcher ──────────────────────────────────────────────────
 
-def run_server(host: str = "0.0.0.0", port: int = 8080) -> threading.Thread:
+def run_server(
+    host: str = "0.0.0.0",
+    port: int = 8080,
+    ssl_certfile: str | None = None,
+    ssl_keyfile: str | None = None,
+) -> threading.Thread:
     """Start uvicorn in a daemon thread and return the thread handle."""
     import uvicorn
 
+    kwargs: dict[str, Any] = {"host": host, "port": port, "log_level": "warning"}
+    if ssl_certfile and ssl_keyfile:
+        kwargs["ssl_certfile"] = ssl_certfile
+        kwargs["ssl_keyfile"] = ssl_keyfile
+
     def _run():
-        uvicorn.run(app, host=host, port=port, log_level="warning")
+        uvicorn.run(app, **kwargs)
 
     t = threading.Thread(target=_run, daemon=True, name="hydra-web")
     t.start()
-    logger.info("Web UI started at http://%s:%d", host, port)
+    scheme = "https" if ssl_certfile else "http"
+    logger.info("Web UI started at %s://%s:%d", scheme, host, port)
     return t

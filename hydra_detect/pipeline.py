@@ -525,6 +525,20 @@ class Pipeline:
             logging.getLogger().addHandler(file_handler)
             logger.info("App log file enabled: %s", log_dir / "hydra.log")
 
+        # OPSEC: wipe previous session data on start if configured
+        if self._cfg.getboolean("logging", "wipe_on_start", fallback=False):
+            import shutil
+            log_dir = Path(self._cfg.get("logging", "log_dir", fallback="./output_data/logs"))
+            image_dir = Path(self._cfg.get("logging", "image_dir", fallback="./output_data/images"))
+            for d in [log_dir, image_dir]:
+                if d.exists():
+                    for item in d.iterdir():
+                        if item.is_file():
+                            item.unlink()
+                        elif item.is_dir():
+                            shutil.rmtree(item)
+                    logger.info("Wiped previous session data from %s", d)
+
         logger.info("=== Hydra Detect v2.0 starting ===")
 
         # Init subsystems — clean up on partial failure
@@ -570,13 +584,32 @@ class Pipeline:
         self._det_logger.start()
 
         if self._web_enabled:
-            # Configure API auth
+            # Auto-generate API token on first boot if not configured
             api_token = self._cfg.get("web", "api_token", fallback="").strip()
             if not api_token:
-                logger.warning(
-                    "WARNING: No API token configured — web control endpoints are "
-                    "unauthenticated. Set [web] api_token in config.ini for production use."
-                )
+                from .web.config_api import generate_api_token, get_config_path
+                api_token = generate_api_token()
+                self._cfg.set("web", "api_token", api_token)
+                # Persist to config.ini so the token survives restarts
+                try:
+                    cfg_path = get_config_path()
+                    disk_cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
+                    disk_cfg.read(cfg_path)
+                    if not disk_cfg.has_section("web"):
+                        disk_cfg.add_section("web")
+                    disk_cfg.set("web", "api_token", api_token)
+                    with open(cfg_path, "w") as f:
+                        disk_cfg.write(f)
+                    logger.info(
+                        "Auto-generated API token (first 8 chars): %s... — saved to %s",
+                        api_token[:8], cfg_path,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Auto-generated API token (first 8 chars): %s... — "
+                        "failed to persist to config.ini: %s",
+                        api_token[:8], exc,
+                    )
             configure_auth(api_token or None)
 
             # Set initial runtime config for web UI
@@ -638,7 +671,23 @@ class Pipeline:
                 detector="yolo",
                 mavlink=self._mavlink is not None and self._mavlink.connected,
             )
-            run_server(self._web_host, self._web_port)
+
+            # TLS: generate self-signed cert if enabled
+            tls_enabled = self._cfg.getboolean("web", "tls_enabled", fallback=False)
+            ssl_cert = None
+            ssl_key = None
+            if tls_enabled:
+                from .tls import ensure_tls_cert
+                cert_path = self._cfg.get("web", "tls_cert", fallback="certs/hydra.crt")
+                key_path = self._cfg.get("web", "tls_key", fallback="certs/hydra.key")
+                if ensure_tls_cert(cert_path, key_path):
+                    ssl_cert = cert_path
+                    ssl_key = key_path
+                else:
+                    logger.warning("TLS cert generation failed — falling back to HTTP")
+
+            run_server(self._web_host, self._web_port,
+                       ssl_certfile=ssl_cert, ssl_keyfile=ssl_key)
 
         # Start RTSP output
         if self._rtsp_enabled:

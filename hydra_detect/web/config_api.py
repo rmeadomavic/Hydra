@@ -6,11 +6,17 @@ import configparser
 import fcntl
 import logging
 import os
+import secrets
 import shutil
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def generate_api_token() -> str:
+    """Generate a random API token for this Jetson instance."""
+    return secrets.token_hex(32)
 
 # Default config path — can be overridden by pipeline at startup
 _config_path: Path | None = None
