@@ -1075,9 +1075,11 @@ async def api_app_logs(lines: int = 50, level: str = "INFO"):
 
 @app.get("/api/export")
 async def api_export_logs(request: Request, authorization: str | None = Header(None)):
-    """Export current session logs + images as a ZIP download."""
-    import io
+    """Export current session logs + images as a ZIP download (streamed from disk)."""
+    import tempfile
     import zipfile
+
+    from fastapi.responses import FileResponse
 
     auth_err = _check_auth(authorization, request)
     if auth_err:
@@ -1088,20 +1090,23 @@ async def api_export_logs(request: Request, authorization: str | None = Header(N
     image_dir_cb = stream_state.get_callback("get_image_dir")
     image_dir = image_dir_cb() if image_dir_cb else "./output_data/images"
 
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for dir_path, dir_name in [(log_dir, "logs"), (image_dir, "images")]:
-            p = Path(dir_path)
-            if p.exists():
-                for f in p.rglob("*"):
-                    if f.is_file():
-                        zf.write(f, f"{dir_name}/{f.relative_to(p)}")
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    try:
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+            for dir_path, dir_name in [(log_dir, "logs"), (image_dir, "images")]:
+                p = Path(dir_path)
+                if p.exists():
+                    for f in p.rglob("*"):
+                        if f.is_file():
+                            zf.write(f, f"{dir_name}/{f.relative_to(p)}")
+        tmp_path = tmp.name
+    finally:
+        tmp.close()
 
-    buffer.seek(0)
-    return StreamingResponse(
-        buffer,
+    return FileResponse(
+        tmp_path,
         media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=hydra-export.zip"},
+        filename="hydra-export.zip",
     )
 
 

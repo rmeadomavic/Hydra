@@ -503,6 +503,21 @@ class Pipeline:
             format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
         )
 
+        # OPSEC: wipe previous session data on start if configured
+        # Must run BEFORE opening log files to avoid deleting a just-opened hydra.log
+        if self._cfg.getboolean("logging", "wipe_on_start", fallback=False):
+            import shutil
+            log_dir = Path(self._cfg.get("logging", "log_dir", fallback="./output_data/logs"))
+            image_dir = Path(self._cfg.get("logging", "image_dir", fallback="./output_data/images"))
+            for d in [log_dir, image_dir]:
+                if d.exists():
+                    for item in d.iterdir():
+                        if item.is_file():
+                            item.unlink()
+                        elif item.is_dir():
+                            shutil.rmtree(item)
+                    logger.info("Wiped previous session data from %s", d)
+
         # Persistent log file for remote debugging access
         if self._cfg.getboolean("logging", "app_log_file", fallback=True):
             from logging.handlers import RotatingFileHandler
@@ -524,20 +539,6 @@ class Pipeline:
             ))
             logging.getLogger().addHandler(file_handler)
             logger.info("App log file enabled: %s", log_dir / "hydra.log")
-
-        # OPSEC: wipe previous session data on start if configured
-        if self._cfg.getboolean("logging", "wipe_on_start", fallback=False):
-            import shutil
-            log_dir = Path(self._cfg.get("logging", "log_dir", fallback="./output_data/logs"))
-            image_dir = Path(self._cfg.get("logging", "image_dir", fallback="./output_data/images"))
-            for d in [log_dir, image_dir]:
-                if d.exists():
-                    for item in d.iterdir():
-                        if item.is_file():
-                            item.unlink()
-                        elif item.is_dir():
-                            shutil.rmtree(item)
-                    logger.info("Wiped previous session data from %s", d)
 
         logger.info("=== Hydra Detect v2.0 starting ===")
 
@@ -605,11 +606,9 @@ class Pipeline:
                         api_token[:8], cfg_path,
                     )
                 except Exception as exc:
-                    logger.warning(
-                        "Auto-generated API token (first 8 chars): %s... — "
-                        "failed to persist to config.ini: %s",
-                        api_token[:8], exc,
-                    )
+                    logger.warning("Could not persist auto-generated API token: %s — auth DISABLED", exc)
+                    self._cfg.set("web", "api_token", "")
+                    api_token = ""
             configure_auth(api_token or None)
 
             # Set initial runtime config for web UI
