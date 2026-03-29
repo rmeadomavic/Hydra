@@ -176,6 +176,7 @@ const HydraApp = (() => {
         if (data.duplicate_callsign && !_duplicateWarningShown) {
             showToast(`DUPLICATE CALLSIGN: another ${data.callsign} detected on network`, 'error');
             _duplicateWarningShown = true;
+        }
 
         // Low-light indicator
         const badge = document.getElementById('low-light-badge');
