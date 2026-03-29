@@ -559,6 +559,20 @@ class Pipeline:
         from .web.config_api import backup_on_boot
         backup_on_boot()
 
+        # Validate config
+        from .config_schema import validate_config
+        validation = validate_config(self._cfg)
+        for err in validation.errors:
+            logger.error("Config error: %s", err)
+        for warn in validation.warnings:
+            logger.warning("Config warning: %s", warn)
+        if not validation.ok:
+            logger.critical(
+                "Config validation failed with %d errors — check config.ini",
+                len(validation.errors),
+            )
+            # Don't hard-exit — let pre-flight checklist show errors on dashboard
+
         # Init subsystems — clean up on partial failure
         try:
             self._detector.load()
@@ -664,6 +678,7 @@ class Pipeline:
                 get_tak_status=self._get_tak_status,
                 get_profiles=self._get_profiles,
                 on_profile_switch=self._handle_profile_switch,
+                get_preflight=self._get_preflight,
             )
 
             stream_state.update_stats(
@@ -1160,6 +1175,137 @@ class Pipeline:
         if self._servo_tracker is not None:
             self._servo_tracker.fire_strike()
         return success
+
+    def _get_preflight(self) -> dict:
+        """Run pre-flight checks and return structured results."""
+        import os
+        checks = []
+
+        # 1. Camera check
+        if self._cam_lost:
+            checks.append({
+                "name": "camera",
+                "status": "fail",
+                "message": "Camera lost — no video feed",
+            })
+        else:
+            source = str(self._camera.source)
+            checks.append({
+                "name": "camera",
+                "status": "pass",
+                "message": f"Camera active on {source}",
+            })
+
+        # 2. MAVLink check
+        if self._mavlink is not None and self._mavlink.connected:
+            gps = self._mavlink.get_gps()
+            fix = gps.get("fix", 0) if gps else 0
+            if fix >= 3:
+                checks.append({
+                    "name": "mavlink",
+                    "status": "pass",
+                    "message": f"MAVLink connected, GPS fix type {fix}",
+                })
+            else:
+                checks.append({
+                    "name": "mavlink",
+                    "status": "warn",
+                    "message": "No GPS fix — autonomous features unavailable",
+                })
+        elif self._mavlink is not None:
+            checks.append({
+                "name": "mavlink",
+                "status": "fail",
+                "message": "MAVLink configured but not connected",
+            })
+        else:
+            checks.append({
+                "name": "mavlink",
+                "status": "warn",
+                "message": "MAVLink disabled in config",
+            })
+
+        # 3. Config validation
+        from .config_schema import validate_config, SCHEMA as _SCHEMA
+        validation = validate_config(self._cfg)
+        if validation.ok and not validation.warnings:
+            checks.append({
+                "name": "config",
+                "status": "pass",
+                "message": f"Config valid ({len(_SCHEMA)} sections checked)",
+            })
+        elif validation.ok:
+            checks.append({
+                "name": "config",
+                "status": "warn",
+                "message": f"{len(validation.warnings)} warning(s): {validation.warnings[0]}",
+            })
+        else:
+            checks.append({
+                "name": "config",
+                "status": "fail",
+                "message": f"{len(validation.errors)} error(s): {validation.errors[0]}",
+            })
+
+        # 4. Model file check
+        model_path = Path(self._detector.model_path)
+        if model_path.exists():
+            size_mb = model_path.stat().st_size / (1024 * 1024)
+            checks.append({
+                "name": "models",
+                "status": "pass",
+                "message": f"{model_path.name} loaded ({size_mb:.1f} MB)",
+            })
+        else:
+            checks.append({
+                "name": "models",
+                "status": "fail",
+                "message": f"Model file not found: {model_path.name}",
+            })
+
+        # 5. Disk space check
+        log_dir = self._cfg.get("logging", "log_dir", fallback="./output_data/logs")
+        try:
+            log_path = Path(log_dir)
+            if not log_path.exists():
+                log_path = Path(".")
+            stat = os.statvfs(str(log_path))
+            free_gb = (stat.f_bavail * stat.f_frsize) / (1024 ** 3)
+            if free_gb < 1.0:
+                checks.append({
+                    "name": "disk",
+                    "status": "fail",
+                    "message": f"{free_gb:.1f} GB free — critically low",
+                })
+            elif free_gb < 5.0:
+                checks.append({
+                    "name": "disk",
+                    "status": "warn",
+                    "message": f"{free_gb:.1f} GB free — consider cleanup",
+                })
+            else:
+                checks.append({
+                    "name": "disk",
+                    "status": "pass",
+                    "message": f"{free_gb:.1f} GB free",
+                })
+        except OSError:
+            checks.append({
+                "name": "disk",
+                "status": "warn",
+                "message": "Could not check disk space",
+            })
+
+        # Compute overall status (worst of all checks)
+        statuses = [c["status"] for c in checks]
+        if "fail" in statuses:
+            overall = "fail"
+        elif "warn" in statuses:
+            overall = "warn"
+        else:
+            overall = "pass"
+
+        return {"checks": checks, "overall": overall}
 
     def _get_active_tracks(self) -> list[dict]:
         """Return current tracked objects as dicts for the web API."""
