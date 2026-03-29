@@ -40,6 +40,8 @@ class ApproachConfig:
     speed_scale_far: float = 1.0        # speed multiplier when far
     speed_scale_near: float = 0.3       # speed multiplier when close
     near_threshold_px: float = 0.4      # bbox area ratio considered "near"
+    abort_mode: str = "LOITER"          # preferred vehicle mode on abort
+    close_stop_bbox: float = 0.5        # bbox area ratio to stop closing
 
 
 class ApproachController:
@@ -108,16 +110,28 @@ class ApproachController:
             self._mode = ApproachMode.IDLE
             self._target_track_id = None
 
-            # Restore vehicle mode or go to LOITER/HOLD
-            try:
-                self._mavlink.set_mode("LOITER")
-            except Exception:
-                pass
+            # Restore vehicle mode — try preferred abort mode with fallbacks
+            abort_mode_set = False
+            if self._mavlink.set_mode(self._cfg.abort_mode):
+                abort_mode_set = True
+            else:
+                for fallback in ["HOLD", "BRAKE", "LOITER", "RTL"]:
+                    if fallback == self._cfg.abort_mode:
+                        continue  # already tried
+                    if self._mavlink.set_mode(fallback):
+                        abort_mode_set = True
+                        break
 
-            logger.info(
-                "Approach ABORTED from %s mode — vehicle set to LOITER",
-                prev_mode.value,
-            )
+            if abort_mode_set:
+                logger.info(
+                    "Approach ABORTED from %s mode — vehicle safed",
+                    prev_mode.value,
+                )
+            else:
+                logger.error(
+                    "Approach ABORTED from %s mode — FAILED to set any safe mode",
+                    prev_mode.value,
+                )
 
     def update(
         self,
@@ -183,10 +197,12 @@ class ApproachController:
             )
             speed = self._cfg.follow_speed_max * scale
 
-        # Check minimum distance (using bbox as proxy)
-        if bbox_area > 0.5:  # Very close — more than half the frame
+        # Check minimum distance (using bbox area as proxy — no depth sensor
+        # available, so we cannot convert to metres directly)
+        if bbox_area > self._cfg.close_stop_bbox:
             logger.debug(
-                "Follow: target very close (bbox=%.2f), holding", bbox_area,
+                "Follow: target very close (bbox=%.2f > %.2f), holding",
+                bbox_area, self._cfg.close_stop_bbox,
             )
             return
 

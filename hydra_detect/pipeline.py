@@ -12,7 +12,7 @@ from collections import deque
 from pathlib import Path
 from typing import Optional
 
-from .approach import ApproachConfig, ApproachController
+from .approach import ApproachConfig, ApproachController, ApproachMode
 from .autonomous import AutonomousController, parse_polygon
 from .servo_tracker import ServoTracker
 from .camera import Camera, list_video_sources
@@ -1086,10 +1086,16 @@ class Pipeline:
         """Start follow mode for a track."""
         if self._approach is None:
             return False
-        # Lock the track first
+        if self._approach.mode != ApproachMode.IDLE:
+            return False
+        # Now safe to lock and start
         if not self._handle_target_lock(track_id, mode="follow"):
             return False
-        return self._approach.start_follow(track_id)
+        if not self._approach.start_follow(track_id):
+            self._handle_target_unlock()  # rollback
+            return False
+        self._lock_mode = "follow"
+        return True
 
     def _handle_abort_command(self) -> None:
         """Abort all autonomous approach activity."""
