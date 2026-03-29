@@ -79,6 +79,36 @@
         </div>
     </div>
 
+    <!-- ── Drop Confirmation Modal ── -->
+    <div class="modal-overlay" id="drop-modal">
+        <div class="modal">
+            <h3 style="color: var(--warning); margin-bottom: var(--gap-md);">Confirm Drop</h3>
+            <p style="margin-bottom: var(--gap-sm);">Target: <strong id="drop-target-label">--</strong></p>
+            <p style="font-size: var(--font-sm); color: var(--text-secondary); margin-bottom: var(--gap-lg);">
+                Vehicle will approach target and release drop servo on arrival. Manual GCS override is always available.
+            </p>
+            <div style="display: flex; gap: var(--gap-sm); justify-content: flex-end;">
+                <button class="btn" id="drop-cancel">Cancel</button>
+                <button class="btn btn-danger" id="drop-confirm">Confirm Drop</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Approach Strike Confirmation Modal ── -->
+    <div class="modal-overlay" id="approach-strike-modal">
+        <div class="modal">
+            <h3 style="color: var(--danger); margin-bottom: var(--gap-md);">Confirm Continuous Strike</h3>
+            <p style="margin-bottom: var(--gap-sm);">Target: <strong id="approach-strike-target-label">--</strong></p>
+            <p style="font-size: var(--font-sm); color: var(--text-secondary); margin-bottom: var(--gap-lg);">
+                Vehicle will continuously approach target at maximum speed with arm engaged. Manual GCS override is always available.
+            </p>
+            <div style="display: flex; gap: var(--gap-sm); justify-content: flex-end;">
+                <button class="btn" id="approach-strike-cancel">Cancel</button>
+                <button class="btn btn-danger" id="approach-strike-confirm">Confirm Strike</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ── Sentience Easter Egg Overlay ── -->
     <div id="sentience-overlay">
         <div id="sentience-terminal"></div>

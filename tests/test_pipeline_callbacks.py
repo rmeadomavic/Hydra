@@ -39,6 +39,7 @@ def _make_pipeline(**overrides) -> Pipeline:
     p._camera.width = 640
     p._mavlink = None
     p._autonomous = None
+    p._approach = None
     p._init_target_state()
     p._running = False
     return p
