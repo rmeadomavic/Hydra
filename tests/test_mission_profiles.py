@@ -223,7 +223,7 @@ class TestDoglegRTL:
         assert result is True
         # A new thread should have been spawned
         time.sleep(0.1)
-        assert rtl.phase in ("offset", "home", "done")
+        assert rtl.phase in ("climb", "offset", "home", "done")
 
     def test_execute_no_gps_returns_false(self):
         """execute() should return False when GPS is unavailable."""
@@ -277,6 +277,7 @@ class TestDoglegRTL:
             home_lat=home[0],
             home_lon=home[1],
             offset_distance_m=200.0,
+            climb_altitude_m=0,  # skip climb phase for test speed
         )
 
         rtl.execute()
