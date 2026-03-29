@@ -31,12 +31,14 @@ class RTSPServer:
         bitrate: int = 2_000_000,
         width: int = 640,
         height: int = 480,
+        bind_address: str = "127.0.0.1",
     ):
         self._port = port
         self._mount = mount if mount.startswith("/") else f"/{mount}"
         self._bitrate = bitrate
         self._width = width
         self._height = height
+        self._bind_address = bind_address
 
         self._server = None
         self._loop = None
@@ -57,7 +59,7 @@ class RTSPServer:
 
     @property
     def url(self) -> str:
-        return f"rtsp://0.0.0.0:{self._port}{self._mount}"
+        return f"rtsp://{self._bind_address}:{self._port}{self._mount}"
 
     def start(self) -> bool:
         if not _GST_AVAILABLE:
@@ -69,6 +71,7 @@ class RTSPServer:
 
         try:
             self._server = GstRtspServer.RTSPServer()
+            self._server.set_address(self._bind_address)
             self._server.set_service(str(self._port))
 
             factory = GstRtspServer.RTSPMediaFactory()

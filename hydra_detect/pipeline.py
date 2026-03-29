@@ -277,6 +277,34 @@ class Pipeline:
                     pan_ch, strike_ch, self._servo_tracker.replaces_yaw,
                 )
 
+        # Validate servo channels against vehicle reserved channels
+        self._servo_channel_error: str | None = None
+        if self._servo_tracker is not None and vehicle:
+            vehicle_section = f"vehicle.{vehicle}"
+            reserved_raw = self._cfg.get(vehicle_section, "reserved_channels", fallback="")
+            if reserved_raw.strip():
+                try:
+                    reserved = {int(c.strip()) for c in reserved_raw.split(",") if c.strip()}
+                    conflicts = []
+                    if pan_ch in reserved:
+                        conflicts.append(f"pan channel {pan_ch}")
+                    if strike_ch in reserved:
+                        conflicts.append(f"strike channel {strike_ch}")
+                    if conflicts:
+                        conflict_msg = ", ".join(conflicts)
+                        logger.critical(
+                            "SAFETY: %s conflicts with %s reserved channels %s — "
+                            "servo tracking DISABLED",
+                            conflict_msg, vehicle, reserved,
+                        )
+                        self._servo_tracker = None
+                        # Store error for pre-flight checklist
+                        self._servo_channel_error = (
+                            f"SAFETY: {conflict_msg} conflicts with {vehicle} reserved channels"
+                        )
+                except ValueError:
+                    logger.warning("Invalid reserved_channels in [%s]: %s", vehicle_section, reserved_raw)
+
         # Autonomous strike controller
         self._autonomous: AutonomousController | None = None
         if self._cfg.getboolean("autonomous", "enabled", fallback=False):
@@ -527,6 +555,10 @@ class Pipeline:
 
         logger.info("=== Hydra Detect v2.0 starting ===")
 
+        # Backup current config on boot for recovery
+        from .web.config_api import backup_on_boot
+        backup_on_boot()
+
         # Init subsystems — clean up on partial failure
         try:
             self._detector.load()
@@ -642,12 +674,14 @@ class Pipeline:
 
         # Start RTSP output
         if self._rtsp_enabled:
+            rtsp_bind = self._cfg.get("rtsp", "bind", fallback="127.0.0.1")
             self._rtsp = RTSPServer(
                 port=self._rtsp_port,
                 mount=self._rtsp_mount,
                 bitrate=self._rtsp_bitrate,
                 width=self._cfg.getint("camera", "width", fallback=640),
                 height=self._cfg.getint("camera", "height", fallback=480),
+                bind_address=rtsp_bind,
             )
             if not self._rtsp.start():
                 logger.warning("RTSP server failed to start — continuing without.")
@@ -1553,13 +1587,26 @@ class Pipeline:
             self._servo_tracker.safe()
         self._camera.close()
         self._detector.unload()
-        self._det_logger.stop()
+        self._det_logger.stop(timeout=2.0)
+        # Send STATUSTEXT shutdown message before closing MAVLink
+        callsign = self._cfg.get("tak", "callsign", fallback="HYDRA")
+        if self._mavlink is not None and self._mavlink.connected:
+            try:
+                self._mavlink.send_statustext(f"{callsign}: SHUTDOWN", severity=5)
+            except Exception:
+                pass  # Best-effort on shutdown
         if self._mavlink is not None:
             self._mavlink.close()
         logger.info("=== Hydra Detect stopped ===")
 
     def _signal_handler(self, sig, frame) -> None:
         logger.info("Signal %s received, stopping.", sig)
+        # Best-effort servo safe on signal
+        if self._servo_tracker is not None:
+            try:
+                self._servo_tracker.safe()
+            except Exception:
+                pass
         self._running = False
 
 

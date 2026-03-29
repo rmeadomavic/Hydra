@@ -92,7 +92,7 @@ class TestRTSPServerLifecycle:
     def test_url_property(self, _mock_gi):
         from hydra_detect.rtsp_server import RTSPServer
         srv = RTSPServer(port=8554, mount="/hydra")
-        assert srv.url == "rtsp://0.0.0.0:8554/hydra"
+        assert srv.url == "rtsp://127.0.0.1:8554/hydra"
 
 
 class TestRTSPGracefulDegradation:
