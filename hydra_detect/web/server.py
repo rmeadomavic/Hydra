@@ -709,6 +709,24 @@ async def api_recent_detections():
     return []
 
 
+@app.get("/api/events")
+async def api_events():
+    """Get event timeline for the current or most recent mission."""
+    cb = stream_state.get_callback("get_events")
+    if cb:
+        return cb()
+    return {"events": []}
+
+
+@app.get("/api/events/status")
+async def api_events_status():
+    """Get event logger mission status."""
+    cb = stream_state.get_callback("get_event_status")
+    if cb:
+        return cb()
+    return {"mission_active": False, "mission_name": None}
+
+
 @app.get("/api/camera/sources")
 async def api_camera_sources():
     """Return available video sources."""

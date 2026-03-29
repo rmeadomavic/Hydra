@@ -21,6 +21,7 @@ from .camera import Camera, list_video_sources
 from .rf.hunt import RFHuntController
 from .rf.kismet_manager import KismetManager
 from .detection_logger import DetectionLogger
+from .event_logger import EventLogger
 from .model_manifest import (
     auto_update_manifest,
     load_manifest,
@@ -585,6 +586,15 @@ class Pipeline:
             model_hash=_model_hash,
         )
 
+        # Event timeline logger (operator actions + vehicle track)
+        self._event_logger = EventLogger(
+            log_dir=self._cfg.get(
+                "logging", "log_dir", fallback="./output_data/logs"
+            ),
+            callsign=self._cfg.get("tak", "callsign", fallback="HYDRA"),
+        )
+        self._event_logger.start_mission("default")
+
         # Web UI
         self._web_enabled = self._cfg.getboolean("web", "enabled", fallback=True)
         self._web_host = self._cfg.get("web", "host", fallback="0.0.0.0")
@@ -855,6 +865,8 @@ class Pipeline:
                 get_approach_status=self._get_approach_status,
                 on_mission_start=self._handle_mission_start,
                 on_mission_end=self._handle_mission_end,
+                get_events=self._get_events,
+                get_event_status=self._event_logger.get_status,
             )
 
             stream_state.update_stats(
@@ -1015,6 +1027,7 @@ class Pipeline:
             if self._cam_fail_count >= self._CAM_FAIL_THRESHOLD and not self._cam_lost:
                 self._cam_lost = True
                 logger.warning("Camera lost — entering degraded mode.")
+                self._event_logger.log_state_change("camera_lost")
                 if self._mavlink is not None:
                     self._mavlink.send_statustext(f"{self._callsign}: CAM LOST", severity=4)
                 if self._autonomous is not None:
@@ -1025,6 +1038,7 @@ class Pipeline:
             self._cam_lost = False
             self._cam_fail_count = 0
             logger.info("Camera restored — exiting degraded mode.")
+            self._event_logger.log_state_change("camera_restored")
             if self._mavlink is not None:
                 self._mavlink.send_statustext(f"{self._callsign}: CAM RESTORED", severity=5)
             if self._autonomous is not None:
@@ -1082,6 +1096,18 @@ class Pipeline:
             gps = None
             if self._mavlink is not None:
                 gps = self._mavlink.get_gps()
+
+            # Vehicle track logging at 1 Hz (rate-limited inside)
+            if gps is not None and gps.get("fix", 0) >= 3:
+                telem = self._mavlink.get_telemetry()
+                self._event_logger.log_vehicle_track(
+                    lat=gps.get("lat", 0.0),
+                    lon=gps.get("lon", 0.0),
+                    alt=gps.get("alt", 0.0),
+                    heading=telem.get("heading"),
+                    speed=telem.get("groundspeed"),
+                    mode=telem.get("vehicle_mode"),
+                )
 
             # MAVLink alerts (per-label throttled)
             if self._mavlink is not None and len(track_result) > 0:
@@ -1350,10 +1376,9 @@ class Pipeline:
             self._mavlink.send_statustext(
                 f"{self._callsign}: TGT LOCK #{track_id} {t.label} [{mode.upper()}]", severity=5
             )
-        if hasattr(self, '_event_logger') and self._event_logger is not None:
-            self._event_logger.log_action("lock", {
-                "track_id": track_id, "label": t.label, "mode": mode,
-            })
+        self._event_logger.log_action("lock", {
+            "track_id": track_id, "label": t.label, "mode": mode,
+        })
         return True
 
     def _handle_target_unlock(self, reason: str = "") -> None:
@@ -1370,10 +1395,9 @@ class Pipeline:
         if self._autonomous is not None:
             self._autonomous._operator_locked_track = None
         if prev_id is not None:
-            if hasattr(self, '_event_logger') and self._event_logger is not None:
-                self._event_logger.log_action("unlock", {
-                    "track_id": prev_id, "reason": reason or "operator",
-                })
+            self._event_logger.log_action("unlock", {
+                "track_id": prev_id, "reason": reason or "operator",
+            })
             if reason == "lost":
                 logger.warning(
                     "Locked target #%d lost from tracker — auto-unlocking.",
@@ -1417,6 +1441,9 @@ class Pipeline:
             self._locked_track_id = track_id
             self._lock_mode = "strike"
         logger.info("STRIKE LOCK: #%d (%s)", track_id, target_track.label)
+        self._event_logger.log_action("strike", {
+            "track_id": track_id, "label": target_track.label,
+        })
 
         # If no MAVLink, just visual — no vehicle command
         if self._mavlink is None:
@@ -1764,6 +1791,12 @@ class Pipeline:
             }
             for t in result
         ]
+
+    def _get_events(self) -> dict:
+        """Return recent events from the current mission."""
+        events = self._event_logger.get_recent_events(max_events=200)
+        status = self._event_logger.get_status()
+        return {"events": events, **status}
 
     def _get_camera_sources(self) -> list[dict]:
         """Return available video sources with current source marked."""
@@ -2231,6 +2264,7 @@ class Pipeline:
         self._camera.close()
         self._detector.unload()
         self._det_logger.stop(timeout=5.0)
+        self._event_logger.stop()
         # Send STATUSTEXT shutdown message before closing MAVLink
         callsign = self._cfg.get("tak", "callsign", fallback="HYDRA")
         if self._mavlink is not None and self._mavlink.connected:
