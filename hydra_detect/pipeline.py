@@ -109,6 +109,14 @@ class Pipeline:
                     vehicle, vehicle_section,
                 )
 
+        # Callsign-based identity: used in STATUSTEXT, logs, TAK, web UI
+        self._callsign = self._cfg.get("tak", "callsign", fallback="HYDRA-1")
+        # Auto-generate callsign from vehicle flag if still default
+        if self._callsign == "HYDRA-1" and vehicle:
+            self._callsign = f"HYDRA-{vehicle.upper()}"
+            logger.info("Auto-callsign from vehicle flag: %s", self._callsign)
+        self._vehicle = vehicle
+
         # Wire the config API to the actual file so the web settings page
         # reads and writes the correct path when --config is non-default.
         set_config_path(Path(config_path).resolve())
@@ -413,16 +421,30 @@ class Pipeline:
             self._cfg.getboolean("tak", "enabled", fallback=False)
             and self._cfg.getboolean("tak", "listen_commands", fallback=False)
         ):
+            # Parse allowed callsigns (comma-separated, empty = disabled)
+            _allowed_raw = self._cfg.get("tak", "allowed_callsigns", fallback="")
+            _allowed_list = [
+                cs.strip() for cs in _allowed_raw.split(",") if cs.strip()
+            ] or None
+            _hmac_secret = self._cfg.get(
+                "tak", "command_hmac_secret", fallback=""
+            ).strip() or None
+
             self._tak_input = TAKInput(
                 listen_port=self._cfg.getint("tak", "listen_port", fallback=6969),
                 multicast_group=self._cfg.get("tak", "multicast_group", fallback="239.2.3.1"),
                 on_lock=lambda tid: self._handle_target_lock(tid, mode="track"),
                 on_strike=self._handle_strike_command,
                 on_unlock=self._handle_target_unlock,
+                allowed_callsigns=_allowed_list,
+                hmac_secret=_hmac_secret,
+                my_callsign=self._callsign,
             )
             logger.info(
-                "TAK command listener configured: port=%d",
+                "TAK command listener configured: port=%d, allowed=%s, hmac=%s",
                 self._cfg.getint("tak", "listen_port", fallback=6969),
+                _allowed_list or "NONE (commands disabled)",
+                "enabled" if _hmac_secret else "disabled",
             )
 
         # Logger
@@ -437,14 +459,23 @@ class Pipeline:
         except Exception as exc:
             logger.warning("Could not compute model hash: %s", exc)
 
+        # Use callsign in log directory path for multi-instance separation
+        _base_log_dir = self._cfg.get("logging", "log_dir", fallback="/data/logs")
+        _base_image_dir = self._cfg.get("logging", "image_dir", fallback="/data/images")
+        _base_crop_dir = self._cfg.get("logging", "crop_dir", fallback="/data/crops")
+        if self._callsign and self._callsign != "HYDRA-1":
+            _base_log_dir = str(Path(_base_log_dir).parent / self._callsign / Path(_base_log_dir).name)
+            _base_image_dir = str(Path(_base_image_dir).parent / self._callsign / Path(_base_image_dir).name)
+            _base_crop_dir = str(Path(_base_crop_dir).parent / self._callsign / Path(_base_crop_dir).name)
+
         self._det_logger = DetectionLogger(
-            log_dir=self._cfg.get("logging", "log_dir", fallback="/data/logs"),
+            log_dir=_base_log_dir,
             log_format=self._cfg.get("logging", "log_format", fallback="jsonl"),
             save_images=self._cfg.getboolean("logging", "save_images", fallback=True),
-            image_dir=self._cfg.get("logging", "image_dir", fallback="/data/images"),
+            image_dir=_base_image_dir,
             image_quality=self._cfg.getint("logging", "image_quality", fallback=90),
             save_crops=self._cfg.getboolean("logging", "save_crops", fallback=False),
-            crop_dir=self._cfg.get("logging", "crop_dir", fallback="/data/crops"),
+            crop_dir=_base_crop_dir,
             max_log_size_mb=self._cfg.getfloat("logging", "max_log_size_mb", fallback=10.0),
             max_log_files=self._cfg.getint("logging", "max_log_files", fallback=20),
             model_hash=_model_hash,
@@ -730,7 +761,7 @@ class Pipeline:
                 self._cam_lost = True
                 logger.warning("Camera lost — entering degraded mode.")
                 if self._mavlink is not None:
-                    self._mavlink.send_statustext("HYDRA: CAM LOST", severity=4)
+                    self._mavlink.send_statustext(f"{self._callsign}: CAM LOST", severity=4)
                 if self._autonomous is not None:
                     self._autonomous.suppressed = True
             return None
@@ -740,7 +771,7 @@ class Pipeline:
             self._cam_fail_count = 0
             logger.info("Camera restored — exiting degraded mode.")
             if self._mavlink is not None:
-                self._mavlink.send_statustext("HYDRA: CAM RESTORED", severity=5)
+                self._mavlink.send_statustext(f"{self._callsign}: CAM RESTORED", severity=5)
             if self._autonomous is not None:
                 self._autonomous.suppressed = False
         else:
@@ -891,7 +922,11 @@ class Pipeline:
                     "mavlink": self._mavlink is not None and self._mavlink.connected,
                     "camera_source": str(self._camera.source),
                     "camera_ok": not self._cam_lost,
+                    "callsign": self._callsign,
                 }
+                # Expose duplicate callsign flag from TAK input
+                if self._tak_input is not None:
+                    stats_update["duplicate_callsign"] = self._tak_input._duplicate_callsign
                 if self._mavlink is not None:
                     telem = self._mavlink.get_telemetry()
                     stats_update["vehicle_mode"] = telem.get("vehicle_mode")
@@ -977,7 +1012,7 @@ class Pipeline:
             return False
         success = self._mavlink.set_mode(mode)
         if success:
-            self._mavlink.send_statustext(f"MODE CMD: {mode}", severity=5)
+            self._mavlink.send_statustext(f"{self._callsign}: MODE {mode}", severity=5)
         return success
 
     def _handle_alert_classes_change(self, classes: list[str]) -> None:
@@ -1014,7 +1049,7 @@ class Pipeline:
         )
         if self._mavlink is not None:
             self._mavlink.send_statustext(
-                f"TGT LOCK: #{track_id} {t.label} [{mode.upper()}]", severity=5
+                f"{self._callsign}: TGT LOCK #{track_id} {t.label} [{mode.upper()}]", severity=5
             )
         return True
 
@@ -1039,12 +1074,12 @@ class Pipeline:
                 )
                 if self._mavlink is not None:
                     self._mavlink.send_statustext(
-                        f"TGT LOST: #{prev_id} — lock released", severity=4
+                        f"{self._callsign}: TGT LOST #{prev_id}", severity=4
                     )
             else:
                 logger.info("Target UNLOCKED: #%d", prev_id)
                 if self._mavlink is not None:
-                    self._mavlink.send_statustext("TGT LOCK RELEASED", severity=5)
+                    self._mavlink.send_statustext(f"{self._callsign}: TGT RELEASED", severity=5)
                     self._mavlink.clear_roi()
         if self._servo_tracker is not None:
             self._servo_tracker.safe()
@@ -1218,7 +1253,7 @@ class Pipeline:
                     logger.error("Model %s not in manifest — rejecting", model_name)
                     if self._mavlink is not None:
                         self._mavlink.send_statustext(
-                            f"MODEL REJECTED: {model_name} not in manifest", severity=3
+                            f"{self._callsign}: MODEL REJECTED {model_name}", severity=3
                         )
                     return False
                 ok, reason = validate_model(entry, model_dirs)
@@ -1226,7 +1261,7 @@ class Pipeline:
                     logger.error("Model validation failed for %s: %s", model_name, reason)
                     if self._mavlink is not None:
                         self._mavlink.send_statustext(
-                            f"MODEL FAIL: {model_name} ({reason[:30]})", severity=3
+                            f"{self._callsign}: MODEL FAIL {model_name}", severity=3
                         )
                     return False
                 break  # only check first manifest found
