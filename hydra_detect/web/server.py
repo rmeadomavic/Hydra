@@ -269,6 +269,20 @@ async def api_health():
     )
 
 
+@app.get("/api/preflight")
+async def api_preflight():
+    """Run pre-flight checks and return structured results.
+
+    Returns a JSON object with a list of checks (camera, mavlink, config,
+    models, disk) and an overall status (pass/warn/fail).  Designed for
+    student-facing error reporting before a mission.
+    """
+    cb = stream_state.get_callback("get_preflight")
+    if cb:
+        return cb()
+    return {"checks": [], "overall": "fail"}
+
+
 @app.get("/api/stats")
 async def api_stats():
     """Return current pipeline statistics as JSON."""
