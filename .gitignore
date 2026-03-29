@@ -28,5 +28,8 @@ output_data/
 docs/reference/
 docs/sorcc manuals/
 
+# TLS certificates (auto-generated)
+certs/
+
 # Claude Code / Superpowers
 .superpowers/
