@@ -158,6 +158,12 @@ const HydraApp = (() => {
     function updateTopBarStats(data) {
         const fpsEl = document.getElementById('fps-display');
         if (fpsEl) fpsEl.textContent = `${(data.fps || 0).toFixed(1)} FPS`;
+
+        // Low-light indicator
+        const badge = document.getElementById('low-light-badge');
+        if (badge) {
+            badge.classList.toggle('visible', !!data.low_light);
+        }
     }
 
     function updateConnectionStatus(connected) {
@@ -366,6 +372,9 @@ const HydraApp = (() => {
     }
 
     // ── MJPEG Stream — deferred load + thumbnail sync ──
+    let lastFrameTime = Date.now();
+    let staleTimer = null;
+
     function initStreamWatcher() {
         const streamImg = document.getElementById('mjpeg-stream');
         if (!streamImg) return;
@@ -380,6 +389,9 @@ const HydraApp = (() => {
         streamImg.addEventListener('load', () => {
             const lost = document.getElementById('ops-stream-lost');
             if (lost) lost.style.display = 'none';
+            // Stale video: reset on each frame
+            lastFrameTime = Date.now();
+            hideStaleOverlay();
         });
 
         // Deferred start — single MJPEG connection (no duplicate for thumbnail)
@@ -399,6 +411,84 @@ const HydraApp = (() => {
                 }
             }, 2000);
         }
+
+        // Stale video detection — check every second
+        setupStaleVideoDetection(streamImg);
+    }
+
+    function setupStaleVideoDetection(streamImg) {
+        staleTimer = setInterval(() => {
+            const elapsed = (Date.now() - lastFrameTime) / 1000;
+            if (elapsed > 10) {
+                showStaleOverlay('VIDEO LOST', true);
+            } else if (elapsed > 2) {
+                showStaleOverlay(`VIDEO STALE \u2014 last frame ${Math.round(elapsed)}s ago`, false);
+            }
+        }, 1000);
+    }
+
+    function showStaleOverlay(message, critical) {
+        let overlay = document.getElementById('stale-video-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'stale-video-overlay';
+            const streamImg = document.getElementById('mjpeg-stream');
+            const streamContainer = streamImg ? streamImg.parentElement : null;
+            if (streamContainer) {
+                streamContainer.style.position = 'relative';
+                streamContainer.appendChild(overlay);
+            }
+        }
+        overlay.textContent = message;
+        overlay.className = critical ? 'stale-overlay critical' : 'stale-overlay warning';
+        overlay.style.display = 'flex';
+    }
+
+    function hideStaleOverlay() {
+        const overlay = document.getElementById('stale-video-overlay');
+        if (overlay) overlay.style.display = 'none';
+    }
+
+    // ── Adaptive MJPEG Quality ──
+    let lowBandwidthMode = false;
+    let adaptiveFrameTimes = [];
+
+    function initAdaptiveQuality() {
+        const streamImg = document.getElementById('mjpeg-stream');
+        if (!streamImg) return;
+
+        // Track frame delivery rate for adaptive quality
+        streamImg.addEventListener('load', () => {
+            const now = Date.now();
+            adaptiveFrameTimes.push(now);
+            // Keep last 30 frame timestamps
+            if (adaptiveFrameTimes.length > 30) adaptiveFrameTimes.shift();
+        });
+
+        // Auto-adapt every 5 seconds
+        setInterval(() => {
+            if (lowBandwidthMode || adaptiveFrameTimes.length < 5) return;
+            const recent = adaptiveFrameTimes.slice(-10);
+            if (recent.length < 2) return;
+            const elapsed = (recent[recent.length - 1] - recent[0]) / 1000;
+            const fps = (recent.length - 1) / elapsed;
+            // If delivered FPS drops below 3, reduce quality
+            if (fps < 3) {
+                apiGet('/api/stream/quality').then(data => {
+                    if (data && data.quality > 30) {
+                        apiPost('/api/stream/quality', { quality: data.quality - 10 });
+                    }
+                });
+            }
+        }, 5000);
+    }
+
+    function toggleLowBandwidth() {
+        lowBandwidthMode = !lowBandwidthMode;
+        const btn = document.getElementById('bandwidth-toggle');
+        if (btn) btn.classList.toggle('active', lowBandwidthMode);
+        const quality = lowBandwidthMode ? 30 : 70;
+        apiPost('/api/stream/quality', { quality });
     }
 
     // ── Init ──
@@ -408,6 +498,7 @@ const HydraApp = (() => {
         initKonamiListener();
         initModalEscape();
         initStreamWatcher();
+        initAdaptiveQuality();
         updatePollers();
     }
 
@@ -426,5 +517,6 @@ const HydraApp = (() => {
         apiGet,
         authHeaders,
         setApiToken,
+        toggleLowBandwidth,
     };
 })();

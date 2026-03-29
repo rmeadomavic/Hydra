@@ -154,10 +154,28 @@ const HydraSettings = (() => {
         const applyBtn = document.getElementById('settings-apply');
         const resetBtn = document.getElementById('settings-reset');
         const restoreBtn = document.getElementById('settings-restore');
+        const restartBtn = document.getElementById('settings-restart-btn');
 
         if (applyBtn) applyBtn.addEventListener('click', handleApply);
         if (resetBtn) resetBtn.addEventListener('click', handleReset);
         if (restoreBtn) restoreBtn.addEventListener('click', handleRestore);
+        if (restartBtn) restartBtn.addEventListener('click', handleRestart);
+    }
+
+    async function handleRestart() {
+        const warning = document.getElementById('settings-restart-warning');
+        if (warning && warning.style.display === 'none') {
+            warning.style.display = '';
+            return;
+        }
+        const btn = document.getElementById('settings-restart-btn');
+        if (btn) btn.disabled = true;
+        const result = await HydraApp.apiPost('/api/restart', {});
+        if (result && result.status === 'restarting') {
+            HydraApp.showToast('Pipeline restarting...', 'info');
+        }
+        if (warning) warning.style.display = 'none';
+        if (btn) setTimeout(() => { btn.disabled = false; }, 5000);
     }
 
     function clearElement(el) {

@@ -36,6 +36,10 @@
         <button class="btn btn-green" id="settings-apply">Apply Changes</button>
         <button class="btn" id="settings-reset">Reset to Saved</button>
         <button class="btn" id="settings-restore" title="Restore from last backup">Restore Backup</button>
+        <button class="btn btn-danger" id="settings-restart-btn" title="Restart the detection pipeline">Restart Pipeline</button>
+    </div>
+    <div class="settings-restart-warning" id="settings-restart-warning" style="display:none;">
+        <span style="color:var(--warning);font-size:var(--font-sm);">This will briefly interrupt detection while the pipeline reinitializes.</span>
     </div>
 
     <div class="settings-footer" id="settings-power-footer" style="display:none;">

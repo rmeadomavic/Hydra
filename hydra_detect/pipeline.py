@@ -12,6 +12,8 @@ from collections import deque
 from pathlib import Path
 from typing import Optional
 
+import cv2
+
 from .autonomous import AutonomousController, parse_polygon
 from .servo_tracker import ServoTracker
 from .camera import Camera, list_video_sources
@@ -470,6 +472,7 @@ class Pipeline:
 
         self._running = False
         self._paused = False
+        self._restart_requested = False
         self._total_detections = 0
         self._frame_count = 0
         # Camera loss detection (degraded mode)
@@ -480,6 +483,13 @@ class Pipeline:
         self._last_frame_time: float = time.monotonic()
         self._watchdog_max_stall_sec: float = float(
             self._cfg.get("watchdog", "max_stall_sec", fallback="30")
+        )
+        # Low-light brightness monitoring
+        self._last_brightness: float = 0.0
+        self._low_light: bool = False
+        self._low_light_warned: bool = False
+        self._low_light_threshold: float = self._cfg.getfloat(
+            "detector", "low_light_luminance", fallback=40.0
         )
         # Pre-populate the nvpmodel cache synchronously at startup (not in the
         # hot loop, so blocking here is fine) then read sysfs stats.
@@ -632,6 +642,7 @@ class Pipeline:
                 get_tak_status=self._get_tak_status,
                 get_profiles=self._get_profiles,
                 on_profile_switch=self._handle_profile_switch,
+                on_restart_command=self._handle_restart_command,
             )
 
             stream_state.update_stats(
@@ -702,7 +713,52 @@ class Pipeline:
             target=self._watchdog_loop, daemon=True, name="watchdog"
         )
         self._watchdog_thread.start()
-        self._run_loop()
+
+        # Restart-capable outer loop
+        while True:
+            self._restart_requested = False
+            self._running = True
+            self._run_loop()
+            if not self._restart_requested:
+                break
+            # Restart: shut down subsystems, re-read config, re-init, loop back
+            logger.info("=== Pipeline restart requested — reinitializing ===")
+            self._shutdown()
+            try:
+                from .web.config_api import get_config_path
+                self._cfg.read(get_config_path())
+                self._detector = _build_detector(self._cfg, self._models_dir)
+                self._detector.load()
+                self._tracker = ByteTracker(
+                    track_thresh=self._cfg.getfloat("tracker", "track_thresh", fallback=0.5),
+                    track_buffer=self._cfg.getint("tracker", "track_buffer", fallback=30),
+                    match_thresh=self._cfg.getfloat("tracker", "match_thresh", fallback=0.8),
+                    frame_rate=self._cfg.getint("camera", "fps", fallback=30),
+                )
+                self._tracker.init()
+                self._camera = Camera(
+                    source=self._cfg.get("camera", "source", fallback="0"),
+                    width=self._cfg.getint("camera", "width", fallback=640),
+                    height=self._cfg.getint("camera", "height", fallback=480),
+                    fps=self._cfg.getint("camera", "fps", fallback=30),
+                    source_type=self._cfg.get("camera", "source_type", fallback="auto"),
+                    video_standard=self._cfg.get("camera", "video_standard", fallback="ntsc"),
+                )
+                if not self._camera.open():
+                    logger.error("Camera failed to reopen after restart — aborting.")
+                    break
+                self._det_logger.start()
+                self._cam_fail_count = 0
+                self._cam_lost = False
+                self._total_detections = 0
+                self._frame_count = 0
+                self._last_frame_time = time.monotonic()
+                self._low_light_warned = False
+                self._init_target_state()
+                logger.info("=== Pipeline restarted successfully ===")
+            except Exception as exc:
+                logger.error("Restart failed: %s — shutting down.", exc)
+                break
 
     # ------------------------------------------------------------------
     def _watchdog_loop(self) -> None:
@@ -761,6 +817,25 @@ class Pipeline:
             if frame is None:
                 time.sleep(0.01)
                 continue
+
+            # Brightness monitoring (cheap: single-channel mean, no copy)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            self._last_brightness = float(gray.mean())
+            was_low = self._low_light
+            self._low_light = self._last_brightness < self._low_light_threshold
+            if self._low_light and not self._low_light_warned:
+                self._low_light_warned = True
+                logger.warning(
+                    "Low light detected: brightness=%.1f (threshold=%.1f)",
+                    self._last_brightness, self._low_light_threshold,
+                )
+                if self._mavlink is not None:
+                    self._mavlink.send_statustext(
+                        f"HYDRA: LOW LIGHT ({self._last_brightness:.0f})", severity=4
+                    )
+            elif not self._low_light and was_low:
+                self._low_light_warned = False
+                logger.info("Light level restored: brightness=%.1f", self._last_brightness)
 
             # Detect
             det_result = self._detector.detect(frame)
@@ -889,6 +964,8 @@ class Pipeline:
                     "active_tracks": len(track_result),
                     "total_detections": total_det,
                     "mavlink": self._mavlink is not None and self._mavlink.connected,
+                    "brightness": round(self._last_brightness, 1),
+                    "low_light": self._low_light,
                     "camera_source": str(self._camera.source),
                     "camera_ok": not self._cam_lost,
                 }
@@ -1518,6 +1595,12 @@ class Pipeline:
             "callsign": self._cfg.get("tak", "callsign", fallback="HYDRA-1"),
             "events_sent": 0,
         }
+
+    def _handle_restart_command(self) -> None:
+        """Request a pipeline restart. Sets a flag; the main loop handles the actual restart."""
+        logger.info("Restart command received from web UI.")
+        self._restart_requested = True
+        self._running = False
 
     def _handle_stop_command(self) -> None:
         """Stop the pipeline gracefully from the web UI."""
