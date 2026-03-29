@@ -955,12 +955,15 @@ async def review_page(request: Request):
 
 @app.get("/api/review/logs")
 async def api_review_logs():
-    """List available detection log files."""
+    """List available detection log files and event timeline files."""
+    import json as _json
+
     cb = stream_state.get_callback("get_log_dir")
     log_dir = cb() if cb else "/data/logs"
     image_dir_cb = stream_state.get_callback("get_image_dir")
     image_dir = image_dir_cb() if image_dir_cb else "/data/images"
     result = []
+    event_logs = []
     log_path = Path(log_dir)
     if log_path.is_dir():
         for f in sorted(log_path.iterdir(), reverse=True):
@@ -970,7 +973,21 @@ async def api_review_logs():
                     "size_kb": round(f.stat().st_size / 1024, 1),
                     "modified": f.stat().st_mtime,
                 })
-    return {"logs": result, "image_dir": image_dir}
+        # Scan for event timeline JSONL files
+        for f in sorted(log_path.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
+            try:
+                with open(f) as fh:
+                    first_line = fh.readline().strip()
+                    if first_line:
+                        record = _json.loads(first_line)
+                        if record.get("type") in ("mission_start", "track", "action", "state"):
+                            event_logs.append({
+                                "filename": f.name,
+                                "size_kb": round(f.stat().st_size / 1024, 1),
+                            })
+            except Exception:
+                continue
+    return {"logs": result, "event_logs": event_logs, "image_dir": image_dir}
 
 
 @app.get("/api/review/log/{filename}")
@@ -1019,6 +1036,36 @@ async def api_review_log(filename: str):
                 records.append(row)
 
     return {"filename": filename, "count": len(records), "detections": records}
+
+
+@app.get("/api/review/events/{filename}")
+async def api_review_events(filename: str):
+    """Return events from an event timeline JSONL file."""
+    import json as _json
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return JSONResponse({"error": "invalid filename"}, status_code=400)
+
+    cb = stream_state.get_callback("get_log_dir")
+    log_dir = Path(cb() if cb else "/data/logs")
+    filepath = log_dir / filename
+
+    if not filepath.exists() or not filepath.suffix == ".jsonl":
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    events: list = []
+    try:
+        with open(filepath) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        events.append(_json.loads(line))
+                    except _json.JSONDecodeError:
+                        continue
+    except Exception:
+        return JSONResponse({"error": "read error"}, status_code=500)
+
+    return {"events": events, "filename": filename}
 
 
 @app.get("/api/logs")
