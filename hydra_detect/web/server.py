@@ -527,6 +527,123 @@ async def api_strike_command(request: Request, authorization: Optional[str] = He
     return JSONResponse({"error": "strike not available"}, status_code=503)
 
 
+# -- Approach mode endpoints (Follow / Drop / Strike continuous) -----------
+
+@app.get("/api/approach/status")
+async def api_approach_status():
+    """Return current approach controller status."""
+    cb = stream_state.get_callback("get_approach_status")
+    if cb:
+        return cb()
+    return {"mode": "idle", "active": False}
+
+
+@app.post("/api/approach/follow/{track_id}")
+async def api_approach_follow(
+    track_id: int, request: Request, authorization: Optional[str] = Header(None),
+):
+    """Start follow mode for a tracked target."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    cb = stream_state.get_callback("on_follow_command")
+    if cb:
+        result = cb(track_id)
+        if result:
+            _audit(request, "approach_follow", target=str(track_id))
+            return {"status": "ok", "track_id": track_id, "mode": "follow"}
+        _audit(request, "approach_follow", target=str(track_id), outcome="failed")
+        return JSONResponse(
+            {"error": "Follow failed — track not found or approach already active"},
+            status_code=503,
+        )
+    _audit(request, "approach_follow", outcome="unavailable")
+    return JSONResponse({"error": "approach controller not available"}, status_code=503)
+
+
+@app.post("/api/approach/drop/{track_id}")
+async def api_approach_drop(
+    track_id: int, request: Request, authorization: Optional[str] = Header(None),
+):
+    """Start drop approach for a tracked target.
+
+    Body (optional): {"confirm": true}
+    """
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    confirm = body.get("confirm", False)
+    if not confirm:
+        return JSONResponse(
+            {"error": "Drop requires explicit confirmation. Set confirm=true."},
+            status_code=400,
+        )
+    cb = stream_state.get_callback("on_drop_command")
+    if cb:
+        result = cb(track_id)
+        if result:
+            _audit(request, "approach_drop", target=str(track_id))
+            return {"status": "ok", "track_id": track_id, "mode": "drop"}
+        _audit(request, "approach_drop", target=str(track_id), outcome="failed")
+        return JSONResponse(
+            {"error": "Drop failed — track not found, no GPS, or approach already active"},
+            status_code=503,
+        )
+    _audit(request, "approach_drop", outcome="unavailable")
+    return JSONResponse({"error": "approach controller not available"}, status_code=503)
+
+
+@app.post("/api/approach/strike/{track_id}")
+async def api_approach_strike(
+    track_id: int, request: Request, authorization: Optional[str] = Header(None),
+):
+    """Start continuous strike approach for a tracked target.
+
+    Body: {"confirm": true}
+    """
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    confirm = body.get("confirm", False)
+    if not confirm:
+        return JSONResponse(
+            {"error": "Strike requires explicit confirmation. Set confirm=true."},
+            status_code=400,
+        )
+    cb = stream_state.get_callback("on_approach_strike_command")
+    if cb:
+        result = cb(track_id)
+        if result:
+            _audit(request, "approach_strike", target=str(track_id))
+            return {"status": "ok", "track_id": track_id, "mode": "strike"}
+        _audit(request, "approach_strike", target=str(track_id), outcome="failed")
+        return JSONResponse(
+            {"error": "Strike failed — track not found or approach already active"},
+            status_code=503,
+        )
+    _audit(request, "approach_strike", outcome="unavailable")
+    return JSONResponse({"error": "approach controller not available"}, status_code=503)
+
+
+@app.post("/api/approach/abort")
+async def api_approach_abort(
+    request: Request, authorization: Optional[str] = Header(None),
+):
+    """Abort the current approach mode and safe all channels."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    cb = stream_state.get_callback("on_approach_abort")
+    if cb:
+        cb()
+        _audit(request, "approach_abort")
+        return {"status": "ok"}
+    _audit(request, "approach_abort", outcome="unavailable")
+    return JSONResponse({"error": "approach controller not available"}, status_code=503)
+
+
 @app.get("/api/detections")
 async def api_recent_detections():
     """Return recent detection log entries."""

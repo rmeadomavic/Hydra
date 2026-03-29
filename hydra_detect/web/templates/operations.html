@@ -80,8 +80,37 @@
             <div class="panel-track-list" id="ctrl-track-list">
                 <div class="panel-track-empty">No tracks</div>
             </div>
+            <div class="panel-approach-status" id="ctrl-approach-status" style="display:none;">
+                <div class="panel-stat-grid panel-stat-grid-3">
+                    <div class="panel-stat">
+                        <span class="panel-stat-label">Mode</span>
+                        <span class="panel-stat-value mono accent" id="ctrl-approach-mode">--</span>
+                    </div>
+                    <div class="panel-stat">
+                        <span class="panel-stat-label">Elapsed</span>
+                        <span class="panel-stat-value mono" id="ctrl-approach-elapsed">--</span>
+                    </div>
+                    <div class="panel-stat">
+                        <span class="panel-stat-label">Waypoints</span>
+                        <span class="panel-stat-value mono" id="ctrl-approach-wp">--</span>
+                    </div>
+                </div>
+                <div id="ctrl-approach-arm-status" style="display:none; margin-top:var(--gap-sm);">
+                    <div class="panel-stat-grid">
+                        <div class="panel-stat">
+                            <span class="panel-stat-label">SW ARM</span>
+                            <span class="panel-stat-value mono" id="ctrl-approach-sw-arm">SAFE</span>
+                        </div>
+                        <div class="panel-stat">
+                            <span class="panel-stat-label">HW ARM</span>
+                            <span class="panel-stat-value mono" id="ctrl-approach-hw-arm">N/A</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <div class="panel-target-actions">
                 <button class="btn" id="ctrl-btn-release" disabled>Release Lock</button>
+                <button class="btn btn-danger" id="ctrl-btn-approach-abort" style="display:none;">Abort Approach</button>
             </div>
         </div>
     </div>
