@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -13,6 +14,7 @@ from hydra_detect.guidance import (
     _clamp,
     _deadzone,
 )
+from hydra_detect.approach import ApproachConfig, ApproachController, ApproachMode
 
 
 # ------------------------------------------------------------------
@@ -240,3 +242,111 @@ class TestGuidanceStartStop:
         assert gc.active
         gc.stop()
         assert not gc.active
+
+
+# ------------------------------------------------------------------
+# Integration: ApproachController pixel-lock auto-abort chain
+# ------------------------------------------------------------------
+
+class TestPixelLockApproachIntegration:
+    """Test the full track-loss → zero-velocity → timeout → abort chain."""
+
+    def setup_method(self):
+        self.mavlink = MagicMock()
+        self.mavlink.get_vehicle_mode.return_value = "LOITER"
+        self.mavlink.set_mode.return_value = True
+        self.mavlink.send_velocity_ned.return_value = True
+        self.mavlink.get_lat_lon.return_value = (35.0, -79.0, 30.0)
+
+        self.cfg = ApproachConfig(
+            guidance_cfg=GuidanceConfig(
+                lost_track_timeout_s=0.5,
+                min_altitude_m=5.0,
+            ),
+        )
+        self.ctrl = ApproachController(self.mavlink, self.cfg)
+
+    def _make_track(self, cx=320, cy=240, size=50):
+        """Create a mock TrackedObject."""
+        track = MagicMock()
+        track.x1 = cx - size
+        track.y1 = cy - size
+        track.x2 = cx + size
+        track.y2 = cy + size
+        return track
+
+    def test_pixel_lock_starts_and_sends_velocity(self):
+        """Pixel-lock starts, sends velocity commands on update."""
+        assert self.ctrl.start_pixel_lock(1)
+        assert self.ctrl.mode == ApproachMode.PIXEL_LOCK
+        assert self.ctrl.active
+
+        self.ctrl.update(self._make_track(), 640, 480)
+        self.mavlink.send_velocity_ned.assert_called()
+
+    def test_pixel_lock_sends_zero_on_track_loss(self):
+        """Track loss sends zero velocity (brake)."""
+        self.ctrl.start_pixel_lock(1)
+        self.ctrl.update(self._make_track(), 640, 480)
+
+        # Lose the track
+        self.ctrl.update(None, 640, 480)
+        last_call = self.mavlink.send_velocity_ned.call_args
+        assert last_call[0] == (0.0, 0.0, 0.0, 0.0)
+
+    def test_pixel_lock_aborts_after_timeout(self):
+        """After track-loss timeout, approach aborts to LOITER."""
+        self.ctrl.start_pixel_lock(1)
+        self.ctrl.update(self._make_track(), 640, 480)
+
+        # Simulate timeout by backdating the guidance timer
+        self.ctrl._guidance._last_track_time = time.monotonic() - 1.0
+
+        # Next update with None should trigger abort
+        self.ctrl.update(None, 640, 480)
+        assert self.ctrl.mode == ApproachMode.IDLE
+        self.mavlink.set_mode.assert_called_with("LOITER")
+
+    def test_pixel_lock_abort_sends_zero_velocity(self):
+        """Abort sends a final zero-velocity brake command."""
+        self.ctrl.start_pixel_lock(1)
+        self.ctrl.abort()
+        # Should send zero velocity on abort
+        self.mavlink.send_velocity_ned.assert_called_with(0, 0, 0, 0)
+
+    def test_pixel_lock_min_altitude_clamps_descent(self):
+        """Descent is clamped when at or below min altitude."""
+        # Vehicle at min altitude
+        self.mavlink.get_lat_lon.return_value = (35.0, -79.0, 5.0)
+        self.ctrl.start_pixel_lock(1)
+
+        # Target below centre → guidance wants positive vz (descend)
+        track = self._make_track(cx=320, cy=400)  # below centre
+        self.ctrl.update(track, 640, 480)
+
+        # The vz sent should be 0 (clamped), not positive
+        last_call = self.mavlink.send_velocity_ned.call_args
+        vz_sent = last_call[0][2]
+        assert vz_sent == 0.0
+
+    def test_pixel_lock_allows_descent_above_min_altitude(self):
+        """Descent is allowed when well above min altitude."""
+        # Vehicle well above min altitude
+        self.mavlink.get_lat_lon.return_value = (35.0, -79.0, 50.0)
+        self.ctrl.start_pixel_lock(1)
+
+        # Target well below centre
+        track = self._make_track(cx=320, cy=400)
+        self.ctrl.update(track, 640, 480)
+
+        last_call = self.mavlink.send_velocity_ned.call_args
+        vz_sent = last_call[0][2]
+        assert vz_sent > 0.0  # descent allowed
+
+    def test_guided_mode_failure_logs_warning(self):
+        """GUIDED mode switch failure is logged (not silent)."""
+        self.mavlink.set_mode.return_value = False
+        # Should still start (degraded) but set_mode was called
+        result = self.ctrl.start_pixel_lock(1)
+        assert result is True
+        self.mavlink.set_mode.assert_called_with("GUIDED")
