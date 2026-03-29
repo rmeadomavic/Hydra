@@ -561,6 +561,32 @@ class MAVLinkIO:
             logger.warning("Failed to clear ROI: %s", exc)
 
     # ------------------------------------------------------------------
+    # Speed control
+    # ------------------------------------------------------------------
+    def command_do_change_speed(self, speed_m_s: float) -> bool:
+        """Set vehicle ground speed via MAV_CMD_DO_CHANGE_SPEED."""
+        if self._mav is None:
+            return False
+        try:
+            from pymavlink import mavutil
+
+            with self._send_lock:
+                self._mav.mav.command_long_send(
+                    self._mav.target_system,
+                    self._mav.target_component,
+                    mavutil.mavlink.MAV_CMD_DO_CHANGE_SPEED,
+                    0,          # confirmation
+                    1,          # speed type: ground speed
+                    speed_m_s,
+                    -1,         # throttle (-1 = no change)
+                    0, 0, 0, 0,
+                )
+            return True
+        except Exception as exc:
+            logger.warning("DO_CHANGE_SPEED failed: %s", exc)
+            return False
+
+    # ------------------------------------------------------------------
     # Keep-in-frame: yaw the vehicle to center the target in camera
     # ------------------------------------------------------------------
     def adjust_yaw(self, error_x: float, yaw_rate_max: float = 30.0) -> None:

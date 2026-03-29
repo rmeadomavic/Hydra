@@ -527,6 +527,51 @@ async def api_strike_command(request: Request, authorization: Optional[str] = He
     return JSONResponse({"error": "strike not available"}, status_code=503)
 
 
+# ── Approach / Follow ─────────────────────────────────────────
+
+@app.post("/api/follow/{track_id}")
+async def follow_track(
+    track_id: int,
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Start follow mode on a track."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    cb = stream_state.get_callback("on_follow_command")
+    if cb and cb(track_id):
+        _audit(request, "follow", target=str(track_id))
+        return {"status": "following", "track_id": track_id}
+    _audit(request, "follow", target=str(track_id), outcome="failed")
+    return JSONResponse({"error": "follow not available"}, status_code=400)
+
+
+@app.post("/api/abort")
+async def abort_approach(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Abort all autonomous approach activity."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    cb = stream_state.get_callback("on_abort_command")
+    if cb:
+        cb()
+    _audit(request, "abort")
+    return {"status": "aborted"}
+
+
+@app.get("/api/approach")
+async def get_approach():
+    """Get approach controller status."""
+    cb = stream_state.get_callback("get_approach_status")
+    if cb:
+        return cb()
+    return {"mode": "idle"}
+
+
 @app.get("/api/detections")
 async def api_recent_detections():
     """Return recent detection log entries."""

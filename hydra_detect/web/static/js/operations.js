@@ -201,6 +201,7 @@ const HydraOperations = (() => {
         addClick('ctrl-btn-lock', () => lockTarget());
         addClick('ctrl-btn-strike', () => showStrikeConfirm());
         addClick('ctrl-btn-release', () => unlockTarget());
+        addClick('ctrl-btn-abort', () => abortApproach());
 
         // Pipeline buttons
         addClick('ctrl-btn-pause', () => togglePause());
@@ -325,6 +326,7 @@ const HydraOperations = (() => {
             if (labelEl) labelEl.textContent = '#' + t.track_id + ' ' + (t.label || '');
             if (modeEl) modeEl.textContent = (t.mode || 'track').toUpperCase();
             el.classList.toggle('strike', t.mode === 'strike');
+            el.classList.toggle('follow', t.mode === 'follow');
         } else {
             el.style.display = 'none';
         }
@@ -494,6 +496,17 @@ const HydraOperations = (() => {
                     });
                     actions.appendChild(lockBtn);
 
+                    const followBtn = document.createElement('button');
+                    followBtn.className = 'btn btn-sm track-btn';
+                    followBtn.textContent = 'Follow';
+                    followBtn.style.borderColor = '#1e3a5f';
+                    followBtn.style.color = '#93c5fd';
+                    followBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        startFollow(t.track_id);
+                    });
+                    actions.appendChild(followBtn);
+
                     const strikeBtn = document.createElement('button');
                     strikeBtn.className = 'btn btn-sm btn-danger track-btn';
                     strikeBtn.textContent = 'Strike';
@@ -520,6 +533,9 @@ const HydraOperations = (() => {
                 if (target.mode === 'strike') {
                     lockEl.className = 'panel-lock-indicator strike-active';
                     lockEl.textContent = 'STRIKE: #' + target.track_id + ' ' + (target.label || '');
+                } else if (target.mode === 'follow') {
+                    lockEl.className = 'panel-lock-indicator tracking';
+                    lockEl.textContent = 'FOLLOWING: #' + target.track_id + ' ' + (target.label || '');
                 } else {
                     lockEl.className = 'panel-lock-indicator tracking';
                     lockEl.textContent = 'TRACKING: #' + target.track_id + ' ' + (target.label || '');
@@ -909,6 +925,20 @@ const HydraOperations = (() => {
         if (strikeBtn) strikeBtn.disabled = true;
         if (releaseBtn) releaseBtn.disabled = true;
         if (lockIndicator) lockIndicator.style.display = 'none';
+    }
+
+    async function startFollow(trackId) {
+        const resp = await HydraApp.apiPost('/api/follow/' + trackId, {});
+        if (resp && resp.status === 'following') {
+            HydraApp.showToast('Follow mode started', 'success');
+        }
+    }
+
+    async function abortApproach() {
+        const resp = await HydraApp.apiPost('/api/abort', {});
+        if (resp && resp.status === 'aborted') {
+            HydraApp.showToast('ABORT \u2014 all approach cancelled', 'info');
+        }
     }
 
     function showStrikeConfirm() {
