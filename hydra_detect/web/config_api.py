@@ -211,18 +211,22 @@ def backup_on_boot() -> None:
     logger.info("Config backed up to %s", bak_path)
 
 
+def has_factory() -> bool:
+    """Check if factory defaults file exists."""
+    path = get_config_path()
+    return Path(str(path) + ".factory").exists()
+
+
 def restore_factory() -> bool:
-    """Restore config.ini from config.ini.factory if available."""
+    """Restore config.ini from config.ini.factory. Returns True on success."""
     path = get_config_path()
     factory_path = Path(str(path) + ".factory")
     if not factory_path.exists():
         return False
+    # Back up current config before overwriting
+    bak_path = Path(str(path) + ".bak")
+    if path.exists():
+        shutil.copy2(path, bak_path)
     shutil.copy2(factory_path, path)
     logger.info("Config restored from factory defaults: %s", factory_path)
     return True
-
-
-def has_factory() -> bool:
-    """Check if factory defaults exist."""
-    path = get_config_path()
-    return Path(str(path) + ".factory").exists()

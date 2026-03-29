@@ -193,6 +193,43 @@
     text-decoration: underline;
 }
 
+/* ── Recovery Tools ── */
+.settings-recovery {
+    margin-top: var(--gap-md);
+    padding-top: var(--gap-md);
+    border-top: 2px dashed var(--card-border);
+}
+.settings-recovery-label {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: var(--font-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-dim);
+    margin-bottom: var(--gap-sm);
+}
+.settings-recovery-actions {
+    display: flex;
+    gap: var(--gap-sm);
+    flex-wrap: wrap;
+}
+.btn-recovery {
+    font-size: var(--font-xs);
+    padding: 6px 12px;
+    opacity: 0.7;
+    transition: opacity var(--transition-fast);
+}
+.btn-recovery:hover {
+    opacity: 1;
+}
+.btn-danger-outline {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+.btn-danger-outline:hover {
+    background: var(--danger-bg);
+}
+
 /* ── Responsive ── */
 @media (max-width: 1279px) {
     .settings-nav {
