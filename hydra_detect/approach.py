@@ -83,6 +83,7 @@ class ApproachController:
 
         # Pixel-lock guidance controller
         self._guidance = GuidanceController(cfg.guidance_cfg)
+        self._last_vel_log_time: float = 0.0
 
     # ------------------------------------------------------------------
     # Public — start modes
@@ -170,9 +171,14 @@ class ApproachController:
 
         # Switch to GUIDED mode for velocity commands
         try:
-            self._mavlink.set_mode("GUIDED")
-        except Exception:
-            pass
+            ok = self._mavlink.set_mode("GUIDED")
+            if not ok:
+                logger.warning(
+                    "Pixel-lock: GUIDED mode switch failed — "
+                    "vehicle may not respond to velocity commands"
+                )
+        except Exception as exc:
+            logger.warning("Pixel-lock: GUIDED mode switch error: %s", exc)
 
         self._guidance.start()
         logger.info("Pixel-lock mode STARTED for track #%d", track_id)
@@ -298,6 +304,11 @@ class ApproachController:
             result["track_lost"] = self._guidance.track_lost
 
         return result
+
+    @property
+    def active(self) -> bool:
+        with self._lock:
+            return self._mode != ApproachMode.IDLE
 
     @property
     def mode(self) -> ApproachMode:
@@ -493,12 +504,32 @@ class ApproachController:
 
         cmd = self._guidance.update(error_x, error_y, bbox_ratio)
 
+        # Enforce minimum altitude floor — prevent descent below threshold.
+        # In NED, positive vz = descend.  Clamp to zero if near floor.
+        vz = cmd.vz
+        if vz > 0 and self._cfg.guidance_cfg is not None:
+            min_alt = self._cfg.guidance_cfg.min_altitude_m
+            pos = self._mavlink.get_lat_lon()
+            if pos is not None:
+                _, _, cur_alt = pos
+                if cur_alt is not None and cur_alt <= min_alt:
+                    vz = 0.0
+
         try:
-            self._mavlink.send_velocity_ned(cmd.vx, cmd.vy, cmd.vz, cmd.yaw_rate)
+            self._mavlink.send_velocity_ned(cmd.vx, cmd.vy, vz, cmd.yaw_rate)
             with self._lock:
                 self._waypoints_sent += 1
         except Exception as exc:
             logger.warning("Pixel-lock: velocity command failed: %s", exc)
+
+        # Periodic audit log (every 2 seconds) for post-sortie tuning
+        now = time.monotonic()
+        if now - self._last_vel_log_time >= 2.0:
+            self._last_vel_log_time = now
+            audit_log.info(
+                "PIXEL_LOCK VEL: vx=%.2f vy=%.2f vz=%.2f yaw=%.1f",
+                cmd.vx, cmd.vy, vz, cmd.yaw_rate,
+            )
 
         # Auto-abort if track lost beyond timeout
         if self._guidance.track_lost:

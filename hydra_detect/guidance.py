@@ -27,6 +27,7 @@ class GuidanceConfig:
     max_yaw_rate: float = 45.0  # deg/s
 
     deadzone: float = 0.05      # ignore error below this magnitude
+    smoothing: float = 0.4      # EMA alpha (higher = less smoothing)
     target_bbox_ratio: float = 0.15  # desired target-fills-frame fraction
     lost_track_timeout_s: float = 2.0  # seconds before declaring track lost
     min_altitude_m: float = 5.0  # vz clamped to prevent ground collision
@@ -57,7 +58,7 @@ class GuidanceController:
         # EMA-smoothed errors (reduces jitter)
         self._smooth_ex: float = 0.0
         self._smooth_ey: float = 0.0
-        self._alpha: float = 0.4  # EMA factor (higher = less smoothing)
+        self._alpha: float = self._cfg.smoothing
         # Track loss timer
         self._last_track_time: float = 0.0
         self._active: bool = False

@@ -418,6 +418,7 @@ class Pipeline:
                     max_vert_speed=self._cfg.getfloat("guidance", "max_vert_speed", fallback=1.5),
                     max_yaw_rate=self._cfg.getfloat("guidance", "max_yaw_rate", fallback=45.0),
                     deadzone=self._cfg.getfloat("guidance", "deadzone", fallback=0.05),
+                    smoothing=self._cfg.getfloat("guidance", "smoothing", fallback=0.4),
                     target_bbox_ratio=self._cfg.getfloat(
                         "guidance", "target_bbox_ratio", fallback=0.15),
                     lost_track_timeout_s=self._cfg.getfloat(
@@ -1210,13 +1211,6 @@ class Pipeline:
                     # then auto-aborts).  Other modes unlock immediately.
                     if current_lock_mode != "pixel_lock":
                         self._handle_target_unlock(reason="lost")
-
-            # Approach controller update (Follow / Drop / Strike)
-            if self._approach is not None and current_lock_id is not None:
-                locked_track = track_result.find(current_lock_id)
-                self._approach.update(
-                    locked_track, frame.shape[1], frame.shape[0],
-                )
 
             # Log with GPS data
             self._det_logger.log(track_result, frame, gps=gps)

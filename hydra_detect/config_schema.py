@@ -219,6 +219,7 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
         "max_vert_speed": FieldSpec(FieldType.FLOAT, min_val=0.1, max_val=10.0, default=1.5, description="Max vertical speed m/s"),
         "max_yaw_rate": FieldSpec(FieldType.FLOAT, min_val=1.0, max_val=180.0, default=45.0, description="Max yaw rate deg/s"),
         "deadzone": FieldSpec(FieldType.FLOAT, min_val=0.0, max_val=0.5, default=0.05, description="Error deadzone fraction"),
+        "smoothing": FieldSpec(FieldType.FLOAT, min_val=0.01, max_val=1.0, default=0.4, description="EMA smoothing alpha (higher = less smoothing)"),
         "target_bbox_ratio": FieldSpec(FieldType.FLOAT, min_val=0.01, max_val=1.0, default=0.15, description="Target bbox/frame ratio for approach"),
         "lost_track_timeout_s": FieldSpec(FieldType.FLOAT, min_val=0.1, max_val=30.0, default=2.0, description="Track loss timeout seconds"),
         "min_altitude_m": FieldSpec(FieldType.FLOAT, min_val=0.0, max_val=500.0, default=5.0, description="Minimum altitude floor metres"),
