@@ -126,11 +126,21 @@ class DetectionLogger:
         )
         self._writer_thread.start()
 
-    def stop(self) -> None:
-        """Drain the write queue, join the writer thread, and close log files."""
+    def stop(self, timeout: float | None = None) -> None:
+        """Drain the write queue, join the writer thread, and close log files.
+
+        Args:
+            timeout: Max seconds to wait for the writer thread to finish.
+                     ``None`` means wait indefinitely.
+        """
         if self._writer_thread is not None and self._writer_thread.is_alive():
             self._write_queue.put(_STOP)
-            self._writer_thread.join()
+            self._writer_thread.join(timeout=timeout)
+            if self._writer_thread.is_alive():
+                logging.getLogger(__name__).warning(
+                    "Detection logger writer thread did not finish within %.1fs",
+                    timeout,
+                )
             self._writer_thread = None
 
         self._close_log_file()

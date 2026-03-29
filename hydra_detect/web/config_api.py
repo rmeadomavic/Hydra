@@ -20,7 +20,7 @@ RESTART_REQUIRED_FIELDS = {
     "web": {"host", "port"},
     "mavlink": {"connection_string", "baud", "source_system"},
     "camera": {"source", "width", "height"},
-    "detector": {"yolo_model"},
+    "detector": set(),
 }
 
 # Fields that must be redacted in GET responses
@@ -114,6 +114,8 @@ def write_config(updates: dict[str, dict[str, str]]) -> dict[str, Any]:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
         with open(path, "w") as f:
             config.write(f)
+            f.flush()
+            os.fsync(f.fileno())
         logger.info("Config written to %s (%d fields updated)", path, len(restart_needed))
     finally:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
@@ -137,3 +139,47 @@ def has_backup() -> bool:
     """Check if a config backup exists."""
     path = get_config_path()
     return Path(str(path) + ".bak").exists()
+
+
+def backup_on_boot() -> None:
+    """Copy current config.ini to config.ini.bak on successful boot.
+
+    Only backs up if the config parses successfully — preserves
+    last-known-good .bak when current config is corrupted.
+    """
+    path = get_config_path()
+    if not path.exists():
+        return
+    # Only backup if config parses successfully
+    cfg = configparser.ConfigParser()
+    try:
+        cfg.read(path)
+        if not cfg.sections():
+            logger.warning("Config has no sections — skipping backup")
+            return
+    except configparser.Error:
+        logger.warning(
+            "Config parse error — skipping backup to preserve "
+            "last-known-good .bak"
+        )
+        return
+    bak_path = Path(str(path) + ".bak")
+    shutil.copy2(path, bak_path)
+    logger.info("Config backed up to %s", bak_path)
+
+
+def restore_factory() -> bool:
+    """Restore config.ini from config.ini.factory if available."""
+    path = get_config_path()
+    factory_path = Path(str(path) + ".factory")
+    if not factory_path.exists():
+        return False
+    shutil.copy2(factory_path, path)
+    logger.info("Config restored from factory defaults: %s", factory_path)
+    return True
+
+
+def has_factory() -> bool:
+    """Check if factory defaults exist."""
+    path = get_config_path()
+    return Path(str(path) + ".factory").exists()
