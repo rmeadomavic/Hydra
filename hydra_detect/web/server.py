@@ -1282,8 +1282,16 @@ async def api_setup_devices():
 
 
 @app.post("/api/setup/save")
-async def api_setup_save(request: Request):
-    """Save setup wizard configuration and trigger restart."""
+async def api_setup_save(request: Request, authorization: Optional[str] = Header(None)):
+    """Save setup wizard configuration and trigger restart.
+
+    Auth is enforced when a token is configured (post-first-boot).
+    On first boot (no token), the setup wizard works without auth.
+    """
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+
     import json as _json
     body_bytes = await request.body()
     if len(body_bytes) > MAX_BODY_SIZE:
@@ -1298,6 +1306,11 @@ async def api_setup_save(request: Request):
     vehicle_type = body.get("vehicle_type", "")
     team_number = body.get("team_number", "")
     callsign = body.get("callsign", "")
+
+    # Validate field types before length checks
+    for field in [camera_source, serial_port, vehicle_type, team_number, callsign]:
+        if not isinstance(field, str):
+            return JSONResponse({"error": "All fields must be strings"}, status_code=400)
 
     # Validate inputs — bounded lengths
     if len(camera_source) > 200:
