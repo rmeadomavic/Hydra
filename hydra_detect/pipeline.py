@@ -84,9 +84,17 @@ def _build_detector(cfg: configparser.ConfigParser, models_dir: Path | None = No
 class Pipeline:
     """Top-level orchestrator that ties all modules together."""
 
-    def __init__(self, config_path: str = "config.ini", vehicle: str | None = None):
-        self._cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
-        self._cfg.read(config_path)
+    def __init__(
+        self,
+        config_path: str = "config.ini",
+        vehicle: str | None = None,
+        cfg_override: configparser.ConfigParser | None = None,
+    ):
+        if cfg_override is not None:
+            self._cfg = cfg_override
+        else:
+            self._cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
+            self._cfg.read(config_path)
 
         # Apply vehicle-specific overrides from [vehicle.<name>] sections.
         # Keys use dotted notation: "camera.source" → override [camera] source.
