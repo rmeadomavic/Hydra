@@ -139,7 +139,7 @@ python3 -m hydra_detect --config config.ini --sim
 The `--sim` flag auto-configures:
 - Camera source to `sim_video.mp4` (file playback)
 - MAVLink to `udp:127.0.0.1:14550`
-- Simulated GPS coordinates (Oak Grove, NC)
+- Simulated GPS coordinates (configurable)
 - Disables OSD, servo tracking, and RF homing
 
 Pair with ArduPilot SITL for full integration testing.

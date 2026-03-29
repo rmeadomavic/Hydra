@@ -121,7 +121,7 @@ class AutonomousController:
         # GPS freshness
         gps_max_stale_sec: float = 2.0,
         # Operator lock requirement
-        require_operator_lock: bool = False,
+        require_operator_lock: bool = True,
     ):
         self.enabled = enabled
         self._geofence_lat = geofence_lat

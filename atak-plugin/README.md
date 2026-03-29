@@ -94,7 +94,7 @@ In ATAK: Settings > Tool Preferences > Hydra Target Control
 
 - **Hydra Host URL** — set to your Jetson's IP and port
   - Same WiFi: `http://192.168.0.220:8080`
-  - Tailscale: `http://100.109.160.122:8080`
+  - Tailscale: `http://<JETSON_IP>:8080`
 
 ## Project Structure
 

@@ -21,7 +21,7 @@ Hydra is a real-time object detection and tracking payload for uncrewed vehicles
 
 It runs on an NVIDIA Jetson (or any Linux box with a camera and a MAVLink radio) and integrates with your existing flight stack. No firmware changes required.
 
-Built by [SORCC / Oak Grove Technologies](https://github.com/rmeadomavic/Hydra).
+Built by [SORCC](https://github.com/rmeadomavic/Hydra).
 
 ## Architecture
 

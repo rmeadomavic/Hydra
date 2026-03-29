@@ -311,13 +311,13 @@ List current TAK unicast targets.
 
 Add a unicast target. **Auth**: Yes
 
-**Body**: `{"host": "100.78.5.101", "port": 6969}`
+**Body**: `{"host": "<TAK_TARGET_IP>", "port": 6969}`
 
 ### DELETE /api/tak/targets
 
 Remove a unicast target. **Auth**: Yes
 
-**Body**: `{"host": "100.78.5.101", "port": 6969}`
+**Body**: `{"host": "<TAK_TARGET_IP>", "port": 6969}`
 
 ---
 

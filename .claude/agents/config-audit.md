@@ -137,7 +137,7 @@ Check each config value against these constraints:
 
 If the Jetson is reachable, compare local config vs deployed:
 ```bash
-curl -s http://100.109.160.122:8080/api/config/full
+curl -s http://${HYDRA_JETSON_IP}:8080/api/config/full
 ```
 Report any differences.
 

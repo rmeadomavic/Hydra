@@ -209,6 +209,22 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
         "allowed_callsigns": FieldSpec(FieldType.STRING, default="", description="Comma-separated callsigns allowed to send commands"),
         "command_hmac_secret": FieldSpec(FieldType.STRING, default="", description="HMAC secret for TAK command authentication"),
     },
+    "approach": {
+        "follow_speed_min": FieldSpec(FieldType.FLOAT, min_val=0.0, max_val=30.0, default=2.0, description="Minimum follow speed m/s"),
+        "follow_speed_max": FieldSpec(FieldType.FLOAT, min_val=0.0, max_val=30.0, default=10.0, description="Maximum follow speed m/s"),
+        "follow_distance_m": FieldSpec(FieldType.FLOAT, min_val=1.0, max_val=500.0, default=15.0, description="Follow standoff distance meters"),
+        "follow_yaw_rate_max": FieldSpec(FieldType.FLOAT, min_val=1.0, max_val=180.0, default=30.0, description="Maximum yaw rate degrees/sec"),
+        "abort_mode": FieldSpec(FieldType.STRING, default="LOITER", description="ArduPilot mode on abort"),
+        "waypoint_interval": FieldSpec(FieldType.FLOAT, min_val=0.1, max_val=10.0, default=0.5, description="Minimum seconds between waypoint updates"),
+        "camera_hfov_deg": FieldSpec(FieldType.FLOAT, min_val=10.0, max_val=180.0, default=60.0, description="Camera horizontal FOV degrees"),
+    },
+    "drop": {
+        "servo_channel": FieldSpec(FieldType.INT, min_val=0, max_val=16, default=0, description="Drop servo channel (0 = disabled)"),
+        "pwm_release": FieldSpec(FieldType.INT, min_val=500, max_val=2500, default=1900, description="Drop release PWM value"),
+        "pwm_hold": FieldSpec(FieldType.INT, min_val=500, max_val=2500, default=1100, description="Drop hold PWM value"),
+        "pulse_duration": FieldSpec(FieldType.FLOAT, min_val=0.1, max_val=30.0, default=1.0, description="Drop pulse duration seconds"),
+        "drop_distance_m": FieldSpec(FieldType.FLOAT, min_val=0.5, max_val=100.0, default=3.0, description="Trigger release distance meters"),
+    },
     "guidance": {
         "fwd_gain": FieldSpec(FieldType.FLOAT, min_val=0.0, max_val=20.0, default=2.0, description="Forward velocity gain"),
         "lat_gain": FieldSpec(FieldType.FLOAT, min_val=0.0, max_val=20.0, default=1.5, description="Lateral velocity gain"),

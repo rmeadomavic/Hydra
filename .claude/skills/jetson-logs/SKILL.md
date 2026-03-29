@@ -24,7 +24,7 @@ The Hydra web API exposes `GET /api/logs?lines=N&level=LEVEL` which tails
 Fetch via the Jetson's Tailscale IP:
 
 ```bash
-curl -s 'http://100.109.160.122:8080/api/logs?lines=100&level=INFO'
+curl -s 'http://${HYDRA_JETSON_IP}:8080/api/logs?lines=100&level=INFO'
 ```
 
 Parse the args: first arg is line count (default 100), second is level (default INFO).

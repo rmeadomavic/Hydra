@@ -22,7 +22,7 @@ def _apply_sim_overrides(cfg: configparser.ConfigParser) -> None:
     cfg.set("mavlink", "baud", "115200")
     # Sim GPS for when no SITL is running
     if not cfg.has_option("mavlink", "sim_gps_lat") or not cfg.get("mavlink", "sim_gps_lat").strip():
-        cfg.set("mavlink", "sim_gps_lat", "35.0527")  # Oak Grove, NC
+        cfg.set("mavlink", "sim_gps_lat", "35.0527")  # Default sim location
     if not cfg.has_option("mavlink", "sim_gps_lon") or not cfg.get("mavlink", "sim_gps_lon").strip():
         cfg.set("mavlink", "sim_gps_lon", "-79.4927")
     # Disable hardware-dependent features

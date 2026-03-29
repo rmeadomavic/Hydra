@@ -172,7 +172,7 @@ speculative "what if" ideas.
 
 ## Research Questions
 1. Can Hailo-8L run the same YOLO models as Jetson at acceptable FPS?
-2. What's the realistic WiFi HaLow range in wooded terrain (Oak Grove)?
+2. What's the realistic WiFi HaLow range in wooded terrain (training area)?
 3. Can LoRa carry enough bandwidth for detection alerts + GPS telemetry?
 4. Is Starlink Mini power-viable on a portable battery for 4-hour exercises?
 5. Can Florence-2 / GroundingDINO run on Jetson Orin Nano at >2 FPS?

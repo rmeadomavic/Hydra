@@ -94,12 +94,12 @@ Add the ATAK device's IP to `config.ini`:
 [tak]
 enabled = true
 callsign = HYDRA-1
-unicast_targets = 100.64.0.50:4242
+unicast_targets = <JETSON_IP>:4242
 ```
 
 Multiple targets are comma-separated:
 ```ini
-unicast_targets = 100.64.0.50:4242, 100.64.0.51:4242
+unicast_targets = <JETSON_IP>:4242, <JETSON_IP>:4242
 ```
 
 Use the Tailscale IP, VPN IP, or any routable IP for the ATAK device.

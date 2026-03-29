@@ -83,7 +83,7 @@ tmux attach -t hydra   <-- come right back, full context intact
 
 ### From Home (Windows PC or Laptop)
 ```powershell
-ssh sorcc@100.109.160.122 -t "tmux attach -t hydra || tmux new -s hydra -c ~/Hydra"
+ssh <user>@<JETSON_IP> -t "tmux attach -t hydra || tmux new -s hydra -c ~/Hydra"
 ```
 
 ### Multiple Projects
@@ -101,10 +101,10 @@ tmux attach -t rf-work             # switch sessions
 Add these in Windows Terminal Settings > Add New Profile:
 
 **Jetson Hydra Dev**
-- Command: `ssh sorcc@100.109.160.122 -t "tmux attach -t hydra || tmux new -s hydra -c ~/Hydra"`
+- Command: `ssh <user>@<JETSON_IP> -t "tmux attach -t hydra || tmux new -s hydra -c ~/Hydra"`
 
 **Jetson Scratch**
-- Command: `ssh sorcc@100.109.160.122 -t "tmux attach -t scratch || tmux new -s scratch"`
+- Command: `ssh <user>@<JETSON_IP> -t "tmux attach -t scratch || tmux new -s scratch"`
 
 **Pi RF Monitor** *(replace IP)*
 - Command: `ssh pi@<pi-tailscale-ip> -t "tmux attach -t rf || tmux new -s rf"`

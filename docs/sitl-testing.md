@@ -23,7 +23,7 @@ python -m hydra_detect --config config.ini --sim --camera-source 0
 This gives you:
 - Detection and tracking on video/webcam
 - Web dashboard at http://localhost:8080
-- Simulated GPS at Oak Grove, NC (configurable)
+- Simulated GPS at default training coordinates (configurable)
 - TAK output (if enabled)
 - No MAVLink connection required
 

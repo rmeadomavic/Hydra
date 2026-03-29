@@ -57,11 +57,11 @@ After setup completes, the script prints a summary:
 
 ```text
   ┌──────────────────────────────────────────────┐
-  │  Tailscale IP:  100.64.1.42
+  │  Tailscale IP:  <JETSON_IP>
   │  Hostname:      hydra-jetson
-  │  SSH command:   ssh sorcc@100.64.1.42
+  │  SSH command:   ssh sorcc@<JETSON_IP>
   │  Tailscale SSH: ssh sorcc@hydra-jetson
-  │  Dashboard:     http://100.64.1.42:8080
+  │  Dashboard:     http://<JETSON_IP>:8080
   └──────────────────────────────────────────────┘
 ```
 
@@ -121,13 +121,13 @@ Once both devices are on the same Tailscale network:
 
 ```bash
 # By Tailscale IP
-ssh sorcc@100.64.1.42
+ssh sorcc@<JETSON_IP>
 
 # By Tailscale hostname (if using Tailscale SSH)
 ssh sorcc@hydra-jetson
 
 # Access the dashboard from your browser
-# http://100.64.1.42:8080
+# http://<JETSON_IP>:8080
 ```
 
 <Note>
@@ -192,7 +192,7 @@ If you enabled Tailscale SSH (`--ssh`, the default), you can skip this step. Tai
 
 <Accordion title="Cannot reach Jetson over Tailscale">
 ```
-ssh: connect to host 100.64.1.42 port 22: Connection timed out
+ssh: connect to host <JETSON_IP> port 22: Connection timed out
 ```
 **Fix:** Check that Tailscale is running on both devices:
 ```bash
@@ -218,7 +218,7 @@ sudo tailscale up --login-server=https://controlplane.tailscale.com
 
 <Accordion title="Permission denied (publickey)">
 ```
-sorcc@100.64.1.42: Permission denied (publickey).
+sorcc@<JETSON_IP>: Permission denied (publickey).
 ```
 **Fix:** Password authentication may be disabled. Re-run the setup script to enable it, or use Tailscale SSH:
 ```bash

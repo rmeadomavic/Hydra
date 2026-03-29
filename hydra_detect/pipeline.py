@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import configparser
 import logging
+import os
 import signal
 import sys
 import threading
@@ -254,6 +255,8 @@ class Pipeline:
         self._light_bar_pwm_off = 1100
         self._light_bar_flash_sec = 0.5
         self._light_bar_last_flash: float = 0.0
+        self._auto_loiter_last: float = 0.0
+        self._auto_loiter_cooldown: float = 5.0  # seconds between loiter commands
         if (
             self._mavlink is not None
             and self._cfg.getboolean("alerts", "light_bar_enabled", fallback=False)
@@ -357,7 +360,7 @@ class Pipeline:
                 allowed_vehicle_modes=allowed_modes,
                 gps_max_stale_sec=self._cfg.getfloat("autonomous", "gps_max_stale_sec", fallback=2.0),
                 require_operator_lock=self._cfg.getboolean(
-                    "autonomous", "require_operator_lock", fallback=False
+                    "autonomous", "require_operator_lock", fallback=True
                 ),
             )
             logger.info(
@@ -665,7 +668,11 @@ class Pipeline:
         self._locked_track_id: Optional[int] = None
         self._lock_mode: Optional[str] = None  # "track" or "strike"
         self._last_track_result = None  # Most recent TrackingResult for web API
-        self._servo_tracker = None
+        # Only set _servo_tracker if not already initialized (tests may call
+        # _init_target_state without __init__). Never reset on restart —
+        # it is a hardware object built in __init__.
+        if not hasattr(self, "_servo_tracker"):
+            self._servo_tracker = None
 
         # Mission tagging state
         self._mission_name: str | None = None
@@ -809,6 +816,11 @@ class Pipeline:
                     disk_cfg.set("web", "api_token", api_token)
                     with open(cfg_path, "w") as f:
                         disk_cfg.write(f)
+                    # Restrict config.ini permissions (contains API token)
+                    try:
+                        os.chmod(cfg_path, 0o600)
+                    except OSError:
+                        pass  # Docker or non-POSIX — best effort
                     logger.info(
                         "Auto-generated API token (first 8 chars): %s... — saved to %s",
                         api_token[:8], cfg_path,
@@ -1017,6 +1029,63 @@ class Pipeline:
                 self._last_frame_time = time.monotonic()
                 self._low_light_warned = False
                 self._init_target_state()
+
+                # Reconnect MAVLink (may have dropped during operation)
+                if self._mavlink is not None and not self._mavlink.connected:
+                    logger.info("Reconnecting MAVLink ...")
+                    if self._mavlink.connect():
+                        logger.info("MAVLink reconnected")
+                        self._mavlink.set_command_callbacks(
+                            on_lock=lambda tid: self._handle_target_lock(tid, mode="track"),
+                            on_strike=self._handle_strike_command,
+                            on_unlock=self._handle_target_unlock,
+                        )
+                    else:
+                        logger.warning("MAVLink reconnect failed — continuing without")
+
+                # Restart TAK output if thread died
+                if self._tak is not None:
+                    if self._tak._thread is None or not self._tak._thread.is_alive():
+                        logger.info("Restarting TAK output ...")
+                        if self._tak.start():
+                            logger.info("TAK output restarted")
+                        else:
+                            logger.warning("TAK output restart failed")
+
+                # Restart TAK command listener if thread died
+                if self._tak_input is not None:
+                    if self._tak_input._thread is None or not self._tak_input._thread.is_alive():
+                        logger.info("Restarting TAK command listener ...")
+                        if self._tak_input.start():
+                            logger.info("TAK command listener restarted")
+                        else:
+                            logger.warning("TAK command listener restart failed")
+
+                # Restart RF hunt if it was stopped (check thread, not state)
+                if self._rf_hunt is not None:
+                    if self._rf_hunt._thread is None or not self._rf_hunt._thread.is_alive():
+                        logger.info("Restarting RF hunt ...")
+                        if self._rf_hunt.start():
+                            logger.info("RF hunt restarted")
+                        else:
+                            logger.warning("RF hunt restart failed")
+
+                # Restart RTSP if thread died
+                if self._rtsp is not None and not self._rtsp._running:
+                    logger.info("Restarting RTSP server ...")
+                    if self._rtsp.start():
+                        logger.info("RTSP server restarted")
+                    else:
+                        logger.warning("RTSP restart failed")
+
+                # Restart MAVLink video if thread died
+                if self._mavlink_video is not None and not self._mavlink_video._running:
+                    logger.info("Restarting MAVLink video ...")
+                    if self._mavlink_video.start():
+                        logger.info("MAVLink video restarted")
+                    else:
+                        logger.warning("MAVLink video restart failed")
+
                 logger.info("=== Pipeline restarted successfully ===")
             except Exception as exc:
                 logger.error("Restart failed: %s — shutting down.", exc)
@@ -1149,9 +1218,12 @@ class Pipeline:
                             self._light_bar_flash_sec,
                         )
 
-                # Auto-loiter on detection
+                # Auto-loiter on detection (throttled)
                 if self._mavlink.auto_loiter:
-                    self._mavlink.command_loiter()
+                    now_l = time.monotonic()
+                    if (now_l - self._auto_loiter_last) >= self._auto_loiter_cooldown:
+                        self._auto_loiter_last = now_l
+                        self._mavlink.command_loiter()
 
             # Geo-tracking map markers
             if self._geo_tracker is not None:
@@ -1634,6 +1706,14 @@ class Pipeline:
                 "name": "disk",
                 "status": "warn",
                 "message": "Could not check disk space",
+            })
+
+        # 6. TAK duplicate callsign check
+        if self._tak_input is not None and self._tak_input._duplicate_callsign:
+            checks.append({
+                "name": "callsign",
+                "status": "warn",
+                "message": "Duplicate callsign detected on TAK network — change in config",
             })
 
         # Compute overall status (worst of all checks)

@@ -24,7 +24,7 @@ Examples:
   bash scripts/hydra_sync.sh hydra-jetson
 
   # Sync to a Jetson over Tailscale (by IP)
-  bash scripts/hydra_sync.sh 100.64.1.42
+  bash scripts/hydra_sync.sh <JETSON_IP>
 
   # Sync to a Jetson on the local network (mDNS)
   bash scripts/hydra_sync.sh hydra.local

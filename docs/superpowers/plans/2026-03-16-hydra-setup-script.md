@@ -278,7 +278,7 @@ echo ""
 bash scripts/hydra-setup.sh
 ```
 
-Expected: Preflight passes, then Step 2 prints `[PASS] Tailscale already running (100.109.160.122)` and moves on.
+Expected: Preflight passes, then Step 2 prints `[PASS] Tailscale already running (<JETSON_IP>)` and moves on.
 
 - [ ] **Step 3: Commit**
 

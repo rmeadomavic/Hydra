@@ -57,6 +57,7 @@ def _make_controller(**overrides) -> AutonomousController:
         allowed_classes=["mine", "buoy", "kayak"],
         strike_cooldown_sec=1.0,
         allowed_vehicle_modes=["AUTO"],
+        require_operator_lock=False,  # tests override; production default is True
     )
     defaults.update(overrides)
     return AutonomousController(**defaults)

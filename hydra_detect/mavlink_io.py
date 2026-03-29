@@ -90,6 +90,7 @@ class MAVLinkIO:
         # Vehicle mode state (from HEARTBEAT)
         self._vehicle_mode: Optional[str] = None
         self._vehicle_mode_lock = threading.Lock()
+        self._reverse_mode_map: dict[int, str] | None = None
 
         # MAVLink command callbacks (set by pipeline)
         self._cmd_callbacks: Dict[str, Callable] = {}
@@ -274,11 +275,14 @@ class MAVLinkIO:
     def _update_vehicle_mode(self, heartbeat_msg) -> None:
         """Extract flight mode name from a HEARTBEAT message."""
         try:
-            mode_map = self._mav.mode_mapping()
-            # Reverse lookup: mode number → mode name
-            custom_mode = heartbeat_msg.custom_mode
-            reverse = {v: k for k, v in mode_map.items()}
-            mode_name = reverse.get(custom_mode)
+            # Cache the reverse mode map — it doesn't change after connection
+            if self._reverse_mode_map is None:
+                mode_map = self._mav.mode_mapping()
+                if mode_map:
+                    self._reverse_mode_map = {v: k for k, v in mode_map.items()}
+                else:
+                    return
+            mode_name = self._reverse_mode_map.get(heartbeat_msg.custom_mode)
             with self._vehicle_mode_lock:
                 self._vehicle_mode = mode_name
         except Exception:

@@ -18,7 +18,7 @@ with a Pixhawk 6C flight controller via serial UART or UDP.
 - SERIAL5 = TELEM3 on this Pixhawk 6C
 - HDZero DisplayPort protocol = 42 (not 33)
 - ArduPilot does NOT support ENCAPSULATED_DATA messages
-- Jetson IP: `100.109.160.122` (Tailscale)
+- Jetson IP: `${HYDRA_JETSON_IP}` (Tailscale)
 - Hydra web API: port 8080, logs API at `/api/logs`, stats at `/api/stats`
 
 ## Diagnostic Steps
@@ -27,18 +27,18 @@ with a Pixhawk 6C flight controller via serial UART or UDP.
 
 **Fetch application logs:**
 ```bash
-curl -s 'http://100.109.160.122:8080/api/logs?lines=100&level=WARNING'
+curl -s 'http://${HYDRA_JETSON_IP}:8080/api/logs?lines=100&level=WARNING'
 ```
 
 **Fetch system stats:**
 ```bash
-curl -s http://100.109.160.122:8080/api/stats
+curl -s http://${HYDRA_JETSON_IP}:8080/api/stats
 ```
 Look for: `mavlink` (true/false), `gps_fix`, `position`, `vehicle_mode`
 
 **Read deployed config (mavlink section):**
 ```bash
-ssh sorcc@100.109.160.122 'grep -A 20 "^\[mavlink\]" ~/Hydra/config.ini'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'grep -A 20 "^\[mavlink\]" ~/Hydra/config.ini'
 ```
 
 If any of these fail, note the failure and continue with what's available.
@@ -48,19 +48,19 @@ If any of these fail, note the failure and continue with what's available.
 Run these checks:
 ```bash
 # Device exists?
-ssh sorcc@100.109.160.122 'ls -la /dev/ttyTHS1 /dev/ttyACM0 /dev/ttyUSB* 2>/dev/null'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'ls -la /dev/ttyTHS1 /dev/ttyACM0 /dev/ttyUSB* 2>/dev/null'
 
 # Permissions correct?
-ssh sorcc@100.109.160.122 'stat -c "%a %U %G" /dev/ttyTHS1 2>/dev/null'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'stat -c "%a %U %G" /dev/ttyTHS1 2>/dev/null'
 
 # Port contention? (should only be Hydra process)
-ssh sorcc@100.109.160.122 'fuser /dev/ttyTHS1 2>/dev/null'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'fuser /dev/ttyTHS1 2>/dev/null'
 
 # Udev rules?
-ssh sorcc@100.109.160.122 'ls /etc/udev/rules.d/*tty* /etc/udev/rules.d/*serial* 2>/dev/null'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'ls /etc/udev/rules.d/*tty* /etc/udev/rules.d/*serial* 2>/dev/null'
 
 # Recent kernel messages about serial/USB
-ssh sorcc@100.109.160.122 'dmesg | tail -30 | grep -i "tty\|serial\|usb"'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'dmesg | tail -30 | grep -i "tty\|serial\|usb"'
 ```
 
 ### 3. Config validation

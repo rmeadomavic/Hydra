@@ -14,8 +14,8 @@ the main detection loop must sustain >= 5 FPS.
 
 ## Context
 
-- Jetson IP: `100.109.160.122` (Tailscale)
-- Stats API: `GET http://100.109.160.122:8080/api/stats`
+- Jetson IP: `${HYDRA_JETSON_IP}` (Tailscale)
+- Stats API: `GET http://${HYDRA_JETSON_IP}:8080/api/stats`
 - Config: `config.ini` in project root (or deployed at `~/Hydra/config.ini`)
 - The stats endpoint returns JSON with fields including: `fps`, `inference_ms`,
   `ram_used_mb`, `ram_total_mb`, `gpu_temp_c`, `gpu_load_pct`, `power_mode`,
@@ -26,7 +26,7 @@ the main detection loop must sustain >= 5 FPS.
 ### 1. Verify Hydra is running
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}" http://100.109.160.122:8080/api/stats
+curl -s -o /dev/null -w "%{http_code}" http://${HYDRA_JETSON_IP}:8080/api/stats
 ```
 
 If not 200, report that Hydra is not running and stop.
@@ -46,7 +46,7 @@ Poll `/api/stats` every 2 seconds for 30 seconds (15 samples total).
 
 ```bash
 for i in $(seq 1 15); do
-  curl -s http://100.109.160.122:8080/api/stats
+  curl -s http://${HYDRA_JETSON_IP}:8080/api/stats
   sleep 2
 done
 ```

@@ -124,6 +124,9 @@ class TAKInput:
                 socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP,
             )
             self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._sock.setsockopt(
+                socket.SOL_SOCKET, socket.SO_RCVBUF, 256 * 1024,
+            )
             self._sock.bind(("0.0.0.0", self._port))
             self._sock.settimeout(1.0)
             # Join multicast group so we receive GeoChat broadcasts
@@ -294,6 +297,10 @@ class TAKInput:
                     break
                 logger.warning("TAK input: socket error, retrying")
                 time.sleep(0.5)
+                continue
+            # Drop oversized packets before parsing (max reasonable CoT = 8 KB)
+            if len(data) > 8192:
+                logger.debug("TAK input: dropping oversized packet (%d bytes)", len(data))
                 continue
             self._events_received += 1
             try:

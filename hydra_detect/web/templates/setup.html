@@ -209,8 +209,9 @@
                     <input type="text" id="setup-team" placeholder="e.g. 1" maxlength="20">
                 </div>
                 <div class="setup-field">
-                    <label for="setup-callsign">Callsign (optional)</label>
-                    <input type="text" id="setup-callsign" placeholder="e.g. HYDRA-1-DRONE" maxlength="50">
+                    <label for="setup-callsign">Callsign</label>
+                    <input type="text" id="setup-callsign" placeholder="auto: HYDRA-{team}-{vehicle}" maxlength="50">
+                    <span style="font-size:0.7rem;color:var(--text-secondary)" id="callsign-preview"></span>
                 </div>
             </div>
 
@@ -231,6 +232,29 @@
         var serialSelect = document.getElementById('setup-serial');
         var saveBtn = document.getElementById('setup-save');
         var statusEl = document.getElementById('setup-status');
+        var callsignInput = document.getElementById('setup-callsign');
+        var callsignPreview = document.getElementById('callsign-preview');
+        var teamInput = document.getElementById('setup-team');
+        var vehicleSelect = document.getElementById('setup-vehicle');
+
+        function updateCallsignPreview() {
+            var cs = callsignInput.value.trim();
+            if (cs) {
+                callsignPreview.textContent = '';
+                return;
+            }
+            var team = teamInput.value.trim();
+            var veh = vehicleSelect.value;
+            if (team && veh) {
+                callsignPreview.textContent = 'Will use: HYDRA-' + team + '-' + veh.toUpperCase();
+            } else {
+                callsignPreview.textContent = 'Enter team + vehicle for auto-callsign';
+            }
+        }
+        teamInput.addEventListener('input', updateCallsignPreview);
+        vehicleSelect.addEventListener('change', updateCallsignPreview);
+        callsignInput.addEventListener('input', updateCallsignPreview);
+        updateCallsignPreview();
 
         function clearSelect(sel) {
             while (sel.firstChild) {

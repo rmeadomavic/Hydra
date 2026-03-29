@@ -33,3 +33,6 @@ certs/
 
 # Claude Code / Superpowers
 .superpowers/
+
+# Local environment (secrets, IPs)
+.env.local

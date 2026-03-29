@@ -70,7 +70,7 @@ Append three new sections after the existing `## Common Commands` section.
 
 Pre-session hardware verification skill. Read-only — reports status, does not fix.
 
-**SSH access:** `ssh sorcc@100.109.160.122` (Jetson via Tailscale). If SSH fails,
+**SSH access:** `ssh <user>@<JETSON_IP>` (Jetson via Tailscale). If SSH fails,
 report the failure and stop — all subsequent checks require connectivity.
 
 **Checks:**
@@ -92,7 +92,7 @@ report the failure and stop — all subsequent checks require connectivity.
 ```markdown
 | Check | Status | Detail |
 |-------|--------|--------|
-| SSH | PASS | Connected to 100.109.160.122 |
+| SSH | PASS | Connected to <JETSON_IP> |
 | Service | FAIL | hydra-detect inactive |
 | ... | ... | ... |
 ```
@@ -109,7 +109,7 @@ disable-model-invocation: false
 
 # Jetson Pre-Flight Check
 
-Run all checks via SSH to the Jetson (`ssh sorcc@100.109.160.122`).
+Run all checks via SSH to the Jetson (`ssh <user>@<JETSON_IP>`).
 If SSH fails, report the failure and stop.
 
 This skill is **read-only** — it reports status but does not fix issues.
@@ -119,7 +119,7 @@ Present results as a markdown table (Check | Status | Detail).
 
 Run these via SSH commands:
 
-1. **SSH** — verify connectivity (`ssh sorcc@100.109.160.122 echo ok`)
+1. **SSH** — verify connectivity (`ssh <user>@<JETSON_IP> echo ok`)
 2. **Service** — `systemctl is-active hydra-detect`
 3. **Serial perms** — check udev rules exist: `ls /etc/udev/rules.d/*tty* /etc/udev/rules.d/*serial* 2>/dev/null`, then check current perms on `/dev/ttyTHS1` and `/dev/ttyUSB*`
 4. **MAVLink** — check service logs for heartbeat: `journalctl -u hydra-detect --no-pager -n 50 | grep -i heartbeat`. Do NOT open the serial port directly.
@@ -136,7 +136,7 @@ Report all results, then summarize: "X/8 checks passed. [list failures]"
 **Location:** `.claude/skills/deploy-jetson/SKILL.md`
 **Convention:** Subdirectory pattern.
 
-**SSH access:** `ssh sorcc@100.109.160.122` (Jetson via Tailscale).
+**SSH access:** `ssh <user>@<JETSON_IP>` (Jetson via Tailscale).
 
 End-to-end deploy-and-validate workflow:
 
@@ -162,13 +162,13 @@ disable-model-invocation: false
 
 # Deploy to Jetson
 
-Deploy and validate Hydra on the Jetson via SSH (`ssh sorcc@100.109.160.122`).
+Deploy and validate Hydra on the Jetson via SSH (`ssh <user>@<JETSON_IP>`).
 
 ## Steps
 
 Run each step via SSH. Report pass/fail for each.
 
-1. **Connect** — `ssh sorcc@100.109.160.122 echo ok`
+1. **Connect** — `ssh <user>@<JETSON_IP> echo ok`
 2. **Pre-deploy snapshot** — record current commit: `cd ~/Hydra && git rev-parse --short HEAD`
 3. **Show changes** — `git log --oneline HEAD..origin/main` (after `git fetch`)
 4. **Pull** — `git pull origin main`

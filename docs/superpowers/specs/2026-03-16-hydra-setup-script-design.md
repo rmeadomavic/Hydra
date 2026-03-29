@@ -38,7 +38,7 @@ script exits with a clear message about what's needed.
 
 - **Already installed and running:** Print Tailscale IP, skip.
   ```
-  [PASS] Tailscale already running (100.109.160.122)
+  [PASS] Tailscale already running (<JETSON_IP>)
   ```
 - **Not installed:** Prompt: `"Would you like to set up Tailscale for remote SSH? [Y/n]"`
   - **Yes:**

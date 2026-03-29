@@ -7,14 +7,14 @@ disable-model-invocation: false
 
 # Deploy to Jetson
 
-Deploy and validate Hydra on the Jetson via SSH (`ssh sorcc@100.109.160.122`).
+Deploy and validate Hydra on the Jetson via SSH (`ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP}`).
 
 ## Steps
 
 Run each step via SSH. Report pass/fail for each.
-Use `echo sorcc | sudo -S` for sudo commands (password: sorcc).
+Use `echo ${HYDRA_JETSON_PASS} | sudo -S` for sudo commands (password: ${HYDRA_JETSON_PASS}).
 
-1. **Connect** — `ssh sorcc@100.109.160.122 echo ok`
+1. **Connect** — `ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} echo ok`
 2. **Pre-deploy snapshot** — record current commit: `cd ~/Hydra && git rev-parse --short HEAD`
 3. **Show changes** — `git log --oneline HEAD..origin/main` (after `git fetch`)
 4. **Pull** — `git pull origin main`

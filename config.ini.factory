@@ -73,7 +73,7 @@ allowed_classes =
 strike_cooldown_sec = 30.0
 allowed_vehicle_modes = AUTO
 gps_max_stale_sec = 2.0                 ; abort if GPS data is older than this
-require_operator_lock = false            ; require explicit target lock before auto-strike
+require_operator_lock = true             ; require explicit target lock before auto-strike
 
 [rf_homing]
 enabled = false
@@ -150,12 +150,12 @@ enabled = true
 callsign = HYDRA-1
 multicast_group = 239.2.3.1
 multicast_port = 6969
-unicast_targets = 100.78.5.101:4242, 100.64.82.98:4242
+unicast_targets =                          ; comma-separated host:port pairs
 emit_interval = 2.0
 sa_interval = 5.0
 stale_detection = 60.0
 stale_sa = 30.0
-advertise_host = 100.109.160.122
+advertise_host =                          ; set to your Jetson Tailscale IP
 listen_commands = true
 listen_port = 6969
 

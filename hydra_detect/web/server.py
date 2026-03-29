@@ -772,6 +772,9 @@ async def api_camera_switch(request: Request, authorization: Optional[str] = Hea
     source = body.get("source")
     if source is None:
         return JSONResponse({"error": "source required"}, status_code=400)
+    source = str(source)
+    if len(source) > 1024:
+        return JSONResponse({"error": "source too long"}, status_code=400)
 
     cb = stream_state.get_callback("on_camera_switch")
     if cb:
@@ -837,6 +840,9 @@ async def api_switch_model(request: Request, authorization: Optional[str] = Head
     model = body.get("model")
     if not model:
         return JSONResponse({"error": "model name required"}, status_code=400)
+    model = str(model)
+    if len(model) > 256 or "/" in model or ".." in model:
+        return JSONResponse({"error": "invalid model name"}, status_code=400)
     cb = stream_state.get_callback("on_model_switch")
     if cb:
         success = cb(model)

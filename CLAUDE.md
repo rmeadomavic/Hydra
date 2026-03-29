@@ -81,8 +81,8 @@ Kismet (WiFi/SDR) → RF Hunt Controller → RSSI Gradient Ascent → MAVLink Na
 ## SORCC Course Context
 
 **SORCC** (Special Operations Robotics Capabilities Course) is a 6-week IQT
-program at Oak Grove, NC. 15 students in 5 teams of 3, active-duty SOF
-(SF, Rangers, SMU support). They are technically capable and mission-focused
+program at a military training facility. 15 students in 5 teams of 3,
+active-duty SOF operators. They are technically capable and mission-focused
 but most have never touched a Jetson, config file, or terminal before this course.
 
 ### Platforms Per Team
@@ -105,7 +105,7 @@ but most have never touched a Jetson, config file, or terminal before this cours
 - **Errors must be plain English** — "Camera: not found on /dev/video0 — check USB"
   not Python tracebacks
 - **Field conditions:** battery power, 50-100m WiFi, vibration, water, night ops
-- **3 instructors:** Kyle (lead/dev), Charles (platform SME), Vinnie (docs)
+- **3 instructors** (lead/dev, platform SME, docs)
 - **20 potential Hydra instances** during CULEX (5 teams × 4 platforms)
 
 ### Vocabulary
@@ -295,7 +295,7 @@ Hydra exposes `GET /api/logs?lines=N&level=LEVEL` which tails
 logging output (5 MB rotation, 3 backups). Use `/jetson-logs` skill or:
 
 ```bash
-curl -s 'http://100.109.160.122:8080/api/logs?lines=100&level=WARNING'
+curl -s 'http://<JETSON_IP>:8080/api/logs?lines=100&level=WARNING'
 ```
 
 Use this proactively when diagnosing runtime issues on the Jetson — it provides

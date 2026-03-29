@@ -13,11 +13,11 @@ detection system deployed on uncrewed vehicles via NVIDIA Jetson Orin Nano.
 
 ## Context
 
-- Jetson IP: `100.109.160.122` (Tailscale SSH)
+- Jetson IP: `${HYDRA_JETSON_IP}` (Tailscale SSH)
 - Hydra web API: port 8080
 - Docker deployment: code baked into image, config/models/data mounted
 - Safety requirement: >= 5 FPS, vehicle must stay safe if any component crashes
-- SSH credentials: `sorcc@100.109.160.122` (password: sorcc, use `echo sorcc | sudo -S` for sudo)
+- SSH credentials: `${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP}` (password: ${HYDRA_JETSON_PASS}, use `echo ${HYDRA_JETSON_PASS} | sudo -S` for sudo)
 
 ## Pre-Mission Checks
 
@@ -27,28 +27,28 @@ Warnings don't block but should be acknowledged.
 ### 1. SSH Connectivity
 
 ```bash
-ssh sorcc@100.109.160.122 'echo ok && hostname && uptime'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'echo ok && hostname && uptime'
 ```
 FAIL = NO-GO (can't verify anything else).
 
 ### 2. Service Status
 
 ```bash
-ssh sorcc@100.109.160.122 'systemctl is-active hydra-detect'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'systemctl is-active hydra-detect'
 ```
 Should be `active`. If not, try to determine why from journal:
 ```bash
-ssh sorcc@100.109.160.122 'journalctl -u hydra-detect --no-pager -n 20'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'journalctl -u hydra-detect --no-pager -n 20'
 ```
 
 ### 3. Docker Image Freshness
 
 ```bash
 # Image build time
-ssh sorcc@100.109.160.122 'docker inspect --format="{{.Created}}" hydra-detect:latest 2>/dev/null'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'docker inspect --format="{{.Created}}" hydra-detect:latest 2>/dev/null'
 
 # Latest code commit time
-ssh sorcc@100.109.160.122 'cd ~/Hydra && git log -1 --format="%ci"'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'cd ~/Hydra && git log -1 --format="%ci"'
 ```
 WARNING if code is newer than Docker image (deploy needed).
 ERROR if no Docker image exists.
@@ -56,7 +56,7 @@ ERROR if no Docker image exists.
 ### 4. Git Status on Jetson
 
 ```bash
-ssh sorcc@100.109.160.122 'cd ~/Hydra && git status --short && git log --oneline -5'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'cd ~/Hydra && git status --short && git log --oneline -5'
 ```
 WARNING if uncommitted changes exist.
 WARNING if HEAD doesn't match local repo's main branch.
@@ -65,7 +65,7 @@ WARNING if HEAD doesn't match local repo's main branch.
 
 ```bash
 # Changes since last deploy (compare Jetson HEAD vs local HEAD)
-ssh sorcc@100.109.160.122 'cd ~/Hydra && git log --oneline HEAD..origin/main 2>/dev/null'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'cd ~/Hydra && git log --oneline HEAD..origin/main 2>/dev/null'
 ```
 Flag any changes touching: `autonomous.py`, `mavlink_io.py`, `pipeline.py`,
 `servo_tracker.py`, `rf/hunt.py`. These need extra attention before field use.
@@ -74,16 +74,16 @@ Flag any changes touching: `autonomous.py`, `mavlink_io.py`, `pipeline.py`,
 
 ```bash
 # Camera
-ssh sorcc@100.109.160.122 'ls /dev/video* 2>/dev/null || echo "NO CAMERA"'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'ls /dev/video* 2>/dev/null || echo "NO CAMERA"'
 
 # Serial (MAVLink)
-ssh sorcc@100.109.160.122 'ls -la /dev/ttyTHS1 /dev/ttyACM0 /dev/ttyUSB* 2>/dev/null'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'ls -la /dev/ttyTHS1 /dev/ttyACM0 /dev/ttyUSB* 2>/dev/null'
 
 # Disk space
-ssh sorcc@100.109.160.122 'df -h / | tail -1'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'df -h / | tail -1'
 
 # Models
-ssh sorcc@100.109.160.122 'ls -lh ~/Hydra/models/*.pt ~/Hydra/models/*.engine 2>/dev/null'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'ls -lh ~/Hydra/models/*.pt ~/Hydra/models/*.engine 2>/dev/null'
 ```
 ERROR if no camera device found.
 ERROR if MAVLink serial device missing (when mavlink.enabled=true).
@@ -94,7 +94,7 @@ ERROR if no model files found.
 
 Read the deployed config:
 ```bash
-ssh sorcc@100.109.160.122 'cat ~/Hydra/config.ini'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'cat ~/Hydra/config.ini'
 ```
 
 Run the same validation logic as the `config-audit` agent:
@@ -110,13 +110,13 @@ Wait 5 seconds after service verification, then:
 
 ```bash
 # Web API responds
-curl -s -o /dev/null -w "%{http_code}" http://100.109.160.122:8080
+curl -s -o /dev/null -w "%{http_code}" http://${HYDRA_JETSON_IP}:8080
 
 # Stats endpoint
-curl -s http://100.109.160.122:8080/api/stats
+curl -s http://${HYDRA_JETSON_IP}:8080/api/stats
 
 # Recent errors in logs
-curl -s 'http://100.109.160.122:8080/api/logs?lines=20&level=ERROR'
+curl -s 'http://${HYDRA_JETSON_IP}:8080/api/logs?lines=20&level=ERROR'
 ```
 
 From stats, check:
@@ -129,7 +129,7 @@ From stats, check:
 
 Poll `/api/stats` 3 times, 5 seconds apart:
 ```bash
-for i in 1 2 3; do curl -s http://100.109.160.122:8080/api/stats; sleep 5; done
+for i in 1 2 3; do curl -s http://${HYDRA_JETSON_IP}:8080/api/stats; sleep 5; done
 ```
 
 Calculate mean FPS across samples. ERROR if < 5.0, WARNING if < 8.0.
@@ -139,13 +139,13 @@ Calculate mean FPS across samples. ERROR if < 5.0, WARNING if < 8.0.
 Only check if `rf_homing.enabled = true` in config:
 ```bash
 # Kismet running?
-ssh sorcc@100.109.160.122 'pgrep -a kismet || echo "Kismet not running"'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'pgrep -a kismet || echo "Kismet not running"'
 
 # RTL-SDR dongle?
-ssh sorcc@100.109.160.122 'lsusb | grep 0bda:2838 || echo "No SDR dongle"'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'lsusb | grep 0bda:2838 || echo "No SDR dongle"'
 
 # Kismet API?
-ssh sorcc@100.109.160.122 'curl -s -o /dev/null -w "%{http_code}" http://localhost:2501/system/status.json'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'curl -s -o /dev/null -w "%{http_code}" http://localhost:2501/system/status.json'
 ```
 
 ## Output Format

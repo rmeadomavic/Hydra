@@ -14,7 +14,7 @@ via RSSI gradient following.
 
 ## Context
 
-- Jetson IP: `100.109.160.122` (Tailscale)
+- Jetson IP: `${HYDRA_JETSON_IP}` (Tailscale)
 - Kismet runs on the HOST (not inside Docker) — managed by `kismet_manager.py`
 - Kismet API: `http://localhost:2501` (default user/pass: kismet/kismet)
 - RTL-SDR: NooElec NESDR Smart v5, USB ID `0bda:2838`
@@ -45,32 +45,32 @@ Read `config.ini` `[rf_homing]` section and validate:
 
 ```bash
 # RTL-SDR dongle present?
-ssh sorcc@100.109.160.122 'lsusb | grep 0bda:2838'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'lsusb | grep 0bda:2838'
 
 # If not found, check for USB errors
-ssh sorcc@100.109.160.122 'dmesg | grep -i "rtl\|0bda\|usb" | tail -10'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'dmesg | grep -i "rtl\|0bda\|usb" | tail -10'
 
 # Check if rtl_433 is available
-ssh sorcc@100.109.160.122 'which rtl_433 2>/dev/null || echo "rtl_433 not found"'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'which rtl_433 2>/dev/null || echo "rtl_433 not found"'
 ```
 
 ### 3. Kismet service status (via SSH)
 
 ```bash
 # Is the systemd service running?
-ssh sorcc@100.109.160.122 'systemctl is-active kismet 2>/dev/null || echo "no systemd unit"'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'systemctl is-active kismet 2>/dev/null || echo "no systemd unit"'
 
 # Is any kismet process running?
-ssh sorcc@100.109.160.122 'pgrep -a kismet || echo "no kismet process"'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'pgrep -a kismet || echo "no kismet process"'
 
 # Is the API reachable?
-ssh sorcc@100.109.160.122 'curl -s -o /dev/null -w "%{http_code}" http://localhost:2501/system/status.json'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'curl -s -o /dev/null -w "%{http_code}" http://localhost:2501/system/status.json'
 
 # Auth check
-ssh sorcc@100.109.160.122 'curl -s -u kismet:kismet http://localhost:2501/system/status.json | head -c 200'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'curl -s -u kismet:kismet http://localhost:2501/system/status.json | head -c 200'
 
 # Data sources active?
-ssh sorcc@100.109.160.122 'curl -s -u kismet:kismet http://localhost:2501/datasource/all_sources.json | python3 -m json.tool 2>/dev/null | head -30'
+ssh ${HYDRA_JETSON_USER}@${HYDRA_JETSON_IP} 'curl -s -u kismet:kismet http://localhost:2501/datasource/all_sources.json | python3 -m json.tool 2>/dev/null | head -30'
 ```
 
 ### 4. Hunt state check
@@ -78,7 +78,7 @@ ssh sorcc@100.109.160.122 'curl -s -u kismet:kismet http://localhost:2501/dataso
 If Hydra is running, check the RF hunt state:
 
 ```bash
-curl -s http://100.109.160.122:8080/api/stats
+curl -s http://${HYDRA_JETSON_IP}:8080/api/stats
 ```
 
 Look for RF hunt status in the response. Analyze:
@@ -92,7 +92,7 @@ Look for RF hunt status in the response. Analyze:
 Fetch logs filtered for RF-related entries:
 
 ```bash
-curl -s 'http://100.109.160.122:8080/api/logs?lines=200&level=DEBUG'
+curl -s 'http://${HYDRA_JETSON_IP}:8080/api/logs?lines=200&level=DEBUG'
 ```
 
 Search the output for these keywords and patterns:

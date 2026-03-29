@@ -126,12 +126,12 @@ enabled = true
 callsign = HYDRA-1-USV
 multicast_group = 239.2.3.1
 multicast_port = 6969
-unicast_targets = 100.78.5.101:4242, 100.64.82.98:4242
+unicast_targets = <TAK_TARGET_IP>:4242, <TAK_TARGET_IP>:4242
 emit_interval = 2.0
 sa_interval = 5.0
 stale_detection = 60.0
 stale_sa = 30.0
-advertise_host = 100.109.160.122
+advertise_host = <JETSON_IP>
 listen_commands = true
 listen_port = 6969
 allowed_callsigns = INSTRUCTOR-1
@@ -143,7 +143,7 @@ command_hmac_secret =
 By default, CoT events go to the multicast group. Add unicast targets for devices not on the multicast network (e.g., Tailscale peers):
 
 ```ini
-unicast_targets = 100.78.5.101:4242, 100.64.82.98:4242
+unicast_targets = <TAK_TARGET_IP>:4242, <TAK_TARGET_IP>:4242
 ```
 
 Manage targets at runtime via `GET /api/tak/targets`, `POST /api/tak/targets`, `DELETE /api/tak/targets`.
