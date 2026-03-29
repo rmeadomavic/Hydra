@@ -336,6 +336,12 @@ class TAKInput:
 
         raw_text = remarks_el.text.strip()
 
+        # Check if this looks like a HYDRA command BEFORE HMAC verification
+        # so non-command chat messages don't trigger HMAC rejection noise
+        check_text = raw_text.split("|HMAC:")[0].strip() if "|HMAC:" in raw_text else raw_text
+        if not _CMD_RE.match(check_text):
+            return  # Not a command — ignore silently
+
         # Verify HMAC if configured (strips |HMAC: suffix)
         text = self._verify_hmac(raw_text)
         if text is None:
@@ -392,6 +398,17 @@ class TAKInput:
         if sender == "?":
             sender = root.get("uid", "?")
         source = f"CoT/{sender}"
+
+        # HMAC verification on custom CoT (same security as GeoChat path)
+        if self._hmac_secret:
+            remarks_el = root.find("detail/remarks")
+            remarks_text = remarks_el.text.strip() if remarks_el is not None and remarks_el.text else ""
+            if self._verify_hmac(remarks_text) is None:
+                audit_logger.warning(
+                    "TAK_CMD_REJECTED reason=hmac_custom_cot sender=%s type=%s",
+                    sender, cot_type,
+                )
+                return
 
         # Callsign allowlist check (fail-closed)
         if not self._check_sender_allowed(sender):

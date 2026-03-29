@@ -115,6 +115,10 @@ class Pipeline:
         if self._callsign == "HYDRA-1" and vehicle:
             self._callsign = f"HYDRA-{vehicle.upper()}"
             logger.info("Auto-callsign from vehicle flag: %s", self._callsign)
+        # Sync derived callsign back to config so TAK output reads it
+        if not self._cfg.has_section("tak"):
+            self._cfg.add_section("tak")
+        self._cfg.set("tak", "callsign", self._callsign)
         self._vehicle = vehicle
 
         # Wire the config API to the actual file so the web settings page
