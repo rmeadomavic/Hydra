@@ -872,6 +872,55 @@ async def api_tak_toggle(request: Request, authorization: Optional[str] = Header
     return JSONResponse({"error": "TAK output not available"}, status_code=503)
 
 
+@app.get("/api/tak/targets")
+async def api_get_tak_targets():
+    """List current TAK unicast targets."""
+    cb = stream_state.get_callback("get_tak_targets")
+    if cb:
+        return {"targets": cb()}
+    return {"targets": []}
+
+
+@app.post("/api/tak/targets")
+async def api_add_tak_target(
+    request: Request, authorization: Optional[str] = Header(None),
+):
+    """Add a TAK unicast target. Body: {"host": "ip", "port": 6969}"""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    host = body.get("host", "").strip()
+    port = int(body.get("port", 6969))
+    if not host:
+        return JSONResponse({"error": "host required"}, status_code=400)
+    cb = stream_state.get_callback("add_tak_target")
+    if cb:
+        cb(host, port)
+        _audit(request, "add_tak_target", target=f"{host}:{port}")
+        return {"status": "added", "host": host, "port": port}
+    return JSONResponse({"error": "TAK not available"}, status_code=503)
+
+
+@app.delete("/api/tak/targets")
+async def api_remove_tak_target(
+    request: Request, authorization: Optional[str] = Header(None),
+):
+    """Remove a TAK unicast target. Body: {"host": "ip", "port": 6969}"""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    host = body.get("host", "").strip()
+    port = int(body.get("port", 6969))
+    cb = stream_state.get_callback("remove_tak_target")
+    if cb:
+        cb(host, port)
+        _audit(request, "remove_tak_target", target=f"{host}:{port}")
+        return {"status": "removed"}
+    return JSONResponse({"error": "TAK not available"}, status_code=503)
+
+
 @app.post("/api/mavlink-video/tune")
 async def api_mavlink_video_tune(request: Request, authorization: Optional[str] = Header(None)):
     """Live-tune MAVLink video params. Body: {width, height, quality, max_fps} (all optional)"""

@@ -18,7 +18,12 @@ from .camera import Camera, list_video_sources
 from .rf.hunt import RFHuntController
 from .rf.kismet_manager import KismetManager
 from .detection_logger import DetectionLogger
-from .model_manifest import load_manifest, validate_model, MANIFEST_FILENAME
+from .model_manifest import (
+    auto_update_manifest,
+    load_manifest,
+    validate_model,
+    MANIFEST_FILENAME,
+)
 from .detectors.yolo_detector import YOLODetector
 from .mavlink_io import MAVLinkIO
 from .osd import FpvOsd, build_osd_state
@@ -527,6 +532,9 @@ class Pipeline:
 
         logger.info("=== Hydra Detect v2.0 starting ===")
 
+        # Auto-update model manifest with any new .pt files
+        auto_update_manifest(self._models_dir)
+
         # Init subsystems — clean up on partial failure
         try:
             self._detector.load()
@@ -630,6 +638,9 @@ class Pipeline:
                 get_mavlink_video_status=self._get_mavlink_video_status,
                 on_tak_toggle=self._handle_tak_toggle,
                 get_tak_status=self._get_tak_status,
+                get_tak_targets=self._get_tak_targets,
+                add_tak_target=self._add_tak_target,
+                remove_tak_target=self._remove_tak_target,
                 get_profiles=self._get_profiles,
                 on_profile_switch=self._handle_profile_switch,
             )
@@ -1016,6 +1027,9 @@ class Pipeline:
             self._mavlink.send_statustext(
                 f"TGT LOCK: #{track_id} {t.label} [{mode.upper()}]", severity=5
             )
+        self._event_logger.log_action("lock", {
+            "track_id": track_id, "label": t.label, "mode": mode,
+        })
         return True
 
     def _handle_target_unlock(self, reason: str = "") -> None:
@@ -1032,6 +1046,9 @@ class Pipeline:
         if self._autonomous is not None:
             self._autonomous._operator_locked_track = None
         if prev_id is not None:
+            self._event_logger.log_action("unlock", {
+                "track_id": prev_id, "reason": reason or "operator",
+            })
             if reason == "lost":
                 logger.warning(
                     "Locked target #%d lost from tracker — auto-unlocking.",
@@ -1518,6 +1535,22 @@ class Pipeline:
             "callsign": self._cfg.get("tak", "callsign", fallback="HYDRA-1"),
             "events_sent": 0,
         }
+
+    def _get_tak_targets(self) -> list[dict]:
+        """Return current TAK unicast targets."""
+        if self._tak is not None:
+            return self._tak.get_unicast_targets()
+        return []
+
+    def _add_tak_target(self, host: str, port: int) -> None:
+        """Add a TAK unicast target at runtime."""
+        if self._tak is not None:
+            self._tak.add_unicast_target(host, port)
+
+    def _remove_tak_target(self, host: str, port: int) -> None:
+        """Remove a TAK unicast target at runtime."""
+        if self._tak is not None:
+            self._tak.remove_unicast_target(host, port)
 
     def _handle_stop_command(self) -> None:
         """Stop the pipeline gracefully from the web UI."""
