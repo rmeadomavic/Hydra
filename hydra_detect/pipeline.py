@@ -625,6 +625,10 @@ class Pipeline:
         self._last_track_result = None  # Most recent TrackingResult for web API
         self._servo_tracker = None
 
+        # Mission tagging state
+        self._mission_name: str | None = None
+        self._mission_start_time: float | None = None
+
     def _is_engagement_active(self) -> bool:
         """Return True if autonomous has active tracks or operator has a lock."""
         if self._locked_track_id is not None:
@@ -830,6 +834,8 @@ class Pipeline:
                 on_approach_strike_command=self._handle_approach_strike_command,
                 on_approach_abort=self._handle_approach_abort,
                 get_approach_status=self._get_approach_status,
+                on_mission_start=self._handle_mission_start,
+                on_mission_end=self._handle_mission_end,
             )
 
             stream_state.update_stats(
@@ -1194,6 +1200,7 @@ class Pipeline:
                     "camera_source": str(self._camera.source),
                     "camera_ok": not self._cam_lost,
                     "callsign": self._callsign,
+                    "mission_name": self._mission_name,
                 }
                 # Expose duplicate callsign flag from TAK input
                 if self._tak_input is not None:
@@ -2131,6 +2138,33 @@ class Pipeline:
         """Resume the detection loop."""
         self._paused = False
         logger.info("Pipeline RESUMED from web UI.")
+
+    # ------------------------------------------------------------------
+    # Mission tagging
+    # ------------------------------------------------------------------
+    def _handle_mission_start(self, name: str) -> None:
+        """Start a named mission session."""
+        self._mission_name = name
+        self._mission_start_time = time.monotonic()
+        logger.info("Mission STARTED: %s", name)
+        if self._mavlink is not None:
+            callsign = self._cfg.get("tak", "callsign", fallback="HYDRA")
+            self._mavlink.send_statustext(
+                f"{callsign}: MISSION START - {name}", severity=5
+            )
+
+    def _handle_mission_end(self) -> None:
+        """End the current mission session."""
+        if self._mission_name:
+            elapsed = time.monotonic() - (self._mission_start_time or 0)
+            logger.info("Mission ENDED: %s (%.0fs)", self._mission_name, elapsed)
+            if self._mavlink is not None:
+                callsign = self._cfg.get("tak", "callsign", fallback="HYDRA")
+                self._mavlink.send_statustext(
+                    f"{callsign}: MISSION END - {self._mission_name}", severity=5
+                )
+        self._mission_name = None
+        self._mission_start_time = None
 
     # ------------------------------------------------------------------
     def _shutdown(self) -> None:
