@@ -23,12 +23,12 @@ def client():
 
 
 class TestPreflightEndpoint:
-    def test_no_callback_returns_unknown(self, client):
-        """Without a pipeline callback, /api/preflight returns unknown overall."""
+    def test_no_callback_returns_fail(self, client):
+        """Without a pipeline callback, /api/preflight returns fail overall."""
         resp = client.get("/api/preflight")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["overall"] == "unknown"
+        assert data["overall"] == "fail"
         assert data["checks"] == []
 
     def test_preflight_returns_correct_structure(self, client):
