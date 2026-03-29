@@ -16,14 +16,66 @@ The system serves three audiences: **demo** (leadership showcases), **ops**
 
 ```
 Camera → Detector (YOLO) → ByteTrack Tracker → MAVLink Alerts
-                                                      → Web Dashboard (FastAPI)
-                                                      → Detection Logger
+                                                      → Web Dashboard (FastAPI + MJPEG)
+                                                      → RTSP Stream (GStreamer)
+                                                      → TAK/CoT Markers (multicast + unicast)
+                                                      → Detection Logger (JSONL/CSV)
+                                                      → FPV OSD (statustext / named_value / MSP)
+                                                      → MAVLink Video (telemetry thumbnails)
+                                                      → Event Timeline (actions + vehicle track)
+
+Kismet (WiFi/SDR) → RF Hunt Controller → RSSI Gradient Ascent → MAVLink Nav
 ```
 
 - **Entry point:** `hydra_detect/__main__.py`
 - **Orchestrator:** `hydra_detect/pipeline.py` — the main detect→track→alert loop
 - **Config:** `config.ini` (INI format, all tunables live here)
+- **Config schema:** `hydra_detect/config_schema.py` — typed validation for every key
 - **Tests:** `pytest` — run with `python -m pytest tests/`
+- **Docs:** `docs/*.md` — structured documentation, one file per topic
+
+### Module Index
+
+| Module | Purpose |
+|--------|---------|
+| `pipeline.py` | Main loop: detect, track, alert, repeat |
+| `camera.py` | Thread-safe capture (USB, RTSP, file, V4L2, analog) |
+| `tracker.py` | ByteTrack wrapper (TrackedObject, TrackingResult) |
+| `overlay.py` | Bounding boxes, HUD, target lock rendering |
+| `approach.py` | Follow, Drop, Strike approach modes |
+| `autonomous.py` | Geofenced autonomous strike controller |
+| `dogleg_rtl.py` | Tactical return path (drones) |
+| `mission_profiles.py` | RECON / DELIVERY / STRIKE presets |
+| `mavlink_io.py` | MAVLink connection, alerts, vehicle commands |
+| `mavlink_video.py` | Detection thumbnails over telemetry radio |
+| `geo_tracking.py` | CAMERA_TRACKING_GEO_STATUS for GCS map |
+| `osd.py` | FPV OSD (statustext, named_value, msp_displayport) |
+| `msp_displayport.py` | MSP v1 DisplayPort protocol for HDZero VTX |
+| `detection_logger.py` | CSV/JSONL logging with background writer |
+| `event_logger.py` | Mission event timeline (actions + vehicle track at 1 Hz) |
+| `verify_log.py` | SHA-256 hash chain verification |
+| `review_export.py` | Standalone HTML map report generator |
+| `rtsp_server.py` | GStreamer RTSP H.264 output |
+| `servo_tracker.py` | Pixel-lock servo controller (pan + strike) |
+| `model_manifest.py` | Model hash verification and manifest |
+| `config_schema.py` | Typed config validation with error messages |
+| `system.py` | Jetson stats, power modes, model listing |
+| `tls.py` | Self-signed TLS certificate generation |
+| `profiles.py` | JSON mission profile loading |
+| `detectors/base.py` | Abstract detector interface |
+| `detectors/yolo_detector.py` | YOLOv8/v11 via ultralytics |
+| `rf/hunt.py` | RF hunt state machine |
+| `rf/kismet_client.py` | Kismet REST API client |
+| `rf/kismet_manager.py` | Kismet subprocess manager |
+| `rf/navigator.py` | Gradient ascent waypoint navigation |
+| `rf/search.py` | Lawnmower and spiral pattern generators |
+| `rf/signal.py` | RSSI filtering and gradient analysis |
+| `tak/tak_output.py` | CoT multicast/unicast output thread |
+| `tak/tak_input.py` | CoT command listener (GeoChat + custom types) |
+| `tak/cot_builder.py` | Cursor-on-Target XML builder |
+| `tak/type_mapping.py` | YOLO class to MIL-STD-2525 mapping |
+| `web/server.py` | FastAPI REST API + MJPEG stream + HTML pages |
+| `web/config_api.py` | Config read/write with file locking and safety |
 
 ## SORCC Course Context
 
@@ -127,6 +179,52 @@ Follow the **discover → review → fix** workflow:
   implement `BaseDetector`
 - Web endpoints in `web/server.py` require bearer token auth for control actions
 - Never commit secrets or API tokens — use `config.ini` (gitignored values)
+
+## Config Sections
+
+All tunables live in `config.ini`. Sections: `[camera]`, `[detector]`, `[tracker]`,
+`[mavlink]`, `[alerts]`, `[web]`, `[osd]`, `[autonomous]`, `[approach]`, `[drop]`,
+`[rf_homing]`, `[servo_tracking]`, `[logging]`, `[watchdog]`, `[rtsp]`,
+`[mavlink_video]`, `[tak]`, `[vehicle.drone]`, `[vehicle.usv]`, `[vehicle.ugv]`,
+`[vehicle.fw]`.
+
+Full reference: `docs/configuration.md`. Schema: `hydra_detect/config_schema.py`.
+
+## API Endpoints (Summary)
+
+70+ endpoints in `web/server.py`. Key groups:
+
+- **Health**: `GET /api/health`, `GET /api/preflight`
+- **Stream**: `GET /stream.mjpeg`, `GET/POST /api/stream/quality`
+- **Stats/Tracks**: `GET /api/stats`, `GET /api/tracks`, `GET /api/detections`
+- **Target**: `GET /api/target`, `POST /api/target/lock`, `POST /api/target/unlock`, `POST /api/target/strike`
+- **Approach**: `GET /api/approach/status`, `POST /api/approach/follow/{id}`, `POST /api/approach/drop/{id}`, `POST /api/approach/strike/{id}`, `POST /api/approach/abort`
+- **Vehicle**: `POST /api/vehicle/loiter`, `POST /api/vehicle/mode`, `POST /api/abort` (unauthenticated)
+- **Config**: `GET/POST /api/config`, `GET/POST /api/config/full`, `POST /api/config/prompts`, `POST /api/config/threshold`, `GET/POST /api/config/alert-classes`, `POST /api/config/restore-backup`, `POST /api/config/factory-reset`, `GET /api/config/export`, `POST /api/config/import`
+- **Camera/Models**: `GET /api/camera/sources`, `POST /api/camera/switch`, `GET /api/models`, `POST /api/models/switch`
+- **Profiles**: `GET /api/profiles`, `POST /api/profiles/switch`, `GET /api/mission-profiles`
+- **TAK**: `GET /api/tak/status`, `POST /api/tak/toggle`, `GET/POST/DELETE /api/tak/targets`
+- **RF**: `GET /api/rf/status`, `GET /api/rf/rssi_history`, `POST /api/rf/start`, `POST /api/rf/stop`
+- **RTSP**: `GET /api/rtsp/status`, `POST /api/rtsp/toggle`
+- **MAVLink Video**: `GET /api/mavlink-video/status`, `POST /api/mavlink-video/toggle`, `POST /api/mavlink-video/tune`
+- **Events/Mission**: `GET /api/events`, `GET /api/events/status`, `POST /api/mission/start`, `POST /api/mission/end`
+- **Review**: `GET /api/review/logs`, `GET /api/review/log/{file}`, `GET /api/review/events/{file}`, `GET /api/review/images/{file}`, `GET /api/export`
+- **System**: `GET /api/system/power-modes`, `POST /api/system/power-mode`, `GET /api/logs`, `POST /api/restart`, `POST /api/pipeline/stop`, `POST /api/pipeline/pause`
+- **Setup**: `GET /api/setup/devices`, `POST /api/setup/save`
+- **Pages**: `GET /` (dashboard), `GET /control`, `GET /instructor`, `GET /review`, `GET /setup`
+
+Full reference: `docs/api-reference.md`.
+
+## Test Files
+
+50+ test files in `tests/`. Key coverage areas:
+- Autonomous controller: `test_autonomous.py`, `test_drop_strike.py`
+- Config: `test_config_schema.py`, `test_config_api.py`, `test_config_freeze.py`
+- RF: `test_rf_hunt.py`, `test_rf_navigator.py`, `test_rf_search.py`, `test_rf_signal.py`, `test_rf_geofence.py`, `test_rf_kismet.py`, `test_rf_web_api.py`
+- TAK: `test_tak.py`, `test_tak_input.py`, `test_tak_security.py`, `test_tak_unicast_manifest.py`
+- Web: `test_web_api.py`, `test_preflight_ui.py`, `test_instructor_ops.py`, `test_dashboard_resilience.py`
+- Safety: `test_safety_hardening.py`, `test_mavlink_safety.py`, `test_camera_loss.py`, `test_chain_of_custody.py`
+- Pipeline: `test_pipeline_callbacks.py`, `test_sitl_mode.py`, `test_vehicle_config.py`
 
 ## Common Commands
 
