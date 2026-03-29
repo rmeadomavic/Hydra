@@ -147,6 +147,8 @@ class RFHuntController:
         self._state = HuntState.IDLE
         self._waypoints: list[tuple[float, float, float]] = []
         self._wp_index = 0
+        # Effective waypoint coords (may differ from original after clipping)
+        self._effective_wp: tuple[float, float] | None = None
         self._last_rssi: float = -100.0
         self._stop_evt = threading.Event()
         self._thread: threading.Thread | None = None
@@ -335,6 +337,9 @@ class RFHuntController:
         Returns True if the waypoint was sent (possibly clipped).
         Returns False if the waypoint was suppressed (converged due to
         repeated clips, or no clip callback available).
+
+        Stores the actual sent coordinates in ``_effective_wp`` so callers
+        can use them for arrival distance checks instead of the original.
         """
         if self._check_geofence is not None and not self._check_geofence(wp_lat, wp_lon):
             if self._clip_to_geofence is not None:
@@ -358,6 +363,7 @@ class RFHuntController:
         else:
             self._consecutive_clips = 0
 
+        self._effective_wp = (wp_lat, wp_lon)
         self._mavlink.command_guided_to(wp_lat, wp_lon, wp_alt)
         return True
 
@@ -428,11 +434,15 @@ class RFHuntController:
         if lat is None:
             return
 
-        # Check if we've arrived at current waypoint
+        # Check arrival against effective (possibly clipped) coordinates
         from ..autonomous import haversine_m
-        dist = haversine_m(lat, lon, wp[0], wp[1])
+        check_lat, check_lon = wp[0], wp[1]
+        if self._effective_wp is not None:
+            check_lat, check_lon = self._effective_wp
+        dist = haversine_m(lat, lon, check_lat, check_lon)
         if dist < self._arrival_tolerance:
             self._wp_index += 1
+            self._effective_wp = None  # reset for next waypoint
             if self._wp_index < len(self._waypoints):
                 nwp = self._waypoints[self._wp_index]
                 if not self._geofence_waypoint(nwp[0], nwp[1], nwp[2]):
@@ -440,7 +450,7 @@ class RFHuntController:
                 logger.debug(
                     "Search WP %d/%d", self._wp_index, len(self._waypoints),
                 )
-        elif self._wp_index == 0:
+        elif self._wp_index == 0 and self._effective_wp is None:
             # Send first waypoint
             if not self._geofence_waypoint(wp[0], wp[1], wp[2]):
                 return
@@ -520,6 +530,7 @@ class RFHuntController:
             alt=self._search_alt_m,
         )
         self._wp_index = 0
+        self._effective_wp = None
         self._set_state(HuntState.SEARCHING)
 
     def _report_results(self) -> None:

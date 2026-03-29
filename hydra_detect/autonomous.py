@@ -140,6 +140,7 @@ class AutonomousController:
 
         self._persistence = _TrackPersistence()
         self._last_strike_time: float = 0.0
+        self._last_evaluate_time: float = 0.0  # monotonic time of last full eval
         self._strike_in_progress = False
         self._suppressed = False  # External suppression (e.g. camera loss)
 
@@ -213,6 +214,9 @@ class AutonomousController:
         # Operator lock requirement
         if self._require_operator_lock and self._operator_locked_track is None:
             return
+
+        # Mark that we reached the full evaluation (past all early returns)
+        self._last_evaluate_time = now
 
         # Evaluate tracks
         self._persistence.begin_frame()
@@ -290,8 +294,19 @@ class AutonomousController:
         self._suppressed = value
 
     def has_active_evaluation(self) -> bool:
-        """Return True if any track is being evaluated (frame counter > 0)."""
-        return any(count > 0 for count in self._persistence.counts.values())
+        """Return True if any track is being evaluated (frame counter > 0).
+
+        Also checks staleness: if evaluate() hasn't run past its early
+        returns recently (>3 s), counters are stale and we return False.
+        """
+        if not any(count > 0 for count in self._persistence.counts.values()):
+            return False
+        # Guard against stale counters from evaluate() returning early
+        if self._last_evaluate_time == 0.0:
+            return False
+        if (time.monotonic() - self._last_evaluate_time) > 3.0:
+            return False
+        return True
 
     def clip_to_geofence(self, lat: float, lon: float) -> tuple[float, float]:
         """Clip a point to the nearest geofence boundary. Returns (lat, lon).
@@ -315,6 +330,14 @@ class AutonomousController:
                     cx, cy = mid_lat, mid_lon
                 else:
                     lat, lon = mid_lat, mid_lon
+            # Verify result is actually inside (centroid of concave polygon
+            # can be outside, which makes the binary search miss).
+            if not self.check_geofence(cx, cy):
+                for vx, vy in self._geofence_polygon:
+                    if self.check_geofence(vx, vy):
+                        return (vx, vy)
+                # All vertices outside? Return original (shouldn't happen)
+                return (lat, lon)
             return (cx, cy)
 
         # Circular geofence: project toward centre

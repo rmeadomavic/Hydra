@@ -177,6 +177,9 @@ class TestConfigFreezeDuringEngagement:
 # has_active_evaluation tests
 # ---------------------------------------------------------------------------
 
+import time
+
+
 class TestHasActiveEvaluation:
     def test_no_tracks_returns_false(self):
         ctrl = AutonomousController(enabled=True)
@@ -184,24 +187,34 @@ class TestHasActiveEvaluation:
 
     def test_active_track_returns_true(self):
         ctrl = AutonomousController(enabled=True)
-        # Simulate a track being evaluated by writing to _persistence.counts
         ctrl._persistence.counts[42] = 3
+        ctrl._last_evaluate_time = time.monotonic()
         assert ctrl.has_active_evaluation() is True
 
     def test_zero_count_returns_false(self):
         ctrl = AutonomousController(enabled=True)
         ctrl._persistence.counts[42] = 0
+        ctrl._last_evaluate_time = time.monotonic()
         assert ctrl.has_active_evaluation() is False
 
     def test_cleared_after_end_frame(self):
         ctrl = AutonomousController(enabled=True)
+        ctrl._last_evaluate_time = time.monotonic()
         ctrl._persistence.begin_frame()
         ctrl._persistence.mark(1)
         ctrl._persistence.end_frame()
-        # Track 1 is still counted (was seen this frame)
         assert ctrl.has_active_evaluation() is True
-
-        # Next frame: track not seen -> cleared
         ctrl._persistence.begin_frame()
         ctrl._persistence.end_frame()
+        assert ctrl.has_active_evaluation() is False
+
+    def test_stale_evaluate_returns_false(self):
+        ctrl = AutonomousController(enabled=True)
+        ctrl._persistence.counts[42] = 3
+        ctrl._last_evaluate_time = time.monotonic() - 5.0
+        assert ctrl.has_active_evaluation() is False
+
+    def test_never_evaluated_returns_false(self):
+        ctrl = AutonomousController(enabled=True)
+        ctrl._persistence.counts[42] = 3
         assert ctrl.has_active_evaluation() is False
