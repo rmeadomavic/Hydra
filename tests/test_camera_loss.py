@@ -39,6 +39,7 @@ def _make_pipeline(**overrides) -> Pipeline:
     p._cam_fail_count = 0
     p._cam_lost = False
     p._CAM_FAIL_THRESHOLD = 2
+    p._event_logger = MagicMock()
     return p
 
 
