@@ -140,6 +140,7 @@ class AutonomousController:
 
         self._persistence = _TrackPersistence()
         self._last_strike_time: float = 0.0
+        self._last_evaluate_time: float = 0.0  # monotonic time of last full eval
         self._strike_in_progress = False
         self._suppressed = False  # External suppression (e.g. camera loss)
 
@@ -213,6 +214,9 @@ class AutonomousController:
         # Operator lock requirement
         if self._require_operator_lock and self._operator_locked_track is None:
             return
+
+        # Mark that we reached the full evaluation (past all early returns)
+        self._last_evaluate_time = now
 
         # Evaluate tracks
         self._persistence.begin_frame()
@@ -288,6 +292,62 @@ class AutonomousController:
     @suppressed.setter
     def suppressed(self, value: bool) -> None:
         self._suppressed = value
+
+    def has_active_evaluation(self) -> bool:
+        """Return True if any track is being evaluated (frame counter > 0).
+
+        Also checks staleness: if evaluate() hasn't run past its early
+        returns recently (>3 s), counters are stale and we return False.
+        """
+        if not any(count > 0 for count in self._persistence.counts.values()):
+            return False
+        # Guard against stale counters from evaluate() returning early
+        if self._last_evaluate_time == 0.0:
+            return False
+        if (time.monotonic() - self._last_evaluate_time) > 3.0:
+            return False
+        return True
+
+    def clip_to_geofence(self, lat: float, lon: float) -> tuple[float, float]:
+        """Clip a point to the nearest geofence boundary. Returns (lat, lon).
+
+        For polygon geofences, binary-searches along the line from the point
+        toward the polygon centroid.  For circular geofences, projects toward
+        the circle centre along the radius.
+        """
+        if self.check_geofence(lat, lon):
+            return (lat, lon)  # Already inside
+
+        if self._geofence_polygon and len(self._geofence_polygon) >= 3:
+            # Project toward centroid until inside
+            cx = sum(p[0] for p in self._geofence_polygon) / len(self._geofence_polygon)
+            cy = sum(p[1] for p in self._geofence_polygon) / len(self._geofence_polygon)
+            # Binary search along line from point toward centroid
+            for _ in range(20):  # 20 iterations gives ~1 m precision
+                mid_lat = (lat + cx) / 2
+                mid_lon = (lon + cy) / 2
+                if self.check_geofence(mid_lat, mid_lon):
+                    cx, cy = mid_lat, mid_lon
+                else:
+                    lat, lon = mid_lat, mid_lon
+            # Verify result is actually inside (centroid of concave polygon
+            # can be outside, which makes the binary search miss).
+            if not self.check_geofence(cx, cy):
+                for vx, vy in self._geofence_polygon:
+                    if self.check_geofence(vx, vy):
+                        return (vx, vy)
+                # All vertices outside? Return original (shouldn't happen)
+                return (lat, lon)
+            return (cx, cy)
+
+        # Circular geofence: project toward centre
+        dist = haversine_m(lat, lon, self._geofence_lat, self._geofence_lon)
+        if dist == 0:
+            return (lat, lon)
+        ratio = self._geofence_radius_m / dist
+        clipped_lat = self._geofence_lat + (lat - self._geofence_lat) * ratio
+        clipped_lon = self._geofence_lon + (lon - self._geofence_lon) * ratio
+        return (clipped_lat, clipped_lon)
 
     def notify_strike_complete(self) -> None:
         """Called when a strike finishes (target lost or vehicle arrives)."""
