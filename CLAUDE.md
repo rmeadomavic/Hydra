@@ -42,7 +42,8 @@ Kismet (WiFi/SDR) → RF Hunt Controller → RSSI Gradient Ascent → MAVLink Na
 | `camera.py` | Thread-safe capture (USB, RTSP, file, V4L2, analog) |
 | `tracker.py` | ByteTrack wrapper (TrackedObject, TrackingResult) |
 | `overlay.py` | Bounding boxes, HUD, target lock rendering |
-| `approach.py` | Follow, Drop, Strike approach modes |
+| `approach.py` | Follow, Drop, Strike, Pixel-Lock approach modes |
+| `guidance.py` | Velocity-based visual servoing controller (pure math, extractable) |
 | `autonomous.py` | Geofenced autonomous strike controller |
 | `dogleg_rtl.py` | Tactical return path (drones) |
 | `mission_profiles.py` | RECON / DELIVERY / STRIKE presets |
@@ -185,7 +186,7 @@ Follow the **discover → review → fix** workflow:
 All tunables live in `config.ini`. Sections: `[camera]`, `[detector]`, `[tracker]`,
 `[mavlink]`, `[alerts]`, `[web]`, `[osd]`, `[autonomous]`, `[approach]`, `[drop]`,
 `[rf_homing]`, `[servo_tracking]`, `[logging]`, `[watchdog]`, `[rtsp]`,
-`[mavlink_video]`, `[tak]`, `[vehicle.drone]`, `[vehicle.usv]`, `[vehicle.ugv]`,
+`[mavlink_video]`, `[guidance]`, `[tak]`, `[vehicle.drone]`, `[vehicle.usv]`, `[vehicle.ugv]`,
 `[vehicle.fw]`.
 
 Full reference: `docs/configuration.md`. Schema: `hydra_detect/config_schema.py`.
@@ -198,7 +199,7 @@ Full reference: `docs/configuration.md`. Schema: `hydra_detect/config_schema.py`
 - **Stream**: `GET /stream.mjpeg`, `GET/POST /api/stream/quality`
 - **Stats/Tracks**: `GET /api/stats`, `GET /api/tracks`, `GET /api/detections`
 - **Target**: `GET /api/target`, `POST /api/target/lock`, `POST /api/target/unlock`, `POST /api/target/strike`
-- **Approach**: `GET /api/approach/status`, `POST /api/approach/follow/{id}`, `POST /api/approach/drop/{id}`, `POST /api/approach/strike/{id}`, `POST /api/approach/abort`
+- **Approach**: `GET /api/approach/status`, `POST /api/approach/follow/{id}`, `POST /api/approach/drop/{id}`, `POST /api/approach/strike/{id}`, `POST /api/approach/pixel_lock/{id}`, `POST /api/approach/abort`
 - **Vehicle**: `POST /api/vehicle/loiter`, `POST /api/vehicle/mode`, `POST /api/abort` (unauthenticated)
 - **Config**: `GET/POST /api/config`, `GET/POST /api/config/full`, `POST /api/config/prompts`, `POST /api/config/threshold`, `GET/POST /api/config/alert-classes`, `POST /api/config/restore-backup`, `POST /api/config/factory-reset`, `GET /api/config/export`, `POST /api/config/import`
 - **Camera/Models**: `GET /api/camera/sources`, `POST /api/camera/switch`, `GET /api/models`, `POST /api/models/switch`
@@ -219,6 +220,7 @@ Full reference: `docs/api-reference.md`.
 
 50+ test files in `tests/`. Key coverage areas:
 - Autonomous controller: `test_autonomous.py`, `test_drop_strike.py`
+- Guidance: `test_guidance.py`
 - Config: `test_config_schema.py`, `test_config_api.py`, `test_config_freeze.py`
 - RF: `test_rf_hunt.py`, `test_rf_navigator.py`, `test_rf_search.py`, `test_rf_signal.py`, `test_rf_geofence.py`, `test_rf_kismet.py`, `test_rf_web_api.py`
 - TAK: `test_tak.py`, `test_tak_input.py`, `test_tak_security.py`, `test_tak_unicast_manifest.py`
@@ -299,6 +301,16 @@ curl -s 'http://100.109.160.122:8080/api/logs?lines=100&level=WARNING'
 Use this proactively when diagnosing runtime issues on the Jetson — it provides
 real-time context that `journalctl` or Docker logs cannot (structured, filtered,
 and accessible without SSH).
+
+## Adding New Approach Modes
+
+Pattern for adding a new engagement mode (e.g. pixel_lock, follow, drop, strike):
+1. Add enum value to `ApproachMode` in `approach.py`
+2. Add `start_*()` and `_update_*()` methods to `ApproachController`
+3. Add `_handle_*_command()` to `pipeline.py`, register in `set_callbacks()`
+4. Add `POST /api/approach/*` endpoint in `web/server.py`
+5. Add config section to `config.ini` + schema in `config_schema.py`
+6. Keep vehicle control logic separate from math — see `guidance.py` pattern
 
 ## Debugging Rules
 
