@@ -14,13 +14,20 @@ from typing import Optional
 
 import cv2
 
+from .approach import ApproachConfig, ApproachController, ApproachMode
 from .autonomous import AutonomousController, parse_polygon
 from .servo_tracker import ServoTracker
 from .camera import Camera, list_video_sources
 from .rf.hunt import RFHuntController
 from .rf.kismet_manager import KismetManager
 from .detection_logger import DetectionLogger
-from .model_manifest import load_manifest, validate_model, MANIFEST_FILENAME
+from .event_logger import EventLogger
+from .model_manifest import (
+    auto_update_manifest,
+    load_manifest,
+    validate_model,
+    MANIFEST_FILENAME,
+)
 from .detectors.yolo_detector import YOLODetector
 from .mavlink_io import MAVLinkIO
 from .osd import FpvOsd, build_osd_state
@@ -83,9 +90,17 @@ def _build_detector(cfg: configparser.ConfigParser, models_dir: Path | None = No
 class Pipeline:
     """Top-level orchestrator that ties all modules together."""
 
-    def __init__(self, config_path: str = "config.ini", vehicle: str | None = None):
-        self._cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
-        self._cfg.read(config_path)
+    def __init__(
+        self,
+        config_path: str = "config.ini",
+        vehicle: str | None = None,
+        cfg_override: configparser.ConfigParser | None = None,
+    ):
+        if cfg_override is not None:
+            self._cfg = cfg_override
+        else:
+            self._cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
+            self._cfg.read(config_path)
 
         # Apply vehicle-specific overrides from [vehicle.<name>] sections.
         # Keys use dotted notation: "camera.source" → override [camera] source.
@@ -353,6 +368,54 @@ class Pipeline:
                 classes_raw or "NONE (fail-closed)",
             )
 
+        # Approach controller (Follow / Drop / Strike)
+        self._approach: ApproachController | None = None
+        if self._mavlink is not None:
+            _hfov_default = 120.0 if self._cfg.get(
+                "camera", "source_type", fallback="auto"
+            ) == "analog" else 60.0
+            approach_cfg = ApproachConfig(
+                follow_speed_min=self._cfg.getfloat(
+                    "approach", "follow_speed_min", fallback=2.0),
+                follow_speed_max=self._cfg.getfloat(
+                    "approach", "follow_speed_max", fallback=10.0),
+                follow_distance_m=self._cfg.getfloat(
+                    "approach", "follow_distance_m", fallback=15.0),
+                follow_yaw_rate_max=self._cfg.getfloat(
+                    "approach", "follow_yaw_rate_max", fallback=30.0),
+                drop_channel=self._cfg.getint(
+                    "drop", "servo_channel", fallback=0) or None,
+                drop_pwm_release=self._cfg.getint(
+                    "drop", "pwm_release", fallback=1900),
+                drop_pwm_hold=self._cfg.getint(
+                    "drop", "pwm_hold", fallback=1100),
+                drop_duration=self._cfg.getfloat(
+                    "drop", "pulse_duration", fallback=1.0),
+                drop_distance_m=self._cfg.getfloat(
+                    "drop", "drop_distance_m", fallback=3.0),
+                arm_channel=self._cfg.getint(
+                    "autonomous", "arm_channel", fallback=0) or None,
+                arm_pwm_armed=self._cfg.getint(
+                    "autonomous", "arm_pwm_armed", fallback=1900),
+                arm_pwm_safe=self._cfg.getint(
+                    "autonomous", "arm_pwm_safe", fallback=1100),
+                hw_arm_channel=self._cfg.getint(
+                    "autonomous", "hardware_arm_channel", fallback=0) or None,
+                camera_hfov_deg=self._cfg.getfloat(
+                    "camera", "hfov_deg", fallback=_hfov_default),
+                abort_mode=self._cfg.get(
+                    "approach", "abort_mode", fallback="LOITER"),
+                waypoint_interval=self._cfg.getfloat(
+                    "approach", "waypoint_interval", fallback=0.5),
+            )
+            self._approach = ApproachController(self._mavlink, approach_cfg)
+            logger.info(
+                "Approach controller initialized (drop_ch=%s, arm_ch=%s, hw_arm_ch=%s)",
+                approach_cfg.drop_channel,
+                approach_cfg.arm_channel,
+                approach_cfg.hw_arm_channel,
+            )
+
         # RF homing controller
         self._rf_hunt: RFHuntController | None = None
         self._kismet_manager: KismetManager | None = None
@@ -523,6 +586,15 @@ class Pipeline:
             model_hash=_model_hash,
         )
 
+        # Event timeline logger (operator actions + vehicle track)
+        self._event_logger = EventLogger(
+            log_dir=self._cfg.get(
+                "logging", "log_dir", fallback="./output_data/logs"
+            ),
+            callsign=self._cfg.get("tak", "callsign", fallback="HYDRA"),
+        )
+        self._event_logger.start_mission("default")
+
         # Web UI
         self._web_enabled = self._cfg.getboolean("web", "enabled", fallback=True)
         self._web_host = self._cfg.get("web", "host", fallback="0.0.0.0")
@@ -575,6 +647,10 @@ class Pipeline:
         self._lock_mode: Optional[str] = None  # "track" or "strike"
         self._last_track_result = None  # Most recent TrackingResult for web API
         self._servo_tracker = None
+
+        # Mission tagging state
+        self._mission_name: str | None = None
+        self._mission_start_time: float | None = None
 
     def _is_engagement_active(self) -> bool:
         """Return True if autonomous has active tracks or operator has a lock."""
@@ -648,6 +724,9 @@ class Pipeline:
                 len(validation.errors),
             )
             # Don't hard-exit — let pre-flight checklist show errors on dashboard
+
+        # Auto-update model manifest with any new .pt files
+        auto_update_manifest(self._models_dir)
 
         # Init subsystems — clean up on partial failure
         try:
@@ -772,10 +851,22 @@ class Pipeline:
                 get_mavlink_video_status=self._get_mavlink_video_status,
                 on_tak_toggle=self._handle_tak_toggle,
                 get_tak_status=self._get_tak_status,
+                get_tak_targets=self._get_tak_targets,
+                add_tak_target=self._add_tak_target,
+                remove_tak_target=self._remove_tak_target,
                 get_profiles=self._get_profiles,
                 on_profile_switch=self._handle_profile_switch,
                 get_preflight=self._get_preflight,
                 on_restart_command=self._handle_restart_command,
+                on_drop_command=self._handle_drop_command,
+                on_follow_command=self._handle_follow_command,
+                on_approach_strike_command=self._handle_approach_strike_command,
+                on_approach_abort=self._handle_approach_abort,
+                get_approach_status=self._get_approach_status,
+                on_mission_start=self._handle_mission_start,
+                on_mission_end=self._handle_mission_end,
+                get_events=self._get_events,
+                get_event_status=self._event_logger.get_status,
             )
 
             stream_state.update_stats(
@@ -936,6 +1027,7 @@ class Pipeline:
             if self._cam_fail_count >= self._CAM_FAIL_THRESHOLD and not self._cam_lost:
                 self._cam_lost = True
                 logger.warning("Camera lost — entering degraded mode.")
+                self._event_logger.log_state_change("camera_lost")
                 if self._mavlink is not None:
                     self._mavlink.send_statustext(f"{self._callsign}: CAM LOST", severity=4)
                 if self._autonomous is not None:
@@ -946,6 +1038,7 @@ class Pipeline:
             self._cam_lost = False
             self._cam_fail_count = 0
             logger.info("Camera restored — exiting degraded mode.")
+            self._event_logger.log_state_change("camera_restored")
             if self._mavlink is not None:
                 self._mavlink.send_statustext(f"{self._callsign}: CAM RESTORED", severity=5)
             if self._autonomous is not None:
@@ -1004,6 +1097,18 @@ class Pipeline:
             if self._mavlink is not None:
                 gps = self._mavlink.get_gps()
 
+            # Vehicle track logging at 1 Hz (rate-limited inside)
+            if gps is not None and gps.get("fix", 0) >= 3:
+                telem = self._mavlink.get_telemetry()
+                self._event_logger.log_vehicle_track(
+                    lat=gps.get("lat", 0.0),
+                    lon=gps.get("lon", 0.0),
+                    alt=gps.get("alt", 0.0),
+                    heading=telem.get("heading"),
+                    speed=telem.get("groundspeed"),
+                    mode=telem.get("vehicle_mode"),
+                )
+
             # MAVLink alerts (per-label throttled)
             if self._mavlink is not None and len(track_result) > 0:
                 alert_sent = False
@@ -1047,6 +1152,19 @@ class Pipeline:
                     self._handle_target_lock, self._handle_strike_command,
                 )
 
+            # Update approach controller with locked track
+            if self._approach is not None and self._approach.active:
+                locked_track_for_approach = None
+                if current_lock_id is not None:
+                    locked_track_for_approach = track_result.find(
+                        current_lock_id,
+                    )
+                self._approach.update(
+                    locked_track_for_approach,
+                    frame.shape[1],
+                    frame.shape[0],
+                )
+
             if current_lock_id is not None and self._mavlink is not None:
                 locked_track = track_result.find(current_lock_id)
 
@@ -1069,6 +1187,13 @@ class Pipeline:
                         self._servo_tracker.update(error_x)
                 else:
                     self._handle_target_unlock(reason="lost")
+
+            # Approach controller update (Follow / Drop / Strike)
+            if self._approach is not None and current_lock_id is not None:
+                locked_track = track_result.find(current_lock_id)
+                self._approach.update(
+                    locked_track, frame.shape[1], frame.shape[0],
+                )
 
             # Log with GPS data
             self._det_logger.log(track_result, frame, gps=gps)
@@ -1120,6 +1245,7 @@ class Pipeline:
                     "camera_source": str(self._camera.source),
                     "camera_ok": not self._cam_lost,
                     "callsign": self._callsign,
+                    "mission_name": self._mission_name,
                 }
                 # Expose duplicate callsign flag from TAK input
                 if self._tak_input is not None:
@@ -1157,6 +1283,8 @@ class Pipeline:
                     stats_update["rf_hunt"] = self._rf_hunt.get_status()
                 if self._servo_tracker is not None:
                     stats_update["servo_tracking"] = self._servo_tracker.get_status()
+                if self._approach is not None:
+                    stats_update["approach"] = self._approach.get_status()
                 stats_update.update(self._jetson_stats)
                 stream_state.update_stats(**stats_update)
 
@@ -1248,6 +1376,9 @@ class Pipeline:
             self._mavlink.send_statustext(
                 f"{self._callsign}: TGT LOCK #{track_id} {t.label} [{mode.upper()}]", severity=5
             )
+        self._event_logger.log_action("lock", {
+            "track_id": track_id, "label": t.label, "mode": mode,
+        })
         return True
 
     def _handle_target_unlock(self, reason: str = "") -> None:
@@ -1264,6 +1395,9 @@ class Pipeline:
         if self._autonomous is not None:
             self._autonomous._operator_locked_track = None
         if prev_id is not None:
+            self._event_logger.log_action("unlock", {
+                "track_id": prev_id, "reason": reason or "operator",
+            })
             if reason == "lost":
                 logger.warning(
                     "Locked target #%d lost from tracker — auto-unlocking.",
@@ -1280,6 +1414,9 @@ class Pipeline:
                     self._mavlink.clear_roi()
         if self._servo_tracker is not None:
             self._servo_tracker.safe()
+        # Abort any active approach mode
+        if self._approach is not None and self._approach.mode != ApproachMode.IDLE:
+            self._approach.abort()
 
     def _handle_strike_command(self, track_id: int) -> bool:
         """Command vehicle to navigate toward a tracked target.
@@ -1304,6 +1441,9 @@ class Pipeline:
             self._locked_track_id = track_id
             self._lock_mode = "strike"
         logger.info("STRIKE LOCK: #%d (%s)", track_id, target_track.label)
+        self._event_logger.log_action("strike", {
+            "track_id": track_id, "label": target_track.label,
+        })
 
         # If no MAVLink, just visual — no vehicle command
         if self._mavlink is None:
@@ -1490,6 +1630,152 @@ class Pipeline:
 
         return {"checks": checks, "overall": overall}
 
+    def _handle_drop_command(self, track_id: int) -> bool:
+        """Command vehicle to approach target and release drop servo on arrival."""
+        if self._approach is None:
+            logger.warning("Drop failed: approach controller not available")
+            return False
+        if self._approach.mode != ApproachMode.IDLE:
+            logger.warning("Drop failed: approach already active in %s mode",
+                           self._approach.mode.value)
+            return False
+
+        with self._state_lock:
+            if self._last_track_result is None:
+                return False
+            target_track = self._last_track_result.find(track_id)
+        if target_track is None:
+            logger.warning("Drop failed: track #%d not found.", track_id)
+            return False
+
+        # Estimate target GPS position
+        if self._mavlink is None:
+            return False
+        if self._camera.has_frame:
+            frame_w = self._camera.width
+        else:
+            frame_w = 640
+        cx = (target_track.x1 + target_track.x2) / 2.0
+        error_x = (cx - frame_w / 2.0) / (frame_w / 2.0)
+        approach_dist = self._cfg.getfloat("mavlink", "strike_distance_m", fallback=20.0)
+        _hfov_default = 120.0 if self._camera.source_type == "analog" else 60.0
+        camera_hfov = self._cfg.getfloat("camera", "hfov_deg", fallback=_hfov_default)
+        target_pos = self._mavlink.estimate_target_position(
+            error_x, approach_dist, camera_hfov,
+        )
+        if target_pos is None:
+            logger.warning("Drop failed: no GPS fix or heading.")
+            return False
+
+        target_lat, target_lon = target_pos
+
+        # Set lock mode
+        with self._state_lock:
+            self._locked_track_id = track_id
+            self._lock_mode = "drop"
+
+        success = self._approach.start_drop(track_id, target_lat, target_lon)
+        if not success:
+            # Rollback lock on failure
+            self._handle_target_unlock()
+            return False
+
+        logger.info(
+            "DROP initiated: #%d (%s) -> %.6f, %.6f",
+            track_id, target_track.label, target_lat, target_lon,
+        )
+        if self._mavlink is not None:
+            self._mavlink.send_statustext(
+                f"DROP: #{track_id} {target_track.label}", severity=1,
+            )
+        return True
+
+    def _handle_follow_command(self, track_id: int) -> bool:
+        """Command vehicle to follow a tracked target continuously."""
+        if self._approach is None:
+            logger.warning("Follow failed: approach controller not available")
+            return False
+        if self._approach.mode != ApproachMode.IDLE:
+            logger.warning("Follow failed: approach already active in %s mode",
+                           self._approach.mode.value)
+            return False
+
+        with self._state_lock:
+            if self._last_track_result is None:
+                return False
+            target_track = self._last_track_result.find(track_id)
+        if target_track is None:
+            logger.warning("Follow failed: track #%d not found.", track_id)
+            return False
+
+        # Set lock mode
+        with self._state_lock:
+            self._locked_track_id = track_id
+            self._lock_mode = "follow"
+
+        success = self._approach.start_follow(track_id)
+        if not success:
+            # Rollback lock on failure
+            self._handle_target_unlock()
+            return False
+
+        logger.info("FOLLOW initiated: #%d (%s)", track_id, target_track.label)
+        if self._mavlink is not None:
+            self._mavlink.send_statustext(
+                f"FOLLOW: #{track_id} {target_track.label}", severity=5,
+            )
+        return True
+
+    def _handle_approach_strike_command(self, track_id: int) -> bool:
+        """Command vehicle into continuous strike approach mode."""
+        if self._approach is None:
+            logger.warning("Approach strike failed: approach controller not available")
+            return False
+        if self._approach.mode != ApproachMode.IDLE:
+            logger.warning("Approach strike failed: approach already active in %s mode",
+                           self._approach.mode.value)
+            return False
+
+        with self._state_lock:
+            if self._last_track_result is None:
+                return False
+            target_track = self._last_track_result.find(track_id)
+        if target_track is None:
+            logger.warning("Approach strike failed: track #%d not found.", track_id)
+            return False
+
+        # Set lock mode
+        with self._state_lock:
+            self._locked_track_id = track_id
+            self._lock_mode = "strike"
+
+        success = self._approach.start_strike(track_id)
+        if not success:
+            # Rollback lock on failure
+            self._handle_target_unlock()
+            return False
+
+        logger.info(
+            "APPROACH STRIKE initiated: #%d (%s)", track_id, target_track.label,
+        )
+        if self._mavlink is not None:
+            self._mavlink.send_statustext(
+                f"STRIKE ARM: #{track_id} {target_track.label}", severity=1,
+            )
+        return True
+
+    def _handle_approach_abort(self) -> None:
+        """Abort the current approach mode."""
+        if self._approach is not None:
+            self._approach.abort()
+        self._handle_target_unlock()
+
+    def _get_approach_status(self) -> dict:
+        """Return approach controller status for the web API."""
+        if self._approach is not None:
+            return self._approach.get_status()
+        return {"mode": "idle", "active": False}
+
     def _get_active_tracks(self) -> list[dict]:
         """Return current tracked objects as dicts for the web API."""
         with self._state_lock:
@@ -1505,6 +1791,12 @@ class Pipeline:
             }
             for t in result
         ]
+
+    def _get_events(self) -> dict:
+        """Return recent events from the current mission."""
+        events = self._event_logger.get_recent_events(max_events=200)
+        status = self._event_logger.get_status()
+        return {"events": events, **status}
 
     def _get_camera_sources(self) -> list[dict]:
         """Return available video sources with current source marked."""
@@ -1892,6 +2184,22 @@ class Pipeline:
         self._restart_requested = True
         self._running = False
 
+    def _get_tak_targets(self) -> list[dict]:
+        """Return current TAK unicast targets."""
+        if self._tak is not None:
+            return self._tak.get_unicast_targets()
+        return []
+
+    def _add_tak_target(self, host: str, port: int) -> None:
+        """Add a TAK unicast target at runtime."""
+        if self._tak is not None:
+            self._tak.add_unicast_target(host, port)
+
+    def _remove_tak_target(self, host: str, port: int) -> None:
+        """Remove a TAK unicast target at runtime."""
+        if self._tak is not None:
+            self._tak.remove_unicast_target(host, port)
+
     def _handle_stop_command(self) -> None:
         """Stop the pipeline gracefully from the web UI."""
         logger.info("Stop command received from web UI.")
@@ -1908,8 +2216,37 @@ class Pipeline:
         logger.info("Pipeline RESUMED from web UI.")
 
     # ------------------------------------------------------------------
+    # Mission tagging
+    # ------------------------------------------------------------------
+    def _handle_mission_start(self, name: str) -> None:
+        """Start a named mission session."""
+        self._mission_name = name
+        self._mission_start_time = time.monotonic()
+        logger.info("Mission STARTED: %s", name)
+        if self._mavlink is not None:
+            callsign = self._cfg.get("tak", "callsign", fallback="HYDRA")
+            self._mavlink.send_statustext(
+                f"{callsign}: MISSION START - {name}", severity=5
+            )
+
+    def _handle_mission_end(self) -> None:
+        """End the current mission session."""
+        if self._mission_name:
+            elapsed = time.monotonic() - (self._mission_start_time or 0)
+            logger.info("Mission ENDED: %s (%.0fs)", self._mission_name, elapsed)
+            if self._mavlink is not None:
+                callsign = self._cfg.get("tak", "callsign", fallback="HYDRA")
+                self._mavlink.send_statustext(
+                    f"{callsign}: MISSION END - {self._mission_name}", severity=5
+                )
+        self._mission_name = None
+        self._mission_start_time = None
+
+    # ------------------------------------------------------------------
     def _shutdown(self) -> None:
         logger.info("Shutting down ...")
+        if self._approach is not None:
+            self._approach.abort()
         if self._rf_hunt is not None:
             self._rf_hunt.stop()
         if self._kismet_manager is not None:
@@ -1927,6 +2264,7 @@ class Pipeline:
         self._camera.close()
         self._detector.unload()
         self._det_logger.stop(timeout=5.0)
+        self._event_logger.stop()
         # Send STATUSTEXT shutdown message before closing MAVLink
         callsign = self._cfg.get("tak", "callsign", fallback="HYDRA")
         if self._mavlink is not None and self._mavlink.connected:

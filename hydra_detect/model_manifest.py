@@ -96,6 +96,46 @@ def generate_manifest(*model_dirs: str) -> list[dict[str, Any]]:
     return entries
 
 
+def auto_update_manifest(models_dir: Path) -> bool:
+    """Scan models directory and add any new .pt files to manifest.json.
+
+    Returns True if manifest was updated.
+    """
+    if not models_dir.is_dir():
+        return False
+
+    manifest_path = models_dir / MANIFEST_FILENAME
+    manifest = load_manifest(manifest_path) or []
+    existing_files = {e["filename"] for e in manifest}
+
+    updated = False
+    for pt_file in sorted(models_dir.glob("*.pt")):
+        if pt_file.name not in existing_files:
+            file_hash = compute_file_hash(pt_file)
+            size_mb = round(pt_file.stat().st_size / (1024 * 1024), 1)
+            entry = {
+                "filename": pt_file.name,
+                "sha256": file_hash,
+                "size_mb": size_mb,
+                "input_size": 416,
+                "classes": [],
+            }
+            manifest.append(entry)
+            updated = True
+            logger.info(
+                "Auto-manifest: added %s (%.1f MB)", pt_file.name, size_mb
+            )
+
+    if updated:
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f, indent=2)
+        logger.info(
+            "Manifest updated: %s (%d models)", manifest_path, len(manifest)
+        )
+
+    return updated
+
+
 def main() -> None:
     """CLI: generate or update manifest.json in a models directory."""
     import sys

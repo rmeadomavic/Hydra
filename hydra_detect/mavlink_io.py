@@ -83,6 +83,10 @@ class MAVLinkIO:
             "heading": None,
         }
 
+        # RC channel values (updated by _message_reader from RC_CHANNELS)
+        self._rc_channels: list[int] = []
+        self._rc_channels_lock = threading.Lock()
+
         # Vehicle mode state (from HEARTBEAT)
         self._vehicle_mode: Optional[str] = None
         self._vehicle_mode_lock = threading.Lock()
@@ -187,7 +191,7 @@ class MAVLinkIO:
     # ------------------------------------------------------------------
     _ALL_MSG_TYPES = [
         "GLOBAL_POSITION_INT", "GPS_RAW_INT", "HEARTBEAT",
-        "SYS_STATUS", "VFR_HUD",
+        "SYS_STATUS", "VFR_HUD", "RC_CHANNELS",
         "COMMAND_LONG", "NAMED_VALUE_INT",
     ]
 
@@ -228,6 +232,16 @@ class MAVLinkIO:
                         self._telemetry["groundspeed"] = round(msg.groundspeed, 1)
                         self._telemetry["altitude"] = round(msg.alt, 1)
                         self._telemetry["heading"] = round(msg.heading, 0)
+                elif msg_type == "RC_CHANNELS":
+                    with self._rc_channels_lock:
+                        self._rc_channels = [
+                            msg.chan1_raw, msg.chan2_raw, msg.chan3_raw,
+                            msg.chan4_raw, msg.chan5_raw, msg.chan6_raw,
+                            msg.chan7_raw, msg.chan8_raw, msg.chan9_raw,
+                            msg.chan10_raw, msg.chan11_raw, msg.chan12_raw,
+                            msg.chan13_raw, msg.chan14_raw, msg.chan15_raw,
+                            msg.chan16_raw, msg.chan17_raw, msg.chan18_raw,
+                        ]
                 elif msg_type == "HEARTBEAT":
                     if msg.type == 6:  # Skip GCS heartbeats
                         continue
@@ -850,6 +864,46 @@ class MAVLinkIO:
             return False
         except Exception as exc:
             logger.warning("Failed to set mode %s: %s", mode_name, exc)
+            return False
+
+    def get_rc_channels(self) -> list[int]:
+        """Return last received RC channel values (1-indexed in the list).
+
+        Returns a list of up to 18 PWM values, or an empty list if no
+        RC_CHANNELS message has been received yet.
+        """
+        with self._rc_channels_lock:
+            return list(self._rc_channels)
+
+    def command_do_change_speed(self, speed_m_s: float) -> bool:
+        """Set vehicle ground speed via MAV_CMD_DO_CHANGE_SPEED.
+
+        Args:
+            speed_m_s: Desired ground speed in metres per second.
+
+        Returns:
+            True if the command was sent successfully.
+        """
+        if self._mav is None:
+            return False
+        speed_m_s = max(0.0, min(100.0, speed_m_s))  # Sane bounds
+        try:
+            from pymavlink import mavutil
+
+            with self._send_lock:
+                self._mav.mav.command_long_send(
+                    self._mav.target_system,
+                    self._mav.target_component,
+                    mavutil.mavlink.MAV_CMD_DO_CHANGE_SPEED,
+                    0,          # confirmation
+                    1,          # param1: speed type (1 = ground speed)
+                    speed_m_s,  # param2: speed in m/s
+                    -1,         # param3: throttle (-1 = no change)
+                    0, 0, 0, 0,
+                )
+            return True
+        except Exception as exc:
+            logger.warning("DO_CHANGE_SPEED failed: %s", exc)
             return False
 
     @property

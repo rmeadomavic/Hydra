@@ -35,6 +35,7 @@
         .btn { background: #1a1a1a; color: #00ff88; border: 1px solid #00ff88; padding: 6px 12px; cursor: pointer; font-family: inherit; font-size: 12px; margin-top: 4px; }
         .btn:hover { background: #00ff88; color: #000; }
         .popup-img { max-width: 280px; margin-top: 6px; border: 1px solid #444; }
+        .timeline-event { padding: 2px 0; border-bottom: 1px solid #222; color: #aaa; }
         .leaflet-popup-content-wrapper { background: #1a1a1a; color: #e0e0e0; border-radius: 4px; }
         .leaflet-popup-tip { background: #1a1a1a; }
         .leaflet-popup-content { font-family: 'Courier New', monospace; font-size: 12px; }
@@ -72,6 +73,25 @@
                     <input type="checkbox" id="showMarkers" checked>
                     <label for="showMarkers">Show markers</label>
                 </div>
+            </div>
+            <div class="section">
+                <h3>VEHICLE TRACK</h3>
+                <select id="eventSelect"><option value="">-- Select event log --</option></select>
+                <div class="toggle-row">
+                    <input type="checkbox" id="showVehicleTrack" checked>
+                    <label for="showVehicleTrack">Show vehicle path</label>
+                </div>
+                <div class="toggle-row">
+                    <input type="checkbox" id="showEvents" checked>
+                    <label for="showEvents">Show operator actions</label>
+                </div>
+            </div>
+            <div class="section">
+                <h3>TIMELINE</h3>
+                <input type="range" id="timeSlider" min="0" max="100" value="100" step="1">
+                <div class="stat">Time: <span id="timeValue">--:--:--</span></div>
+                <div class="stat">Events: <span id="eventCount">-</span></div>
+                <div id="eventList" style="max-height: 150px; overflow-y: auto; font-size: 11px; margin-top: 8px;"></div>
             </div>
             <div class="section">
                 <h3>SUMMARY</h3>
@@ -305,6 +325,146 @@
             URL.revokeObjectURL(url);
         }
 
+        // --- Vehicle track / timeline ---
+        let allEvents = [];
+        let vehicleTrackLayer = L.layerGroup().addTo(map);
+        let eventMarkerLayer = L.layerGroup().addTo(map);
+        let vehicleMarker = null;
+
+        async function loadEventLogList() {
+            const res = await fetch('/api/review/logs');
+            const data = await res.json();
+            const sel = document.getElementById('eventSelect');
+            sel.textContent = '';
+            const defOpt = document.createElement('option');
+            defOpt.value = '';
+            defOpt.textContent = '-- Select event log --';
+            sel.appendChild(defOpt);
+            for (const log of (data.event_logs || [])) {
+                const opt = document.createElement('option');
+                opt.value = log.filename;
+                opt.textContent = log.filename;
+                sel.appendChild(opt);
+            }
+        }
+
+        async function loadEventLog(filename) {
+            if (!filename) return;
+            const res = await fetch(`/api/review/events/${encodeURIComponent(filename)}`);
+            const data = await res.json();
+            allEvents = data.events || [];
+
+            document.getElementById('eventCount').textContent = allEvents.length;
+
+            const slider = document.getElementById('timeSlider');
+            slider.max = allEvents.length > 0 ? allEvents.length - 1 : 0;
+            slider.value = slider.max;
+
+            renderVehicleTrack();
+            renderTimeline(parseInt(slider.max));
+        }
+
+        function renderVehicleTrack() {
+            vehicleTrackLayer.clearLayers();
+            eventMarkerLayer.clearLayers();
+
+            const showTrack = document.getElementById('showVehicleTrack').checked;
+            const showEvts = document.getElementById('showEvents').checked;
+
+            // Extract track points
+            const trackPoints = allEvents
+                .filter(e => e.type === 'track' && e.lat != null && e.lon != null)
+                .map(e => [e.lat, e.lon]);
+
+            if (showTrack && trackPoints.length > 1) {
+                L.polyline(trackPoints, {
+                    color: '#00aaff',
+                    weight: 3,
+                    opacity: 0.7,
+                }).addTo(vehicleTrackLayer);
+            }
+
+            // Event markers (actions)
+            if (showEvts) {
+                const actionEvents = allEvents.filter(e =>
+                    e.type === 'action' || e.type === 'state' || e.type === 'mission_start' || e.type === 'mission_end'
+                );
+                const trackEvts = allEvents.filter(e => e.type === 'track');
+                for (const evt of actionEvents) {
+                    let closest = null;
+                    let minDiff = Infinity;
+                    for (const t of trackEvts) {
+                        const diff = Math.abs((t.ts || 0) - (evt.ts || 0));
+                        if (diff < minDiff) { minDiff = diff; closest = t; }
+                    }
+                    if (closest && closest.lat && closest.lon) {
+                        const label = evt.action || evt.state || evt.type;
+                        const marker = L.circleMarker([closest.lat, closest.lon], {
+                            radius: 8,
+                            fillColor: '#ffaa00',
+                            color: '#fff',
+                            weight: 2,
+                            fillOpacity: 0.9,
+                        });
+                        const time = new Date((evt.ts || 0) * 1000).toLocaleTimeString('en-US', {hour12: false});
+                        marker.bindPopup(`<b>${esc(label)}</b><br>Time: ${time}`);
+                        eventMarkerLayer.addLayer(marker);
+                    }
+                }
+            }
+
+            if (trackPoints.length > 0) {
+                map.fitBounds(trackPoints, { padding: [30, 30] });
+            }
+        }
+
+        function renderTimeline(index) {
+            if (allEvents.length === 0) return;
+
+            const idx = Math.min(index, allEvents.length - 1);
+            const evt = allEvents[idx];
+
+            if (evt.ts) {
+                const time = new Date(evt.ts * 1000).toLocaleTimeString('en-US', {hour12: false});
+                document.getElementById('timeValue').textContent = time;
+            }
+
+            // Move vehicle marker to current position
+            const trackUpTo = allEvents.slice(0, idx + 1).filter(e => e.type === 'track');
+            if (trackUpTo.length > 0) {
+                const last = trackUpTo[trackUpTo.length - 1];
+                if (last.lat && last.lon) {
+                    if (vehicleMarker) {
+                        vehicleMarker.setLatLng([last.lat, last.lon]);
+                    } else {
+                        vehicleMarker = L.marker([last.lat, last.lon], {
+                            icon: L.divIcon({
+                                html: '<div style="width:12px;height:12px;background:#00ff88;border:2px solid #fff;border-radius:50%;"></div>',
+                                iconSize: [12, 12],
+                                iconAnchor: [6, 6],
+                            }),
+                        }).addTo(map);
+                    }
+                }
+            }
+
+            // Show recent events in list
+            const recentEvents = allEvents.slice(Math.max(0, idx - 10), idx + 1)
+                .filter(e => e.type !== 'track')
+                .reverse();
+
+            const list = document.getElementById('eventList');
+            list.textContent = '';
+            for (const e of recentEvents) {
+                const div = document.createElement('div');
+                div.className = 'timeline-event';
+                const time = e.ts ? new Date(e.ts * 1000).toLocaleTimeString('en-US', {hour12: false}) : '';
+                const label = e.action || e.state || e.name || e.type;
+                div.textContent = `${time} ${label}`;
+                list.appendChild(div);
+            }
+        }
+
         // --- Event listeners ---
         document.getElementById('logSelect').onchange = e => loadLog(e.target.value);
         document.getElementById('confSlider').oninput = e => {
@@ -313,9 +473,14 @@
         };
         document.getElementById('showTrails').onchange = renderMap;
         document.getElementById('showMarkers').onchange = renderMap;
+        document.getElementById('eventSelect').onchange = e => loadEventLog(e.target.value);
+        document.getElementById('timeSlider').oninput = e => renderTimeline(parseInt(e.target.value));
+        document.getElementById('showVehicleTrack').onchange = renderVehicleTrack;
+        document.getElementById('showEvents').onchange = renderVehicleTrack;
 
         // --- Init ---
         loadLogList();
+        loadEventLogList();
     </script>
 </body>
 </html>

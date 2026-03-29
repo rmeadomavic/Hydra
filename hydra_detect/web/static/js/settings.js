@@ -155,11 +155,21 @@ const HydraSettings = (() => {
         const resetBtn = document.getElementById('settings-reset');
         const restoreBtn = document.getElementById('settings-restore');
         const restartBtn = document.getElementById('settings-restart-btn');
+        const factoryBtn = document.getElementById('settings-factory-reset');
+        const exportBtn = document.getElementById('settings-export');
+        const importBtn = document.getElementById('settings-import');
+        const importFile = document.getElementById('settings-import-file');
 
         if (applyBtn) applyBtn.addEventListener('click', handleApply);
         if (resetBtn) resetBtn.addEventListener('click', handleReset);
         if (restoreBtn) restoreBtn.addEventListener('click', handleRestore);
         if (restartBtn) restartBtn.addEventListener('click', handleRestart);
+        if (factoryBtn) factoryBtn.addEventListener('click', handleFactoryReset);
+        if (exportBtn) exportBtn.addEventListener('click', handleExport);
+        if (importBtn) importBtn.addEventListener('click', function() {
+            if (importFile) importFile.click();
+        });
+        if (importFile) importFile.addEventListener('change', handleImportFile);
     }
 
     async function handleRestart() {
@@ -390,6 +400,62 @@ const HydraSettings = (() => {
             await loadConfig();
             HydraApp.showToast('Configuration restored from backup', 'success');
         }
+    }
+
+    async function handleFactoryReset() {
+        if (!confirm('FACTORY RESET: This will restore all settings to factory defaults and restart the pipeline. Continue?')) return;
+        if (!confirm('Are you sure? All custom configuration will be lost.')) return;
+        const result = await HydraApp.apiPost('/api/config/factory-reset', {});
+        if (result) {
+            hasUnsavedChanges = false;
+            await loadConfig();
+            HydraApp.showToast('Factory defaults restored — restarting pipeline', 'success');
+        }
+    }
+
+    async function handleExport() {
+        const config = await HydraApp.apiGet('/api/config/export');
+        if (!config) return;
+        const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'hydra-config-' + new Date().toISOString().slice(0, 10) + '.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        HydraApp.showToast('Config exported', 'success');
+    }
+
+    async function handleImportFile(event) {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+        if (!confirm('Import configuration from ' + file.name + '? This will overwrite current settings.')) {
+            event.target.value = '';
+            return;
+        }
+        try {
+            const text = await file.text();
+            const data = JSON.parse(text);
+            const result = await HydraApp.apiPost('/api/config/import', data);
+            if (result) {
+                hasUnsavedChanges = false;
+                await loadConfig();
+                HydraApp.showToast('Configuration imported', 'success');
+                if (result.restart_required && result.restart_required.length > 0) {
+                    const restart = document.getElementById('settings-restart');
+                    const fields = document.getElementById('restart-fields');
+                    if (restart && fields) {
+                        fields.textContent = result.restart_required.join(', ');
+                        restart.style.display = '';
+                    }
+                }
+            }
+        } catch (err) {
+            HydraApp.showToast('Invalid config file: ' + err.message, 'error');
+        }
+        event.target.value = '';
     }
 
     // Power User easter egg — uses event delegation for reliable click handling

@@ -510,8 +510,94 @@ const HydraApp = (() => {
         apiPost('/api/stream/quality', { quality });
     }
 
+    // ── Pre-Flight Checklist ──
+    async function runPreflight() {
+        try {
+            const resp = await fetch('/api/preflight');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            if (data.overall === 'fail' || data.overall === 'warn') {
+                showPreflightOverlay(data.checks, data.overall === 'fail');
+            }
+        } catch (e) {
+            console.warn('Preflight check failed:', e);
+        }
+    }
+
+    function showPreflightOverlay(checks, blocking) {
+        let overlay = document.getElementById('preflight-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'preflight-overlay';
+            document.body.appendChild(overlay);
+        }
+        // Clear previous content safely
+        while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
+
+        const card = document.createElement('div');
+        card.className = 'preflight-card';
+
+        const title = document.createElement('h2');
+        title.className = 'preflight-title ' + (blocking ? 'fail' : 'warn');
+        title.textContent = blocking ? 'PRE-FLIGHT FAILED' : 'PRE-FLIGHT WARNING';
+        card.appendChild(title);
+
+        const checksDiv = document.createElement('div');
+        checksDiv.className = 'preflight-checks';
+        checks.forEach(function(c) {
+            const item = document.createElement('div');
+            item.className = 'preflight-item preflight-' + c.status;
+
+            const icon = document.createElement('span');
+            icon.className = 'preflight-icon';
+            icon.textContent = c.status === 'pass' ? '\u2713' : c.status === 'warn' ? '\u26A0' : '\u2717';
+            item.appendChild(icon);
+
+            const name = document.createElement('span');
+            name.className = 'preflight-name';
+            name.textContent = c.name;
+            item.appendChild(name);
+
+            const msg = document.createElement('span');
+            msg.className = 'preflight-msg';
+            msg.textContent = c.message;
+            item.appendChild(msg);
+
+            checksDiv.appendChild(item);
+        });
+        card.appendChild(checksDiv);
+
+        if (blocking) {
+            const note = document.createElement('p');
+            note.className = 'preflight-note';
+            note.textContent = 'Fix critical issues before operating';
+            card.appendChild(note);
+
+            const btn = document.createElement('button');
+            btn.className = 'preflight-btn';
+            btn.textContent = 'Re-check';
+            btn.addEventListener('click', runPreflight);
+            card.appendChild(btn);
+        } else {
+            const btn = document.createElement('button');
+            btn.className = 'preflight-btn';
+            btn.textContent = 'Continue';
+            btn.addEventListener('click', dismissPreflight);
+            card.appendChild(btn);
+        }
+
+        overlay.appendChild(card);
+        overlay.style.display = 'flex';
+    }
+
+    function dismissPreflight() {
+        var overlay = document.getElementById('preflight-overlay');
+        if (overlay) overlay.style.display = 'none';
+    }
+
     // ── Init ──
     function init() {
+        runPreflight();
         initRouter();
         initPresentationMode();
         initKonamiListener();
@@ -537,5 +623,7 @@ const HydraApp = (() => {
         authHeaders,
         setApiToken,
         toggleLowBandwidth,
+        runPreflight,
+        dismissPreflight,
     };
 })();

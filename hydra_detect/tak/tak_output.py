@@ -152,6 +152,27 @@ class TAKOutput:
         }
 
     # ------------------------------------------------------------------
+    # Runtime unicast target management
+    # ------------------------------------------------------------------
+    def add_unicast_target(self, host: str, port: int) -> None:
+        """Add a unicast target at runtime."""
+        target = (host, port)
+        if target not in self._unicast_targets:
+            self._unicast_targets.append(target)
+            logger.info("TAK unicast target added: %s:%d", host, port)
+
+    def remove_unicast_target(self, host: str, port: int) -> None:
+        """Remove a unicast target at runtime."""
+        target = (host, port)
+        if target in self._unicast_targets:
+            self._unicast_targets.remove(target)
+            logger.info("TAK unicast target removed: %s:%d", host, port)
+
+    def get_unicast_targets(self) -> list[dict]:
+        """Return current unicast targets for API."""
+        return [{"host": h, "port": p} for h, p in self._unicast_targets]
+
+    # ------------------------------------------------------------------
     # Sender thread
     # ------------------------------------------------------------------
     def _sender_loop(self) -> None:

@@ -201,6 +201,7 @@ const HydraOperations = (() => {
         addClick('ctrl-btn-lock', () => lockTarget());
         addClick('ctrl-btn-strike', () => showStrikeConfirm());
         addClick('ctrl-btn-release', () => unlockTarget());
+        addClick('ctrl-btn-approach-abort', () => abortApproach());
 
         // Pipeline buttons
         addClick('ctrl-btn-pause', () => togglePause());
@@ -288,6 +289,10 @@ const HydraOperations = (() => {
 
         // TAK/ATAK
         addClick('ctrl-tak-toggle', () => toggleTAK());
+
+        // Mission control
+        addClick('ctrl-btn-mission-start', () => startMission());
+        addClick('ctrl-btn-mission-end', () => endMission());
     }
 
     function addClick(id, handler) {
@@ -306,8 +311,10 @@ const HydraOperations = (() => {
         if (s && Object.keys(s).length > 0) {
             updateVehiclePanel(s);
             updatePipelinePanel(s);
+            updateMissionPanel(s);
         }
         updateTargetPanel();
+        updateApproachPanel(s);
         updateDetectionLog();
         updateRFPanel();
         updateLockOverlay();
@@ -324,9 +331,58 @@ const HydraOperations = (() => {
             const modeEl = document.getElementById('lock-mode');
             if (labelEl) labelEl.textContent = '#' + t.track_id + ' ' + (t.label || '');
             if (modeEl) modeEl.textContent = (t.mode || 'track').toUpperCase();
-            el.classList.toggle('strike', t.mode === 'strike');
+            el.classList.toggle('strike', t.mode === 'strike' || t.mode === 'drop');
         } else {
             el.style.display = 'none';
+        }
+    }
+
+    // ── Approach Status Panel ──
+    function updateApproachPanel(s) {
+        const approach = s.approach;
+        const panel = document.getElementById('ctrl-approach-status');
+        const abortBtn = document.getElementById('ctrl-btn-approach-abort');
+        if (!panel) return;
+
+        if (!approach || approach.mode === 'idle') {
+            panel.style.display = 'none';
+            if (abortBtn) abortBtn.style.display = 'none';
+            return;
+        }
+
+        panel.style.display = 'block';
+        if (abortBtn) abortBtn.style.display = '';
+
+        const modeEl = document.getElementById('ctrl-approach-mode');
+        const elapsedEl = document.getElementById('ctrl-approach-elapsed');
+        const wpEl = document.getElementById('ctrl-approach-wp');
+        if (modeEl) modeEl.textContent = approach.mode.toUpperCase();
+        if (elapsedEl) elapsedEl.textContent = (approach.elapsed_sec || 0) + 's';
+        if (wpEl) wpEl.textContent = approach.waypoints_sent || 0;
+
+        // Arm status (strike mode only)
+        const armPanel = document.getElementById('ctrl-approach-arm-status');
+        if (armPanel) {
+            if (approach.mode === 'strike') {
+                armPanel.style.display = 'block';
+                const swArm = document.getElementById('ctrl-approach-sw-arm');
+                const hwArm = document.getElementById('ctrl-approach-hw-arm');
+                if (swArm) {
+                    swArm.textContent = approach.software_arm ? 'ARMED' : 'SAFE';
+                    swArm.style.color = approach.software_arm ? 'var(--danger)' : 'var(--success)';
+                }
+                if (hwArm) {
+                    if (approach.hardware_arm_status === null || approach.hardware_arm_status === undefined) {
+                        hwArm.textContent = 'N/A';
+                        hwArm.style.color = 'var(--text-secondary)';
+                    } else {
+                        hwArm.textContent = approach.hardware_arm_status ? 'ARMED' : 'SAFE';
+                        hwArm.style.color = approach.hardware_arm_status ? 'var(--danger)' : 'var(--success)';
+                    }
+                }
+            } else {
+                armPanel.style.display = 'none';
+            }
         }
     }
 
@@ -481,7 +537,8 @@ const HydraOperations = (() => {
 
                 if (isLocked) {
                     const modeLabel = document.createElement('span');
-                    modeLabel.className = 'track-lock-badge' + (target.mode === 'strike' ? ' strike' : '');
+                    const modeClass = (target.mode === 'strike' || target.mode === 'drop') ? ' strike' : '';
+                    modeLabel.className = 'track-lock-badge' + modeClass;
                     modeLabel.textContent = (target.mode || 'track').toUpperCase();
                     actions.appendChild(modeLabel);
                 } else {
@@ -494,6 +551,30 @@ const HydraOperations = (() => {
                     });
                     actions.appendChild(lockBtn);
 
+                    const followBtn = document.createElement('button');
+                    followBtn.className = 'btn btn-sm track-btn';
+                    followBtn.textContent = 'Follow';
+                    followBtn.style.color = 'var(--info)';
+                    followBtn.style.borderColor = 'var(--info)';
+                    followBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        HydraApp.apiPost('/api/approach/follow/' + t.track_id, {});
+                    });
+                    actions.appendChild(followBtn);
+
+                    const dropBtn = document.createElement('button');
+                    dropBtn.className = 'btn btn-sm track-btn';
+                    dropBtn.textContent = 'Drop';
+                    dropBtn.style.color = 'var(--warning)';
+                    dropBtn.style.borderColor = 'var(--warning)';
+                    dropBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        selectedTrackId = t.track_id;
+                        selectedTrackLabel = t.label;
+                        showDropConfirm();
+                    });
+                    actions.appendChild(dropBtn);
+
                     const strikeBtn = document.createElement('button');
                     strikeBtn.className = 'btn btn-sm btn-danger track-btn';
                     strikeBtn.textContent = 'Strike';
@@ -501,7 +582,7 @@ const HydraOperations = (() => {
                         e.stopPropagation();
                         selectedTrackId = t.track_id;
                         selectedTrackLabel = t.label;
-                        showStrikeConfirm();
+                        showApproachStrikeConfirm();
                     });
                     actions.appendChild(strikeBtn);
                 }
@@ -520,6 +601,12 @@ const HydraOperations = (() => {
                 if (target.mode === 'strike') {
                     lockEl.className = 'panel-lock-indicator strike-active';
                     lockEl.textContent = 'STRIKE: #' + target.track_id + ' ' + (target.label || '');
+                } else if (target.mode === 'drop') {
+                    lockEl.className = 'panel-lock-indicator strike-active';
+                    lockEl.textContent = 'DROP: #' + target.track_id + ' ' + (target.label || '');
+                } else if (target.mode === 'follow') {
+                    lockEl.className = 'panel-lock-indicator tracking';
+                    lockEl.textContent = 'FOLLOW: #' + target.track_id + ' ' + (target.label || '');
                 } else {
                     lockEl.className = 'panel-lock-indicator tracking';
                     lockEl.textContent = 'TRACKING: #' + target.track_id + ' ' + (target.label || '');
@@ -1234,6 +1321,122 @@ const HydraOperations = (() => {
         if (bar) {
             bar.style.width = Math.min(pct, 100) + '%';
             bar.style.backgroundColor = color;
+        }
+    }
+
+    // ── Approach: Abort ──
+    async function abortApproach() {
+        await HydraApp.apiPost('/api/approach/abort', {});
+        const abortBtn = document.getElementById('ctrl-btn-approach-abort');
+        if (abortBtn) abortBtn.style.display = 'none';
+    }
+
+    // ── Approach: Drop Confirm Modal ──
+    function showDropConfirm() {
+        if (selectedTrackId === null) return;
+        const label = document.getElementById('drop-target-label');
+        if (label) label.textContent = '#' + selectedTrackId + ' (' + selectedTrackLabel + ')';
+        const modal = document.getElementById('drop-modal');
+        if (modal) modal.classList.add('active');
+        wireDropModal();
+    }
+
+    function wireDropModal() {
+        const confirmBtn = document.getElementById('drop-confirm');
+        const cancelBtn = document.getElementById('drop-cancel');
+        if (confirmBtn) {
+            const clone = confirmBtn.cloneNode(true);
+            confirmBtn.parentNode.replaceChild(clone, confirmBtn);
+            clone.addEventListener('click', async () => {
+                const modal = document.getElementById('drop-modal');
+                if (modal) modal.classList.remove('active');
+                if (selectedTrackId === null) return;
+                await HydraApp.apiPost('/api/approach/drop/' + selectedTrackId, { confirm: true });
+            });
+        }
+        if (cancelBtn) {
+            const clone = cancelBtn.cloneNode(true);
+            cancelBtn.parentNode.replaceChild(clone, cancelBtn);
+            clone.addEventListener('click', () => {
+                const modal = document.getElementById('drop-modal');
+                if (modal) modal.classList.remove('active');
+            });
+        }
+    }
+
+    // ── Approach: Strike Confirm Modal ──
+    function showApproachStrikeConfirm() {
+        if (selectedTrackId === null) return;
+        const label = document.getElementById('approach-strike-target-label');
+        if (label) label.textContent = '#' + selectedTrackId + ' (' + selectedTrackLabel + ')';
+        const modal = document.getElementById('approach-strike-modal');
+        if (modal) modal.classList.add('active');
+        wireApproachStrikeModal();
+    }
+
+    function wireApproachStrikeModal() {
+        const confirmBtn = document.getElementById('approach-strike-confirm');
+        const cancelBtn = document.getElementById('approach-strike-cancel');
+        if (confirmBtn) {
+            const clone = confirmBtn.cloneNode(true);
+            confirmBtn.parentNode.replaceChild(clone, confirmBtn);
+            clone.addEventListener('click', async () => {
+                const modal = document.getElementById('approach-strike-modal');
+                if (modal) modal.classList.remove('active');
+                if (selectedTrackId === null) return;
+                await HydraApp.apiPost('/api/approach/strike/' + selectedTrackId, { confirm: true });
+            });
+        }
+        if (cancelBtn) {
+            const clone = cancelBtn.cloneNode(true);
+            cancelBtn.parentNode.replaceChild(clone, cancelBtn);
+            clone.addEventListener('click', () => {
+                const modal = document.getElementById('approach-strike-modal');
+                if (modal) modal.classList.remove('active');
+            });
+        }
+    }
+
+    // ── Mission Panel ──
+    let missionActive = false;
+
+    function updateMissionPanel(s) {
+        const badge = document.getElementById('ctrl-mission-badge');
+        const nameField = document.getElementById('ctrl-mission-name-field');
+        const activeInfo = document.getElementById('ctrl-mission-active-info');
+        const activeName = document.getElementById('ctrl-mission-active-name');
+        const startBtn = document.getElementById('ctrl-btn-mission-start');
+        const endBtn = document.getElementById('ctrl-btn-mission-end');
+
+        const isActive = !!s.mission_name;
+        missionActive = isActive;
+
+        if (badge) {
+            badge.textContent = isActive ? 'ACTIVE' : 'IDLE';
+            badge.className = 'badge ' + (isActive ? 'on' : 'off');
+        }
+        if (nameField) nameField.style.display = isActive ? 'none' : '';
+        if (activeInfo) activeInfo.style.display = isActive ? '' : 'none';
+        if (activeName) activeName.textContent = s.mission_name || '--';
+        if (startBtn) startBtn.disabled = isActive;
+        if (endBtn) endBtn.disabled = !isActive;
+    }
+
+    async function startMission() {
+        const input = document.getElementById('ctrl-mission-name');
+        const name = input ? input.value.trim() : '';
+        const result = await HydraApp.apiPost('/api/mission/start', { name: name || undefined });
+        if (result && result.status === 'started') {
+            HydraApp.showToast('Mission started: ' + result.name, 'success');
+            if (input) input.value = '';
+        }
+    }
+
+    async function endMission() {
+        if (!confirm('End current mission?')) return;
+        const result = await HydraApp.apiPost('/api/mission/end', {});
+        if (result && result.status === 'ended') {
+            HydraApp.showToast('Mission ended', 'info');
         }
     }
 

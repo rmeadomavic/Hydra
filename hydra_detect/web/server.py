@@ -16,7 +16,6 @@ from typing import Any, Callable, Dict, List, Optional
 import cv2
 import numpy as np
 from fastapi import FastAPI, Header, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -25,8 +24,10 @@ from fastapi.templating import Jinja2Templates
 from hydra_detect.web.config_api import (
     MAX_BODY_SIZE,
     has_backup,
+    has_factory,
     read_config,
     restore_backup,
+    restore_factory,
     write_config,
 )
 
@@ -37,13 +38,45 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="Hydra Detect v2.0", version="2.0.0")
 
-# CORS: restrict to same-origin by default; override via configure_cors()
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[],  # No cross-origin by default
-    allow_methods=["GET", "POST"],
-    allow_headers=["Authorization", "Content-Type"],
+# CORS: restrict cross-origin to instructor-relevant paths only.
+# The instructor page polls /api/stats and /api/abort on peer Hydra
+# instances, so those endpoints need permissive CORS.  All other
+# endpoints stay same-origin.
+_CORS_ALLOWED_PATHS = {"/api/stats", "/api/abort"}
+
+
+class _InstructorCORSMiddleware(BaseHTTPMiddleware):
+    """Add CORS headers only for instructor-relevant endpoints."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path in _CORS_ALLOWED_PATHS:
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
+        return response
+
+
+app.add_middleware(_InstructorCORSMiddleware)
+
+# Standard CSP for the SPA and standalone pages
+_CSP_DEFAULT = (
+    "default-src 'self'; "
+    "img-src 'self' data: https://*.tile.openstreetmap.org; "
+    "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+    "style-src 'self' 'unsafe-inline' https://unpkg.com; "
+    "connect-src 'self'"
 )
+
+# Relaxed CSP for the instructor page — it fetches from other Jetsons
+_CSP_INSTRUCTOR = (
+    "default-src 'self'; "
+    "img-src 'self' data:; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "connect-src *"
+)
+
 
 class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Inject defense-in-depth HTTP security headers."""
@@ -52,13 +85,11 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response: Response = await call_next(request)
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "img-src 'self' data: https://*.tile.openstreetmap.org; "
-            "script-src 'self' 'unsafe-inline' https://unpkg.com; "
-            "style-src 'self' 'unsafe-inline' https://unpkg.com; "
-            "connect-src 'self'"
-        )
+        # Use relaxed CSP for instructor page (needs cross-origin fetch)
+        if request.url.path == "/instructor":
+            response.headers["Content-Security-Policy"] = _CSP_INSTRUCTOR
+        else:
+            response.headers["Content-Security-Policy"] = _CSP_DEFAULT
         return response
 
 
@@ -552,6 +583,123 @@ async def api_strike_command(request: Request, authorization: Optional[str] = He
     return JSONResponse({"error": "strike not available"}, status_code=503)
 
 
+# -- Approach mode endpoints (Follow / Drop / Strike continuous) -----------
+
+@app.get("/api/approach/status")
+async def api_approach_status():
+    """Return current approach controller status."""
+    cb = stream_state.get_callback("get_approach_status")
+    if cb:
+        return cb()
+    return {"mode": "idle", "active": False}
+
+
+@app.post("/api/approach/follow/{track_id}")
+async def api_approach_follow(
+    track_id: int, request: Request, authorization: Optional[str] = Header(None),
+):
+    """Start follow mode for a tracked target."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    cb = stream_state.get_callback("on_follow_command")
+    if cb:
+        result = cb(track_id)
+        if result:
+            _audit(request, "approach_follow", target=str(track_id))
+            return {"status": "ok", "track_id": track_id, "mode": "follow"}
+        _audit(request, "approach_follow", target=str(track_id), outcome="failed")
+        return JSONResponse(
+            {"error": "Follow failed — track not found or approach already active"},
+            status_code=503,
+        )
+    _audit(request, "approach_follow", outcome="unavailable")
+    return JSONResponse({"error": "approach controller not available"}, status_code=503)
+
+
+@app.post("/api/approach/drop/{track_id}")
+async def api_approach_drop(
+    track_id: int, request: Request, authorization: Optional[str] = Header(None),
+):
+    """Start drop approach for a tracked target.
+
+    Body (optional): {"confirm": true}
+    """
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    confirm = body.get("confirm", False)
+    if not confirm:
+        return JSONResponse(
+            {"error": "Drop requires explicit confirmation. Set confirm=true."},
+            status_code=400,
+        )
+    cb = stream_state.get_callback("on_drop_command")
+    if cb:
+        result = cb(track_id)
+        if result:
+            _audit(request, "approach_drop", target=str(track_id))
+            return {"status": "ok", "track_id": track_id, "mode": "drop"}
+        _audit(request, "approach_drop", target=str(track_id), outcome="failed")
+        return JSONResponse(
+            {"error": "Drop failed — track not found, no GPS, or approach already active"},
+            status_code=503,
+        )
+    _audit(request, "approach_drop", outcome="unavailable")
+    return JSONResponse({"error": "approach controller not available"}, status_code=503)
+
+
+@app.post("/api/approach/strike/{track_id}")
+async def api_approach_strike(
+    track_id: int, request: Request, authorization: Optional[str] = Header(None),
+):
+    """Start continuous strike approach for a tracked target.
+
+    Body: {"confirm": true}
+    """
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    confirm = body.get("confirm", False)
+    if not confirm:
+        return JSONResponse(
+            {"error": "Strike requires explicit confirmation. Set confirm=true."},
+            status_code=400,
+        )
+    cb = stream_state.get_callback("on_approach_strike_command")
+    if cb:
+        result = cb(track_id)
+        if result:
+            _audit(request, "approach_strike", target=str(track_id))
+            return {"status": "ok", "track_id": track_id, "mode": "strike"}
+        _audit(request, "approach_strike", target=str(track_id), outcome="failed")
+        return JSONResponse(
+            {"error": "Strike failed — track not found or approach already active"},
+            status_code=503,
+        )
+    _audit(request, "approach_strike", outcome="unavailable")
+    return JSONResponse({"error": "approach controller not available"}, status_code=503)
+
+
+@app.post("/api/approach/abort")
+async def api_approach_abort(
+    request: Request, authorization: Optional[str] = Header(None),
+):
+    """Abort the current approach mode and safe all channels."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    cb = stream_state.get_callback("on_approach_abort")
+    if cb:
+        cb()
+        _audit(request, "approach_abort")
+        return {"status": "ok"}
+    _audit(request, "approach_abort", outcome="unavailable")
+    return JSONResponse({"error": "approach controller not available"}, status_code=503)
+
+
 @app.get("/api/detections")
 async def api_recent_detections():
     """Return recent detection log entries."""
@@ -559,6 +707,24 @@ async def api_recent_detections():
     if cb:
         return cb()
     return []
+
+
+@app.get("/api/events")
+async def api_events():
+    """Get event timeline for the current or most recent mission."""
+    cb = stream_state.get_callback("get_events")
+    if cb:
+        return cb()
+    return {"events": []}
+
+
+@app.get("/api/events/status")
+async def api_events_status():
+    """Get event logger mission status."""
+    cb = stream_state.get_callback("get_event_status")
+    if cb:
+        return cb()
+    return {"mission_active": False, "mission_name": None}
 
 
 @app.get("/api/camera/sources")
@@ -689,6 +855,26 @@ async def api_switch_profile(request: Request, authorization: Optional[str] = He
         _audit(request, "profile_switch", target=profile_id, outcome="failed")
         return JSONResponse({"error": f"Failed to switch to profile '{profile_id}'"}, status_code=400)
     return JSONResponse({"error": "Profile switching not available"}, status_code=503)
+
+
+# ── Mission Profile Presets ───────────────────────────────────
+
+@app.get("/api/mission-profiles")
+async def api_list_mission_profiles():
+    """List available mission profile presets."""
+    from hydra_detect.mission_profiles import get_profiles
+    profiles = get_profiles()
+    return {
+        name: {
+            "display_name": p.display_name,
+            "description": p.description,
+            "behavior": p.behavior,
+            "approach_method": p.approach_method,
+            "post_action": p.post_action,
+            "icon": p.icon,
+        }
+        for name, p in profiles.items()
+    }
 
 
 # ── RF Hunt ─────────────────────────────────────────────────────
@@ -936,6 +1122,55 @@ async def restart_pipeline(request: Request, authorization: Optional[str] = Head
     return JSONResponse({"error": "restart not available"}, status_code=503)
 
 
+@app.get("/api/tak/targets")
+async def api_get_tak_targets():
+    """List current TAK unicast targets."""
+    cb = stream_state.get_callback("get_tak_targets")
+    if cb:
+        return {"targets": cb()}
+    return {"targets": []}
+
+
+@app.post("/api/tak/targets")
+async def api_add_tak_target(
+    request: Request, authorization: Optional[str] = Header(None),
+):
+    """Add a TAK unicast target. Body: {"host": "ip", "port": 6969}"""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    host = body.get("host", "").strip()
+    port = int(body.get("port", 6969))
+    if not host:
+        return JSONResponse({"error": "host required"}, status_code=400)
+    cb = stream_state.get_callback("add_tak_target")
+    if cb:
+        cb(host, port)
+        _audit(request, "add_tak_target", target=f"{host}:{port}")
+        return {"status": "added", "host": host, "port": port}
+    return JSONResponse({"error": "TAK not available"}, status_code=503)
+
+
+@app.delete("/api/tak/targets")
+async def api_remove_tak_target(
+    request: Request, authorization: Optional[str] = Header(None),
+):
+    """Remove a TAK unicast target. Body: {"host": "ip", "port": 6969}"""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    host = body.get("host", "").strip()
+    port = int(body.get("port", 6969))
+    cb = stream_state.get_callback("remove_tak_target")
+    if cb:
+        cb(host, port)
+        _audit(request, "remove_tak_target", target=f"{host}:{port}")
+        return {"status": "removed"}
+    return JSONResponse({"error": "TAK not available"}, status_code=503)
+
+
 @app.post("/api/mavlink-video/tune")
 async def api_mavlink_video_tune(request: Request, authorization: Optional[str] = Header(None)):
     """Live-tune MAVLink video params. Body: {width, height, quality, max_fps} (all optional)"""
@@ -1009,6 +1244,67 @@ async def control_page(request: Request):
     return templates.TemplateResponse(request, "control.html")
 
 
+# ── Instructor Overview ────────────────────────────────────────────
+
+@app.get("/instructor", response_class=HTMLResponse)
+async def instructor_page(request: Request):
+    """Serve the standalone instructor overview page."""
+    return templates.TemplateResponse(request, "instructor.html")
+
+
+@app.post("/api/abort")
+async def api_abort(request: Request):
+    """Emergency abort — switch vehicle to RTL mode.
+
+    This endpoint is intentionally unauthenticated. The instructor page
+    is the safety exception: an instructor must be able to abort any
+    vehicle without configuring tokens.
+    """
+    _audit(request, "abort")
+    # Try RTL first, then LOITER/HOLD as fallback
+    cb = stream_state.get_callback("on_set_mode_command")
+    if cb:
+        for mode in ("RTL", "LOITER", "HOLD"):
+            if cb(mode):
+                logger.warning("ABORT: vehicle set to %s by instructor", mode)
+                return {"status": "ok", "mode": mode}
+        return JSONResponse({"error": "Failed to set abort mode"}, status_code=503)
+    return JSONResponse({"error": "MAVLink not connected"}, status_code=503)
+
+
+# ── Mission Tagging ────────────────────────────────────────────────
+
+@app.post("/api/mission/start")
+async def api_start_mission(request: Request, authorization: Optional[str] = Header(None)):
+    """Start a named mission. Body: {"name": "mission-alpha"}"""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    name = body.get("name", f"mission-{int(time.time())}")
+    if not isinstance(name, str) or not name.strip():
+        return JSONResponse({"error": "name must be a non-empty string"}, status_code=400)
+    name = name.strip()[:100]  # Bound length
+    cb = stream_state.get_callback("on_mission_start")
+    if cb:
+        cb(name)
+    _audit(request, "mission_start", target=name)
+    return {"status": "started", "name": name}
+
+
+@app.post("/api/mission/end")
+async def api_end_mission(request: Request, authorization: Optional[str] = Header(None)):
+    """End the current mission."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    cb = stream_state.get_callback("on_mission_end")
+    if cb:
+        cb()
+    _audit(request, "mission_end")
+    return {"status": "ended"}
+
+
 # ── Mission Review ────────────────────────────────────────────────
 
 @app.get("/review", response_class=HTMLResponse)
@@ -1019,12 +1315,15 @@ async def review_page(request: Request):
 
 @app.get("/api/review/logs")
 async def api_review_logs():
-    """List available detection log files."""
+    """List available detection log files and event timeline files."""
+    import json as _json
+
     cb = stream_state.get_callback("get_log_dir")
     log_dir = cb() if cb else "/data/logs"
     image_dir_cb = stream_state.get_callback("get_image_dir")
     image_dir = image_dir_cb() if image_dir_cb else "/data/images"
     result = []
+    event_logs = []
     log_path = Path(log_dir)
     if log_path.is_dir():
         for f in sorted(log_path.iterdir(), reverse=True):
@@ -1034,7 +1333,21 @@ async def api_review_logs():
                     "size_kb": round(f.stat().st_size / 1024, 1),
                     "modified": f.stat().st_mtime,
                 })
-    return {"logs": result, "image_dir": image_dir}
+        # Scan for event timeline JSONL files
+        for f in sorted(log_path.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
+            try:
+                with open(f) as fh:
+                    first_line = fh.readline().strip()
+                    if first_line:
+                        record = _json.loads(first_line)
+                        if record.get("type") in ("mission_start", "track", "action", "state"):
+                            event_logs.append({
+                                "filename": f.name,
+                                "size_kb": round(f.stat().st_size / 1024, 1),
+                            })
+            except Exception:
+                continue
+    return {"logs": result, "event_logs": event_logs, "image_dir": image_dir}
 
 
 @app.get("/api/review/log/{filename}")
@@ -1083,6 +1396,36 @@ async def api_review_log(filename: str):
                 records.append(row)
 
     return {"filename": filename, "count": len(records), "detections": records}
+
+
+@app.get("/api/review/events/{filename}")
+async def api_review_events(filename: str):
+    """Return events from an event timeline JSONL file."""
+    import json as _json
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return JSONResponse({"error": "invalid filename"}, status_code=400)
+
+    cb = stream_state.get_callback("get_log_dir")
+    log_dir = Path(cb() if cb else "/data/logs")
+    filepath = log_dir / filename
+
+    if not filepath.exists() or not filepath.suffix == ".jsonl":
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    events: list = []
+    try:
+        with open(filepath) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        events.append(_json.loads(line))
+                    except _json.JSONDecodeError:
+                        continue
+    except Exception:
+        return JSONResponse({"error": "read error"}, status_code=500)
+
+    return {"events": events, "filename": filename}
 
 
 @app.get("/api/logs")
@@ -1291,6 +1634,167 @@ async def api_restore_config_backup(request: Request, authorization: str | None 
     except Exception as e:
         logger.error("Failed to restore config backup: %s", e)
         return JSONResponse({"error": f"Failed to restore: {e}"}, status_code=500)
+
+
+@app.post("/api/config/factory-reset")
+async def api_factory_reset(request: Request, authorization: str | None = Header(None)):
+    """Restore factory defaults from config.ini.factory."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    if not has_factory():
+        return JSONResponse({"error": "No factory defaults available"}, status_code=404)
+    try:
+        restore_factory()
+        _audit(request, "config_factory_reset")
+        # Trigger pipeline restart
+        cb = stream_state.get_callback("on_restart_command")
+        if cb:
+            cb()
+        return {"status": "ok", "message": "Factory defaults restored"}
+    except Exception as e:
+        logger.error("Failed to restore factory defaults: %s", e)
+        return JSONResponse({"error": f"Failed to restore: {e}"}, status_code=500)
+
+
+@app.get("/api/config/export")
+async def api_config_export(request: Request, authorization: str | None = Header(None)):
+    """Export current config as JSON download."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    try:
+        config = read_config()
+        _audit(request, "config_export")
+        return config
+    except Exception as e:
+        logger.error("Failed to export config: %s", e)
+        return JSONResponse({"error": "Failed to export configuration"}, status_code=500)
+
+
+@app.post("/api/config/import")
+async def api_config_import(request: Request, authorization: str | None = Header(None)):
+    """Import config from uploaded JSON."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    import json as _json
+    body_bytes = await request.body()
+    if len(body_bytes) > MAX_BODY_SIZE:
+        return JSONResponse({"error": "Request body too large"}, status_code=413)
+    try:
+        body = _json.loads(body_bytes)
+    except (ValueError, _json.JSONDecodeError):
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "Expected JSON object with config sections"}, status_code=400)
+    try:
+        result = write_config(body)
+        _audit(request, "config_import", target=str(len(body)))
+        return {"status": "imported", **result}
+    except Exception as e:
+        logger.error("Failed to import config: %s", e)
+        return JSONResponse({"error": f"Failed to import configuration: {e}"}, status_code=500)
+
+
+# ── Setup Wizard ─────────────────────────────────────────────────────
+
+@app.get("/setup", response_class=HTMLResponse)
+async def setup_page(request: Request):
+    """Serve the first-boot setup wizard page."""
+    return templates.TemplateResponse(request, "setup.html")
+
+
+@app.get("/api/setup/devices")
+async def api_setup_devices():
+    """List available cameras and serial ports for setup wizard."""
+    import glob
+    cameras = []
+    serial_ports = []
+
+    # Detect V4L2 cameras
+    for dev in sorted(glob.glob("/dev/video*")):
+        cameras.append({"path": dev, "name": dev})
+
+    # Detect serial ports (potential Pixhawk connections)
+    for dev in sorted(glob.glob("/dev/tty*")):
+        if any(prefix in dev for prefix in ["ttyACM", "ttyUSB", "ttyTHS", "ttyAMA"]):
+            serial_ports.append({"path": dev, "name": dev})
+
+    return {"cameras": cameras, "serial_ports": serial_ports}
+
+
+@app.post("/api/setup/save")
+async def api_setup_save(request: Request, authorization: Optional[str] = Header(None)):
+    """Save setup wizard configuration and trigger restart.
+
+    Auth is enforced when a token is configured (post-first-boot).
+    On first boot (no token), the setup wizard works without auth.
+    """
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+
+    import json as _json
+    body_bytes = await request.body()
+    if len(body_bytes) > MAX_BODY_SIZE:
+        return JSONResponse({"error": "Request body too large"}, status_code=413)
+    try:
+        body = _json.loads(body_bytes)
+    except (ValueError, _json.JSONDecodeError):
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    camera_source = body.get("camera_source", "auto")
+    serial_port = body.get("serial_port", "/dev/ttyTHS1")
+    vehicle_type = body.get("vehicle_type", "")
+    team_number = body.get("team_number", "")
+    callsign = body.get("callsign", "")
+
+    # Validate field types before length checks
+    for field in [camera_source, serial_port, vehicle_type, team_number, callsign]:
+        if not isinstance(field, str):
+            return JSONResponse({"error": "All fields must be strings"}, status_code=400)
+
+    # Validate inputs — bounded lengths
+    if len(camera_source) > 200:
+        return JSONResponse({"error": "camera_source too long"}, status_code=400)
+    if len(serial_port) > 200:
+        return JSONResponse({"error": "serial_port too long"}, status_code=400)
+    if len(vehicle_type) > 20:
+        return JSONResponse({"error": "vehicle_type too long"}, status_code=400)
+    if len(team_number) > 20:
+        return JSONResponse({"error": "team_number too long"}, status_code=400)
+    if len(callsign) > 50:
+        return JSONResponse({"error": "callsign too long"}, status_code=400)
+    if vehicle_type and vehicle_type not in ("drone", "usv", "ugv", "fw"):
+        return JSONResponse({"error": "vehicle_type must be drone, usv, ugv, or fw"}, status_code=400)
+
+    # Build callsign from team + vehicle if not explicitly set
+    if not callsign and team_number and vehicle_type:
+        callsign = f"HYDRA-{team_number}-{vehicle_type.upper()}"
+
+    # Write to config
+    updates: dict[str, dict[str, str]] = {
+        "camera": {"source": camera_source},
+        "mavlink": {"connection_string": serial_port},
+    }
+    if callsign:
+        updates["tak"] = {"callsign": callsign}
+
+    try:
+        result = write_config(updates)
+    except Exception as e:
+        logger.error("Setup save failed: %s", e)
+        return JSONResponse({"error": f"Failed to save: {e}"}, status_code=500)
+
+    _audit(request, "setup_save", target=callsign or "no-callsign")
+
+    # Trigger pipeline restart
+    cb = stream_state.get_callback("on_restart_command")
+    if cb:
+        cb()
+
+    return {"status": "saved", "callsign": callsign, **result}
 
 
 # ── Server launcher ──────────────────────────────────────────────────

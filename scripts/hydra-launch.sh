@@ -8,7 +8,7 @@ URL="http://localhost:${PORT}"
 
 cd "$HYDRA_DIR"
 
-# Start Hydra in the background
+# Start Hydra in the background (native mode, not Docker)
 sudo python3 -m hydra_detect --config config.ini &
 HYDRA_PID=$!
 
