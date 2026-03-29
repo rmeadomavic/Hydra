@@ -44,7 +44,11 @@ def compute_dogleg_waypoint(
     if offset_bearing == "perpendicular":
         offset_rad = bearing_to_home + math.pi / 2
     else:
-        offset_rad = math.radians(float(offset_bearing))
+        try:
+            offset_rad = math.radians(float(offset_bearing))
+        except (ValueError, TypeError):
+            logger.warning("Invalid dogleg bearing '%s', using perpendicular", offset_bearing)
+            offset_rad = bearing_to_home + math.pi / 2
 
     # Compute offset point
     R = 6371000  # Earth radius metres
@@ -87,7 +91,7 @@ class DoglegRTL:
         self._offset_distance_m = offset_distance_m
         self._offset_bearing = offset_bearing
         self._climb_alt = climb_altitude_m
-        self._phase = "idle"  # idle -> offset -> home -> done
+        self._phase = "idle"  # idle -> climb -> offset -> home -> done
         self._lock = threading.Lock()
 
     def execute(self) -> bool:
@@ -109,6 +113,19 @@ class DoglegRTL:
 
         # Execute sequence in background thread
         def _run():
+            # Climb to configured altitude before proceeding to offset
+            if self._climb_alt > 0:
+                cur = self._mavlink.get_lat_lon()
+                if cur and cur[0] is not None:
+                    with self._lock:
+                        self._phase = "climb"
+                    logger.info("DoglegRTL: climbing to %.0fm", self._climb_alt)
+                    self._mavlink.command_guided_to(
+                        cur[0], cur[1], alt=self._climb_alt,
+                    )
+                    # Allow time for climb before sending offset waypoint
+                    time.sleep(5)
+
             with self._lock:
                 self._phase = "offset"
             logger.info("DoglegRTL: flying to offset point (%.5f, %.5f)", wp_lat, wp_lon)
