@@ -1,3 +1,3 @@
-"""Hydra Detect v2.0 — Modular aerial detection & tracking system."""
+"""Hydra Detect v2.1 — Real-time detection and tracking for uncrewed vehicles."""
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
