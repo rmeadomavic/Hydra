@@ -18,6 +18,7 @@ from .camera import Camera, list_video_sources
 from .rf.hunt import RFHuntController
 from .rf.kismet_manager import KismetManager
 from .detection_logger import DetectionLogger
+from .model_manifest import load_manifest, validate_model, MANIFEST_FILENAME
 from .detectors.yolo_detector import YOLODetector
 from .mavlink_io import MAVLinkIO
 from .osd import FpvOsd, build_osd_state
@@ -80,9 +81,33 @@ def _build_detector(cfg: configparser.ConfigParser, models_dir: Path | None = No
 class Pipeline:
     """Top-level orchestrator that ties all modules together."""
 
-    def __init__(self, config_path: str = "config.ini"):
+    def __init__(self, config_path: str = "config.ini", vehicle: str | None = None):
         self._cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
         self._cfg.read(config_path)
+
+        # Apply vehicle-specific overrides from [vehicle.<name>] sections.
+        # Keys use dotted notation: "camera.source" → override [camera] source.
+        if vehicle:
+            vehicle_section = f"vehicle.{vehicle}"
+            if self._cfg.has_section(vehicle_section):
+                logger.info("Applying vehicle profile: %s", vehicle)
+                for key, value in self._cfg.items(vehicle_section):
+                    # key format: "section.option" → override cfg[section][option]
+                    if "." in key:
+                        section, option = key.split(".", 1)
+                        if not self._cfg.has_section(section):
+                            self._cfg.add_section(section)
+                        self._cfg.set(section, option, value)
+                    else:
+                        logger.warning(
+                            "Vehicle config key %r missing section prefix (expected section.option)",
+                            key,
+                        )
+            else:
+                logger.error(
+                    "Vehicle profile %r not found (no [%s] section in config)",
+                    vehicle, vehicle_section,
+                )
 
         # Wire the config API to the actual file so the web settings page
         # reads and writes the correct path when --config is non-default.
@@ -150,6 +175,14 @@ class Pipeline:
                     "mavlink", "guided_roi_on_detect", fallback=False
                 ),
                 alert_classes=alert_classes,
+                global_max_per_sec=self._cfg.getfloat(
+                    "alerts", "global_max_per_sec", fallback=2.0
+                ),
+                priority_labels=[
+                    l.strip() for l in self._cfg.get(
+                        "alerts", "priority_labels", fallback=""
+                    ).split(",") if l.strip()
+                ] or None,
                 sim_gps_lat=self._cfg.getfloat("mavlink", "sim_gps_lat", fallback=None)
                 if self._cfg.get("mavlink", "sim_gps_lat", fallback="").strip()
                 else None,
@@ -264,6 +297,10 @@ class Pipeline:
                 allowed_classes=allowed_classes,
                 strike_cooldown_sec=self._cfg.getfloat("autonomous", "strike_cooldown_sec", fallback=30.0),
                 allowed_vehicle_modes=allowed_modes,
+                gps_max_stale_sec=self._cfg.getfloat("autonomous", "gps_max_stale_sec", fallback=2.0),
+                require_operator_lock=self._cfg.getboolean(
+                    "autonomous", "require_operator_lock", fallback=False
+                ),
             )
             logger.info(
                 "Autonomous strike ENABLED: fence_radius=%.0fm, min_conf=%.2f, "
@@ -389,6 +426,17 @@ class Pipeline:
             )
 
         # Logger
+        # Compute model file hash for detection log chain-of-custody
+        _model_hash = ""
+        try:
+            import hashlib
+            _mp = Path(self._detector.model_path)
+            if _mp.exists():
+                _model_hash = hashlib.sha256(_mp.read_bytes()).hexdigest()
+                logger.info("Model hash (%s): %s", _mp.name, _model_hash[:16])
+        except Exception as exc:
+            logger.warning("Could not compute model hash: %s", exc)
+
         self._det_logger = DetectionLogger(
             log_dir=self._cfg.get("logging", "log_dir", fallback="/data/logs"),
             log_format=self._cfg.get("logging", "log_format", fallback="jsonl"),
@@ -399,6 +447,7 @@ class Pipeline:
             crop_dir=self._cfg.get("logging", "crop_dir", fallback="/data/crops"),
             max_log_size_mb=self._cfg.getfloat("logging", "max_log_size_mb", fallback=10.0),
             max_log_files=self._cfg.getint("logging", "max_log_files", fallback=20),
+            model_hash=_model_hash,
         )
 
         # Web UI
@@ -423,6 +472,15 @@ class Pipeline:
         self._paused = False
         self._total_detections = 0
         self._frame_count = 0
+        # Camera loss detection (degraded mode)
+        self._cam_fail_count: int = 0
+        self._cam_lost: bool = False
+        self._CAM_FAIL_THRESHOLD: int = 2
+        # Watchdog: last frame processed timestamp
+        self._last_frame_time: float = time.monotonic()
+        self._watchdog_max_stall_sec: float = float(
+            self._cfg.get("watchdog", "max_stall_sec", fallback="30")
+        )
         # Pre-populate the nvpmodel cache synchronously at startup (not in the
         # hot loop, so blocking here is fine) then read sysfs stats.
         _query_nvpmodel_sync()
@@ -639,7 +697,55 @@ class Pipeline:
         signal.signal(signal.SIGTERM, self._signal_handler)
 
         self._running = True
+        # Start watchdog thread (daemon — dies with main process)
+        self._watchdog_thread = threading.Thread(
+            target=self._watchdog_loop, daemon=True, name="watchdog"
+        )
+        self._watchdog_thread.start()
         self._run_loop()
+
+    # ------------------------------------------------------------------
+    def _watchdog_loop(self) -> None:
+        """Background thread: force-exit if pipeline stalls."""
+        interval = self._watchdog_max_stall_sec / 2
+        while self._running:
+            time.sleep(interval)
+            if self._paused:
+                continue
+            stall = time.monotonic() - self._last_frame_time
+            if stall > self._watchdog_max_stall_sec:
+                logger.critical(
+                    "Watchdog: pipeline stalled for %.1fs — force-exiting.", stall
+                )
+                import os
+                os._exit(1)
+
+    # ------------------------------------------------------------------
+    def _check_camera_frame(self):
+        """Read a frame and manage camera loss state. Returns frame or None."""
+        frame = self._camera.read()
+        if frame is None:
+            self._cam_fail_count += 1
+            if self._cam_fail_count >= self._CAM_FAIL_THRESHOLD and not self._cam_lost:
+                self._cam_lost = True
+                logger.warning("Camera lost — entering degraded mode.")
+                if self._mavlink is not None:
+                    self._mavlink.send_statustext("HYDRA: CAM LOST", severity=4)
+                if self._autonomous is not None:
+                    self._autonomous.suppressed = True
+            return None
+
+        if self._cam_lost:
+            self._cam_lost = False
+            self._cam_fail_count = 0
+            logger.info("Camera restored — exiting degraded mode.")
+            if self._mavlink is not None:
+                self._mavlink.send_statustext("HYDRA: CAM RESTORED", severity=5)
+            if self._autonomous is not None:
+                self._autonomous.suppressed = False
+        else:
+            self._cam_fail_count = 0
+        return frame
 
     # ------------------------------------------------------------------
     def _run_loop(self) -> None:
@@ -651,7 +757,7 @@ class Pipeline:
                 time.sleep(0.1)
                 continue
 
-            frame = self._camera.read()
+            frame = self._check_camera_frame()
             if frame is None:
                 time.sleep(0.01)
                 continue
@@ -742,6 +848,7 @@ class Pipeline:
             self._det_logger.log(track_result, frame, gps=gps)
 
             # Render overlay
+            self._last_frame_time = time.monotonic()
             fps = fps_counter.tick()
             with self._state_lock:
                 render_lock_id = self._locked_track_id
@@ -783,6 +890,7 @@ class Pipeline:
                     "total_detections": total_det,
                     "mavlink": self._mavlink is not None and self._mavlink.connected,
                     "camera_source": str(self._camera.source),
+                    "camera_ok": not self._cam_lost,
                 }
                 if self._mavlink is not None:
                     telem = self._mavlink.get_telemetry()
@@ -898,14 +1006,17 @@ class Pipeline:
                 return False
             self._locked_track_id = track_id
             self._lock_mode = mode
-            logger.info(
-                "Target LOCKED: #%d (%s) mode=%s", track_id, t.label, mode
+        # Notify autonomous controller of operator lock
+        if self._autonomous is not None:
+            self._autonomous._operator_locked_track = track_id
+        logger.info(
+            "Target LOCKED: #%d (%s) mode=%s", track_id, t.label, mode
+        )
+        if self._mavlink is not None:
+            self._mavlink.send_statustext(
+                f"TGT LOCK: #{track_id} {t.label} [{mode.upper()}]", severity=5
             )
-            if self._mavlink is not None:
-                self._mavlink.send_statustext(
-                    f"TGT LOCK: #{track_id} {t.label} [{mode.upper()}]", severity=5
-                )
-            return True
+        return True
 
     def _handle_target_unlock(self, reason: str = "") -> None:
         """Release target lock.
@@ -917,6 +1028,9 @@ class Pipeline:
             prev_id = self._locked_track_id
             self._locked_track_id = None
             self._lock_mode = None
+        # Clear autonomous controller lock
+        if self._autonomous is not None:
+            self._autonomous._operator_locked_track = None
         if prev_id is not None:
             if reason == "lost":
                 logger.warning(
@@ -1060,20 +1174,59 @@ class Pipeline:
         return modes
 
     def _get_models(self) -> list[dict]:
-        """Return available YOLO model files with current marked."""
+        """Return available YOLO model files with current marked.
+
+        If a manifest.json exists in the models directory, model metadata
+        (classes, description, validation status) is merged into the result.
+        """
         models = _list_models("/models", str(self._models_dir), str(self._project_dir))
         current = Path(self._detector.model_path).name
+
+        # Load manifest if available
+        manifest = None
+        for d in [Path("/models"), self._models_dir]:
+            mp = d / MANIFEST_FILENAME
+            manifest = load_manifest(mp)
+            if manifest is not None:
+                break
+        manifest_by_name = {e["filename"]: e for e in (manifest or [])}
+
         for m in models:
             m["active"] = m["name"] == current
+            entry = manifest_by_name.get(m["name"])
+            if entry:
+                m["classes"] = entry.get("classes", [])
+                m["description"] = entry.get("description", "")
+                m["validated"] = True
+            else:
+                m["validated"] = manifest is None  # no manifest = all valid
         return models
 
     def _handle_model_switch(self, model_name: str) -> bool:
-        """Switch YOLO model at runtime."""
+        """Switch YOLO model at runtime with optional manifest validation."""
         if Path(model_name).name != model_name:
             logger.warning("Rejected model name with path components: %s", model_name)
             return False
+
+        # Check manifest for validation (if manifest exists)
+        model_dirs = [Path("/models"), self._models_dir, self._project_dir]
+        for d in model_dirs:
+            manifest = load_manifest(d / MANIFEST_FILENAME)
+            if manifest is not None:
+                entry = next((e for e in manifest if e["filename"] == model_name), None)
+                if entry is not None:
+                    ok, reason = validate_model(entry, model_dirs)
+                    if not ok:
+                        logger.error("Model validation failed for %s: %s", model_name, reason)
+                        if self._mavlink is not None:
+                            self._mavlink.send_statustext(
+                                f"MODEL FAIL: {model_name} ({reason[:30]})", severity=3
+                            )
+                        return False
+                break  # only check first manifest found
+
         # Search /models (Docker), then local models/, then project root
-        for candidate_dir in [Path("/models"), self._models_dir, self._project_dir]:
+        for candidate_dir in model_dirs:
             candidate = candidate_dir / model_name
             if candidate.exists():
                 success = self._detector.switch_model(str(candidate))

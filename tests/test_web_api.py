@@ -31,6 +31,28 @@ def client():
 # Read-only endpoints (no auth required)
 # ---------------------------------------------------------------------------
 
+class TestHealthEndpoint:
+    def test_health_ok(self, client):
+        stream_state.update_stats(camera_ok=True, fps=15.0)
+        resp = client.get("/api/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["healthy"] is True
+        assert data["camera_ok"] is True
+
+    def test_health_camera_lost(self, client):
+        stream_state.update_stats(camera_ok=False, fps=0.0)
+        resp = client.get("/api/health")
+        assert resp.status_code == 503
+        assert resp.json()["healthy"] is False
+
+    def test_health_zero_fps(self, client):
+        stream_state.update_stats(camera_ok=True, fps=0.0)
+        resp = client.get("/api/health")
+        assert resp.status_code == 503
+        assert resp.json()["healthy"] is False
+
+
 class TestReadOnlyEndpoints:
     def test_stats(self, client):
         resp = client.get("/api/stats")

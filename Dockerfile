@@ -44,4 +44,7 @@ COPY config.ini .
 EXPOSE 8080
 EXPOSE 8554
 
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health')" || exit 1
+
 CMD ["python3", "-m", "hydra_detect", "--config", "config.ini"]

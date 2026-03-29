@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import logging
 import re
@@ -63,6 +64,7 @@ class DetectionLogger:
         max_recent: int = 50,
         max_log_size_mb: float = 10.0,
         max_log_files: int = 20,
+        model_hash: str = "",
     ):
         self._log_dir = Path(log_dir)
         self._log_format = log_format.lower()
@@ -82,6 +84,8 @@ class DetectionLogger:
         self._log_index: int = 0
         self._frame_count = 0
         self._disabled = False
+        self._model_hash = model_hash
+        self._prev_chain_hash = "0" * 64  # genesis hash
 
         # Recent detections ring buffer for web UI.
         # Updated on the caller thread so the web API sees results immediately.
@@ -196,7 +200,14 @@ class DetectionLogger:
                 "alt": alt,
                 "fix": fix,
                 "image": img_filename,
+                "model_hash": self._model_hash,
             }
+            # Rolling SHA-256 chain: hash(record_json + prev_hash)
+            record_json = json.dumps(record, sort_keys=True)
+            chain_input = record_json + self._prev_chain_hash
+            chain_hash = hashlib.sha256(chain_input.encode()).hexdigest()
+            record["chain_hash"] = chain_hash
+            self._prev_chain_hash = chain_hash
             records.append(record)
 
             with self._recent_lock:

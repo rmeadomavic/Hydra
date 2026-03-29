@@ -1,0 +1,101 @@
+[
+  {
+    "filename": "yolo11n-aerodetect.pt",
+    "classes": [],
+    "input_resolution": [
+      640,
+      640
+    ],
+    "sha256": "15e5621695b5d572f713f3fa5bc829d90ee19f7b9ffa6f7ef183c20d286bbe90",
+    "size_mb": 5.2,
+    "description": ""
+  },
+  {
+    "filename": "yolo11n-visdrone.pt",
+    "classes": [],
+    "input_resolution": [
+      640,
+      640
+    ],
+    "sha256": "d7a6f6db0ca8baaecd36dec177a73a7ec1b3a36643d67244afe5454e57ed43ee",
+    "size_mb": 5.2,
+    "description": ""
+  },
+  {
+    "filename": "yolo12n-orion.pt",
+    "classes": [],
+    "input_resolution": [
+      640,
+      640
+    ],
+    "sha256": "baaa6d131493bf9c749bca4e872531a6322b8bca974891f941cc62f887d9ae2b",
+    "size_mb": 5.3,
+    "description": ""
+  },
+  {
+    "filename": "yolov8m-defence.pt",
+    "classes": [],
+    "input_resolution": [
+      640,
+      640
+    ],
+    "sha256": "3efd0d76e7498684855c263830d7a88a74c95a882377c038151458d89411ad02",
+    "size_mb": 148.6,
+    "description": ""
+  },
+  {
+    "filename": "yolov8n-threat.pt",
+    "classes": [],
+    "input_resolution": [
+      640,
+      640
+    ],
+    "sha256": "86c43444ae8319d2276dd300edc3e7f7a1137fe7566737f994ca579ad770f6ce",
+    "size_mb": 6.0,
+    "description": ""
+  },
+  {
+    "filename": "yolov8n.pt",
+    "classes": [],
+    "input_resolution": [
+      640,
+      640
+    ],
+    "sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36",
+    "size_mb": 6.2,
+    "description": ""
+  },
+  {
+    "filename": "yolov8s.pt",
+    "classes": [],
+    "input_resolution": [
+      640,
+      640
+    ],
+    "sha256": "1f47a78bf100391c2a140b7ac73a1caae18c32779be7d310658112f7ac9aa78a",
+    "size_mb": 21.5,
+    "description": ""
+  },
+  {
+    "filename": "yolov8n.engine",
+    "classes": [],
+    "input_resolution": [
+      640,
+      640
+    ],
+    "sha256": "1b61761232e02a7de22c98b9ebf164fa24590e526599563ebe9d02568c40ed49",
+    "size_mb": 8.4,
+    "description": ""
+  },
+  {
+    "filename": "yolov8n.onnx",
+    "classes": [],
+    "input_resolution": [
+      640,
+      640
+    ],
+    "sha256": "7f8989b258075d15f5180785376301e63c56b1a4a834069e7cfb850c3f16adf1",
+    "size_mb": 12.1,
+    "description": ""
+  }
+]
