@@ -1350,9 +1350,10 @@ class Pipeline:
             self._mavlink.send_statustext(
                 f"{self._callsign}: TGT LOCK #{track_id} {t.label} [{mode.upper()}]", severity=5
             )
-        self._event_logger.log_action("lock", {
-            "track_id": track_id, "label": t.label, "mode": mode,
-        })
+        if hasattr(self, '_event_logger') and self._event_logger is not None:
+            self._event_logger.log_action("lock", {
+                "track_id": track_id, "label": t.label, "mode": mode,
+            })
         return True
 
     def _handle_target_unlock(self, reason: str = "") -> None:
@@ -1369,9 +1370,10 @@ class Pipeline:
         if self._autonomous is not None:
             self._autonomous._operator_locked_track = None
         if prev_id is not None:
-            self._event_logger.log_action("unlock", {
-                "track_id": prev_id, "reason": reason or "operator",
-            })
+            if hasattr(self, '_event_logger') and self._event_logger is not None:
+                self._event_logger.log_action("unlock", {
+                    "track_id": prev_id, "reason": reason or "operator",
+                })
             if reason == "lost":
                 logger.warning(
                     "Locked target #%d lost from tracker — auto-unlocking.",
