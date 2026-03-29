@@ -1,4 +1,4 @@
-"""Approach controller — Follow, Drop, and Strike modes for target engagement."""
+"""Approach controller — Follow, Drop, Strike, and Pixel-Lock modes for target engagement."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
+
+from .guidance import GuidanceConfig, GuidanceController
 
 logger = logging.getLogger(__name__)
 audit_log = logging.getLogger("hydra.audit")
@@ -17,6 +19,7 @@ class ApproachMode(enum.Enum):
     FOLLOW = "follow"
     DROP = "drop"
     STRIKE = "strike"
+    PIXEL_LOCK = "pixel_lock"
 
 
 @dataclass
@@ -41,6 +44,9 @@ class ApproachConfig:
     arm_pwm_armed: int = 1900
     arm_pwm_safe: int = 1100
     hw_arm_channel: int | None = None
+
+    # Pixel-lock guidance
+    guidance_cfg: GuidanceConfig | None = None
 
     # Shared
     camera_hfov_deg: float = 60.0
@@ -74,6 +80,9 @@ class ApproachController:
         self._drop_complete: bool = False
         self._target_lat: float = 0.0
         self._target_lon: float = 0.0
+
+        # Pixel-lock guidance controller
+        self._guidance = GuidanceController(cfg.guidance_cfg)
 
     # ------------------------------------------------------------------
     # Public — start modes
@@ -147,6 +156,29 @@ class ApproachController:
             audit_log.info("APPROACH STRIKE START: track_id=%d", track_id)
             return True
 
+    def start_pixel_lock(self, track_id: int) -> bool:
+        """Begin pixel-lock approach — continuous velocity-based visual servoing."""
+        with self._lock:
+            if self._mode != ApproachMode.IDLE:
+                return False
+            self._pre_approach_mode = self._mavlink.get_vehicle_mode()
+            self._target_track_id = track_id
+            self._mode = ApproachMode.PIXEL_LOCK
+            self._running = True
+            self._active_since = time.monotonic()
+            self._waypoints_sent = 0
+
+        # Switch to GUIDED mode for velocity commands
+        try:
+            self._mavlink.set_mode("GUIDED")
+        except Exception:
+            pass
+
+        self._guidance.start()
+        logger.info("Pixel-lock mode STARTED for track #%d", track_id)
+        audit_log.info("APPROACH PIXEL_LOCK START: track_id=%d", track_id)
+        return True
+
     # ------------------------------------------------------------------
     # Public — update (called once per frame from pipeline)
     # ------------------------------------------------------------------
@@ -170,6 +202,8 @@ class ApproachController:
             self._update_drop(track, frame_w, frame_h)
         elif mode == ApproachMode.STRIKE:
             self._update_strike(track, frame_w, frame_h)
+        elif mode == ApproachMode.PIXEL_LOCK:
+            self._update_pixel_lock(track, frame_w, frame_h)
 
     # ------------------------------------------------------------------
     # Public — abort
@@ -186,6 +220,15 @@ class ApproachController:
 
         if prev_mode == ApproachMode.IDLE:
             return
+
+        # Stop guidance controller if pixel-lock was active
+        if prev_mode == ApproachMode.PIXEL_LOCK:
+            self._guidance.stop()
+            # Send zero velocity to brake
+            try:
+                self._mavlink.send_velocity_ned(0, 0, 0, 0)
+            except Exception:
+                pass
 
         # Safe the arm channel
         if self._cfg.arm_channel:
@@ -250,6 +293,9 @@ class ApproachController:
         if mode == ApproachMode.STRIKE:
             result["software_arm"] = self._cfg.arm_channel is not None
             result["hardware_arm_status"] = self.get_hardware_arm_status()
+
+        if mode == ApproachMode.PIXEL_LOCK:
+            result["track_lost"] = self._guidance.track_lost
 
         return result
 
@@ -429,3 +475,32 @@ class ApproachController:
                 self._waypoints_sent += 1
         except Exception as exc:
             logger.warning("Strike: guided waypoint failed: %s", exc)
+
+    def _update_pixel_lock(self, track, fw: int, fh: int) -> None:
+        """Update pixel-lock mode — continuous velocity-based visual servoing."""
+        if track is not None:
+            cx = (track.x1 + track.x2) / 2.0
+            cy = (track.y1 + track.y2) / 2.0
+            error_x = (cx - fw / 2.0) / (fw / 2.0)
+            error_y = (cy - fh / 2.0) / (fh / 2.0)
+            bbox_area = (track.x2 - track.x1) * (track.y2 - track.y1)
+            frame_area = fw * fh
+            bbox_ratio = bbox_area / frame_area if frame_area > 0 else 0.0
+        else:
+            error_x = None
+            error_y = None
+            bbox_ratio = None
+
+        cmd = self._guidance.update(error_x, error_y, bbox_ratio)
+
+        try:
+            self._mavlink.send_velocity_ned(cmd.vx, cmd.vy, cmd.vz, cmd.yaw_rate)
+            with self._lock:
+                self._waypoints_sent += 1
+        except Exception as exc:
+            logger.warning("Pixel-lock: velocity command failed: %s", exc)
+
+        # Auto-abort if track lost beyond timeout
+        if self._guidance.track_lost:
+            logger.warning("Pixel-lock: track lost beyond timeout — aborting")
+            self.abort()

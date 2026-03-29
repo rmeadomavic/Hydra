@@ -15,6 +15,7 @@ from typing import Optional
 import cv2
 
 from .approach import ApproachConfig, ApproachController, ApproachMode
+from .guidance import GuidanceConfig
 from .autonomous import AutonomousController, parse_polygon
 from .servo_tracker import ServoTracker
 from .camera import Camera, list_video_sources
@@ -407,6 +408,23 @@ class Pipeline:
                     "approach", "abort_mode", fallback="LOITER"),
                 waypoint_interval=self._cfg.getfloat(
                     "approach", "waypoint_interval", fallback=0.5),
+                guidance_cfg=GuidanceConfig(
+                    fwd_gain=self._cfg.getfloat("guidance", "fwd_gain", fallback=2.0),
+                    lat_gain=self._cfg.getfloat("guidance", "lat_gain", fallback=1.5),
+                    vert_gain=self._cfg.getfloat("guidance", "vert_gain", fallback=1.0),
+                    yaw_gain=self._cfg.getfloat("guidance", "yaw_gain", fallback=30.0),
+                    max_fwd_speed=self._cfg.getfloat("guidance", "max_fwd_speed", fallback=5.0),
+                    max_lat_speed=self._cfg.getfloat("guidance", "max_lat_speed", fallback=2.0),
+                    max_vert_speed=self._cfg.getfloat("guidance", "max_vert_speed", fallback=1.5),
+                    max_yaw_rate=self._cfg.getfloat("guidance", "max_yaw_rate", fallback=45.0),
+                    deadzone=self._cfg.getfloat("guidance", "deadzone", fallback=0.05),
+                    target_bbox_ratio=self._cfg.getfloat(
+                        "guidance", "target_bbox_ratio", fallback=0.15),
+                    lost_track_timeout_s=self._cfg.getfloat(
+                        "guidance", "lost_track_timeout_s", fallback=2.0),
+                    min_altitude_m=self._cfg.getfloat(
+                        "guidance", "min_altitude_m", fallback=5.0),
+                ),
             )
             self._approach = ApproachController(self._mavlink, approach_cfg)
             logger.info(
@@ -861,6 +879,7 @@ class Pipeline:
                 on_drop_command=self._handle_drop_command,
                 on_follow_command=self._handle_follow_command,
                 on_approach_strike_command=self._handle_approach_strike_command,
+                on_pixel_lock_command=self._handle_pixel_lock_command,
                 on_approach_abort=self._handle_approach_abort,
                 get_approach_status=self._get_approach_status,
                 on_mission_start=self._handle_mission_start,
@@ -1762,6 +1781,48 @@ class Pipeline:
             self._mavlink.send_statustext(
                 f"STRIKE ARM: #{track_id} {target_track.label}", severity=1,
             )
+        return True
+
+    def _handle_pixel_lock_command(self, track_id: int) -> bool:
+        """Command vehicle into pixel-lock visual servoing mode."""
+        if self._approach is None:
+            logger.warning("Pixel-lock failed: approach controller not available")
+            return False
+        if self._approach.mode != ApproachMode.IDLE:
+            logger.warning(
+                "Pixel-lock failed: approach already active in %s mode",
+                self._approach.mode.value,
+            )
+            return False
+
+        with self._state_lock:
+            if self._last_track_result is None:
+                return False
+            target_track = self._last_track_result.find(track_id)
+        if target_track is None:
+            logger.warning("Pixel-lock failed: track #%d not found.", track_id)
+            return False
+
+        # Set lock mode
+        with self._state_lock:
+            self._locked_track_id = track_id
+            self._lock_mode = "pixel_lock"
+
+        success = self._approach.start_pixel_lock(track_id)
+        if not success:
+            self._handle_target_unlock()
+            return False
+
+        logger.info(
+            "PIXEL-LOCK initiated: #%d (%s)", track_id, target_track.label,
+        )
+        if self._mavlink is not None:
+            self._mavlink.send_statustext(
+                f"PIXEL-LOCK: #{track_id} {target_track.label}", severity=5,
+            )
+        self._event_logger.log_action("pixel_lock", {
+            "track_id": track_id, "label": target_track.label,
+        })
         return True
 
     def _handle_approach_abort(self) -> None:
