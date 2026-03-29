@@ -155,9 +155,28 @@ const HydraApp = (() => {
     }
 
     // ── Top Bar Updates ──
+    let _callsignSet = false;
+    let _duplicateWarningShown = false;
+
     function updateTopBarStats(data) {
         const fpsEl = document.getElementById('fps-display');
         if (fpsEl) fpsEl.textContent = `${(data.fps || 0).toFixed(1)} FPS`;
+
+        // Display callsign in topbar brand (once)
+        if (data.callsign && !_callsignSet) {
+            const brandEl = document.querySelector('.topbar-brand');
+            if (brandEl) {
+                brandEl.textContent = `${data.callsign}`;
+                document.title = `${data.callsign} — SORCC`;
+                _callsignSet = true;
+            }
+        }
+
+        // Duplicate callsign warning
+        if (data.duplicate_callsign && !_duplicateWarningShown) {
+            showToast(`DUPLICATE CALLSIGN: another ${data.callsign} detected on network`, 'error');
+            _duplicateWarningShown = true;
+        }
     }
 
     function updateConnectionStatus(connected) {

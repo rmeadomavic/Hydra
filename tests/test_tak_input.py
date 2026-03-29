@@ -36,7 +36,8 @@ def _build_geochat(remarks: str, sender: str = "ALPHA-1") -> bytes:
     return ET.tostring(event, encoding="unicode").encode("utf-8")
 
 
-def _build_custom_cot(cot_type: str, track_id: int | None = None, use_detail: bool = True) -> bytes:
+def _build_custom_cot(cot_type: str, track_id: int | None = None, use_detail: bool = True,
+                      sender_callsign: str = "ALPHA-1") -> bytes:
     """Build a custom a-x-hydra-* CoT event."""
     event = ET.Element("event")
     event.set("version", "2.0")
@@ -53,6 +54,9 @@ def _build_custom_cot(cot_type: str, track_id: int | None = None, use_detail: bo
     point.set("ce", "9999999")
     point.set("le", "9999999")
     detail = ET.SubElement(event, "detail")
+    # Add contact element for sender callsign (required by security checks)
+    contact = ET.SubElement(detail, "contact")
+    contact.set("callsign", sender_callsign)
     if track_id is not None:
         if use_detail:
             hydra = ET.SubElement(detail, "hydra")
@@ -64,13 +68,18 @@ def _build_custom_cot(cot_type: str, track_id: int | None = None, use_detail: bo
 
 
 def _make_input(**kwargs) -> TAKInput:
-    """Create a TAKInput with mock callbacks (not started)."""
+    """Create a TAKInput with mock callbacks (not started).
+
+    Defaults to allowing the "ALPHA-1" callsign so existing tests pass.
+    """
     return TAKInput(
         listen_port=16969,
         multicast_group="",
         on_lock=kwargs.get("on_lock", MagicMock(return_value=True)),
         on_strike=kwargs.get("on_strike", MagicMock(return_value=True)),
         on_unlock=kwargs.get("on_unlock", MagicMock()),
+        allowed_callsigns=kwargs.get("allowed_callsigns", ["ALPHA-1"]),
+        my_callsign=kwargs.get("my_callsign", "HYDRA-1"),
     )
 
 

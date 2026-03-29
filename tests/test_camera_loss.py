@@ -30,6 +30,7 @@ def _make_pipeline(**overrides) -> Pipeline:
         p = Pipeline.__new__(Pipeline)
 
     p._cfg = cfg
+    p._callsign = "HYDRA-1"
     p._camera = MagicMock()
     p._mavlink = MagicMock()
     p._mavlink.send_statustext = MagicMock()
@@ -105,7 +106,7 @@ class TestCameraLossDetection:
         assert p._cam_lost is True
         assert p._cam_fail_count == 2
         p._mavlink.send_statustext.assert_called_once_with(
-            "HYDRA: CAM LOST", severity=4
+            "HYDRA-1: CAM LOST", severity=4
         )
 
     def test_cam_lost_not_spammed(self):
@@ -146,7 +147,7 @@ class TestCameraLossDetection:
         p._camera.read.return_value = _FAKE_FRAME
         p._check_camera_frame()
         p._mavlink.send_statustext.assert_called_once_with(
-            "HYDRA: CAM RESTORED", severity=5
+            "HYDRA-1: CAM RESTORED", severity=5
         )
 
     def test_autonomous_suppressed_on_loss(self):

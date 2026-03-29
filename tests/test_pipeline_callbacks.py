@@ -32,6 +32,7 @@ def _make_pipeline(**overrides) -> Pipeline:
 
     # Wire minimal internal state
     p._cfg = cfg
+    p._callsign = "HYDRA-1"
     p._detector = MagicMock(spec=YOLODetector)
     p._camera = MagicMock()
     p._camera.has_frame = True
