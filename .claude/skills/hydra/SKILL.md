@@ -73,6 +73,16 @@ Hydra serves three audiences — tag features and ideas by which they serve:
 - **Dev** — building and extending. Maintainable, testable, debuggable.
   (/jetson-check, test suite, Docker, sim GPS, debug logging, ML fine-tuning)
 
+## SORCC Course Context
+
+Hydra is built for **SORCC** (Special Operations Robotics Capabilities Course) —
+a 6-week SOF training program. 15 students in 5 teams operate drones, rovers,
+boats, and fixed-wing aircraft with Hydra payloads. Students interact only via
+the web dashboard (never SSH). Errors must be plain English. Up to 20 Hydra
+instances run simultaneously during exercises. See `CLAUDE.md` "SORCC Course
+Context" section for full details including platforms, workflow, vocabulary, and
+design implications.
+
 ## Constraints (Safety-Critical)
 
 - **Memory:** 4-8 GB shared CPU/GPU. Fixed-size ring buffers only. No unbounded caches.

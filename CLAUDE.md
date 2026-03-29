@@ -25,6 +25,44 @@ Camera → Detector (YOLO) → ByteTrack Tracker → MAVLink Alerts
 - **Config:** `config.ini` (INI format, all tunables live here)
 - **Tests:** `pytest` — run with `python -m pytest tests/`
 
+## SORCC Course Context
+
+**SORCC** (Special Operations Robotics Capabilities Course) is a 6-week IQT
+program at Oak Grove, NC. 15 students in 5 teams of 3, active-duty SOF
+(SF, Rangers, SMU support). They are technically capable and mission-focused
+but most have never touched a Jetson, config file, or terminal before this course.
+
+### Platforms Per Team
+- 5" and 10" FPV quadcopters (ArduCopter)
+- Heewing T1 Ranger fixed wing (ArduPlane)
+- Traxxas Stampede UGV (ArduRover)
+- Bonzai Enforcer 48" USV (ArduRover boat mode)
+
+### How Students Use Hydra (Weeks 4-5)
+1. Receive a pre-configured Jetson Orin Nano
+2. Power on — Hydra auto-starts
+3. Open web dashboard on laptop/tablet
+4. Select mission profile (RECON/DELIVERY/STRIKE)
+5. Fly/drive/sail while Hydra detects and tracks targets
+6. Review detection logs after the sortie
+
+### Design Implications
+- **Students never need SSH** — dashboard is the only interface
+- **Config.ini is the user interface** — all student-facing options live there with sane defaults
+- **Errors must be plain English** — "Camera: not found on /dev/video0 — check USB"
+  not Python tracebacks
+- **Field conditions:** battery power, 50-100m WiFi, vibration, water, night ops
+- **3 instructors:** Kyle (lead/dev), Charles (platform SME), Vinnie (docs)
+- **20 potential Hydra instances** during CULEX (5 teams × 4 platforms)
+
+### Vocabulary
+- SORCC = "sork" (spoken as a word)
+- IQT = Initial Qualification Training
+- STX = Situational Training Exercise
+- CULEX = Culminating Exercise
+- EENT = End of Evening Nautical Twilight (night ops begin)
+- Use "uncrewed" not "unmanned"
+
 ## Jetson Deployment Constraints
 
 ### Memory (4–8 GB shared CPU/GPU RAM)
