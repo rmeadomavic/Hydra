@@ -191,6 +191,9 @@ class StreamState:
             "label": None,
         }
 
+        # Adaptive MJPEG quality (1-100)
+        self._mjpeg_quality: int = 70
+
     def update_frame(self, frame: np.ndarray) -> None:
         with self._lock:
             self.frame = frame
@@ -238,6 +241,14 @@ class StreamState:
         """Safely retrieve a callback by name."""
         with self._lock:
             return self._callbacks.get(name)
+
+    def set_mjpeg_quality(self, quality: int) -> None:
+        with self._lock:
+            self._mjpeg_quality = max(1, min(100, quality))
+
+    def get_mjpeg_quality(self) -> int:
+        with self._lock:
+            return self._mjpeg_quality
 
 
 # Global state instance — set by the pipeline before starting the server
@@ -886,6 +897,45 @@ async def api_tak_toggle(request: Request, authorization: Optional[str] = Header
     return JSONResponse({"error": "TAK output not available"}, status_code=503)
 
 
+@app.get("/api/stream/quality")
+async def get_stream_quality():
+    """Return current MJPEG stream quality."""
+    return {"quality": stream_state.get_mjpeg_quality()}
+
+
+@app.post("/api/stream/quality")
+async def set_stream_quality(request: Request, authorization: Optional[str] = Header(None)):
+    """Set MJPEG stream quality at runtime. Body: {"quality": 70}"""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    quality = body.get("quality", 70)
+    try:
+        quality = int(quality)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "quality must be an integer 1-100"}, status_code=400)
+    quality = max(1, min(100, quality))
+    stream_state.set_mjpeg_quality(quality)
+    _audit(request, "set_stream_quality", target=str(quality))
+    return {"quality": quality}
+
+
+@app.post("/api/restart")
+async def restart_pipeline(request: Request, authorization: Optional[str] = Header(None)):
+    """Request a pipeline restart. Briefly interrupts detection."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    cb = stream_state.get_callback("on_restart_command")
+    if cb:
+        cb()
+        _audit(request, "pipeline_restart")
+        return {"status": "restarting"}
+    _audit(request, "pipeline_restart", outcome="unavailable")
+    return JSONResponse({"error": "restart not available"}, status_code=503)
+
+
 @app.post("/api/mavlink-video/tune")
 async def api_mavlink_video_tune(request: Request, authorization: Optional[str] = Header(None)):
     """Live-tune MAVLink video params. Body: {width, height, quality, max_fps} (all optional)"""
@@ -1120,8 +1170,8 @@ async def _generate_mjpeg():
     Uses an asyncio.Event to wake instantly when a new frame is available
     instead of polling with sleep. Falls back to a 100ms timeout to handle
     cases where the event isn't set (e.g., pipeline paused).
+    Quality is read from StreamState each frame for adaptive control.
     """
-    quality = 70
     try:
         while True:
             # Wait for a new frame signal (or timeout after 100ms)
@@ -1134,6 +1184,7 @@ async def _generate_mjpeg():
                 pass
             frame = stream_state.get_frame()
             if frame is not None:
+                quality = stream_state.get_mjpeg_quality()
                 ok, buf = cv2.imencode(
                     ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality]
                 )
