@@ -808,6 +808,26 @@ async def api_switch_profile(request: Request, authorization: Optional[str] = He
     return JSONResponse({"error": "Profile switching not available"}, status_code=503)
 
 
+# ── Mission Profile Presets ───────────────────────────────────
+
+@app.get("/api/mission-profiles")
+async def api_list_mission_profiles():
+    """List available mission profile presets."""
+    from hydra_detect.mission_profiles import get_profiles
+    profiles = get_profiles()
+    return {
+        name: {
+            "display_name": p.display_name,
+            "description": p.description,
+            "behavior": p.behavior,
+            "approach_method": p.approach_method,
+            "post_action": p.post_action,
+            "icon": p.icon,
+        }
+        for name, p in profiles.items()
+    }
+
+
 # ── RF Hunt ─────────────────────────────────────────────────────
 
 @app.get("/api/rf/status")
