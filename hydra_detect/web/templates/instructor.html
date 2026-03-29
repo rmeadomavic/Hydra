@@ -288,10 +288,14 @@
 
         async function abortVehicle(host) {
             try {
-                await fetch('http://' + host + ':8080/api/abort', {method: 'POST'});
-                addAlert(vehicleState[host] ? (vehicleState[host].callsign || host) : host, 'ABORT sent by instructor');
+                const resp = await fetch('http://' + host + ':8080/api/abort', {method: 'POST'});
+                if (resp.ok) {
+                    addAlert(vehicleState[host] ? (vehicleState[host].callsign || host) : host, 'ABORT sent by instructor');
+                } else {
+                    addAlert(host, 'ABORT failed — HTTP ' + resp.status);
+                }
             } catch (e) {
-                addAlert(host, 'ABORT FAILED -- vehicle unreachable');
+                addAlert(host, 'ABORT FAILED — vehicle unreachable');
             }
         }
 
