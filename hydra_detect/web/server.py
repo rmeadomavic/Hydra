@@ -37,13 +37,33 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="Hydra Detect v2.0", version="2.0.0")
 
-# CORS: restrict to same-origin by default; override via configure_cors()
+# CORS: allow cross-origin from other Jetsons (instructor overview page
+# polls /api/stats and /api/abort on peer Hydra instances).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[],  # No cross-origin by default
+    allow_origins=["*"],
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+# Standard CSP for the SPA and standalone pages
+_CSP_DEFAULT = (
+    "default-src 'self'; "
+    "img-src 'self' data: https://*.tile.openstreetmap.org; "
+    "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+    "style-src 'self' 'unsafe-inline' https://unpkg.com; "
+    "connect-src 'self'"
+)
+
+# Relaxed CSP for the instructor page — it fetches from other Jetsons
+_CSP_INSTRUCTOR = (
+    "default-src 'self'; "
+    "img-src 'self' data:; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "connect-src *"
+)
+
 
 class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Inject defense-in-depth HTTP security headers."""
@@ -52,13 +72,11 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response: Response = await call_next(request)
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "img-src 'self' data: https://*.tile.openstreetmap.org; "
-            "script-src 'self' 'unsafe-inline' https://unpkg.com; "
-            "style-src 'self' 'unsafe-inline' https://unpkg.com; "
-            "connect-src 'self'"
-        )
+        # Use relaxed CSP for instructor page (needs cross-origin fetch)
+        if request.url.path == "/instructor":
+            response.headers["Content-Security-Policy"] = _CSP_INSTRUCTOR
+        else:
+            response.headers["Content-Security-Policy"] = _CSP_DEFAULT
         return response
 
 
@@ -943,6 +961,67 @@ async def api_pipeline_pause(request: Request, authorization: Optional[str] = He
 async def control_page(request: Request):
     """Serve the mobile operator control page."""
     return templates.TemplateResponse(request, "control.html")
+
+
+# ── Instructor Overview ────────────────────────────────────────────
+
+@app.get("/instructor", response_class=HTMLResponse)
+async def instructor_page(request: Request):
+    """Serve the standalone instructor overview page."""
+    return templates.TemplateResponse(request, "instructor.html")
+
+
+@app.post("/api/abort")
+async def api_abort(request: Request):
+    """Emergency abort — switch vehicle to RTL mode.
+
+    This endpoint is intentionally unauthenticated. The instructor page
+    is the safety exception: an instructor must be able to abort any
+    vehicle without configuring tokens.
+    """
+    _audit(request, "abort")
+    # Try RTL first, then LOITER/HOLD as fallback
+    cb = stream_state.get_callback("on_set_mode_command")
+    if cb:
+        for mode in ("RTL", "LOITER", "HOLD"):
+            if cb(mode):
+                logger.warning("ABORT: vehicle set to %s by instructor", mode)
+                return {"status": "ok", "mode": mode}
+        return JSONResponse({"error": "Failed to set abort mode"}, status_code=503)
+    return JSONResponse({"error": "MAVLink not connected"}, status_code=503)
+
+
+# ── Mission Tagging ────────────────────────────────────────────────
+
+@app.post("/api/mission/start")
+async def api_start_mission(request: Request, authorization: Optional[str] = Header(None)):
+    """Start a named mission. Body: {"name": "mission-alpha"}"""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    body = await request.json()
+    name = body.get("name", f"mission-{int(time.time())}")
+    if not isinstance(name, str) or not name.strip():
+        return JSONResponse({"error": "name must be a non-empty string"}, status_code=400)
+    name = name.strip()[:100]  # Bound length
+    cb = stream_state.get_callback("on_mission_start")
+    if cb:
+        cb(name)
+    _audit(request, "mission_start", target=name)
+    return {"status": "started", "name": name}
+
+
+@app.post("/api/mission/end")
+async def api_end_mission(request: Request, authorization: Optional[str] = Header(None)):
+    """End the current mission."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    cb = stream_state.get_callback("on_mission_end")
+    if cb:
+        cb()
+    _audit(request, "mission_end")
+    return {"status": "ended"}
 
 
 # ── Mission Review ────────────────────────────────────────────────

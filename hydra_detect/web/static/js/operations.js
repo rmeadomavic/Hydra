@@ -288,6 +288,10 @@ const HydraOperations = (() => {
 
         // TAK/ATAK
         addClick('ctrl-tak-toggle', () => toggleTAK());
+
+        // Mission control
+        addClick('ctrl-btn-mission-start', () => startMission());
+        addClick('ctrl-btn-mission-end', () => endMission());
     }
 
     function addClick(id, handler) {
@@ -306,6 +310,7 @@ const HydraOperations = (() => {
         if (s && Object.keys(s).length > 0) {
             updateVehiclePanel(s);
             updatePipelinePanel(s);
+            updateMissionPanel(s);
         }
         updateTargetPanel();
         updateDetectionLog();
@@ -1234,6 +1239,49 @@ const HydraOperations = (() => {
         if (bar) {
             bar.style.width = Math.min(pct, 100) + '%';
             bar.style.backgroundColor = color;
+        }
+    }
+
+    // ── Mission Panel ──
+    let missionActive = false;
+
+    function updateMissionPanel(s) {
+        const badge = document.getElementById('ctrl-mission-badge');
+        const nameField = document.getElementById('ctrl-mission-name-field');
+        const activeInfo = document.getElementById('ctrl-mission-active-info');
+        const activeName = document.getElementById('ctrl-mission-active-name');
+        const startBtn = document.getElementById('ctrl-btn-mission-start');
+        const endBtn = document.getElementById('ctrl-btn-mission-end');
+
+        const isActive = !!s.mission_name;
+        missionActive = isActive;
+
+        if (badge) {
+            badge.textContent = isActive ? 'ACTIVE' : 'IDLE';
+            badge.className = 'badge ' + (isActive ? 'on' : 'off');
+        }
+        if (nameField) nameField.style.display = isActive ? 'none' : '';
+        if (activeInfo) activeInfo.style.display = isActive ? '' : 'none';
+        if (activeName) activeName.textContent = s.mission_name || '--';
+        if (startBtn) startBtn.disabled = isActive;
+        if (endBtn) endBtn.disabled = !isActive;
+    }
+
+    async function startMission() {
+        const input = document.getElementById('ctrl-mission-name');
+        const name = input ? input.value.trim() : '';
+        const result = await HydraApp.apiPost('/api/mission/start', { name: name || undefined });
+        if (result && result.status === 'started') {
+            HydraApp.showToast('Mission started: ' + result.name, 'success');
+            if (input) input.value = '';
+        }
+    }
+
+    async function endMission() {
+        if (!confirm('End current mission?')) return;
+        const result = await HydraApp.apiPost('/api/mission/end', {});
+        if (result && result.status === 'ended') {
+            HydraApp.showToast('Mission ended', 'info');
         }
     }
 
