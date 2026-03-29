@@ -203,11 +203,12 @@ class DetectionLogger:
                 "model_hash": self._model_hash,
             }
             # Rolling SHA-256 chain: hash(record_json + prev_hash)
+            # Chain state is advanced only after successful enqueue (below)
+            # to avoid breaking the chain when records are dropped.
             record_json = json.dumps(record, sort_keys=True)
             chain_input = record_json + self._prev_chain_hash
             chain_hash = hashlib.sha256(chain_input.encode()).hexdigest()
             record["chain_hash"] = chain_hash
-            self._prev_chain_hash = chain_hash
             records.append(record)
 
             with self._recent_lock:
@@ -230,12 +231,19 @@ class DetectionLogger:
 
         try:
             self._write_queue.put_nowait(work_item)
+            # Advance chain state only after successful enqueue so dropped
+            # records don't leave a gap in the persisted hash chain.
+            self._prev_chain_hash = records[-1]["chain_hash"]
         except queue.Full:
             logger.warning(
                 "Detection logger queue full — dropping frame %d "
                 "(storage too slow?)",
                 frame_no,
             )
+
+    def set_model_hash(self, model_hash: str) -> None:
+        """Update the model hash (e.g. after a runtime model switch)."""
+        self._model_hash = model_hash
 
     def get_recent(self, n: int = 20) -> list[Dict[str, Any]]:
         """Return the N most recent detection records (for web UI)."""

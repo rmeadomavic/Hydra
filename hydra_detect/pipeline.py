@@ -1214,15 +1214,21 @@ class Pipeline:
             manifest = load_manifest(d / MANIFEST_FILENAME)
             if manifest is not None:
                 entry = next((e for e in manifest if e["filename"] == model_name), None)
-                if entry is not None:
-                    ok, reason = validate_model(entry, model_dirs)
-                    if not ok:
-                        logger.error("Model validation failed for %s: %s", model_name, reason)
-                        if self._mavlink is not None:
-                            self._mavlink.send_statustext(
-                                f"MODEL FAIL: {model_name} ({reason[:30]})", severity=3
-                            )
-                        return False
+                if entry is None:
+                    logger.error("Model %s not in manifest — rejecting", model_name)
+                    if self._mavlink is not None:
+                        self._mavlink.send_statustext(
+                            f"MODEL REJECTED: {model_name} not in manifest", severity=3
+                        )
+                    return False
+                ok, reason = validate_model(entry, model_dirs)
+                if not ok:
+                    logger.error("Model validation failed for %s: %s", model_name, reason)
+                    if self._mavlink is not None:
+                        self._mavlink.send_statustext(
+                            f"MODEL FAIL: {model_name} ({reason[:30]})", severity=3
+                        )
+                    return False
                 break  # only check first manifest found
 
         # Search /models (Docker), then local models/, then project root
@@ -1233,6 +1239,14 @@ class Pipeline:
                 if success:
                     self._active_profile = None
                     stream_state.update_runtime_config({"active_profile": None})
+                    # Update detection logger's model hash for chain-of-custody
+                    try:
+                        import hashlib as _hl
+                        new_hash = _hl.sha256(candidate.read_bytes()).hexdigest()
+                        self._det_logger.set_model_hash(new_hash)
+                        logger.info("Model hash updated (%s): %s", candidate.name, new_hash[:16])
+                    except Exception as exc:
+                        logger.warning("Could not update model hash: %s", exc)
                 return success
         logger.error("Model not found: %s", model_name)
         return False
