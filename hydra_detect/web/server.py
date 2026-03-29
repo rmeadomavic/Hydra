@@ -269,6 +269,15 @@ async def api_health():
     )
 
 
+@app.get("/api/preflight")
+async def api_preflight():
+    """Pre-flight checklist — subsystem pass/warn/fail status."""
+    cb = stream_state._callbacks.get("get_preflight")
+    if cb:
+        return cb()
+    return {"checks": [], "overall": "unknown"}
+
+
 @app.get("/api/stats")
 async def api_stats():
     """Return current pipeline statistics as JSON."""

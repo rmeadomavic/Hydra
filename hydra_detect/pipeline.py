@@ -651,6 +651,7 @@ class Pipeline:
                 get_tak_status=self._get_tak_status,
                 get_profiles=self._get_profiles,
                 on_profile_switch=self._handle_profile_switch,
+                get_preflight=self._get_preflight,
             )
 
             stream_state.update_stats(
@@ -1537,6 +1538,66 @@ class Pipeline:
             "callsign": self._cfg.get("tak", "callsign", fallback="HYDRA-1"),
             "events_sent": 0,
         }
+
+    def _get_preflight(self) -> dict:
+        """Run pre-flight checks and return per-subsystem status."""
+        checks = []
+
+        # Camera
+        if self._cam_lost:
+            checks.append({"name": "camera", "status": "fail", "message": "Camera not detected — check USB"})
+        else:
+            checks.append({"name": "camera", "status": "pass", "message": "Camera operational"})
+
+        # MAVLink
+        if self._mavlink is None:
+            checks.append({"name": "mavlink", "status": "warn", "message": "MAVLink disabled — detection only mode"})
+        elif not self._mavlink.connected:
+            checks.append({"name": "mavlink", "status": "warn", "message": "MAVLink not connected — check serial port"})
+        else:
+            checks.append({"name": "mavlink", "status": "pass", "message": "MAVLink connected"})
+
+        # GPS
+        if self._mavlink is not None and self._mavlink.connected:
+            pos = self._mavlink.get_lat_lon()
+            if pos is None or pos[0] is None:
+                checks.append({"name": "gps", "status": "warn", "message": "No GPS fix — wait for satellite lock"})
+            else:
+                checks.append({"name": "gps", "status": "pass", "message": f"GPS fix at {pos[0]:.5f}, {pos[1]:.5f}"})
+        else:
+            checks.append({"name": "gps", "status": "warn", "message": "GPS unavailable — no MAVLink"})
+
+        # Model
+        if self._detector is not None:
+            checks.append({"name": "model", "status": "pass", "message": "Model loaded"})
+        else:
+            checks.append({"name": "model", "status": "fail", "message": "No detection model loaded"})
+
+        # Disk space
+        import os
+        try:
+            log_dir = self._cfg.get("logging", "log_dir", fallback="./output_data/logs")
+            stat = os.statvfs(log_dir)
+            free_gb = (stat.f_bavail * stat.f_frsize) / (1024 ** 3)
+            if free_gb < 0.5:
+                checks.append({"name": "disk", "status": "fail", "message": f"Low disk: {free_gb:.1f} GB free"})
+            elif free_gb < 2.0:
+                checks.append({"name": "disk", "status": "warn", "message": f"{free_gb:.1f} GB free"})
+            else:
+                checks.append({"name": "disk", "status": "pass", "message": f"{free_gb:.1f} GB free"})
+        except OSError:
+            checks.append({"name": "disk", "status": "warn", "message": "Cannot check disk space"})
+
+        # Overall: worst status
+        statuses = [c["status"] for c in checks]
+        if "fail" in statuses:
+            overall = "fail"
+        elif "warn" in statuses:
+            overall = "warn"
+        else:
+            overall = "pass"
+
+        return {"checks": checks, "overall": overall}
 
     def _handle_stop_command(self) -> None:
         """Stop the pipeline gracefully from the web UI."""
