@@ -347,6 +347,40 @@ input[type="range"]::-webkit-slider-thumb {
     border-color: rgba(255, 159, 28, 0.5);
 }
 
+/* ── Pre-Flight Checklist Overlay ── */
+#preflight-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.85);
+    display: none; align-items: center; justify-content: center;
+    z-index: 9999; padding: 16px;
+}
+.preflight-card {
+    background: var(--card-bg, #141b22); border-radius: 12px;
+    padding: 24px; max-width: 480px; width: 100%;
+    border: 2px solid var(--border, #1e2830);
+}
+.preflight-title { font-size: 20px; font-weight: 700; margin-bottom: 16px; text-align: center; }
+.preflight-title.fail { color: #B60205; }
+.preflight-title.warn { color: #FF9F1C; }
+.preflight-item {
+    display: grid; grid-template-columns: 24px 80px 1fr; gap: 8px;
+    padding: 8px 0; border-bottom: 1px solid var(--border, #1e2830);
+    font-size: 13px; align-items: center;
+}
+.preflight-icon { font-size: 16px; text-align: center; }
+.preflight-name { font-weight: 600; text-transform: uppercase; }
+.preflight-msg { color: #aaa; }
+.preflight-pass .preflight-icon { color: #0E8A16; }
+.preflight-warn .preflight-icon { color: #FF9F1C; }
+.preflight-fail .preflight-icon { color: #B60205; }
+.preflight-note { text-align: center; color: #888; font-size: 12px; margin-top: 12px; }
+.preflight-btn {
+    display: block; width: 100%; margin-top: 16px; padding: 10px;
+    background: var(--accent, #385723); color: white; border: none;
+    border-radius: 6px; font-size: 14px; font-weight: 600;
+    cursor: pointer; text-transform: uppercase;
+}
+
 /* ── Touch Target (Steam Deck / tablet) ── */
 @media (pointer: coarse) {
     .btn { min-height: 44px; min-width: 44px; padding: 10px 16px; }
