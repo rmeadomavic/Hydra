@@ -1198,6 +1198,10 @@ class Pipeline:
         if self._approach is None:
             logger.warning("Drop failed: approach controller not available")
             return False
+        if self._approach.mode != ApproachMode.IDLE:
+            logger.warning("Drop failed: approach already active in %s mode",
+                           self._approach.mode.value)
+            return False
 
         with self._state_lock:
             if self._last_track_result is None:
@@ -1234,21 +1238,29 @@ class Pipeline:
             self._lock_mode = "drop"
 
         success = self._approach.start_drop(track_id, target_lat, target_lon)
-        if success:
-            logger.info(
-                "DROP initiated: #%d (%s) -> %.6f, %.6f",
-                track_id, target_track.label, target_lat, target_lon,
+        if not success:
+            # Rollback lock on failure
+            self._handle_target_unlock()
+            return False
+
+        logger.info(
+            "DROP initiated: #%d (%s) -> %.6f, %.6f",
+            track_id, target_track.label, target_lat, target_lon,
+        )
+        if self._mavlink is not None:
+            self._mavlink.send_statustext(
+                f"DROP: #{track_id} {target_track.label}", severity=1,
             )
-            if self._mavlink is not None:
-                self._mavlink.send_statustext(
-                    f"DROP: #{track_id} {target_track.label}", severity=1,
-                )
-        return success
+        return True
 
     def _handle_follow_command(self, track_id: int) -> bool:
         """Command vehicle to follow a tracked target continuously."""
         if self._approach is None:
             logger.warning("Follow failed: approach controller not available")
+            return False
+        if self._approach.mode != ApproachMode.IDLE:
+            logger.warning("Follow failed: approach already active in %s mode",
+                           self._approach.mode.value)
             return False
 
         with self._state_lock:
@@ -1265,18 +1277,26 @@ class Pipeline:
             self._lock_mode = "follow"
 
         success = self._approach.start_follow(track_id)
-        if success:
-            logger.info("FOLLOW initiated: #%d (%s)", track_id, target_track.label)
-            if self._mavlink is not None:
-                self._mavlink.send_statustext(
-                    f"FOLLOW: #{track_id} {target_track.label}", severity=5,
-                )
-        return success
+        if not success:
+            # Rollback lock on failure
+            self._handle_target_unlock()
+            return False
+
+        logger.info("FOLLOW initiated: #%d (%s)", track_id, target_track.label)
+        if self._mavlink is not None:
+            self._mavlink.send_statustext(
+                f"FOLLOW: #{track_id} {target_track.label}", severity=5,
+            )
+        return True
 
     def _handle_approach_strike_command(self, track_id: int) -> bool:
         """Command vehicle into continuous strike approach mode."""
         if self._approach is None:
             logger.warning("Approach strike failed: approach controller not available")
+            return False
+        if self._approach.mode != ApproachMode.IDLE:
+            logger.warning("Approach strike failed: approach already active in %s mode",
+                           self._approach.mode.value)
             return False
 
         with self._state_lock:
@@ -1293,15 +1313,19 @@ class Pipeline:
             self._lock_mode = "strike"
 
         success = self._approach.start_strike(track_id)
-        if success:
-            logger.info(
-                "APPROACH STRIKE initiated: #%d (%s)", track_id, target_track.label,
+        if not success:
+            # Rollback lock on failure
+            self._handle_target_unlock()
+            return False
+
+        logger.info(
+            "APPROACH STRIKE initiated: #%d (%s)", track_id, target_track.label,
+        )
+        if self._mavlink is not None:
+            self._mavlink.send_statustext(
+                f"STRIKE ARM: #{track_id} {target_track.label}", severity=1,
             )
-            if self._mavlink is not None:
-                self._mavlink.send_statustext(
-                    f"STRIKE ARM: #{track_id} {target_track.label}", severity=1,
-                )
-        return success
+        return True
 
     def _handle_approach_abort(self) -> None:
         """Abort the current approach mode."""

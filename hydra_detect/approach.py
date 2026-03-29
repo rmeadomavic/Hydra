@@ -387,11 +387,13 @@ class ApproachController:
             return
 
         # Safety gate: check hardware arm if configured
-        hw_armed = self.get_hardware_arm_status()
-        if hw_armed is not None and not hw_armed:
-            logger.warning("Strike: hardware arm NOT engaged — aborting")
-            self.abort()
-            return
+        # Treat None (unknown) as unsafe — fail closed
+        if self._cfg.hw_arm_channel is not None:
+            hw_armed = self.get_hardware_arm_status()
+            if hw_armed is not True:  # False or None both mean unsafe
+                logger.warning("Strike: hardware arm not confirmed — aborting")
+                self.abort()
+                return
 
         now = time.monotonic()
         if (now - self._last_wp_time) < self._cfg.waypoint_interval:
