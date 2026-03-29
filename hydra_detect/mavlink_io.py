@@ -732,6 +732,59 @@ class MAVLinkIO:
 
         return (target_lat, target_lon)
 
+    def send_velocity_ned(
+        self,
+        vx: float,
+        vy: float,
+        vz: float,
+        yaw_rate: float = 0.0,
+    ) -> bool:
+        """Send body-frame velocity command via SET_POSITION_TARGET_LOCAL_NED.
+
+        Must be called at >=4 Hz — ArduPilot times out GUIDED velocity
+        commands after 3 seconds of silence.
+
+        Args:
+            vx: Forward velocity in m/s (body-frame X, positive forward).
+            vy: Lateral velocity in m/s (body-frame Y, positive right).
+            vz: Vertical velocity in m/s (NED Z, positive down).
+            yaw_rate: Yaw rate in deg/s.
+
+        Returns:
+            True if the command was sent successfully.
+        """
+        if self._mav is None:
+            return False
+        try:
+            from pymavlink import mavutil
+
+            # type_mask bits: 0-2=pos, 3-5=vel, 6-8=accel, 9=force, 10=yaw, 11=yaw_rate
+            # Set bit = IGNORE that field.  Clear bit = USE that field.
+            # We use: velocity (3-5) + yaw_rate (11)
+            # We ignore: position (0-2) + acceleration (6-8) + yaw (10)
+            type_mask = 0x05C7  # 0b0101_1100_0111
+
+            yaw_rate_rad = math.radians(yaw_rate)
+
+            with self._send_lock:
+                self._mav.mav.set_position_target_local_ned_send(
+                    0,  # time_boot_ms
+                    self._mav.target_system,
+                    self._mav.target_component,
+                    mavutil.mavlink.MAV_FRAME_BODY_NED,
+                    type_mask,
+                    0, 0, 0,              # x, y, z (ignored)
+                    vx, vy, vz,           # vx, vy, vz
+                    0, 0, 0,              # afx, afy, afz (ignored)
+                    0,                    # yaw (ignored)
+                    yaw_rate_rad,         # yaw_rate (rad/s)
+                )
+            return True
+
+        except Exception as exc:
+            logger.error("Velocity NED command failed: %s", exc)
+            return False
+
     # ------------------------------------------------------------------
     # Servo control (light bar, gimbal, payloads)
     # ------------------------------------------------------------------

@@ -683,6 +683,29 @@ async def api_approach_strike(
     return JSONResponse({"error": "approach controller not available"}, status_code=503)
 
 
+@app.post("/api/approach/pixel_lock/{track_id}")
+async def api_approach_pixel_lock(
+    track_id: int, request: Request, authorization: Optional[str] = Header(None),
+):
+    """Start pixel-lock visual servoing for a tracked target."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    cb = stream_state.get_callback("on_pixel_lock_command")
+    if cb:
+        result = cb(track_id)
+        if result:
+            _audit(request, "approach_pixel_lock", target=str(track_id))
+            return {"status": "ok", "track_id": track_id, "mode": "pixel_lock"}
+        _audit(request, "approach_pixel_lock", target=str(track_id), outcome="failed")
+        return JSONResponse(
+            {"error": "Pixel-lock failed — track not found or approach already active"},
+            status_code=503,
+        )
+    _audit(request, "approach_pixel_lock", outcome="unavailable")
+    return JSONResponse({"error": "approach controller not available"}, status_code=503)
+
+
 @app.post("/api/approach/abort")
 async def api_approach_abort(
     request: Request, authorization: Optional[str] = Header(None),
