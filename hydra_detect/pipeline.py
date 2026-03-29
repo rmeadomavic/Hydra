@@ -353,6 +353,19 @@ class Pipeline:
                 classes_raw or "NONE (fail-closed)",
             )
 
+        # Approach controller (follow / drop / strike approach behaviors)
+        self._approach: ApproachController | None = None
+        if self._mavlink is not None:
+            approach_cfg = ApproachConfig(
+                follow_speed_max=self._cfg.getfloat(
+                    "autonomous", "follow_speed_max", fallback=3.0,
+                ),
+                follow_min_distance=self._cfg.getfloat(
+                    "autonomous", "follow_min_distance", fallback=5.0,
+                ),
+            )
+            self._approach = ApproachController(self._mavlink, approach_cfg)
+
         # RF homing controller
         self._rf_hunt: RFHuntController | None = None
         self._kismet_manager: KismetManager | None = None
@@ -776,6 +789,12 @@ class Pipeline:
                 on_profile_switch=self._handle_profile_switch,
                 get_preflight=self._get_preflight,
                 on_restart_command=self._handle_restart_command,
+                on_follow_command=self._handle_follow_command,
+                on_abort_command=self._handle_abort_command,
+                get_approach_status=lambda: (
+                    self._approach.get_status()
+                    if self._approach else {"mode": "idle"}
+                ),
             )
 
             stream_state.update_stats(
@@ -1047,6 +1066,19 @@ class Pipeline:
                     self._handle_target_lock, self._handle_strike_command,
                 )
 
+            # Update approach controller with locked track
+            if self._approach is not None and self._approach.active:
+                locked_track_for_approach = None
+                if current_lock_id is not None:
+                    locked_track_for_approach = track_result.find(
+                        current_lock_id,
+                    )
+                self._approach.update(
+                    locked_track_for_approach,
+                    frame.shape[1],
+                    frame.shape[0],
+                )
+
             if current_lock_id is not None and self._mavlink is not None:
                 locked_track = track_result.find(current_lock_id)
 
@@ -1280,6 +1312,41 @@ class Pipeline:
                     self._mavlink.clear_roi()
         if self._servo_tracker is not None:
             self._servo_tracker.safe()
+
+    def _handle_follow_command(self, track_id: int) -> bool:
+        """Start follow mode for a track."""
+        if self._approach is None:
+            return False
+        if self._approach.mode != ApproachMode.IDLE:
+            return False
+        # Now safe to lock and start
+        if not self._handle_target_lock(track_id, mode="follow"):
+            return False
+        if not self._approach.start_follow(track_id):
+            self._handle_target_unlock()  # rollback
+            return False
+        self._lock_mode = "follow"
+        return True
+
+    def _handle_abort_command(self) -> None:
+        """Abort all autonomous approach activity."""
+        if self._approach is not None:
+            self._approach.abort()
+        if self._autonomous is not None:
+            self._autonomous.suppressed = True
+        # Release lock
+        with self._state_lock:
+            self._locked_track_id = None
+            self._lock_mode = None
+        # Safe servos
+        if self._servo_tracker is not None:
+            self._servo_tracker.safe()
+        if self._mavlink is not None:
+            callsign = self._cfg.get("tak", "callsign", fallback="HYDRA")
+            self._mavlink.send_statustext(
+                f"{callsign}: ABORT", severity=3,
+            )
+        logger.info("ABORT: all approach activity cancelled")
 
     def _handle_strike_command(self, track_id: int) -> bool:
         """Command vehicle to navigate toward a tracked target.
