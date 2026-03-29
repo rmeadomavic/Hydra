@@ -110,6 +110,9 @@ class RFHuntController:
         on_state_change: Callable[[HuntState], None] | None = None,
         kismet_manager: KismetManager | None = None,
         gps_required: bool = True,
+        # Geofence callbacks (from autonomous controller)
+        geofence_check: Callable[[float, float], bool] | None = None,
+        geofence_clip: Callable[[float, float], tuple[float, float]] | None = None,
     ):
         self._mavlink = mavlink
         self._mode = mode
@@ -126,6 +129,10 @@ class RFHuntController:
         self._on_state_change = on_state_change
         self._kismet_manager = kismet_manager
         self._gps_required = gps_required
+        self._check_geofence = geofence_check
+        self._clip_to_geofence = geofence_clip
+        self._consecutive_clips = 0
+        self._MAX_CONSECUTIVE_CLIPS = 3
 
         self._kismet = KismetClient(
             host=kismet_host, user=kismet_user, password=kismet_pass,
@@ -320,6 +327,40 @@ class RFHuntController:
                 "lon": round(lon, 7) if lon is not None else None,
             })
 
+    def _geofence_waypoint(
+        self, wp_lat: float, wp_lon: float, wp_alt: float,
+    ) -> bool:
+        """Validate waypoint against geofence, clip if needed, then send.
+
+        Returns True if the waypoint was sent (possibly clipped).
+        Returns False if the waypoint was suppressed (converged due to
+        repeated clips, or no clip callback available).
+        """
+        if self._check_geofence is not None and not self._check_geofence(wp_lat, wp_lon):
+            if self._clip_to_geofence is not None:
+                wp_lat, wp_lon = self._clip_to_geofence(wp_lat, wp_lon)
+                self._consecutive_clips += 1
+                logger.warning(
+                    "RF hunt waypoint clipped to geofence (clip #%d)",
+                    self._consecutive_clips,
+                )
+                if self._consecutive_clips >= self._MAX_CONSECUTIVE_CLIPS:
+                    logger.warning("RF: SIGNAL BEYOND GEOFENCE — converging at boundary")
+                    self._set_state(HuntState.CONVERGED)
+                    if self._mavlink:
+                        self._mavlink.send_statustext(
+                            "RF: SIGNAL BEYOND GEOFENCE", severity=4,
+                        )
+                    return False
+            else:
+                logger.warning("RF hunt waypoint outside geofence — skipping")
+                return False
+        else:
+            self._consecutive_clips = 0
+
+        self._mavlink.command_guided_to(wp_lat, wp_lon, wp_alt)
+        return True
+
     def _do_scan(self) -> None:
         """Poll RSSI without navigation — scan-only mode."""
         rssi = self._poll_rssi()
@@ -394,13 +435,15 @@ class RFHuntController:
             self._wp_index += 1
             if self._wp_index < len(self._waypoints):
                 nwp = self._waypoints[self._wp_index]
-                self._mavlink.command_guided_to(nwp[0], nwp[1], nwp[2])
+                if not self._geofence_waypoint(nwp[0], nwp[1], nwp[2]):
+                    return
                 logger.debug(
                     "Search WP %d/%d", self._wp_index, len(self._waypoints),
                 )
         elif self._wp_index == 0:
             # Send first waypoint
-            self._mavlink.command_guided_to(wp[0], wp[1], wp[2])
+            if not self._geofence_waypoint(wp[0], wp[1], wp[2]):
+                return
 
     def _do_homing(self) -> None:
         """Gradient ascent toward signal source."""
@@ -442,7 +485,7 @@ class RFHuntController:
 
         if not cont:
             blat, blon = self._navigator.get_best_position()
-            self._mavlink.command_guided_to(blat, blon, alt)
+            self._geofence_waypoint(blat, blon, alt)
             self._mavlink.send_statustext(
                 f"RF HUNT: Best {self._navigator.get_best_rssi():.0f}dBm",
                 severity=2,
@@ -450,7 +493,8 @@ class RFHuntController:
             self._set_state(HuntState.CONVERGED)
             return
 
-        self._mavlink.command_guided_to(nlat, nlon, alt)
+        if not self._geofence_waypoint(nlat, nlon, alt):
+            return
 
     def _do_lost(self) -> None:
         """Return to last known good position and re-search."""
@@ -459,7 +503,7 @@ class RFHuntController:
         if lat is None:
             return
 
-        self._mavlink.command_guided_to(blat, blon, alt)
+        self._geofence_waypoint(blat, blon, alt)
         self._mavlink.send_statustext("RF HUNT: Re-searching", severity=3)
 
         # Wait briefly then re-search with tighter pattern

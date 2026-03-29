@@ -8,12 +8,30 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
+audit_log = logging.getLogger("hydra.audit")
 
 # Default config path — can be overridden by pipeline at startup
 _config_path: Path | None = None
+
+# -- Engagement safety lock ------------------------------------------------
+
+# Fields locked while autonomous engagement is active.
+# None = ALL keys in the section are locked; a set = only those keys.
+SAFETY_LOCKED_FIELDS: dict[str, set[str] | None] = {
+    "autonomous": None,  # entire section locked
+    "servo_tracking": {"strike_channel", "strike_pwm_fire", "strike_pwm_safe", "pan_channel"},
+}
+
+_engagement_active_cb: Callable[[], bool] | None = None
+
+
+def set_engagement_check(cb: Callable[[], bool]) -> None:
+    """Register callback that returns True when safety config should be locked."""
+    global _engagement_active_cb
+    _engagement_active_cb = cb
 
 # Fields that require a service restart to take effect
 RESTART_REQUIRED_FIELDS = {
@@ -72,6 +90,12 @@ def write_config(updates: dict[str, dict[str, str]]) -> dict[str, Any]:
     path = get_config_path()
     restart_needed: list[str] = []
     skipped: list[str] = []
+    locked: list[str] = []
+
+    # Check if engagement is active (determines safety field locking)
+    engagement_active = (
+        _engagement_active_cb is not None and _engagement_active_cb()
+    )
 
     # Read current config
     config = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
@@ -94,9 +118,22 @@ def write_config(updates: dict[str, dict[str, str]]) -> dict[str, Any]:
             if not config.has_option(section, key):
                 skipped.append(f"{section}.{key} (unknown field)")
                 continue
+            # Check safety lock during active engagement
+            if engagement_active and section in SAFETY_LOCKED_FIELDS:
+                section_keys = SAFETY_LOCKED_FIELDS[section]
+                if section_keys is None or key in section_keys:
+                    reason = f"{section}.{key} (locked — active engagement)"
+                    locked.append(reason)
+                    skipped.append(reason)
+                    audit_log.warning(
+                        "CONFIG WRITE REJECTED (engagement active): %s.%s",
+                        section, key,
+                    )
+                    continue
             old_value = config.get(section, key)
             if old_value != value:
                 config.set(section, key, value)
+                audit_log.info("CONFIG WRITE: %s.%s = %s", section, key, value)
                 # Check if restart required
                 if section in RESTART_REQUIRED_FIELDS and key in RESTART_REQUIRED_FIELDS[section]:
                     restart_needed.append(f"{section}.{key}")
@@ -119,7 +156,7 @@ def write_config(updates: dict[str, dict[str, str]]) -> dict[str, Any]:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         os.close(lock_fd)
 
-    return {"restart_required": restart_needed, "skipped": skipped}
+    return {"restart_required": restart_needed, "skipped": skipped, "locked": locked}
 
 
 def restore_backup() -> bool:

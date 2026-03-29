@@ -37,7 +37,7 @@ from .tak.tak_input import TAKInput
 from .tak.tak_output import TAKOutput
 from .tracker import ByteTracker
 from .profiles import get_profile, load_profiles
-from .web.config_api import set_config_path
+from .web.config_api import set_config_path, set_engagement_check
 from .web.server import configure_auth, run_server, stream_state
 
 logger = logging.getLogger(__name__)
@@ -328,6 +328,12 @@ class Pipeline:
                     auto_spawn=self._cfg.getboolean("rf_homing", "kismet_auto_spawn", fallback=False),
                 )
                 if self._kismet_manager.start():
+                    # Pass geofence callbacks if autonomous controller is available
+                    geofence_check = None
+                    geofence_clip = None
+                    if self._autonomous is not None:
+                        geofence_check = self._autonomous.check_geofence
+                        geofence_clip = self._autonomous.clip_to_geofence
                     self._rf_hunt = RFHuntController(
                         self._mavlink,
                         mode=self._cfg.get("rf_homing", "mode", fallback="wifi"),
@@ -348,6 +354,8 @@ class Pipeline:
                         poll_interval_sec=self._cfg.getfloat("rf_homing", "poll_interval_sec", fallback=0.5),
                         arrival_tolerance_m=self._cfg.getfloat("rf_homing", "arrival_tolerance_m", fallback=3.0),
                         kismet_manager=self._kismet_manager,
+                        geofence_check=geofence_check,
+                        geofence_clip=geofence_clip,
                     )
                     logger.info(
                         "RF homing configured: mode=%s target=%s",
@@ -495,6 +503,14 @@ class Pipeline:
         self._last_track_result = None  # Most recent TrackingResult for web API
         self._servo_tracker = None
 
+    def _is_engagement_active(self) -> bool:
+        """Return True if autonomous has active tracks or operator has a lock."""
+        if self._locked_track_id is not None:
+            return True
+        if self._autonomous is not None and self._autonomous.has_active_evaluation():
+            return True
+        return False
+
     # ------------------------------------------------------------------
     def start(self) -> None:
         """Initialise all subsystems and run the main loop."""
@@ -536,6 +552,9 @@ class Pipeline:
         logger.info("Detector engine: yolo")
 
         self._tracker.init()
+
+        # Wire config safety lock so safety-critical fields are frozen during engagement
+        set_engagement_check(self._is_engagement_active)
 
         if not self._camera.open():
             logger.error("Failed to open camera — aborting.")
