@@ -142,12 +142,30 @@ def has_backup() -> bool:
 
 
 def backup_on_boot() -> None:
-    """Copy current config.ini to config.ini.bak on successful boot."""
+    """Copy current config.ini to config.ini.bak on successful boot.
+
+    Only backs up if the config parses successfully — preserves
+    last-known-good .bak when current config is corrupted.
+    """
     path = get_config_path()
-    if path.exists():
-        bak_path = Path(str(path) + ".bak")
-        shutil.copy2(path, bak_path)
-        logger.info("Config backed up to %s", bak_path)
+    if not path.exists():
+        return
+    # Only backup if config parses successfully
+    cfg = configparser.ConfigParser()
+    try:
+        cfg.read(path)
+        if not cfg.sections():
+            logger.warning("Config has no sections — skipping backup")
+            return
+    except configparser.Error:
+        logger.warning(
+            "Config parse error — skipping backup to preserve "
+            "last-known-good .bak"
+        )
+        return
+    bak_path = Path(str(path) + ".bak")
+    shutil.copy2(path, bak_path)
+    logger.info("Config backed up to %s", bak_path)
 
 
 def restore_factory() -> bool:

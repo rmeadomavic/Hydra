@@ -1431,12 +1431,16 @@ class Pipeline:
     def _handle_rtsp_toggle(self, enabled: bool) -> dict:
         """Start or stop the RTSP server at runtime."""
         if enabled and self._rtsp is None:
+            rtsp_bind = self._cfg.get(
+                "rtsp", "bind", fallback="127.0.0.1",
+            )
             self._rtsp = RTSPServer(
                 port=self._rtsp_port,
                 mount=self._rtsp_mount,
                 bitrate=self._rtsp_bitrate,
                 width=self._cfg.getint("camera", "width", fallback=640),
                 height=self._cfg.getint("camera", "height", fallback=480),
+                bind_address=rtsp_bind,
             )
             if self._rtsp.start():
                 return {"status": "ok", "running": True, "url": self._rtsp.url}
@@ -1587,7 +1591,7 @@ class Pipeline:
             self._servo_tracker.safe()
         self._camera.close()
         self._detector.unload()
-        self._det_logger.stop(timeout=2.0)
+        self._det_logger.stop(timeout=5.0)
         # Send STATUSTEXT shutdown message before closing MAVLink
         callsign = self._cfg.get("tak", "callsign", fallback="HYDRA")
         if self._mavlink is not None and self._mavlink.connected:
