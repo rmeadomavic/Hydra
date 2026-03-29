@@ -1,10 +1,10 @@
 """Integration tests for RF hunt module with real Kismet + RTL-SDR.
 
 These tests hit the real Kismet REST API and (optionally) real SDR hardware.
-They are marked with pytest markers so they can be skipped in CI:
+They require hardware and are excluded from default test runs:
 
-    # Run all integration tests (requires Kismet + RTL-SDR on the Jetson)
-    python -m pytest tests/test_rf_integration.py -v
+    # Run hardware tests explicitly
+    python -m pytest tests/test_rf_integration.py -v -m hardware
 
     # Skip tests that need an active RF signal
     python -m pytest tests/test_rf_integration.py -v -k "not signal"
@@ -26,6 +26,9 @@ from hydra_detect.rf.hunt import HuntState, RFHuntController
 from hydra_detect.rf.signal import RSSIFilter
 from hydra_detect.rf.navigator import GradientNavigator
 from hydra_detect.rf.search import generate_lawnmower, generate_spiral
+
+# Mark entire module as requiring hardware — excluded from default test runs.
+pytestmark = pytest.mark.hardware
 
 # ---------------------------------------------------------------------------
 # Fixtures

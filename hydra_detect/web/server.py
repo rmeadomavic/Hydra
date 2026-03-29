@@ -252,6 +252,23 @@ async def index(request: Request):
     return templates.TemplateResponse(request, "base.html")
 
 
+@app.get("/api/health")
+async def api_health():
+    """Lightweight health check for Docker HEALTHCHECK / load balancers.
+
+    Returns 200 if the pipeline is processing frames, 503 if stalled.
+    """
+    stats = stream_state.get_stats()
+    camera_ok = stats.get("camera_ok", True)
+    fps = stats.get("fps", 0.0)
+    healthy = camera_ok and fps > 0
+    status_code = 200 if healthy else 503
+    return JSONResponse(
+        {"healthy": healthy, "camera_ok": camera_ok, "fps": fps},
+        status_code=status_code,
+    )
+
+
 @app.get("/api/stats")
 async def api_stats():
     """Return current pipeline statistics as JSON."""

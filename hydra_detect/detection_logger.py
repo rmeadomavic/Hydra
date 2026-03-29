@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import logging
 import re
@@ -63,6 +64,7 @@ class DetectionLogger:
         max_recent: int = 50,
         max_log_size_mb: float = 10.0,
         max_log_files: int = 20,
+        model_hash: str = "",
     ):
         self._log_dir = Path(log_dir)
         self._log_format = log_format.lower()
@@ -82,6 +84,8 @@ class DetectionLogger:
         self._log_index: int = 0
         self._frame_count = 0
         self._disabled = False
+        self._model_hash = model_hash
+        self._prev_chain_hash = "0" * 64  # genesis hash
 
         # Recent detections ring buffer for web UI.
         # Updated on the caller thread so the web API sees results immediately.
@@ -196,7 +200,15 @@ class DetectionLogger:
                 "alt": alt,
                 "fix": fix,
                 "image": img_filename,
+                "model_hash": self._model_hash,
             }
+            # Rolling SHA-256 chain: hash(record_json + prev_hash)
+            # Chain state is advanced only after successful enqueue (below)
+            # to avoid breaking the chain when records are dropped.
+            record_json = json.dumps(record, sort_keys=True)
+            chain_input = record_json + self._prev_chain_hash
+            chain_hash = hashlib.sha256(chain_input.encode()).hexdigest()
+            record["chain_hash"] = chain_hash
             records.append(record)
 
             with self._recent_lock:
@@ -219,12 +231,19 @@ class DetectionLogger:
 
         try:
             self._write_queue.put_nowait(work_item)
+            # Advance chain state only after successful enqueue so dropped
+            # records don't leave a gap in the persisted hash chain.
+            self._prev_chain_hash = records[-1]["chain_hash"]
         except queue.Full:
             logger.warning(
                 "Detection logger queue full — dropping frame %d "
                 "(storage too slow?)",
                 frame_no,
             )
+
+    def set_model_hash(self, model_hash: str) -> None:
+        """Update the model hash (e.g. after a runtime model switch)."""
+        self._model_hash = model_hash
 
     def get_recent(self, n: int = 20) -> list[Dict[str, Any]]:
         """Return the N most recent detection records (for web UI)."""

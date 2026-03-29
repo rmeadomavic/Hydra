@@ -118,6 +118,10 @@ class AutonomousController:
         strike_cooldown_sec: float = 30.0,
         # Vehicle mode check
         allowed_vehicle_modes: list[str] | None = None,
+        # GPS freshness
+        gps_max_stale_sec: float = 2.0,
+        # Operator lock requirement
+        require_operator_lock: bool = False,
     ):
         self.enabled = enabled
         self._geofence_lat = geofence_lat
@@ -130,9 +134,14 @@ class AutonomousController:
         self._strike_cooldown = strike_cooldown_sec
         self._allowed_modes = [m.upper().strip() for m in (allowed_vehicle_modes or ["AUTO"])]
 
+        self._gps_max_stale_sec = gps_max_stale_sec
+        self._require_operator_lock = require_operator_lock
+        self._operator_locked_track: int | None = None  # set by pipeline on lock
+
         self._persistence = _TrackPersistence()
         self._last_strike_time: float = 0.0
         self._strike_in_progress = False
+        self._suppressed = False  # External suppression (e.g. camera loss)
 
     # -- Geofence checks ---------------------------------------------------
 
@@ -163,7 +172,7 @@ class AutonomousController:
 
         Called once per frame from the pipeline loop.
         """
-        if not self.enabled or mavlink is None:
+        if not self.enabled or self._suppressed or mavlink is None:
             return
 
         # Check geofence is configured
@@ -192,6 +201,19 @@ class AutonomousController:
         if not self.check_geofence(lat, lon):
             return
 
+        # Check GPS freshness
+        get_gps = getattr(mavlink, "get_gps", None)
+        if get_gps is not None:
+            gps_data = get_gps()
+            gps_age = now - gps_data.get("last_update", 0.0)
+            if gps_age > self._gps_max_stale_sec:
+                logger.debug("GPS stale (%.1fs) — skipping autonomous eval", gps_age)
+                return
+
+        # Operator lock requirement
+        if self._require_operator_lock and self._operator_locked_track is None:
+            return
+
         # Evaluate tracks
         self._persistence.begin_frame()
 
@@ -199,6 +221,9 @@ class AutonomousController:
         best_frames = 0
 
         for track in tracks:
+            # If operator lock required, only consider the locked track
+            if self._require_operator_lock and track.track_id != self._operator_locked_track:
+                continue
             # Class whitelist
             if not self._allowed_classes:
                 continue  # no whitelist = no valid targets (fail-closed)
@@ -254,6 +279,15 @@ class AutonomousController:
                 "AUTONOMOUS STRIKE FAILED: track_id=%d (strike_cb returned False)",
                 best_track.track_id,
             )
+
+    @property
+    def suppressed(self) -> bool:
+        """True when externally suppressed (e.g. camera loss)."""
+        return self._suppressed
+
+    @suppressed.setter
+    def suppressed(self, value: bool) -> None:
+        self._suppressed = value
 
     def notify_strike_complete(self) -> None:
         """Called when a strike finishes (target lost or vehicle arrives)."""

@@ -27,6 +27,7 @@ def _make_mavlink(*, lat=34.05, lon=-118.25, alt=10.0, mode="AUTO", fix=4):
     mav.get_vehicle_mode.return_value = mode
     mav.get_position_string.return_value = f"{lat:.5f},{lon:.5f}"
     mav.gps_fix_ok = fix >= 3
+    mav.get_gps.return_value = {"last_update": time.monotonic(), "fix": fix}
     mav.estimate_target_position.return_value = (lat + 0.0001, lon + 0.0001)
     mav.command_guided_to.return_value = True
     return mav

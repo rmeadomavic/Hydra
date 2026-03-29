@@ -7,6 +7,7 @@ import logging
 import math
 import threading
 import time
+from collections import deque
 from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,8 @@ class MAVLinkIO:
         auto_loiter: bool = False,
         guided_roi: bool = False,
         alert_classes: set[str] | None = None,
+        global_max_per_sec: float = 2.0,
+        priority_labels: list[str] | None = None,
         sim_gps_lat: float | None = None,
         sim_gps_lon: float | None = None,
     ):
@@ -48,6 +51,10 @@ class MAVLinkIO:
         self._auto_loiter = auto_loiter
         self._guided_roi = guided_roi
         self._alert_classes = alert_classes  # None = alert on all classes
+        self._global_max_per_sec = global_max_per_sec
+        self._priority_labels = set(
+            l.lower().strip() for l in (priority_labels or [])
+        )
         self._sim_gps_lat = sim_gps_lat
         self._sim_gps_lon = sim_gps_lon
         self._sim_gps_alt = 30.0
@@ -55,11 +62,13 @@ class MAVLinkIO:
 
         self._mav = None
         self._last_alert_times: Dict[str, float] = {}
+        self._global_alert_times: deque = deque()  # timestamps of recent global alerts
         self._lock = threading.Lock()
 
         # GPS state (lat/lon/alt in MAVLink int format, hdg in centidegrees)
         self._gps: Dict[str, Any] = {
             "lat": None, "lon": None, "alt": None, "fix": 0, "hdg": None,
+            "last_update": 0.0,
         }
         self._gps_lock = threading.Lock()
         self._stop_evt = threading.Event()
@@ -204,6 +213,7 @@ class MAVLinkIO:
                         self._gps["lon"] = msg.lon
                         self._gps["alt"] = msg.alt
                         self._gps["hdg"] = msg.hdg  # centidegrees
+                        self._gps["last_update"] = time.monotonic()
                 elif msg_type == "GPS_RAW_INT":
                     with self._gps_lock:
                         self._gps["fix"] = msg.fix_type
@@ -443,22 +453,41 @@ class MAVLinkIO:
                 logger.warning("Failed to send STATUSTEXT: %s", exc)
 
     def alert_detection(self, label: str, confidence: float = 0.0) -> None:
-        """Rate-limited per-label detection alert with geo-coordinates."""
+        """Rate-limited per-label detection alert with geo-coordinates.
+
+        Applies two layers of throttling:
+        1. Per-label: one alert per label per ``_alert_interval`` seconds.
+        2. Global: max ``_global_max_per_sec`` alerts/sec across all labels.
+           Priority labels get precedence when the global cap is hit.
+        """
         # Alert class filter — skip labels not in the allowlist
         if self._alert_classes is not None and label not in self._alert_classes:
             return
 
         now = time.time()
 
-        # Per-label throttling (protected by main lock)
         with self._lock:
+            # Per-label throttling
             last = self._last_alert_times.get(label, 0.0)
             if (now - last) < self._alert_interval:
                 logger.debug(
                     "Skipping duplicate alert for %s (last %.1fs ago)", label, now - last
                 )
                 return
+
+            # Global rate cap
+            # Purge timestamps older than 1 second
+            while self._global_alert_times and (now - self._global_alert_times[0]) > 1.0:
+                self._global_alert_times.popleft()
+
+            if len(self._global_alert_times) >= self._global_max_per_sec:
+                # At the global cap — only priority labels can proceed
+                if label.lower().strip() not in self._priority_labels:
+                    logger.debug("Global rate cap hit, skipping non-priority: %s", label)
+                    return
+
             self._last_alert_times[label] = now
+            self._global_alert_times.append(now)
 
         # Build alert message with DTG and coordinates
         dtg = datetime.datetime.utcnow().strftime("%Y%m%d %H%MZ")

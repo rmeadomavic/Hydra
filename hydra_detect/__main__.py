@@ -13,9 +13,16 @@ def main():
         default="config.ini",
         help="Path to config.ini (default: config.ini)",
     )
+    parser.add_argument(
+        "--vehicle",
+        default=os.environ.get("HYDRA_VEHICLE"),
+        help="Vehicle profile (e.g. drone, usv, ugv). "
+             "Overrides base config with [vehicle.<name>] sections. "
+             "Can also be set via HYDRA_VEHICLE env var.",
+    )
     args = parser.parse_args()
 
-    pipeline = Pipeline(config_path=args.config)
+    pipeline = Pipeline(config_path=args.config, vehicle=args.vehicle)
     pipeline.start()
 
     # Hard exit to prevent "terminate called without an active exception"

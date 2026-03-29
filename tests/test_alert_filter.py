@@ -1,6 +1,8 @@
-"""Tests for MAVLink alert class filter logic."""
+"""Tests for MAVLink alert class filter and global rate cap logic."""
 
 from __future__ import annotations
+
+import time
 
 from unittest.mock import MagicMock, patch
 
@@ -67,3 +69,46 @@ class TestAlertDetectionFilter:
         with patch("hydra_detect.mavlink_io.MAVLink_statustext_message", create=True):
             m.alert_detection("toothbrush")
         m._mav.mav.send.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Global rate cap + priority labels
+# ---------------------------------------------------------------------------
+
+class TestGlobalRateCap:
+    def test_global_cap_blocks_excess(self):
+        """Non-priority labels blocked once global cap is reached."""
+        m = _make_mavlink(alert_interval_sec=0, global_max_per_sec=2)
+        m._mav = MagicMock()
+        m._gps = {"fix": 3, "lat": 340000000, "lon": -1180000000, "alt": 100000, "hdg": 9000}
+        with patch("hydra_detect.mavlink_io.MAVLink_statustext_message", create=True):
+            m.alert_detection("person")
+            m.alert_detection("car")
+            m.alert_detection("truck")  # should be blocked by global cap
+        assert m._mav.mav.send.call_count == 2
+
+    def test_priority_bypasses_global_cap(self):
+        """Priority labels can send even when global cap is reached."""
+        m = _make_mavlink(
+            alert_interval_sec=0, global_max_per_sec=2,
+            priority_labels=["person"],
+        )
+        m._mav = MagicMock()
+        m._gps = {"fix": 3, "lat": 340000000, "lon": -1180000000, "alt": 100000, "hdg": 9000}
+        with patch("hydra_detect.mavlink_io.MAVLink_statustext_message", create=True):
+            m.alert_detection("car")
+            m.alert_detection("truck")
+            m.alert_detection("person")  # priority — bypasses cap
+        assert m._mav.mav.send.call_count == 3
+
+    def test_global_cap_resets_after_window(self):
+        """Alerts allowed again after the 1-second window passes."""
+        m = _make_mavlink(alert_interval_sec=0, global_max_per_sec=1)
+        m._mav = MagicMock()
+        m._gps = {"fix": 3, "lat": 340000000, "lon": -1180000000, "alt": 100000, "hdg": 9000}
+        with patch("hydra_detect.mavlink_io.MAVLink_statustext_message", create=True):
+            m.alert_detection("person")
+            # Manually age the timestamp so the window expires
+            m._global_alert_times[0] -= 1.1
+            m.alert_detection("car")
+        assert m._mav.mav.send.call_count == 2
