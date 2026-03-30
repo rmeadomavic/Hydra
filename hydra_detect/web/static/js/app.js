@@ -16,7 +16,7 @@ const HydraApp = (() => {
     const toasts = [];
     const MAX_TOASTS = 3;
     const TOAST_DEDUP_MS = 5000;
-    let apiToken = '';
+    let apiToken = sessionStorage.getItem('hydra_token') || '';
 
     // ── Shared Data (updated by pollers, read by views) ──
     const state = {
@@ -34,7 +34,19 @@ const HydraApp = (() => {
         return h;
     }
 
-    function setApiToken(token) { apiToken = token; }
+    function setApiToken(token) {
+        apiToken = token;
+        sessionStorage.setItem('hydra_token', token);
+    }
+
+    function promptForToken() {
+        const token = prompt('API token required.\nEnter the api_token from config.ini:');
+        if (token) {
+            setApiToken(token.trim());
+            return true;
+        }
+        return false;
+    }
 
     // ── View Router ──
     function initRouter() {
@@ -245,11 +257,19 @@ const HydraApp = (() => {
     // ── API Helpers ──
     async function apiPost(url, body) {
         try {
-            const resp = await fetch(url, {
+            let resp = await fetch(url, {
                 method: 'POST',
                 headers: authHeaders(),
                 body: JSON.stringify(body),
             });
+            // If 401, prompt for token and retry once
+            if (resp.status === 401 && promptForToken()) {
+                resp = await fetch(url, {
+                    method: 'POST',
+                    headers: authHeaders(),
+                    body: JSON.stringify(body),
+                });
+            }
             const data = await resp.json();
             if (!resp.ok) {
                 showToast(data.error || `Request failed (${resp.status})`);
