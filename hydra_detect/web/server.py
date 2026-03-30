@@ -1649,11 +1649,13 @@ async def _generate_mjpeg():
 # ── Full Config ────────────────────────────────────────────────
 
 @app.get("/api/config/full")
-async def api_get_full_config(request: Request, authorization: str | None = Header(None)):
-    """Return all config.ini sections as JSON. Sensitive fields are redacted."""
-    auth_err = _check_auth(authorization, request)
-    if auth_err:
-        return auth_err
+async def api_get_full_config():
+    """Return all config.ini sections as JSON. Sensitive fields are redacted.
+
+    No auth required — this is read-only and sensitive values (api_token,
+    kismet_pass) are already redacted by read_config(). Auth is only
+    enforced on the POST variant that writes config changes.
+    """
     try:
         return read_config()
     except Exception as e:

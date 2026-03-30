@@ -21,7 +21,6 @@ const HydraOperations = (() => {
     // ── Lifecycle ──
     function onEnter() {
         HydraPanels.init();
-        initStreamWatcher();
         if (!dropdownsLoaded) {
             loadDropdowns();
             dropdownsLoaded = true;
@@ -1278,23 +1277,6 @@ const HydraOperations = (() => {
         const nowActive = toggle.classList.contains('active');
         await HydraApp.apiPost('/api/tak/toggle', { enabled: !nowActive });
         loadTAKStatus();
-    }
-
-    // ── Stream Watcher ──
-    function initStreamWatcher() {
-        const img = document.getElementById('mjpeg-stream');
-        const loading = document.getElementById('ops-loading');
-        const lost = document.getElementById('ops-stream-lost');
-        if (!img) return;
-
-        if (img.complete && img.naturalWidth > 0) {
-            if (loading) loading.style.display = 'none';
-        }
-
-        img.addEventListener('load', () => {
-            if (loading) loading.style.display = 'none';
-            if (lost) lost.style.display = 'none';
-        }, { once: true });
     }
 
     // ── Helpers ──

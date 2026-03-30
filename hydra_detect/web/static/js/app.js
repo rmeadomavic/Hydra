@@ -67,6 +67,12 @@ const HydraApp = (() => {
         const prev = currentView;
         currentView = view;
 
+        // Pause/resume stream polling on view switch to avoid CSS-triggered
+        // error events (Settings view sets img width/height to 0, which aborts
+        // pending requests and fires error events).
+        if (view === 'operations') resumeStream();
+        else pauseStream();
+
         ['view-operations', 'view-settings'].forEach(c =>
             document.body.classList.remove(c));
         document.body.classList.add(`view-${view}`);
@@ -390,21 +396,18 @@ const HydraApp = (() => {
         });
     }
 
-    // ── MJPEG Stream — deferred load + thumbnail sync ──
+    // ── MJPEG Stream — snapshot polling ──
     let lastFrameTime = Date.now();
     let staleTimer = null;
+    let streamPolling = false;
+    let streamBackoff = 1000;
 
     function initStreamWatcher() {
         const streamImg = document.getElementById('mjpeg-stream');
         if (!streamImg) return;
 
-        // Snapshot polling — fetch single JPEG frames instead of MJPEG
-        // stream to avoid StreamingResponse/middleware hangs.
-        let polling = true;
-        let errorBackoff = 1000;
-
         function pollFrame() {
-            if (!polling) return;
+            if (!streamPolling) return;
             streamImg.src = '/stream.jpg?t=' + Date.now();
         }
 
@@ -413,26 +416,46 @@ const HydraApp = (() => {
             if (lost) lost.style.display = 'none';
             lastFrameTime = Date.now();
             hideStaleOverlay();
-            errorBackoff = 1000;  // Reset backoff on success
-            if (polling) setTimeout(pollFrame, 33);
+            streamBackoff = 1000;
+            if (streamPolling) setTimeout(pollFrame, 33);
         });
 
         streamImg.addEventListener('error', () => {
-            const lost = document.getElementById('ops-stream-lost');
-            if (lost) lost.style.display = '';
-            // Exponential backoff: 1s → 2s → 4s → 8s (cap 10s)
-            if (polling) setTimeout(pollFrame, errorBackoff);
-            errorBackoff = Math.min(errorBackoff * 2, 10000);
+            // Only show lost badge if we're actively polling (not paused)
+            if (streamPolling) {
+                const lost = document.getElementById('ops-stream-lost');
+                if (lost) lost.style.display = '';
+                setTimeout(pollFrame, streamBackoff);
+                streamBackoff = Math.min(streamBackoff * 2, 10000);
+            }
         });
 
         // Pause polling when tab is hidden to save Jetson CPU
         document.addEventListener('visibilitychange', () => {
-            polling = !document.hidden;
-            if (polling) pollFrame();
+            if (document.hidden) {
+                pauseStream();
+            } else if (currentView === 'operations') {
+                resumeStream();
+            }
         });
 
-        // Start polling
-        pollFrame();
+        // Start polling if we're on operations view
+        if (currentView === 'operations') {
+            resumeStream();
+        }
+    }
+
+    function pauseStream() {
+        streamPolling = false;
+    }
+
+    function resumeStream() {
+        if (streamPolling) return;  // Already running
+        streamPolling = true;
+        streamBackoff = 1000;
+        const streamImg = document.getElementById('mjpeg-stream');
+        if (streamImg) streamImg.src = '/stream.jpg?t=' + Date.now();
+    }
 
         // Mirror main stream to thumbnail using canvas copy every 2s
         const thumb = document.getElementById('mjpeg-thumbnail');
