@@ -444,13 +444,17 @@ const HydraApp = (() => {
             resumeStream();
         }
 
-        // Mirror main stream to thumbnail using canvas copy every 2s
+        // Mirror stream to thumbnail — poll /stream.jpg directly so it
+        // updates even when the main stream is paused (settings view).
         const thumb = document.getElementById('mjpeg-thumbnail');
         if (thumb) {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
             setInterval(() => {
-                if (streamImg.naturalWidth > 0) {
+                if (currentView !== 'operations') {
+                    thumb.src = '/stream.jpg?thumb=1&t=' + Date.now();
+                } else if (streamImg.naturalWidth > 0) {
+                    // In operations view, copy from the main img (no extra request)
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
                     canvas.width = 120;
                     canvas.height = Math.round(120 * streamImg.naturalHeight / streamImg.naturalWidth);
                     ctx.drawImage(streamImg, 0, 0, canvas.width, canvas.height);
