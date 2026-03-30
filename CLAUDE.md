@@ -330,8 +330,11 @@ Starlette versions. The `/stream.mjpeg` endpoint is preserved as a fallback.
   (labels, track IDs, images) must be escaped via the `esc()` helper. The
   `json.dumps` output uses `.replace("</", "<\\/")` to prevent `</script>`
   breakout.
-- **CSP includes `'unsafe-inline'`** because templates have inline `<script>`
-  blocks. Migrating to external JS files would allow removing this.
+- **CSP blocks inline scripts** — all templates use external JS files
+  (`app.js`, `operations.js`, `settings.js`, `control.js`, `instructor.js`,
+  `setup.js`, `review-map.js`). `'unsafe-inline'` is removed from `script-src`.
+  Never add inline `<script>` blocks to templates — create external files instead.
+- **CSP allows `frame-src youtube-nocookie.com`** for the Power User easter egg.
 
 ## Hardware Environment
 
