@@ -52,8 +52,15 @@ def _draw_single_track(
     blink_on: bool,
 ) -> None:
     """Draw a single tracked object on the frame."""
+    h, w = frame.shape[:2]
     colour = _PALETTE[track.class_id % len(_PALETTE)]
-    x1, y1, x2, y2 = int(track.x1), int(track.y1), int(track.x2), int(track.y2)
+    # Clamp coordinates to frame bounds
+    x1 = max(0, int(track.x1))
+    y1 = max(0, int(track.y1))
+    x2 = min(w - 1, int(track.x2))
+    y2 = min(h - 1, int(track.y2))
+    if x2 <= x1 or y2 <= y1:
+        return  # Degenerate box — skip
     cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
 
     if is_locked and lock_mode == "strike":
@@ -94,12 +101,18 @@ def _draw_single_track(
         # the system considers "center" for bearing calculations)
         cv2.circle(frame, (cx, cy), 3, colour, -1)
 
-    # Label background
+    # Label background — clamp to frame bounds so labels near edges don't
+    # produce negative coordinates or extend past the frame.
     text = f"#{track.track_id} {track.label} {track.confidence:.0%}"
     (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-    cv2.rectangle(frame, (x1, y1 - th - 6), (x1 + tw + 4, y1), colour, -1)
+    lx1 = max(0, x1)
+    ly1 = max(0, y1 - th - 6)
+    lx2 = min(w - 1, x1 + tw + 4)
+    ly2 = max(0, y1)
+    if lx2 > lx1 and ly2 > ly1:
+        cv2.rectangle(frame, (lx1, ly1), (lx2, ly2), colour, -1)
     cv2.putText(
-        frame, text, (x1 + 2, y1 - 4),
+        frame, text, (max(0, x1 + 2), max(th + 2, y1 - 4)),
         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA,
     )
 

@@ -1200,10 +1200,13 @@ class Pipeline:
 
             # MAVLink alerts (per-label throttled)
             if self._mavlink is not None and len(track_result) > 0:
-                alert_sent = False
+                # Deduplicate by label — one alert per unique class per frame
+                alerted_labels: set[str] = set()
                 for track in track_result:
-                    self._mavlink.alert_detection(track.label, track.confidence)
-                    alert_sent = True
+                    if track.label not in alerted_labels:
+                        self._mavlink.alert_detection(track.label, track.confidence)
+                        alerted_labels.add(track.label)
+                alert_sent = len(alerted_labels) > 0
 
                 # Flash light bar when detections are present (throttled)
                 if alert_sent and self._light_bar_enabled:
