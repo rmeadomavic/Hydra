@@ -279,6 +279,9 @@
     color: var(--text-primary);
     display: block;
     margin-top: 1px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .panel-stat-value.accent {
@@ -533,6 +536,9 @@
     font-size: var(--font-sm);
     color: var(--text-dim);
     display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .panel-range-row {
