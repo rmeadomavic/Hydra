@@ -1139,11 +1139,11 @@ async def get_stream_quality():
 
 
 @app.post("/api/stream/quality")
-async def set_stream_quality(request: Request, authorization: Optional[str] = Header(None)):
-    """Set MJPEG stream quality at runtime. Body: {"quality": 70}"""
-    auth_err = _check_auth(authorization, request)
-    if auth_err:
-        return auth_err
+async def set_stream_quality(request: Request):
+    """Set stream JPEG quality at runtime. Body: {"quality": 70}
+
+    No auth required — this is a display preference, not a control action.
+    """
     body = await request.json()
     quality = body.get("quality", 70)
     try:

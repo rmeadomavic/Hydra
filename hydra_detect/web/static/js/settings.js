@@ -4,6 +4,7 @@ const HydraSettings = (() => {
     let configData = null;
     let currentSection = 'camera';
     let hasUnsavedChanges = false;
+    let initialized = false;
 
     // Fields that require restart
     const RESTART_FIELDS = {
@@ -115,8 +116,11 @@ const HydraSettings = (() => {
 
     function onEnter() {
         loadConfig();
-        initNavHandlers();
-        initActionHandlers();
+        if (!initialized) {
+            initNavHandlers();
+            initActionHandlers();
+            initialized = true;
+        }
     }
 
     function onLeave() {
@@ -132,7 +136,10 @@ const HydraSettings = (() => {
             showError('Failed to load configuration');
             return;
         }
-        renderSection(currentSection);
+        // Defer render to next frame so the view's display:flex has applied
+        // (prevents empty Camera tab on initial load when CSS transition
+        // from display:none hasn't completed yet).
+        requestAnimationFrame(() => renderSection(currentSection));
     }
 
     function initNavHandlers() {
