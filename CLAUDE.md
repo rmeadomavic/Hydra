@@ -265,6 +265,32 @@ tegrastats
   `info` (blue), `success` (green). CSS classes are in `base.css`.
 - **YouTube embeds:** Use `youtube-nocookie.com` domain for reliability.
 
+### Video Stream Architecture
+
+The dashboard video uses **snapshot polling** (`GET /stream.jpg`) instead of MJPEG
+multipart streaming. Each request returns a single JPEG frame as a regular
+`Response`. The JS polls by setting `img.src = '/stream.jpg?t=<timestamp>'` on
+each `load` event (~30 fps cap via 33ms `setTimeout`).
+
+**Why not MJPEG?** Starlette's `BaseHTTPMiddleware` has a known architectural
+bug where it wraps `StreamingResponse` bodies, causing infinite streams like
+MJPEG to hang indefinitely (no headers, no data sent to client). See
+[Starlette #1678](https://github.com/encode/starlette/issues/1678). The pure
+ASGI middleware conversion is in place but MJPEG may still fail on certain
+Starlette versions. The `/stream.mjpeg` endpoint is preserved as a fallback.
+
+**Key constraints:**
+- **Never use `BaseHTTPMiddleware`** with `StreamingResponse` — use pure ASGI
+  middleware (intercept `http.response.start` via `send` wrapper)
+- **Snapshot cache:** `/stream.jpg` caches the encoded JPEG for 33ms to avoid
+  re-encoding on rapid polls (handles 500+ req/s with zero CPU waste)
+- **Visibility pause:** JS stops polling when the browser tab is hidden
+  (`visibilitychange` listener) to save Jetson CPU
+- **Error backoff:** Exponential backoff on fetch errors (1s → 2s → 4s, cap 10s)
+- `asyncio.Event` is **not thread-safe** across threads — never use it to signal
+  between the pipeline thread and uvicorn's event loop. Use `threading.Event` or
+  simple polling with `asyncio.sleep()` instead
+
 ## Hardware Environment
 
 - **Architecture:** Jetson Orin Nano is ARM64/aarch64 — always check architecture
@@ -311,6 +337,23 @@ Pattern for adding a new engagement mode (e.g. pixel_lock, follow, drop, strike)
 4. Add `POST /api/approach/*` endpoint in `web/server.py`
 5. Add config section to `config.ini` + schema in `config_schema.py`
 6. Keep vehicle control logic separate from math — see `guidance.py` pattern
+
+## Deployment
+
+- **Code is baked into Docker** at build time (`COPY hydra_detect/` in Dockerfile).
+  A `git pull` on the host does NOT update the running container.
+- **`/api/restart`** only restarts the pipeline loop — does NOT restart the Python
+  process. Code changes to `server.py` or JS files are NOT picked up.
+- **Container name:** The systemd service creates a container named `hydra-detect`
+  (not `hydra`). Always use `sudo docker rm -f hydra-detect` if needed.
+- **Deploy script:** `scripts/deploy.sh [branch]` — stashes local changes, pulls,
+  builds, restarts, and verifies with a health check.
+- **No auto-deploy:** No watchtower, no GitHub webhooks, no CI/CD deploy step.
+  All deploys are manual via SSH.
+- **Local config.ini changes** on the Jetson will block `git pull` — always
+  `git stash` first.
+- **CI:** `.github/workflows/ci.yml` runs lint + tests on push to `main` and
+  `claude/*` branches.
 
 ## Debugging Rules
 
