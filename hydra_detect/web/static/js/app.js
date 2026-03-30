@@ -401,6 +401,7 @@ const HydraApp = (() => {
         // Snapshot polling — fetch single JPEG frames instead of MJPEG
         // stream to avoid StreamingResponse/middleware hangs.
         let polling = true;
+        let errorBackoff = 1000;
 
         function pollFrame() {
             if (!polling) return;
@@ -412,15 +413,22 @@ const HydraApp = (() => {
             if (lost) lost.style.display = 'none';
             lastFrameTime = Date.now();
             hideStaleOverlay();
-            // Request next frame immediately after this one loads
+            errorBackoff = 1000;  // Reset backoff on success
             if (polling) setTimeout(pollFrame, 33);
         });
 
         streamImg.addEventListener('error', () => {
             const lost = document.getElementById('ops-stream-lost');
             if (lost) lost.style.display = '';
-            // Retry after a short delay on error
-            if (polling) setTimeout(pollFrame, 1000);
+            // Exponential backoff: 1s → 2s → 4s → 8s (cap 10s)
+            if (polling) setTimeout(pollFrame, errorBackoff);
+            errorBackoff = Math.min(errorBackoff * 2, 10000);
+        });
+
+        // Pause polling when tab is hidden to save Jetson CPU
+        document.addEventListener('visibilitychange', () => {
+            polling = !document.hidden;
+            if (polling) pollFrame();
         });
 
         // Start polling

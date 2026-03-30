@@ -1593,10 +1593,18 @@ async def mjpeg_stream():
     )
 
 
+# Cached snapshot to avoid re-encoding the same frame on rapid polls.
+_snapshot_cache: dict[str, Any] = {"bytes": b"", "ts": 0.0, "quality": 0}
+_SNAPSHOT_TTL = 0.033  # 30 fps cap — serve cached JPEG if <33ms old
+
+
 @app.get("/stream.jpg")
 async def snapshot_frame():
     """Single JPEG frame snapshot — polled by the dashboard as a fallback
     for browsers/middleware stacks where MJPEG streaming hangs."""
+    now = time.monotonic()
+    if now - _snapshot_cache["ts"] < _SNAPSHOT_TTL and _snapshot_cache["bytes"]:
+        return Response(content=_snapshot_cache["bytes"], media_type="image/jpeg")
     frame = stream_state.get_frame()
     if frame is None:
         return Response(status_code=204)
@@ -1604,7 +1612,11 @@ async def snapshot_frame():
     ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
     if not ok:
         return Response(status_code=204)
-    return Response(content=buf.tobytes(), media_type="image/jpeg")
+    jpeg_bytes = buf.tobytes()
+    _snapshot_cache["bytes"] = jpeg_bytes
+    _snapshot_cache["ts"] = now
+    _snapshot_cache["quality"] = quality
+    return Response(content=jpeg_bytes, media_type="image/jpeg")
 
 
 async def _generate_mjpeg():
