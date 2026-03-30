@@ -1482,6 +1482,7 @@ async def api_review_log(filename: str):
         return JSONResponse({"error": "Log file not found"}, status_code=404)
 
     records = []
+    max_records = 50000  # Cap to prevent OOM on large log files
     if path.suffix == ".jsonl":
         with open(path) as f:
             for line in f:
@@ -1491,6 +1492,8 @@ async def api_review_log(filename: str):
                         records.append(_json.loads(line))
                     except _json.JSONDecodeError:
                         continue
+                    if len(records) >= max_records:
+                        break
     elif path.suffix == ".csv":
         import csv as _csv
         with open(path) as f:
@@ -1510,8 +1513,11 @@ async def api_review_log(filename: str):
                         except ValueError:
                             pass
                 records.append(row)
+                if len(records) >= max_records:
+                    break
 
-    return {"filename": filename, "count": len(records), "detections": records}
+    return {"filename": filename, "count": len(records), "detections": records,
+            "truncated": len(records) >= max_records}
 
 
 @app.get("/api/review/events/{filename}")
@@ -1529,6 +1535,7 @@ async def api_review_events(filename: str):
         return JSONResponse({"error": "not found"}, status_code=404)
 
     events: list = []
+    max_events = 50000
     try:
         with open(filepath) as f:
             for line in f:
@@ -1538,6 +1545,8 @@ async def api_review_events(filename: str):
                         events.append(_json.loads(line))
                     except _json.JSONDecodeError:
                         continue
+                    if len(events) >= max_events:
+                        break
     except Exception:
         return JSONResponse({"error": "read error"}, status_code=500)
 
@@ -1626,10 +1635,13 @@ async def api_export_logs(request: Request, authorization: str | None = Header(N
     finally:
         tmp.close()
 
+    from starlette.background import BackgroundTask
+
     return FileResponse(
         tmp_path,
         media_type="application/zip",
         filename="hydra-export.zip",
+        background=BackgroundTask(lambda: Path(tmp_path).unlink(missing_ok=True)),
     )
 
 
