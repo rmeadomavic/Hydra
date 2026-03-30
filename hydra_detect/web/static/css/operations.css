@@ -164,6 +164,9 @@
     font-weight: 700;
     color: var(--ogt-muted);
     letter-spacing: var(--ls-condensed);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .panel-collapse-btn {
@@ -401,9 +404,9 @@
 }
 
 .track-btn {
-    font-size: 0.6rem !important;
-    padding: 2px 6px !important;
-    min-height: 20px !important;
+    font-size: 0.6rem;
+    padding: 2px 6px;
+    min-height: 20px;
 }
 
 .track-lock-badge {
@@ -653,9 +656,9 @@
 
 .panel-det-entry:last-child { border-bottom: none; }
 .panel-det-time { color: var(--text-dim); font-size: 0.62rem; }
-.panel-det-label { color: var(--ogt-muted); font-weight: 700; }
+.panel-det-label { color: var(--ogt-muted); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .panel-det-conf { color: var(--text-secondary); }
-.panel-det-pos { color: var(--warning); }
+.panel-det-pos { color: var(--warning); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; display: inline-block; }
 
 /* ── Scrollbar for panels ── */
 .operations-panels::-webkit-scrollbar { width: 4px; }
@@ -703,6 +706,13 @@
 
     .panel-track-item {
         padding: 8px;
+        min-height: 44px;
+    }
+
+    .track-btn {
+        font-size: 0.7rem;
+        padding: 6px 10px;
+        min-height: 36px;
     }
 }
 
