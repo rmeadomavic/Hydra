@@ -54,10 +54,12 @@ class TestConfigGetEndpoint:
         assert resp.status_code == 200
         assert resp.json()["web"]["api_token"] == "***"
 
-    def test_get_config_requires_auth_when_enabled(self, client, tmp_config):
+    def test_get_config_no_auth_required(self, client, tmp_config):
+        """GET /api/config/full is read-only with redacted secrets — no auth needed."""
         configure_auth("my-token")
-        resp = client.get("/api/config/full")
-        assert resp.status_code == 401
+        with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
+            resp = client.get("/api/config/full")
+        assert resp.status_code == 200
 
 
 class TestConfigPostEndpoint:

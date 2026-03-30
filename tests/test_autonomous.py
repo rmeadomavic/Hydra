@@ -249,7 +249,6 @@ class TestEvaluate:
 
     def test_cooldown_enforced(self):
         ctrl = _make_controller(min_track_frames=1, strike_cooldown_sec=100.0)
-        mav = _make_mavlink()
         strike_cb = MagicMock(return_value=True)
         tracks = _make_tracks((1, "mine", 0.92))
 
@@ -257,6 +256,10 @@ class TestEvaluate:
         fake_time = [1000.0]
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(time, "monotonic", lambda: fake_time[0])
+
+            # Create mavlink mock INSIDE monkeypatch so GPS timestamp
+            # uses the fake time (otherwise GPS age check fails).
+            mav = _make_mavlink()
 
             # First strike succeeds at t=1000
             ctrl.evaluate(tracks, mav, MagicMock(return_value=True), strike_cb)

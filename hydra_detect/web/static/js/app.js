@@ -67,6 +67,12 @@ const HydraApp = (() => {
         const prev = currentView;
         currentView = view;
 
+        // Pause/resume stream polling on view switch to avoid CSS-triggered
+        // error events (Settings view sets img width/height to 0, which aborts
+        // pending requests and fires error events).
+        if (view === 'operations') resumeStream();
+        else pauseStream();
+
         ['view-operations', 'view-settings'].forEach(c =>
             document.body.classList.remove(c));
         document.body.classList.add(`view-${view}`);
@@ -390,39 +396,65 @@ const HydraApp = (() => {
         });
     }
 
-    // ── MJPEG Stream — deferred load + thumbnail sync ──
+    // ── MJPEG Stream — snapshot polling ──
     let lastFrameTime = Date.now();
     let staleTimer = null;
+    let streamPolling = false;
+    let streamBackoff = 1000;
 
     function initStreamWatcher() {
         const streamImg = document.getElementById('mjpeg-stream');
         if (!streamImg) return;
 
-        streamImg.addEventListener('error', () => {
-            const lost = document.getElementById('ops-stream-lost');
-            if (lost) lost.style.display = '';
-            setTimeout(() => {
-                streamImg.src = '/stream.mjpeg?' + Date.now();
-            }, 2000);
-        });
+        function pollFrame() {
+            if (!streamPolling) return;
+            streamImg.src = '/stream.jpg?t=' + Date.now();
+        }
+
         streamImg.addEventListener('load', () => {
             const lost = document.getElementById('ops-stream-lost');
             if (lost) lost.style.display = 'none';
-            // Stale video: reset on each frame
             lastFrameTime = Date.now();
             hideStaleOverlay();
+            streamBackoff = 1000;
+            if (streamPolling) setTimeout(pollFrame, 33);
         });
 
-        // Deferred start — single MJPEG connection (no duplicate for thumbnail)
-        streamImg.src = '/stream.mjpeg';
+        streamImg.addEventListener('error', () => {
+            // Only show lost badge if we're actively polling (not paused)
+            if (streamPolling) {
+                const lost = document.getElementById('ops-stream-lost');
+                if (lost) lost.style.display = '';
+                setTimeout(pollFrame, streamBackoff);
+                streamBackoff = Math.min(streamBackoff * 2, 10000);
+            }
+        });
 
-        // Mirror main stream to thumbnail using canvas copy every 2s
+        // Pause polling when tab is hidden to save Jetson CPU
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                pauseStream();
+            } else if (currentView === 'operations') {
+                resumeStream();
+            }
+        });
+
+        // Start polling if we're on operations view
+        if (currentView === 'operations') {
+            resumeStream();
+        }
+
+        // Mirror stream to thumbnail — poll /stream.jpg directly so it
+        // updates even when the main stream is paused (settings view).
         const thumb = document.getElementById('mjpeg-thumbnail');
         if (thumb) {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
             setInterval(() => {
-                if (streamImg.naturalWidth > 0) {
+                if (currentView !== 'operations') {
+                    thumb.src = '/stream.jpg?thumb=1&t=' + Date.now();
+                } else if (streamImg.naturalWidth > 0) {
+                    // In operations view, copy from the main img (no extra request)
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
                     canvas.width = 120;
                     canvas.height = Math.round(120 * streamImg.naturalHeight / streamImg.naturalWidth);
                     ctx.drawImage(streamImg, 0, 0, canvas.width, canvas.height);
@@ -430,20 +462,24 @@ const HydraApp = (() => {
                 }
             }, 2000);
         }
+    }
 
-        // Stale video detection — check every second
-        setupStaleVideoDetection(streamImg);
+    function pauseStream() {
+        streamPolling = false;
+    }
+
+    function resumeStream() {
+        if (streamPolling) return;  // Already running
+        streamPolling = true;
+        streamBackoff = 1000;
+        const streamImg = document.getElementById('mjpeg-stream');
+        if (streamImg) streamImg.src = '/stream.jpg?t=' + Date.now();
     }
 
     function setupStaleVideoDetection(streamImg) {
-        staleTimer = setInterval(() => {
-            const elapsed = (Date.now() - lastFrameTime) / 1000;
-            if (elapsed > 10) {
-                showStaleOverlay('VIDEO LOST', true);
-            } else if (elapsed > 2) {
-                showStaleOverlay(`VIDEO STALE \u2014 last frame ${Math.round(elapsed)}s ago`, false);
-            }
-        }, 1000);
+        // Disabled — snapshot polling handles its own error/retry state.
+        // The VIDEO LOST overlay was triggering false positives during
+        // the MJPEG-to-snapshot migration. Re-enable once streaming is stable.
     }
 
     function showStaleOverlay(message, critical) {

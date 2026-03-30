@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import base64
 import csv
+import html
 import json
 import sys
 from pathlib import Path
@@ -97,15 +98,17 @@ def embed_images(records: list[dict], images_dir: Path) -> list[dict]:
 
 def generate_html(records: list[dict], summary: dict, title: str = "Hydra Mission Report") -> str:
     """Generate a self-contained HTML file with Leaflet map."""
-    detections_json = json.dumps(records)
-    summary_json = json.dumps(summary)
+    # Escape </script> sequences to prevent script-tag breakout (XSS)
+    detections_json = json.dumps(records).replace("</", "<\\/")
+    summary_json = json.dumps(summary).replace("</", "<\\/")
+    safe_title = html.escape(title)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{title}</title>
+<title>{safe_title}</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
@@ -158,6 +161,7 @@ label{{font-size:11px;color:#888;display:block;margin-bottom:3px}}
 <script>
 const D={detections_json};
 const S={summary_json};
+function esc(s){{const d=document.createElement('div');d.textContent=String(s);return d.innerHTML}}
 const map=L.map('map').setView([0,0],2);
 L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{attribution:'OSM',maxZoom:19}}).addTo(map);
 const mL=L.layerGroup().addTo(map),tL=L.layerGroup().addTo(map);
@@ -167,11 +171,11 @@ function gc(l){{if(!(l in ccm))ccm[l]=CC[Object.keys(ccm).length%CC.length];retu
 document.getElementById('hdrStats').textContent=`${{S.total}} detections | ${{S.tracks}} tracks | ${{S.with_gps}} geotagged`;
 const sb=document.getElementById('summaryBox');
 sb.innerHTML=`<div class="st">Total: <span>${{S.total}}</span></div><div class="st">Tracks: <span>${{S.tracks}}</span></div><div class="st">Geotagged: <span>${{S.with_gps}}</span></div><div class="st">Time: <span>${{(S.time_start||'').slice(11,19)}} → ${{(S.time_end||'').slice(11,19)}}</span></div>`;
-for(const[c,n]of Object.entries(S.classes))sb.innerHTML+=`<div class="st">${{c}}: <span>${{n}}</span></div>`;
+for(const[c,n]of Object.entries(S.classes))sb.innerHTML+=`<div class="st">${{esc(c)}}: <span>${{esc(n)}}</span></div>`;
 const cls=new Set(D.map(d=>d.label).filter(Boolean));ac=new Set(cls);
 const cfEl=document.getElementById('cf');
 for(const c of cls){{const t=document.createElement('span');t.className='tag on';t.textContent=c;t.style.borderColor=gc(c);t.onclick=()=>{{if(ac.has(c)){{ac.delete(c);t.classList.remove('on')}}else{{ac.add(c);t.classList.add('on')}}render()}};cfEl.appendChild(t)}}
-function render(){{mL.clearLayers();tL.clearLayers();const mc=parseFloat(document.getElementById('cs').value);const st=document.getElementById('st').checked;const sm=document.getElementById('sm').checked;const f=D.filter(d=>d.lat!=null&&d.lon!=null&&ac.has(d.label)&&(d.confidence||0)>=mc);if(!f.length)return;const b=[];const tp={{}};for(const d of f){{const la=parseFloat(d.lat),lo=parseFloat(d.lon);if(isNaN(la)||isNaN(lo))continue;b.push([la,lo]);const tid=d.track_id;if(!tp[tid])tp[tid]={{label:d.label,pts:[]}};tp[tid].pts.push([la,lo]);if(sm){{const m=L.circleMarker([la,lo],{{radius:6,fillColor:gc(d.label),color:'#000',weight:1,fillOpacity:.8}});let p=`<b>${{d.label}}</b> #${{d.track_id}}<br>Conf: ${{((d.confidence||0)*100).toFixed(0)}}%<br>Time: ${{(d.timestamp||'').slice(11,19)}}<br>Pos: ${{la.toFixed(6)}}, ${{lo.toFixed(6)}}`;if(d.image_data)p+=`<br><img class="popup-img" src="${{d.image_data}}">`;else if(d.image)p+=`<br><small>${{d.image}}</small>`;m.bindPopup(p,{{maxWidth:300}});mL.addLayer(m)}}}}if(st)for(const tid of Object.keys(tp)){{const t=tp[tid];if(t.pts.length<2)continue;L.polyline(t.pts,{{color:gc(t.label),weight:2,opacity:.5,dashArray:'4 4'}}).addTo(tL)}}if(b.length)map.fitBounds(b,{{padding:[30,30]}})}}
+function render(){{mL.clearLayers();tL.clearLayers();const mc=parseFloat(document.getElementById('cs').value);const st=document.getElementById('st').checked;const sm=document.getElementById('sm').checked;const f=D.filter(d=>d.lat!=null&&d.lon!=null&&ac.has(d.label)&&(d.confidence||0)>=mc);if(!f.length)return;const b=[];const tp={{}};for(const d of f){{const la=parseFloat(d.lat),lo=parseFloat(d.lon);if(isNaN(la)||isNaN(lo))continue;b.push([la,lo]);const tid=d.track_id;if(!tp[tid])tp[tid]={{label:d.label,pts:[]}};tp[tid].pts.push([la,lo]);if(sm){{const m=L.circleMarker([la,lo],{{radius:6,fillColor:gc(d.label),color:'#000',weight:1,fillOpacity:.8}});let p=`<b>${{esc(d.label)}}</b> #${{esc(d.track_id)}}<br>Conf: ${{((d.confidence||0)*100).toFixed(0)}}%<br>Time: ${{esc((d.timestamp||'').slice(11,19))}}<br>Pos: ${{la.toFixed(6)}}, ${{lo.toFixed(6)}}`;if(d.image_data)p+=`<br><img class="popup-img" src="${{esc(d.image_data)}}">`;else if(d.image)p+=`<br><small>${{esc(d.image)}}</small>`;m.bindPopup(p,{{maxWidth:300}});mL.addLayer(m)}}}}if(st)for(const tid of Object.keys(tp)){{const t=tp[tid];if(t.pts.length<2)continue;L.polyline(t.pts,{{color:gc(t.label),weight:2,opacity:.5,dashArray:'4 4'}}).addTo(tL)}}if(b.length)map.fitBounds(b,{{padding:[30,30]}})}}
 document.getElementById('cs').oninput=e=>{{document.getElementById('cv').textContent=parseFloat(e.target.value).toFixed(2);render()}};
 document.getElementById('st').onchange=render;document.getElementById('sm').onchange=render;
 render();

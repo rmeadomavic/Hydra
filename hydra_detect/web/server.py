@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, Header, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.datastructures import MutableHeaders
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -45,16 +45,28 @@ app = FastAPI(title="Hydra Detect v2.0", version="2.0.0")
 _CORS_ALLOWED_PATHS = {"/api/stats", "/api/abort"}
 
 
-class _InstructorCORSMiddleware(BaseHTTPMiddleware):
-    """Add CORS headers only for instructor-relevant endpoints."""
+class _InstructorCORSMiddleware:
+    """Pure ASGI middleware — add CORS headers for instructor endpoints."""
 
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        if request.url.path in _CORS_ALLOWED_PATHS:
-            response.headers["Access-Control-Allow-Origin"] = "*"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
-        return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start" and path in _CORS_ALLOWED_PATHS:
+                headers = MutableHeaders(scope=message)
+                headers.append("Access-Control-Allow-Origin", "*")
+                headers.append("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+                headers.append("Access-Control-Allow-Headers", "Authorization, Content-Type")
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
 
 
 app.add_middleware(_InstructorCORSMiddleware)
@@ -78,19 +90,29 @@ _CSP_INSTRUCTOR = (
 )
 
 
-class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """Inject defense-in-depth HTTP security headers."""
+class _SecurityHeadersMiddleware:
+    """Pure ASGI middleware — inject security headers."""
 
-    async def dispatch(self, request: Request, call_next):
-        response: Response = await call_next(request)
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        # Use relaxed CSP for instructor page (needs cross-origin fetch)
-        if request.url.path == "/instructor":
-            response.headers["Content-Security-Policy"] = _CSP_INSTRUCTOR
-        else:
-            response.headers["Content-Security-Policy"] = _CSP_DEFAULT
-        return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["X-Frame-Options"] = "DENY"
+                headers["X-Content-Type-Options"] = "nosniff"
+                csp = _CSP_INSTRUCTOR if path == "/instructor" else _CSP_DEFAULT
+                headers["Content-Security-Policy"] = csp
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
 
 
 app.add_middleware(_SecurityHeadersMiddleware)
@@ -131,8 +153,10 @@ def _check_auth(
     client_ip = request.client.host if request and request.client else "unknown"
     now = time.monotonic()
     failures = _auth_failures[client_ip]
-    # Expire old entries outside the window
+    # Expire old entries outside the window; prune empty IPs to prevent unbounded growth
     _auth_failures[client_ip] = [t for t in failures if now - t < _AUTH_FAIL_WINDOW]
+    if not _auth_failures[client_ip]:
+        del _auth_failures[client_ip]
     if len(_auth_failures[client_ip]) >= _AUTH_FAIL_MAX:
         return JSONResponse({"error": "Too many failed attempts, try again later"}, status_code=429)
 
@@ -148,6 +172,14 @@ def _check_auth(
 
 # Dedicated audit logger for control actions
 audit_log = logging.getLogger("hydra.audit")
+
+
+async def _parse_json(request: Request) -> dict | None:
+    """Safely parse JSON body, returning None on malformed input."""
+    try:
+        return await request.json()
+    except Exception:
+        return None
 
 # Prompt constraints
 MAX_PROMPTS = 20
@@ -203,7 +235,6 @@ class StreamState:
             "position": None,
         }
         self._lock = threading.Lock()
-        self._frame_event = asyncio.Event()
 
         # Runtime config callbacks (set by pipeline via set_callbacks)
         self._callbacks: Dict[str, Callable] = {}
@@ -228,7 +259,6 @@ class StreamState:
     def update_frame(self, frame: np.ndarray) -> None:
         with self._lock:
             self.frame = frame
-        self._frame_event.set()
 
     def get_frame(self) -> Optional[np.ndarray]:
         with self._lock:
@@ -346,7 +376,9 @@ async def api_set_prompts(request: Request, authorization: Optional[str] = Heade
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     prompts = body.get("prompts")
     if not isinstance(prompts, list):
         return JSONResponse({"error": "prompts must be a list"}, status_code=400)
@@ -382,7 +414,9 @@ async def api_set_threshold(request: Request, authorization: Optional[str] = Hea
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     threshold = body.get("threshold")
     try:
         threshold_val = float(threshold)
@@ -421,7 +455,9 @@ async def api_set_alert_classes(request: Request, authorization: Optional[str] =
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     classes = body.get("classes")
     if not isinstance(classes, list):
         return JSONResponse({"error": "classes must be a list"}, status_code=400)
@@ -464,7 +500,9 @@ async def api_set_vehicle_mode(request: Request, authorization: Optional[str] = 
     if auth_err:
         return auth_err
     _ALLOWED_MODES = {"AUTO", "RTL", "LOITER", "HOLD", "GUIDED"}
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     mode = body.get("mode")
     if not mode or not isinstance(mode, str):
         return JSONResponse({"error": "mode is required (string)"}, status_code=400)
@@ -506,7 +544,9 @@ async def api_target_lock(request: Request, authorization: Optional[str] = Heade
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     track_id = body.get("track_id")
     if track_id is None:
         return JSONResponse({"error": "track_id required"}, status_code=400)
@@ -552,7 +592,9 @@ async def api_strike_command(request: Request, authorization: Optional[str] = He
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     track_id = body.get("track_id")
     confirm = body.get("confirm", False)
 
@@ -628,7 +670,9 @@ async def api_approach_drop(
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     confirm = body.get("confirm", False)
     if not confirm:
         return JSONResponse(
@@ -661,7 +705,9 @@ async def api_approach_strike(
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     confirm = body.get("confirm", False)
     if not confirm:
         return JSONResponse(
@@ -768,7 +814,9 @@ async def api_camera_switch(request: Request, authorization: Optional[str] = Hea
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     source = body.get("source")
     if source is None:
         return JSONResponse({"error": "source required"}, status_code=400)
@@ -802,7 +850,9 @@ async def api_set_power_mode(request: Request, authorization: Optional[str] = He
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     mode_id = body.get("mode_id")
     if mode_id is None:
         return JSONResponse({"error": "mode_id required"}, status_code=400)
@@ -836,7 +886,9 @@ async def api_switch_model(request: Request, authorization: Optional[str] = Head
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     model = body.get("model")
     if not model:
         return JSONResponse({"error": "model name required"}, status_code=400)
@@ -871,7 +923,9 @@ async def api_switch_profile(request: Request, authorization: Optional[str] = He
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     profile_id = body.get("profile")
     if not profile_id:
         return JSONResponse({"error": "profile ID required"}, status_code=400)
@@ -938,7 +992,9 @@ async def api_rf_start(request: Request, authorization: Optional[str] = Header(N
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
 
     # Validate mode
     mode = body.get("mode")
@@ -1034,7 +1090,9 @@ async def api_rtsp_toggle(request: Request, authorization: Optional[str] = Heade
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     enabled = body.get("enabled")
     if enabled is None:
         return JSONResponse({"error": "enabled field required (true/false)"}, status_code=400)
@@ -1067,7 +1125,9 @@ async def api_mavlink_video_toggle(request: Request, authorization: Optional[str
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     enabled = body.get("enabled")
     if enabled is None:
         return JSONResponse({"error": "enabled field required"}, status_code=400)
@@ -1098,7 +1158,9 @@ async def api_tak_toggle(request: Request, authorization: Optional[str] = Header
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     enabled = body.get("enabled")
     if enabled is None:
         return JSONResponse({"error": "enabled field required"}, status_code=400)
@@ -1119,12 +1181,14 @@ async def get_stream_quality():
 
 
 @app.post("/api/stream/quality")
-async def set_stream_quality(request: Request, authorization: Optional[str] = Header(None)):
-    """Set MJPEG stream quality at runtime. Body: {"quality": 70}"""
-    auth_err = _check_auth(authorization, request)
-    if auth_err:
-        return auth_err
-    body = await request.json()
+async def set_stream_quality(request: Request):
+    """Set stream JPEG quality at runtime. Body: {"quality": 70}
+
+    No auth required — this is a display preference, not a control action.
+    """
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     quality = body.get("quality", 70)
     try:
         quality = int(quality)
@@ -1168,11 +1232,16 @@ async def api_add_tak_target(
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
-    host = body.get("host", "").strip()
-    port = int(body.get("port", 6969))
-    if not host:
-        return JSONResponse({"error": "host required"}, status_code=400)
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
+    host = str(body.get("host", "")).strip()
+    if not host or len(host) > 256:
+        return JSONResponse({"error": "valid host required"}, status_code=400)
+    try:
+        port = int(body.get("port", 6969))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "port must be a number"}, status_code=400)
     cb = stream_state.get_callback("add_tak_target")
     if cb:
         cb(host, port)
@@ -1189,9 +1258,16 @@ async def api_remove_tak_target(
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
-    host = body.get("host", "").strip()
-    port = int(body.get("port", 6969))
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
+    host = str(body.get("host", "")).strip()
+    if not host:
+        return JSONResponse({"error": "host required"}, status_code=400)
+    try:
+        port = int(body.get("port", 6969))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "port must be a number"}, status_code=400)
     cb = stream_state.get_callback("remove_tak_target")
     if cb:
         cb(host, port)
@@ -1206,7 +1282,9 @@ async def api_mavlink_video_tune(request: Request, authorization: Optional[str] 
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     for field, lo, hi in [("width", 40, 320), ("height", 30, 240),
                           ("quality", 5, 50), ("max_fps", 0.1, 5.0)]:
         val = body.get(field)
@@ -1248,7 +1326,9 @@ async def api_pipeline_pause(request: Request, authorization: Optional[str] = He
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     paused = body.get("paused", True)
     if paused:
         cb = stream_state.get_callback("on_pause_command")
@@ -1290,13 +1370,18 @@ async def api_abort(request: Request):
     vehicle without configuring tokens.
     """
     _audit(request, "abort")
-    # Try RTL first, then LOITER/HOLD as fallback
+    # Try RTL first, then LOITER/HOLD as fallback.
+    # This is safety-critical — wrap in try/except so a callback crash
+    # never prevents the instructor from seeing an error response.
     cb = stream_state.get_callback("on_set_mode_command")
     if cb:
         for mode in ("RTL", "LOITER", "HOLD"):
-            if cb(mode):
-                logger.warning("ABORT: vehicle set to %s by instructor", mode)
-                return {"status": "ok", "mode": mode}
+            try:
+                if cb(mode):
+                    logger.warning("ABORT: vehicle set to %s by instructor", mode)
+                    return {"status": "ok", "mode": mode}
+            except Exception as exc:
+                logger.error("ABORT callback failed for %s: %s", mode, exc)
         return JSONResponse({"error": "Failed to set abort mode"}, status_code=503)
     return JSONResponse({"error": "MAVLink not connected"}, status_code=503)
 
@@ -1309,7 +1394,9 @@ async def api_start_mission(request: Request, authorization: Optional[str] = Hea
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     name = body.get("name", f"mission-{int(time.time())}")
     if not isinstance(name, str) or not name.strip():
         return JSONResponse({"error": "name must be a non-empty string"}, status_code=400)
@@ -1395,6 +1482,7 @@ async def api_review_log(filename: str):
         return JSONResponse({"error": "Log file not found"}, status_code=404)
 
     records = []
+    max_records = 50000  # Cap to prevent OOM on large log files
     if path.suffix == ".jsonl":
         with open(path) as f:
             for line in f:
@@ -1404,6 +1492,8 @@ async def api_review_log(filename: str):
                         records.append(_json.loads(line))
                     except _json.JSONDecodeError:
                         continue
+                    if len(records) >= max_records:
+                        break
     elif path.suffix == ".csv":
         import csv as _csv
         with open(path) as f:
@@ -1423,8 +1513,11 @@ async def api_review_log(filename: str):
                         except ValueError:
                             pass
                 records.append(row)
+                if len(records) >= max_records:
+                    break
 
-    return {"filename": filename, "count": len(records), "detections": records}
+    return {"filename": filename, "count": len(records), "detections": records,
+            "truncated": len(records) >= max_records}
 
 
 @app.get("/api/review/events/{filename}")
@@ -1442,6 +1535,7 @@ async def api_review_events(filename: str):
         return JSONResponse({"error": "not found"}, status_code=404)
 
     events: list = []
+    max_events = 50000
     try:
         with open(filepath) as f:
             for line in f:
@@ -1451,6 +1545,8 @@ async def api_review_events(filename: str):
                         events.append(_json.loads(line))
                     except _json.JSONDecodeError:
                         continue
+                    if len(events) >= max_events:
+                        break
     except Exception:
         return JSONResponse({"error": "read error"}, status_code=500)
 
@@ -1539,10 +1635,13 @@ async def api_export_logs(request: Request, authorization: str | None = Header(N
     finally:
         tmp.close()
 
+    from starlette.background import BackgroundTask
+
     return FileResponse(
         tmp_path,
         media_type="application/zip",
         filename="hydra-export.zip",
+        background=BackgroundTask(lambda: Path(tmp_path).unlink(missing_ok=True)),
     )
 
 
@@ -1573,24 +1672,40 @@ async def mjpeg_stream():
     )
 
 
+# Cached snapshot to avoid re-encoding the same frame on rapid polls.
+_snapshot_cache: dict[str, Any] = {"bytes": b"", "ts": 0.0, "quality": 0}
+_SNAPSHOT_TTL = 0.033  # 30 fps cap — serve cached JPEG if <33ms old
+
+
+@app.get("/stream.jpg")
+async def snapshot_frame():
+    """Single JPEG frame snapshot — polled by the dashboard as a fallback
+    for browsers/middleware stacks where MJPEG streaming hangs."""
+    now = time.monotonic()
+    if now - _snapshot_cache["ts"] < _SNAPSHOT_TTL and _snapshot_cache["bytes"]:
+        return Response(content=_snapshot_cache["bytes"], media_type="image/jpeg")
+    frame = stream_state.get_frame()
+    if frame is None:
+        return Response(status_code=204)
+    quality = stream_state.get_mjpeg_quality()
+    ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+    if not ok:
+        return Response(status_code=204)
+    jpeg_bytes = buf.tobytes()
+    _snapshot_cache["bytes"] = jpeg_bytes
+    _snapshot_cache["ts"] = now
+    _snapshot_cache["quality"] = quality
+    return Response(content=jpeg_bytes, media_type="image/jpeg")
+
+
 async def _generate_mjpeg():
     """Async generator that yields JPEG frames.
 
-    Uses an asyncio.Event to wake instantly when a new frame is available
-    instead of polling with sleep. Falls back to a 100ms timeout to handle
-    cases where the event isn't set (e.g., pipeline paused).
-    Quality is read from StreamState each frame for adaptive control.
+    Polls for new frames at ~30 fps. Frame storage is protected by
+    threading.Lock inside StreamState, so this is safe across threads.
     """
     try:
         while True:
-            # Wait for a new frame signal (or timeout after 100ms)
-            try:
-                await asyncio.wait_for(
-                    stream_state._frame_event.wait(), timeout=0.1,
-                )
-                stream_state._frame_event.clear()
-            except asyncio.TimeoutError:
-                pass
             frame = stream_state.get_frame()
             if frame is not None:
                 quality = stream_state.get_mjpeg_quality()
@@ -1613,11 +1728,13 @@ async def _generate_mjpeg():
 # ── Full Config ────────────────────────────────────────────────
 
 @app.get("/api/config/full")
-async def api_get_full_config(request: Request, authorization: str | None = Header(None)):
-    """Return all config.ini sections as JSON. Sensitive fields are redacted."""
-    auth_err = _check_auth(authorization, request)
-    if auth_err:
-        return auth_err
+async def api_get_full_config():
+    """Return all config.ini sections as JSON. Sensitive fields are redacted.
+
+    No auth required — this is read-only and sensitive values (api_token,
+    kismet_pass) are already redacted by read_config(). Auth is only
+    enforced on the POST variant that writes config changes.
+    """
     try:
         return read_config()
     except Exception as e:

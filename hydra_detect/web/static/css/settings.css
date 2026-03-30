@@ -232,6 +232,9 @@
 
 /* ── Responsive ── */
 @media (max-width: 1279px) {
+    #view-settings, .view.view-settings {
+        flex-direction: column;
+    }
     .settings-nav {
         width: 100%;
         flex-direction: row;

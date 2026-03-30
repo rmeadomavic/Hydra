@@ -59,10 +59,11 @@ class TestStreamQualityAPI:
         resp = client.post("/api/stream/quality", json={"quality": "abc"})
         assert resp.status_code == 400
 
-    def test_set_quality_requires_auth(self, client):
+    def test_set_quality_no_auth_required(self, client):
+        """Stream quality is a display preference — no auth needed."""
         configure_auth("secret-token-123")
         resp = client.post("/api/stream/quality", json={"quality": 50})
-        assert resp.status_code == 401
+        assert resp.status_code == 200
 
     def test_set_quality_with_auth(self, client):
         configure_auth("secret-token-123")

@@ -21,7 +21,6 @@ const HydraOperations = (() => {
     // ── Lifecycle ──
     function onEnter() {
         HydraPanels.init();
-        initStreamWatcher();
         if (!dropdownsLoaded) {
             loadDropdowns();
             dropdownsLoaded = true;
@@ -501,53 +500,82 @@ const HydraOperations = (() => {
         const list = document.getElementById('ctrl-track-list');
         if (!list) return;
 
-        // Track list with per-track action buttons
+        // Track list — efficient diff to avoid full DOM rebuild every 500ms.
+        // Reuses existing DOM nodes when possible to preserve button state
+        // and prevent wrong-target-lock race conditions.
         if (!tracks || tracks.length === 0) {
-            clearChildren(list);
-            const empty = document.createElement('div');
-            empty.className = 'panel-track-empty';
-            empty.textContent = 'No tracks';
-            list.appendChild(empty);
+            if (!list.querySelector('.panel-track-empty')) {
+                clearChildren(list);
+                const empty = document.createElement('div');
+                empty.className = 'panel-track-empty';
+                empty.textContent = 'No tracks';
+                list.appendChild(empty);
+            }
         } else {
-            clearChildren(list);
+            // Remove empty placeholder if present
+            const empty = list.querySelector('.panel-track-empty');
+            if (empty) empty.remove();
+
+            // Build set of current track IDs in DOM
+            const existingEls = {};
+            list.querySelectorAll('[data-track-id]').forEach(el => {
+                existingEls[el.dataset.trackId] = el;
+            });
+            const newIds = new Set(tracks.map(t => String(t.track_id)));
+
+            // Remove DOM elements for tracks that no longer exist
+            for (const id of Object.keys(existingEls)) {
+                if (!newIds.has(id)) existingEls[id].remove();
+            }
+
+            // Update or create DOM elements for each track
             for (const t of tracks) {
+                const tid = String(t.track_id);
                 const isLocked = target && target.locked && target.track_id === t.track_id;
-                const div = document.createElement('div');
-                div.className = 'panel-track-item' + (isLocked ? ' locked' : '');
+                let div = existingEls[tid];
 
-                // Info column: ID + label + confidence
-                const info = document.createElement('div');
-                info.className = 'track-info';
-                const tid = document.createElement('span');
-                tid.className = 'track-id';
-                tid.textContent = '#' + t.track_id;
-                const tl = document.createElement('span');
-                tl.className = 'track-label';
-                tl.textContent = t.label;
-                const tc = document.createElement('span');
-                tc.className = 'track-conf';
-                tc.textContent = (t.confidence * 100).toFixed(0) + '%';
-                info.appendChild(tid);
-                info.appendChild(tl);
-                info.appendChild(tc);
-
-                // Action buttons column
-                const actions = document.createElement('div');
-                actions.className = 'track-actions';
-
-                if (isLocked) {
-                    const modeLabel = document.createElement('span');
-                    const modeClass = (target.mode === 'strike' || target.mode === 'drop') ? ' strike' : '';
-                    modeLabel.className = 'track-lock-badge' + modeClass;
-                    modeLabel.textContent = (target.mode || 'track').toUpperCase();
-                    actions.appendChild(modeLabel);
+                if (div) {
+                    // Update existing element — just refresh dynamic content
+                    div.className = 'panel-track-item' + (isLocked ? ' locked' : '');
+                    const confEl = div.querySelector('.track-conf');
+                    if (confEl) confEl.textContent = (t.confidence * 100).toFixed(0) + '%';
+                    const labelEl = div.querySelector('.track-label');
+                    if (labelEl) labelEl.textContent = t.label;
                 } else {
+                    // Create new element for new track
+                    div = document.createElement('div');
+                    div.className = 'panel-track-item' + (isLocked ? ' locked' : '');
+                    div.dataset.trackId = tid;
+
+                    const info = document.createElement('div');
+                    info.className = 'track-info';
+                    const tidSpan = document.createElement('span');
+                    tidSpan.className = 'track-id';
+                    tidSpan.textContent = '#' + t.track_id;
+                    const tl = document.createElement('span');
+                    tl.className = 'track-label';
+                    tl.textContent = t.label;
+                    const tc = document.createElement('span');
+                    tc.className = 'track-conf';
+                    tc.textContent = (t.confidence * 100).toFixed(0) + '%';
+                    info.appendChild(tidSpan);
+                    info.appendChild(tl);
+                    info.appendChild(tc);
+
+                    const actions = document.createElement('div');
+                    actions.className = 'track-actions';
+
+                    // Use closure over track_id (not t reference) to prevent
+                    // wrong-target race conditions during DOM updates.
+                    const trackId = t.track_id;
+                    const trackLabel = t.label;
+
                     const lockBtn = document.createElement('button');
                     lockBtn.className = 'btn btn-sm btn-green track-btn';
                     lockBtn.textContent = 'Lock';
                     lockBtn.addEventListener('click', (e) => {
                         e.stopPropagation();
-                        HydraApp.apiPost('/api/target/lock', { track_id: t.track_id });
+                        HydraApp.apiPost('/api/target/lock', { track_id: trackId });
                     });
                     actions.appendChild(lockBtn);
 
@@ -558,7 +586,7 @@ const HydraOperations = (() => {
                     followBtn.style.borderColor = 'var(--info)';
                     followBtn.addEventListener('click', (e) => {
                         e.stopPropagation();
-                        HydraApp.apiPost('/api/approach/follow/' + t.track_id, {});
+                        HydraApp.apiPost('/api/approach/follow/' + trackId, {});
                     });
                     actions.appendChild(followBtn);
 
@@ -569,8 +597,8 @@ const HydraOperations = (() => {
                     dropBtn.style.borderColor = 'var(--warning)';
                     dropBtn.addEventListener('click', (e) => {
                         e.stopPropagation();
-                        selectedTrackId = t.track_id;
-                        selectedTrackLabel = t.label;
+                        selectedTrackId = trackId;
+                        selectedTrackLabel = trackLabel;
                         showDropConfirm();
                     });
                     actions.appendChild(dropBtn);
@@ -580,16 +608,16 @@ const HydraOperations = (() => {
                     strikeBtn.textContent = 'Strike';
                     strikeBtn.addEventListener('click', (e) => {
                         e.stopPropagation();
-                        selectedTrackId = t.track_id;
-                        selectedTrackLabel = t.label;
+                        selectedTrackId = trackId;
+                        selectedTrackLabel = trackLabel;
                         showApproachStrikeConfirm();
                     });
                     actions.appendChild(strikeBtn);
-                }
 
-                div.appendChild(info);
-                div.appendChild(actions);
-                list.appendChild(div);
+                    div.appendChild(info);
+                    div.appendChild(actions);
+                    list.appendChild(div);
+                }
             }
         }
 
@@ -1278,23 +1306,6 @@ const HydraOperations = (() => {
         const nowActive = toggle.classList.contains('active');
         await HydraApp.apiPost('/api/tak/toggle', { enabled: !nowActive });
         loadTAKStatus();
-    }
-
-    // ── Stream Watcher ──
-    function initStreamWatcher() {
-        const img = document.getElementById('mjpeg-stream');
-        const loading = document.getElementById('ops-loading');
-        const lost = document.getElementById('ops-stream-lost');
-        if (!img) return;
-
-        if (img.complete && img.naturalWidth > 0) {
-            if (loading) loading.style.display = 'none';
-        }
-
-        img.addEventListener('load', () => {
-            if (loading) loading.style.display = 'none';
-            if (lost) lost.style.display = 'none';
-        }, { once: true });
     }
 
     // ── Helpers ──

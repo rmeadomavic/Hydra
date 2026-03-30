@@ -265,6 +265,71 @@ tegrastats
   `info` (blue), `success` (green). CSS classes are in `base.css`.
 - **YouTube embeds:** Use `youtube-nocookie.com` domain for reliability.
 
+### Video Stream Architecture
+
+The dashboard video uses **snapshot polling** (`GET /stream.jpg`) instead of MJPEG
+multipart streaming. Each request returns a single JPEG frame as a regular
+`Response`. The JS polls by setting `img.src = '/stream.jpg?t=<timestamp>'` on
+each `load` event (~30 fps cap via 33ms `setTimeout`).
+
+**Why not MJPEG?** Starlette's `BaseHTTPMiddleware` has a known architectural
+bug where it wraps `StreamingResponse` bodies, causing infinite streams like
+MJPEG to hang indefinitely (no headers, no data sent to client). See
+[Starlette #1678](https://github.com/encode/starlette/issues/1678). The pure
+ASGI middleware conversion is in place but MJPEG may still fail on certain
+Starlette versions. The `/stream.mjpeg` endpoint is preserved as a fallback.
+
+**Key constraints:**
+- **Never use `BaseHTTPMiddleware`** with `StreamingResponse` — use pure ASGI
+  middleware (intercept `http.response.start` via `send` wrapper)
+- **Snapshot cache:** `/stream.jpg` caches the encoded JPEG for 33ms to avoid
+  re-encoding on rapid polls (handles 500+ req/s with zero CPU waste)
+- **Visibility pause:** JS stops polling when the browser tab is hidden
+  (`visibilitychange` listener) to save Jetson CPU
+- **Error backoff:** Exponential backoff on fetch errors (1s → 2s → 4s, cap 10s)
+- **View-switch pause:** Polling pauses when leaving Operations view (CSS sets
+  img to width:0/height:0, which aborts pending requests and fires error events).
+  Resumes immediately when returning to Operations.
+- `asyncio.Event` is **not thread-safe** across threads — never use it to signal
+  between the pipeline thread and uvicorn's event loop. Use `threading.Event` or
+  simple polling with `asyncio.sleep()` instead
+
+### API Hardening Patterns
+
+- **All POST endpoints** use `_parse_json(request)` helper which returns `None`
+  on malformed input (returns 400, not 500). Never use bare `await request.json()`.
+- **Auth-free read endpoints:** `GET /api/config/full`, `GET /api/stream/quality`,
+  `GET /api/stats`, `GET /api/tracks` — read-only data needed by the dashboard.
+  Auth is only enforced on POST (write/control) endpoints.
+- **POST /api/stream/quality** is auth-free — it's a display preference (controls
+  JPEG compression), not a vehicle control action.
+- **Safety-critical callbacks** (`/api/abort`) must be wrapped in try/except —
+  a callback crash must never prevent the instructor from getting a response.
+- **`_auth_failures` dict** prunes empty IP entries to prevent unbounded growth.
+- **Log review endpoints** cap at 50k records to prevent OOM on large files.
+- **`/api/export`** cleans up temp ZIP files via `BackgroundTask`.
+
+### Overlay and Detection Pipeline
+
+- **Bounding box coordinates must be clamped** to frame bounds before drawing.
+  Targets near frame edges can have negative coords or exceed frame width/height,
+  which crashes OpenCV or produces artifacts. See `overlay.py:_draw_single_track`.
+- **MAVLink alerts are deduplicated by label** per frame. With 10 "person"
+  detections, only one `alert_detection("person")` call fires instead of 10.
+- **Track list uses DOM diffing** (not full rebuild) to prevent wrong-target-lock
+  race conditions when tracks appear/disappear between polls.
+
+### Security
+
+- **No `innerHTML` sinks** in app.js, operations.js, or settings.js — all
+  dynamic content uses `.textContent` or `.value` (safe against XSS).
+- **`review_export.py`** generates standalone HTML reports. All user data
+  (labels, track IDs, images) must be escaped via the `esc()` helper. The
+  `json.dumps` output uses `.replace("</", "<\\/")` to prevent `</script>`
+  breakout.
+- **CSP includes `'unsafe-inline'`** because templates have inline `<script>`
+  blocks. Migrating to external JS files would allow removing this.
+
 ## Hardware Environment
 
 - **Architecture:** Jetson Orin Nano is ARM64/aarch64 — always check architecture
@@ -311,6 +376,23 @@ Pattern for adding a new engagement mode (e.g. pixel_lock, follow, drop, strike)
 4. Add `POST /api/approach/*` endpoint in `web/server.py`
 5. Add config section to `config.ini` + schema in `config_schema.py`
 6. Keep vehicle control logic separate from math — see `guidance.py` pattern
+
+## Deployment
+
+- **Code is baked into Docker** at build time (`COPY hydra_detect/` in Dockerfile).
+  A `git pull` on the host does NOT update the running container.
+- **`/api/restart`** only restarts the pipeline loop — does NOT restart the Python
+  process. Code changes to `server.py` or JS files are NOT picked up.
+- **Container name:** The systemd service creates a container named `hydra-detect`
+  (not `hydra`). Always use `sudo docker rm -f hydra-detect` if needed.
+- **Deploy script:** `scripts/deploy.sh [branch]` — stashes local changes, pulls,
+  builds, restarts, and verifies with a health check.
+- **No auto-deploy:** No watchtower, no GitHub webhooks, no CI/CD deploy step.
+  All deploys are manual via SSH.
+- **Local config.ini changes** on the Jetson will block `git pull` — always
+  `git stash` first.
+- **CI:** `.github/workflows/ci.yml` runs lint + tests on push to `main` and
+  `claude/*` branches.
 
 ## Debugging Rules
 

@@ -164,6 +164,9 @@
     font-weight: 700;
     color: var(--ogt-muted);
     letter-spacing: var(--ls-condensed);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .panel-collapse-btn {
@@ -279,6 +282,9 @@
     color: var(--text-primary);
     display: block;
     margin-top: 1px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .panel-stat-value.accent {
@@ -398,9 +404,9 @@
 }
 
 .track-btn {
-    font-size: 0.6rem !important;
-    padding: 2px 6px !important;
-    min-height: 20px !important;
+    font-size: 0.6rem;
+    padding: 2px 6px;
+    min-height: 20px;
 }
 
 .track-lock-badge {
@@ -533,6 +539,9 @@
     font-size: var(--font-sm);
     color: var(--text-dim);
     display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .panel-range-row {
@@ -647,9 +656,9 @@
 
 .panel-det-entry:last-child { border-bottom: none; }
 .panel-det-time { color: var(--text-dim); font-size: 0.62rem; }
-.panel-det-label { color: var(--ogt-muted); font-weight: 700; }
+.panel-det-label { color: var(--ogt-muted); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .panel-det-conf { color: var(--text-secondary); }
-.panel-det-pos { color: var(--warning); }
+.panel-det-pos { color: var(--warning); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; display: inline-block; }
 
 /* ── Scrollbar for panels ── */
 .operations-panels::-webkit-scrollbar { width: 4px; }
@@ -664,18 +673,25 @@
 .panel-det-log::-webkit-scrollbar-thumb,
 .panel-alert-class-list::-webkit-scrollbar-thumb { background: rgba(56, 87, 35, 0.3); border-radius: 2px; }
 
+/* ── Responsive: Steam Deck / tablet (≤1365px) — widen panels ── */
+@media (max-width: 1365px) {
+    .operations-panels {
+        width: 50%;
+    }
+}
+
 /* ── Responsive: below 1280px — single column, full width ── */
 @media (max-width: 1279px) {
     .operations-panels {
         width: 100%;
         max-height: 55vh;
-        margin-top: 40vh;
+        margin-top: calc(100vh - 55vh - var(--topbar-height) - var(--footer-height));
     }
 
     .panel-toolbar {
         width: 100%;
         position: absolute;
-        top: 40vh;
+        top: calc(100vh - 55vh - var(--topbar-height) - var(--footer-height));
         z-index: 10;
     }
 
@@ -697,6 +713,13 @@
 
     .panel-track-item {
         padding: 8px;
+        min-height: 44px;
+    }
+
+    .track-btn {
+        font-size: 0.7rem;
+        padding: 6px 10px;
+        min-height: 36px;
     }
 }
 

@@ -58,6 +58,7 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
         "yolo_confidence": FieldSpec(FieldType.FLOAT, min_val=0.0, max_val=1.0, default=0.45, description="Detection confidence threshold"),
         "yolo_imgsz": FieldSpec(FieldType.INT, min_val=32, max_val=1280, default=416, description="Inference resolution"),
         "yolo_classes": FieldSpec(FieldType.STRING, default="", description="Comma-separated class IDs to detect"),
+        "low_light_luminance": FieldSpec(FieldType.FLOAT, min_val=0.0, max_val=255.0, default=40.0, description="Low-light luminance threshold for warnings"),
     },
     "tracker": {
         "track_thresh": FieldSpec(FieldType.FLOAT, min_val=0.0, max_val=1.0, default=0.5, description="Track confidence threshold"),
@@ -118,8 +119,12 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
         "follow_min_distance": FieldSpec(FieldType.FLOAT, default=None, description="Minimum follow distance meters"),
         "approach_method": FieldSpec(FieldType.STRING, default="", description="Approach method for target"),
         "dogleg_distance_m": FieldSpec(FieldType.FLOAT, default=None, description="Dogleg maneuver distance meters"),
-        "dogleg_bearing": FieldSpec(FieldType.FLOAT, default=None, description="Dogleg maneuver bearing degrees"),
+        "dogleg_bearing": FieldSpec(FieldType.STRING, default="perpendicular", description="Dogleg bearing: 'perpendicular' or compass degrees"),
         "dogleg_altitude_m": FieldSpec(FieldType.FLOAT, default=None, description="Dogleg maneuver altitude meters"),
+        "arm_channel": FieldSpec(FieldType.INT, min_val=0, max_val=16, default=0, description="Servo channel for strike arm (0 = disabled)"),
+        "arm_pwm_armed": FieldSpec(FieldType.INT, min_val=500, max_val=2500, default=1900, description="Strike arm armed PWM value"),
+        "arm_pwm_safe": FieldSpec(FieldType.INT, min_val=500, max_val=2500, default=1100, description="Strike arm safe PWM value"),
+        "hardware_arm_channel": FieldSpec(FieldType.INT, min_val=0, max_val=16, default=0, description="RC channel for hardware arm switch (0 = disabled)"),
     },
     "rf_homing": {
         "enabled": FieldSpec(FieldType.BOOL, default=False, description="Enable RF homing"),
