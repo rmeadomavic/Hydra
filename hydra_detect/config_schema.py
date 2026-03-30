@@ -118,7 +118,7 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
         "follow_min_distance": FieldSpec(FieldType.FLOAT, default=None, description="Minimum follow distance meters"),
         "approach_method": FieldSpec(FieldType.STRING, default="", description="Approach method for target"),
         "dogleg_distance_m": FieldSpec(FieldType.FLOAT, default=None, description="Dogleg maneuver distance meters"),
-        "dogleg_bearing": FieldSpec(FieldType.FLOAT, default=None, description="Dogleg maneuver bearing degrees"),
+        "dogleg_bearing": FieldSpec(FieldType.STRING, default="perpendicular", description="Dogleg bearing: 'perpendicular' or compass degrees"),
         "dogleg_altitude_m": FieldSpec(FieldType.FLOAT, default=None, description="Dogleg maneuver altitude meters"),
     },
     "rf_homing": {
