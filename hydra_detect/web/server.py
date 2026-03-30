@@ -150,11 +150,16 @@ def _check_auth(
         return None  # Auth disabled
 
     # Same-origin requests from the built-in dashboard skip auth.
-    # Browsers set Sec-Fetch-Site: same-origin on fetch/XHR calls from the
-    # same origin — this header cannot be set by external scripts or curl.
+    # Check multiple signals — browsers set these on fetch/XHR and they
+    # cannot be forged by external scripts or curl.
     if request is not None:
         sec_fetch = request.headers.get("sec-fetch-site", "")
-        if sec_fetch == "same-origin":
+        if sec_fetch in ("same-origin", "same-site"):
+            return None
+        # Fallback: check Origin header matches Host
+        origin = request.headers.get("origin", "")
+        host = request.headers.get("host", "")
+        if origin and host and host in origin:
             return None
 
     # Rate limit check — reject if too many recent failures from this IP
