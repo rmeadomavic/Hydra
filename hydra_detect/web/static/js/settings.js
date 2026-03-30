@@ -476,20 +476,25 @@ const HydraSettings = (() => {
             if (modal) modal.classList.remove('active');
         }
         if (e.target.id === 'power-user-enable') {
-            // Replace page with rickroll — commitment to the bit
-            const container = document.createElement('div');
-            container.style.cssText = 'position:fixed;inset:0;background:#000;';
-            const iframe = document.createElement('iframe');
-            iframe.width = '100%';
-            iframe.height = '100%';
-            iframe.src = 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1&mute=1';
-            iframe.frameBorder = '0';
-            iframe.allow = 'autoplay; encrypted-media';
-            iframe.allowFullscreen = true;
-            iframe.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
-            container.appendChild(iframe);
-            document.body.textContent = '';
-            document.body.appendChild(container);
+            // Rickroll — commitment to the bit
+            const url = 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1';
+            // Try opening in new tab first (works even without internet on cached browsers)
+            const win = window.open(url, '_blank');
+            if (!win) {
+                // Popup blocked — fall back to replacing page with iframe
+                const container = document.createElement('div');
+                container.style.cssText = 'position:fixed;inset:0;background:#000;z-index:99999;';
+                const iframe = document.createElement('iframe');
+                iframe.src = url;
+                iframe.allow = 'autoplay; encrypted-media';
+                iframe.allowFullscreen = true;
+                iframe.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:none;';
+                container.appendChild(iframe);
+                document.body.appendChild(container);
+            }
+            // Close the modal
+            const modal = document.getElementById('power-user-modal');
+            if (modal) modal.classList.remove('active');
         }
     });
 
