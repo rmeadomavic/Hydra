@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, Header, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.datastructures import MutableHeaders
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -45,16 +45,28 @@ app = FastAPI(title="Hydra Detect v2.0", version="2.0.0")
 _CORS_ALLOWED_PATHS = {"/api/stats", "/api/abort"}
 
 
-class _InstructorCORSMiddleware(BaseHTTPMiddleware):
-    """Add CORS headers only for instructor-relevant endpoints."""
+class _InstructorCORSMiddleware:
+    """Pure ASGI middleware — add CORS headers for instructor endpoints."""
 
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        if request.url.path in _CORS_ALLOWED_PATHS:
-            response.headers["Access-Control-Allow-Origin"] = "*"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
-        return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start" and path in _CORS_ALLOWED_PATHS:
+                headers = MutableHeaders(scope=message)
+                headers.append("Access-Control-Allow-Origin", "*")
+                headers.append("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+                headers.append("Access-Control-Allow-Headers", "Authorization, Content-Type")
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
 
 
 app.add_middleware(_InstructorCORSMiddleware)
@@ -78,19 +90,29 @@ _CSP_INSTRUCTOR = (
 )
 
 
-class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """Inject defense-in-depth HTTP security headers."""
+class _SecurityHeadersMiddleware:
+    """Pure ASGI middleware — inject security headers."""
 
-    async def dispatch(self, request: Request, call_next):
-        response: Response = await call_next(request)
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        # Use relaxed CSP for instructor page (needs cross-origin fetch)
-        if request.url.path == "/instructor":
-            response.headers["Content-Security-Policy"] = _CSP_INSTRUCTOR
-        else:
-            response.headers["Content-Security-Policy"] = _CSP_DEFAULT
-        return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["X-Frame-Options"] = "DENY"
+                headers["X-Content-Type-Options"] = "nosniff"
+                csp = _CSP_INSTRUCTOR if path == "/instructor" else _CSP_DEFAULT
+                headers["Content-Security-Policy"] = csp
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
 
 
 app.add_middleware(_SecurityHeadersMiddleware)
