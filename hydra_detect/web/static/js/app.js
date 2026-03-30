@@ -454,14 +454,9 @@ const HydraApp = (() => {
     }
 
     function setupStaleVideoDetection(streamImg) {
-        staleTimer = setInterval(() => {
-            const elapsed = (Date.now() - lastFrameTime) / 1000;
-            if (elapsed > 10) {
-                showStaleOverlay('VIDEO LOST', true);
-            } else if (elapsed > 2) {
-                showStaleOverlay(`VIDEO STALE \u2014 last frame ${Math.round(elapsed)}s ago`, false);
-            }
-        }, 1000);
+        // Disabled — snapshot polling handles its own error/retry state.
+        // The VIDEO LOST overlay was triggering false positives during
+        // the MJPEG-to-snapshot migration. Re-enable once streaming is stable.
     }
 
     function showStaleOverlay(message, critical) {
