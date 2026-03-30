@@ -153,8 +153,10 @@ def _check_auth(
     client_ip = request.client.host if request and request.client else "unknown"
     now = time.monotonic()
     failures = _auth_failures[client_ip]
-    # Expire old entries outside the window
+    # Expire old entries outside the window; prune empty IPs to prevent unbounded growth
     _auth_failures[client_ip] = [t for t in failures if now - t < _AUTH_FAIL_WINDOW]
+    if not _auth_failures[client_ip]:
+        del _auth_failures[client_ip]
     if len(_auth_failures[client_ip]) >= _AUTH_FAIL_MAX:
         return JSONResponse({"error": "Too many failed attempts, try again later"}, status_code=429)
 
@@ -1233,10 +1235,13 @@ async def api_add_tak_target(
     body = await _parse_json(request)
     if body is None:
         return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
-    host = body.get("host", "").strip()
-    port = int(body.get("port", 6969))
-    if not host:
-        return JSONResponse({"error": "host required"}, status_code=400)
+    host = str(body.get("host", "")).strip()
+    if not host or len(host) > 256:
+        return JSONResponse({"error": "valid host required"}, status_code=400)
+    try:
+        port = int(body.get("port", 6969))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "port must be a number"}, status_code=400)
     cb = stream_state.get_callback("add_tak_target")
     if cb:
         cb(host, port)
@@ -1256,8 +1261,13 @@ async def api_remove_tak_target(
     body = await _parse_json(request)
     if body is None:
         return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
-    host = body.get("host", "").strip()
-    port = int(body.get("port", 6969))
+    host = str(body.get("host", "")).strip()
+    if not host:
+        return JSONResponse({"error": "host required"}, status_code=400)
+    try:
+        port = int(body.get("port", 6969))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "port must be a number"}, status_code=400)
     cb = stream_state.get_callback("remove_tak_target")
     if cb:
         cb(host, port)
@@ -1360,13 +1370,18 @@ async def api_abort(request: Request):
     vehicle without configuring tokens.
     """
     _audit(request, "abort")
-    # Try RTL first, then LOITER/HOLD as fallback
+    # Try RTL first, then LOITER/HOLD as fallback.
+    # This is safety-critical — wrap in try/except so a callback crash
+    # never prevents the instructor from seeing an error response.
     cb = stream_state.get_callback("on_set_mode_command")
     if cb:
         for mode in ("RTL", "LOITER", "HOLD"):
-            if cb(mode):
-                logger.warning("ABORT: vehicle set to %s by instructor", mode)
-                return {"status": "ok", "mode": mode}
+            try:
+                if cb(mode):
+                    logger.warning("ABORT: vehicle set to %s by instructor", mode)
+                    return {"status": "ok", "mode": mode}
+            except Exception as exc:
+                logger.error("ABORT callback failed for %s: %s", mode, exc)
         return JSONResponse({"error": "Failed to set abort mode"}, status_code=503)
     return JSONResponse({"error": "MAVLink not connected"}, status_code=503)
 
