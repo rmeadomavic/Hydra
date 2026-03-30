@@ -1593,6 +1593,20 @@ async def mjpeg_stream():
     )
 
 
+@app.get("/stream.jpg")
+async def snapshot_frame():
+    """Single JPEG frame snapshot — polled by the dashboard as a fallback
+    for browsers/middleware stacks where MJPEG streaming hangs."""
+    frame = stream_state.get_frame()
+    if frame is None:
+        return Response(status_code=204)
+    quality = stream_state.get_mjpeg_quality()
+    ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+    if not ok:
+        return Response(status_code=204)
+    return Response(content=buf.tobytes(), media_type="image/jpeg")
+
+
 async def _generate_mjpeg():
     """Async generator that yields JPEG frames.
 

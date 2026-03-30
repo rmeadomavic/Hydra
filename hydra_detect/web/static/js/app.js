@@ -398,23 +398,33 @@ const HydraApp = (() => {
         const streamImg = document.getElementById('mjpeg-stream');
         if (!streamImg) return;
 
-        streamImg.addEventListener('error', () => {
-            const lost = document.getElementById('ops-stream-lost');
-            if (lost) lost.style.display = '';
-            setTimeout(() => {
-                streamImg.src = '/stream.mjpeg?' + Date.now();
-            }, 2000);
-        });
+        // Snapshot polling — fetch single JPEG frames instead of MJPEG
+        // stream to avoid StreamingResponse/middleware hangs.
+        let polling = true;
+
+        function pollFrame() {
+            if (!polling) return;
+            streamImg.src = '/stream.jpg?t=' + Date.now();
+        }
+
         streamImg.addEventListener('load', () => {
             const lost = document.getElementById('ops-stream-lost');
             if (lost) lost.style.display = 'none';
-            // Stale video: reset on each frame
             lastFrameTime = Date.now();
             hideStaleOverlay();
+            // Request next frame immediately after this one loads
+            if (polling) setTimeout(pollFrame, 33);
         });
 
-        // Deferred start — single MJPEG connection (no duplicate for thumbnail)
-        streamImg.src = '/stream.mjpeg';
+        streamImg.addEventListener('error', () => {
+            const lost = document.getElementById('ops-stream-lost');
+            if (lost) lost.style.display = '';
+            // Retry after a short delay on error
+            if (polling) setTimeout(pollFrame, 1000);
+        });
+
+        // Start polling
+        pollFrame();
 
         // Mirror main stream to thumbnail using canvas copy every 2s
         const thumb = document.getElementById('mjpeg-thumbnail');
