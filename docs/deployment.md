@@ -29,10 +29,23 @@ journalctl -u hydra-detect -f
 The Docker image bakes the code into the image. To update code, rebuild:
 
 ```bash
-cd /home/sorcc/Hydra
-docker build --network=host --no-cache -t hydra-detect .
+# Quick deploy (recommended) — stashes local config changes, pulls, builds, restarts
+bash scripts/deploy.sh [branch]
+
+# Manual deploy
+cd ~/Hydra
+git stash                    # Local config.ini changes WILL block git pull
+git pull origin main
+sudo docker build -t hydra-detect:latest .
 sudo systemctl restart hydra-detect
 ```
+
+**Important deployment notes:**
+- `git pull` will fail if `config.ini` has local changes — always `git stash` first
+- `/api/restart` only restarts the detection pipeline, NOT the web server. Code
+  changes to `server.py` or JS files require a full Docker rebuild + service restart.
+- The container name is `hydra-detect` (not `hydra`). Use `sudo docker rm -f hydra-detect` if needed.
+- Wait ~20 seconds after restart for the YOLO model to load before testing.
 
 Key volume mounts:
 

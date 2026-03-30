@@ -273,3 +273,44 @@ tegrastats
 # or
 jtop
 ```
+
+## CI / GitHub Actions
+
+`.github/workflows/ci.yml` runs lint + tests on push to `main` and `claude/*`
+branches. The workflow installs dependencies and runs:
+
+```bash
+flake8 hydra_detect/ tests/
+python -m pytest tests/ -q --tb=short
+```
+
+## Security Practices
+
+### Content Security Policy (CSP)
+
+All templates use external JS files — no inline `<script>` blocks. The CSP
+`script-src` does NOT include `'unsafe-inline'`, which means injected scripts
+are blocked by the browser even if an XSS vector exists.
+
+External JS files: `app.js`, `operations.js`, `settings.js`, `control.js`,
+`instructor.js`, `setup.js`, `review-map.js`.
+
+**Never add inline `<script>` blocks to templates** — create an external file
+in `hydra_detect/web/static/js/` and reference it with `<script src="...">`.
+
+### API Authentication
+
+- Bearer token auth protects all POST/DELETE endpoints from external access
+- Same-origin requests from the dashboard bypass auth automatically
+  (via `Sec-Fetch-Site` and `Origin` header matching)
+- `_parse_json()` helper guards all JSON body parsing against malformed input
+- Safety-critical callbacks (`/api/abort`) are wrapped in try/except
+- The `_auth_failures` dict prunes empty IP entries to prevent memory growth
+
+### XSS Prevention
+
+- No `innerHTML` sinks in the SPA JS files — all dynamic content uses
+  `.textContent` or `.value`
+- `review_export.py` uses `esc()` helper for all user data in generated HTML
+- `json.dumps` output uses `.replace("</", "<\\/")` to prevent `</script>` breakout
+- Leaflet CDN includes SRI integrity hashes to prevent supply-chain attacks

@@ -22,13 +22,29 @@ The Operations tab shows the live video stream with bounding boxes, track IDs, a
 
 ### Video Stream
 
-The MJPEG stream runs at `/stream.mjpeg`. Bounding boxes are drawn by the overlay module before frames reach the browser. Colour coding:
+The dashboard uses **snapshot polling** — the browser requests `GET /stream.jpg`
+which returns a single JPEG frame. JavaScript polls by setting
+`img.src = '/stream.jpg?t=<timestamp>'` on each load event (~30 fps cap).
+
+The server caches the encoded JPEG for 33ms to avoid re-encoding on rapid polls
+(handles 500+ requests/second with zero CPU waste). When the browser tab is hidden,
+polling pauses automatically to save Jetson CPU.
+
+A legacy MJPEG endpoint (`/stream.mjpeg`) is preserved but unused by default.
+
+**Double-click the video** to toggle fullscreen mode.
+
+Bounding boxes are drawn by the overlay module before frames reach the browser:
 
 - **Green corner brackets**: tracked object
 - **Red corner brackets**: active strike target
 - **Solid red rectangle**: strike approach in progress
 
-When the video feed stalls, a **VIDEO STALE** overlay appears on the stream. This triggers when no new frame arrives within the stream timeout.
+### Authentication
+
+The dashboard automatically bypasses API token authentication for same-origin
+requests. External API access (curl, scripts) still requires a Bearer token
+when `api_token` is configured in `config.ini`.
 
 ### HUD Elements
 

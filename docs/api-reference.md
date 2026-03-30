@@ -38,9 +38,21 @@ Run pre-flight checks. Returns structured results for camera, MAVLink, GPS, conf
 
 ## Stream
 
+### GET /stream.jpg
+
+Single JPEG frame snapshot. The dashboard polls this endpoint at ~30 fps.
+The server caches the encoded JPEG for 33ms to avoid re-encoding on rapid polls.
+Returns 204 if no frame is available.
+
+**Auth**: No
+
+**Content-Type**: `image/jpeg`
+
 ### GET /stream.mjpeg
 
-MJPEG video stream. Connect from an `<img>` tag or VLC.
+Legacy MJPEG video stream. Preserved as a fallback but unused by the default
+dashboard (may hang on some Starlette versions due to BaseHTTPMiddleware
+interaction with StreamingResponse).
 
 **Auth**: No
 
@@ -168,6 +180,17 @@ Set vehicle flight mode. **Auth**: Yes
 **Body**: `{"mode": "AUTO"}`
 
 **Allowed modes**: AUTO, RTL, LOITER, HOLD, GUIDED
+
+### POST /api/vehicle/beep
+
+Play a tune on the Pixhawk buzzer. **Auth**: No
+
+**Body**: `{"tune": "alert"}`
+
+**Built-in tunes**: `alert`, `success`, `warning`, `error`, `charles`, `startup`
+
+Or pass a raw QBASIC tune string (max 30 chars):
+`{"tune": "MFT200L8CDEC"}`
 
 ---
 
