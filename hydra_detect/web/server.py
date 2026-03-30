@@ -77,6 +77,7 @@ _CSP_DEFAULT = (
     "img-src 'self' data: https://*.tile.openstreetmap.org; "
     "script-src 'self' https://unpkg.com; "
     "style-src 'self' 'unsafe-inline' https://unpkg.com; "
+    "frame-src https://www.youtube-nocookie.com; "
     "connect-src 'self'"
 )
 
