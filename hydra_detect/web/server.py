@@ -149,6 +149,14 @@ def _check_auth(
     if _api_token is None:
         return None  # Auth disabled
 
+    # Same-origin requests from the built-in dashboard skip auth.
+    # Browsers set Sec-Fetch-Site: same-origin on fetch/XHR calls from the
+    # same origin — this header cannot be set by external scripts or curl.
+    if request is not None:
+        sec_fetch = request.headers.get("sec-fetch-site", "")
+        if sec_fetch == "same-origin":
+            return None
+
     # Rate limit check — reject if too many recent failures from this IP
     client_ip = request.client.host if request and request.client else "unknown"
     now = time.monotonic()
