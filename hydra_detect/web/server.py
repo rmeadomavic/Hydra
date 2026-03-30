@@ -75,7 +75,7 @@ app.add_middleware(_InstructorCORSMiddleware)
 _CSP_DEFAULT = (
     "default-src 'self'; "
     "img-src 'self' data: https://*.tile.openstreetmap.org; "
-    "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+    "script-src 'self' https://unpkg.com; "
     "style-src 'self' 'unsafe-inline' https://unpkg.com; "
     "connect-src 'self'"
 )
@@ -84,7 +84,7 @@ _CSP_DEFAULT = (
 _CSP_INSTRUCTOR = (
     "default-src 'self'; "
     "img-src 'self' data:; "
-    "script-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; "
     "style-src 'self' 'unsafe-inline'; "
     "connect-src *"
 )

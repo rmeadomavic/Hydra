@@ -130,6 +130,28 @@ class TestAuthEnforcement:
                 resp = client.post(url, headers=headers)
             assert resp.status_code == 403, f"{url} should reject wrong token"
 
+    def test_same_origin_skips_auth(self, client):
+        """Dashboard requests with Sec-Fetch-Site: same-origin bypass auth."""
+        configure_auth("secret-token-123")
+        headers = {"Sec-Fetch-Site": "same-origin"}
+        for method, url, body in self.CONTROL_ENDPOINTS:
+            if body:
+                resp = client.post(url, json=body, headers=headers)
+            else:
+                resp = client.post(url, headers=headers)
+            assert resp.status_code != 401, f"{url} should skip auth for same-origin"
+
+    def test_origin_header_skips_auth(self, client):
+        """Dashboard requests with matching Origin header bypass auth."""
+        configure_auth("secret-token-123")
+        headers = {"Origin": "http://testserver"}
+        for method, url, body in self.CONTROL_ENDPOINTS:
+            if body:
+                resp = client.post(url, json=body, headers=headers)
+            else:
+                resp = client.post(url, headers=headers)
+            assert resp.status_code != 401, f"{url} should skip auth for matching origin"
+
     def test_correct_token_accepted(self, client):
         configure_auth("secret-token-123")
         headers = {"Authorization": "Bearer secret-token-123"}

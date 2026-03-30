@@ -298,9 +298,12 @@ Starlette versions. The `/stream.mjpeg` endpoint is preserved as a fallback.
 
 - **All POST endpoints** use `_parse_json(request)` helper which returns `None`
   on malformed input (returns 400, not 500). Never use bare `await request.json()`.
+- **Same-origin auth bypass:** Requests from the built-in dashboard include
+  `Sec-Fetch-Site: same-origin` or a matching `Origin` header. `_check_auth()`
+  skips Bearer token validation for these — the dashboard works without a token
+  while external API access (curl, scripts) still requires one.
 - **Auth-free read endpoints:** `GET /api/config/full`, `GET /api/stream/quality`,
   `GET /api/stats`, `GET /api/tracks` — read-only data needed by the dashboard.
-  Auth is only enforced on POST (write/control) endpoints.
 - **POST /api/stream/quality** is auth-free — it's a display preference (controls
   JPEG compression), not a vehicle control action.
 - **Safety-critical callbacks** (`/api/abort`) must be wrapped in try/except —
