@@ -1,0 +1,31 @@
+name: CI
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --no-deps ultralytics supervision
+          grep -v "opencv-python\|ultralytics\|supervision" requirements.txt > /tmp/reqs.txt
+          pip install -r /tmp/reqs.txt
+          pip install opencv-python-headless httpx pytest
+
+      - name: Lint
+        run: |
+          pip install flake8
+          flake8 hydra_detect/ tests/ --count --show-source --statistics
+
+      - name: Tests
+        run: python -m pytest tests/ -q --tb=short
