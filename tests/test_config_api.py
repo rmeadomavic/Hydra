@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+import os
 import stat
 from unittest.mock import patch
 
@@ -142,6 +143,7 @@ class TestConfigAuthPositiveCases:
 
 
 class TestConfigAtomicWrite:
+    @pytest.mark.skipif(os.getuid() == 0, reason="chmod has no effect when running as root")
     def test_failed_write_does_not_corrupt_original(self, client, tmp_config):
         original_content = tmp_config.read_text()
         tmp_config.parent.chmod(stat.S_IRUSR | stat.S_IXUSR)

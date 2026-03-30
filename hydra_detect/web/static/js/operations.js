@@ -17,6 +17,7 @@ const HydraOperations = (() => {
     let alertClassData = { all: [], categories: {}, selected: new Set() };
     let profileData = { profiles: [], active: null };
     let dropdownsLoaded = false;
+    let dropdownRefreshTimer = null;
 
     // ── Lifecycle ──
     function onEnter() {
@@ -28,12 +29,20 @@ const HydraOperations = (() => {
         wireEventHandlers();
         updateTimer = setInterval(updatePanels, 500);
         updatePanels();
+        // Refresh dropdown data periodically (cameras/models may change)
+        if (!dropdownRefreshTimer) {
+            dropdownRefreshTimer = setInterval(loadDropdowns, 30000);
+        }
     }
 
     function onLeave() {
         if (updateTimer) {
             clearInterval(updateTimer);
             updateTimer = null;
+        }
+        if (dropdownRefreshTimer) {
+            clearInterval(dropdownRefreshTimer);
+            dropdownRefreshTimer = null;
         }
     }
 
@@ -107,15 +116,10 @@ const HydraOperations = (() => {
     async function loadPowerModes() {
         const data = await HydraApp.apiGet('/api/system/power-modes');
         const sel = document.getElementById('ctrl-power-mode');
-        if (!sel || !data) return;
+        if (!sel) return;
+        // Don't clear if no data — keep "Loading..." so the 30s refresh retries
+        if (!data || !data.length) return;
         clearChildren(sel);
-        if (!data.length) {
-            const opt = document.createElement('option');
-            opt.value = '';
-            opt.textContent = 'Not available';
-            sel.appendChild(opt);
-            return;
-        }
         for (const m of data) {
             const opt = document.createElement('option');
             opt.value = m.id;

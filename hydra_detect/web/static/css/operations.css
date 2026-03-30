@@ -700,6 +700,18 @@
     }
 }
 
+/* ── Responsive: iPad / small tablet (≤1024px) ── */
+@media (max-width: 1024px) {
+    .panel-stat-grid,
+    .panel-stat-grid.panel-stat-grid-3 {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .panel-field-label {
+        font-size: var(--font-xs);
+    }
+}
+
 /* ── Touch target: Steam Deck / tablet ── */
 @media (pointer: coarse) {
     .panel-drag-handle {

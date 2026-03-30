@@ -10,6 +10,7 @@ import re
 import queue
 import threading
 from collections import deque
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -76,6 +77,12 @@ class DetectionLogger:
         self._max_recent = max_recent
         self._max_log_size_bytes = int(max_log_size_mb * 1024 * 1024)
         self._max_log_files = max(1, max_log_files)
+
+        # Rate-limit image saving to prevent disk fill during high-FPS
+        # detection (e.g., 30 FPS with many objects). Save at most 1 image
+        # per second by default; every frame still gets logged to JSONL/CSV.
+        self._image_save_interval = 1.0  # seconds between saved images
+        self._last_image_save_time = 0.0
 
         self._csv_writer = None
         self._csv_file = None
@@ -187,9 +194,14 @@ class DetectionLogger:
 
         # Derive the image filename now so records are complete for the web UI
         # even before the file is physically written.
+        # Rate-limit: save at most 1 image per _image_save_interval seconds
+        # to prevent disk fill during high-FPS detection sessions.
         img_filename: str | None = None
-        if self._save_images and frame is not None:
+        now_mono = time.monotonic()
+        if self._save_images and frame is not None and \
+                (now_mono - self._last_image_save_time) >= self._image_save_interval:
             img_filename = f"{ts_file}_{frame_no:06d}.jpg"
+            self._last_image_save_time = now_mono
 
         # Build records and update the recent buffer immediately (caller thread).
         records: list[Dict[str, Any]] = []
