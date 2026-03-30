@@ -171,6 +171,14 @@ def _check_auth(
 # Dedicated audit logger for control actions
 audit_log = logging.getLogger("hydra.audit")
 
+
+async def _parse_json(request: Request) -> dict | None:
+    """Safely parse JSON body, returning None on malformed input."""
+    try:
+        return await request.json()
+    except Exception:
+        return None
+
 # Prompt constraints
 MAX_PROMPTS = 20
 MAX_PROMPT_LENGTH = 200
@@ -366,7 +374,9 @@ async def api_set_prompts(request: Request, authorization: Optional[str] = Heade
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     prompts = body.get("prompts")
     if not isinstance(prompts, list):
         return JSONResponse({"error": "prompts must be a list"}, status_code=400)
@@ -402,7 +412,9 @@ async def api_set_threshold(request: Request, authorization: Optional[str] = Hea
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     threshold = body.get("threshold")
     try:
         threshold_val = float(threshold)
@@ -441,7 +453,9 @@ async def api_set_alert_classes(request: Request, authorization: Optional[str] =
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     classes = body.get("classes")
     if not isinstance(classes, list):
         return JSONResponse({"error": "classes must be a list"}, status_code=400)
@@ -484,7 +498,9 @@ async def api_set_vehicle_mode(request: Request, authorization: Optional[str] = 
     if auth_err:
         return auth_err
     _ALLOWED_MODES = {"AUTO", "RTL", "LOITER", "HOLD", "GUIDED"}
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     mode = body.get("mode")
     if not mode or not isinstance(mode, str):
         return JSONResponse({"error": "mode is required (string)"}, status_code=400)
@@ -526,7 +542,9 @@ async def api_target_lock(request: Request, authorization: Optional[str] = Heade
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     track_id = body.get("track_id")
     if track_id is None:
         return JSONResponse({"error": "track_id required"}, status_code=400)
@@ -572,7 +590,9 @@ async def api_strike_command(request: Request, authorization: Optional[str] = He
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     track_id = body.get("track_id")
     confirm = body.get("confirm", False)
 
@@ -648,7 +668,9 @@ async def api_approach_drop(
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     confirm = body.get("confirm", False)
     if not confirm:
         return JSONResponse(
@@ -681,7 +703,9 @@ async def api_approach_strike(
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     confirm = body.get("confirm", False)
     if not confirm:
         return JSONResponse(
@@ -788,7 +812,9 @@ async def api_camera_switch(request: Request, authorization: Optional[str] = Hea
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     source = body.get("source")
     if source is None:
         return JSONResponse({"error": "source required"}, status_code=400)
@@ -822,7 +848,9 @@ async def api_set_power_mode(request: Request, authorization: Optional[str] = He
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     mode_id = body.get("mode_id")
     if mode_id is None:
         return JSONResponse({"error": "mode_id required"}, status_code=400)
@@ -856,7 +884,9 @@ async def api_switch_model(request: Request, authorization: Optional[str] = Head
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     model = body.get("model")
     if not model:
         return JSONResponse({"error": "model name required"}, status_code=400)
@@ -891,7 +921,9 @@ async def api_switch_profile(request: Request, authorization: Optional[str] = He
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     profile_id = body.get("profile")
     if not profile_id:
         return JSONResponse({"error": "profile ID required"}, status_code=400)
@@ -958,7 +990,9 @@ async def api_rf_start(request: Request, authorization: Optional[str] = Header(N
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
 
     # Validate mode
     mode = body.get("mode")
@@ -1054,7 +1088,9 @@ async def api_rtsp_toggle(request: Request, authorization: Optional[str] = Heade
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     enabled = body.get("enabled")
     if enabled is None:
         return JSONResponse({"error": "enabled field required (true/false)"}, status_code=400)
@@ -1087,7 +1123,9 @@ async def api_mavlink_video_toggle(request: Request, authorization: Optional[str
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     enabled = body.get("enabled")
     if enabled is None:
         return JSONResponse({"error": "enabled field required"}, status_code=400)
@@ -1118,7 +1156,9 @@ async def api_tak_toggle(request: Request, authorization: Optional[str] = Header
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     enabled = body.get("enabled")
     if enabled is None:
         return JSONResponse({"error": "enabled field required"}, status_code=400)
@@ -1144,7 +1184,9 @@ async def set_stream_quality(request: Request):
 
     No auth required — this is a display preference, not a control action.
     """
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     quality = body.get("quality", 70)
     try:
         quality = int(quality)
@@ -1188,7 +1230,9 @@ async def api_add_tak_target(
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     host = body.get("host", "").strip()
     port = int(body.get("port", 6969))
     if not host:
@@ -1209,7 +1253,9 @@ async def api_remove_tak_target(
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     host = body.get("host", "").strip()
     port = int(body.get("port", 6969))
     cb = stream_state.get_callback("remove_tak_target")
@@ -1226,7 +1272,9 @@ async def api_mavlink_video_tune(request: Request, authorization: Optional[str] 
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     for field, lo, hi in [("width", 40, 320), ("height", 30, 240),
                           ("quality", 5, 50), ("max_fps", 0.1, 5.0)]:
         val = body.get(field)
@@ -1268,7 +1316,9 @@ async def api_pipeline_pause(request: Request, authorization: Optional[str] = He
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     paused = body.get("paused", True)
     if paused:
         cb = stream_state.get_callback("on_pause_command")
@@ -1329,7 +1379,9 @@ async def api_start_mission(request: Request, authorization: Optional[str] = Hea
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    body = await request.json()
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
     name = body.get("name", f"mission-{int(time.time())}")
     if not isinstance(name, str) or not name.strip():
         return JSONResponse({"error": "name must be a non-empty string"}, status_code=400)
