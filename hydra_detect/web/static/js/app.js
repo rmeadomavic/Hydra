@@ -443,19 +443,6 @@ const HydraApp = (() => {
         if (currentView === 'operations') {
             resumeStream();
         }
-    }
-
-    function pauseStream() {
-        streamPolling = false;
-    }
-
-    function resumeStream() {
-        if (streamPolling) return;  // Already running
-        streamPolling = true;
-        streamBackoff = 1000;
-        const streamImg = document.getElementById('mjpeg-stream');
-        if (streamImg) streamImg.src = '/stream.jpg?t=' + Date.now();
-    }
 
         // Mirror main stream to thumbnail using canvas copy every 2s
         const thumb = document.getElementById('mjpeg-thumbnail');
@@ -471,9 +458,18 @@ const HydraApp = (() => {
                 }
             }, 2000);
         }
+    }
 
-        // Stale video detection — check every second
-        setupStaleVideoDetection(streamImg);
+    function pauseStream() {
+        streamPolling = false;
+    }
+
+    function resumeStream() {
+        if (streamPolling) return;  // Already running
+        streamPolling = true;
+        streamBackoff = 1000;
+        const streamImg = document.getElementById('mjpeg-stream');
+        if (streamImg) streamImg.src = '/stream.jpg?t=' + Date.now();
     }
 
     function setupStaleVideoDetection(streamImg) {
