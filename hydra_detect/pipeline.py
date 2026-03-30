@@ -899,6 +899,7 @@ class Pipeline:
                 on_mission_end=self._handle_mission_end,
                 get_events=self._get_events,
                 get_event_status=self._event_logger.get_status,
+                play_tune=self._play_tune,
             )
 
             stream_state.update_stats(
@@ -2319,6 +2320,12 @@ class Pipeline:
             "callsign": self._cfg.get("tak", "callsign", fallback="HYDRA-1"),
             "events_sent": 0,
         }
+
+    def _play_tune(self, tune: str = "alert") -> bool:
+        """Play a tune on the Pixhawk buzzer."""
+        if self._mavlink is None:
+            return False
+        return self._mavlink.play_tune(tune)
 
     def _handle_restart_command(self) -> None:
         """Request a pipeline restart. Sets a flag; the main loop handles the actual restart."""

@@ -1215,6 +1215,27 @@ async def restart_pipeline(request: Request, authorization: Optional[str] = Head
     return JSONResponse({"error": "restart not available"}, status_code=503)
 
 
+@app.post("/api/vehicle/beep")
+async def api_vehicle_beep(request: Request):
+    """Play a tune on the Pixhawk buzzer. Body: {"tune": "alert"}
+
+    No auth required — this is a fun/debug feature, not a control action.
+    Valid tune names: alert, success, warning, error, charles, startup.
+    Or pass a raw QBASIC tune string.
+    """
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
+    tune = str(body.get("tune", "alert"))
+    if len(tune) > 100:
+        return JSONResponse({"error": "tune too long"}, status_code=400)
+    cb = stream_state.get_callback("play_tune")
+    if cb:
+        result = cb(tune)
+        return {"status": "ok" if result else "failed", "tune": tune}
+    return JSONResponse({"error": "MAVLink not connected"}, status_code=503)
+
+
 @app.get("/api/tak/targets")
 async def api_get_tak_targets():
     """List current TAK unicast targets."""

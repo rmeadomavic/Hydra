@@ -842,6 +842,47 @@ class MAVLinkIO:
         threading.Thread(target=_off, daemon=True, name="servo-flash").start()
 
     # ------------------------------------------------------------------
+    # Pixhawk buzzer — PLAY_TUNE
+    # ------------------------------------------------------------------
+    # ArduPilot QBASIC-style tune strings. See:
+    # https://ardupilot.org/dev/docs/mavlink-play-tune.html
+    TUNES = {
+        "alert":    "MFT200L8CDEC",           # Quick alert beep
+        "success":  "MFT240L4CEG>C",          # Happy ascending
+        "warning":  "MFT180L4GFED",           # Descending warning
+        "error":    "MFT200L2C<C",             # Two low beeps
+        "charles":  "MFT255L8CDEFEDCL4C",     # Special tune for Charles
+        "startup":  "MFT200L4CL8EGL4>C",      # Boot jingle
+    }
+
+    def play_tune(self, tune: str = "alert") -> bool:
+        """Play a tune on the Pixhawk buzzer via PLAY_TUNE MAVLink message.
+
+        Args:
+            tune: Either a tune name from TUNES dict, or a raw QBASIC
+                  tune string (e.g. "MFT200L8CDEC").
+
+        Returns:
+            True if the message was sent, False otherwise.
+        """
+        if self._mav is None:
+            return False
+        tune_str = self.TUNES.get(tune, tune)
+        try:
+            with self._send_lock:
+                self._mav.mav.play_tune_send(
+                    self._mav.target_system,
+                    self._mav.target_component,
+                    tune_str.encode("ascii")[:30],  # Max 30 chars
+                    b"",  # tune2 (extended, unused)
+                )
+            logger.info("Buzzer: playing tune '%s'", tune)
+            return True
+        except Exception as exc:
+            logger.warning("Failed to play tune: %s", exc)
+            return False
+
+    # ------------------------------------------------------------------
     # VIDEO_STREAM_INFORMATION — advertise RTSP stream to GCS
     # ------------------------------------------------------------------
     def send_video_stream_info(

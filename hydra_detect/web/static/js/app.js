@@ -462,6 +462,19 @@ const HydraApp = (() => {
                 }
             }, 2000);
         }
+
+        // Double-click video to toggle fullscreen
+        streamImg.addEventListener('dblclick', toggleFullscreen);
+    }
+
+    function toggleFullscreen() {
+        const el = document.getElementById('mjpeg-stream');
+        if (!el) return;
+        if (document.fullscreenElement) {
+            document.exitFullscreen();
+        } else {
+            el.requestFullscreen().catch(() => {});
+        }
     }
 
     function pauseStream() {
@@ -659,6 +672,7 @@ const HydraApp = (() => {
         authHeaders,
         setApiToken,
         toggleLowBandwidth,
+        toggleFullscreen,
         runPreflight,
         dismissPreflight,
     };

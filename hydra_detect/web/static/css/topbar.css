@@ -133,6 +133,13 @@ body.view-settings .topbar-thumbnail {
     background: #000;
     object-fit: contain;
     transition: all var(--transition-normal);
+    cursor: pointer;
+}
+#mjpeg-stream:fullscreen {
+    object-fit: contain;
+    width: 100vw;
+    height: 100vh;
+    background: #000;
 }
 body.view-operations #mjpeg-stream {
     top: var(--topbar-height);
