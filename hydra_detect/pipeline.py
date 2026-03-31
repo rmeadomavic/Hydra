@@ -49,7 +49,7 @@ from .tak.tak_output import TAKOutput
 from .tracker import ByteTracker
 from .profiles import get_profile, load_profiles
 from .web.config_api import set_config_path, set_engagement_check
-from .web.server import configure_auth, run_server, stream_state
+from .web.server import configure_auth, configure_web_password, run_server, stream_state
 
 logger = logging.getLogger(__name__)
 
@@ -830,6 +830,12 @@ class Pipeline:
                     self._cfg.set("web", "api_token", "")
                     api_token = ""
             configure_auth(api_token or None)
+
+            # Web password login (empty = disabled, current behavior preserved)
+            web_password = self._cfg.get("web", "web_password", fallback="").strip()
+            session_timeout = self._cfg.getint("web", "session_timeout_min", fallback=480)
+            tls_on = self._cfg.getboolean("web", "tls_enabled", fallback=False)
+            configure_web_password(web_password or None, session_timeout, tls_on)
 
             # Set initial runtime config for web UI
             stream_state.update_runtime_config({

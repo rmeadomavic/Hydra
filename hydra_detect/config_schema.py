@@ -101,6 +101,12 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
         "tls_enabled": FieldSpec(FieldType.BOOL, default=False, description="Enable TLS for web server"),
         "tls_cert": FieldSpec(FieldType.STRING, default="", description="Path to TLS certificate"),
         "tls_key": FieldSpec(FieldType.STRING, default="", description="Path to TLS private key"),
+        "web_password": FieldSpec(
+            FieldType.STRING, default="",
+            description="Password for web dashboard access (empty = no password required)"),
+        "session_timeout_min": FieldSpec(
+            FieldType.INT, min_val=5, max_val=1440, default=480,
+            description="Login session timeout in minutes"),
     },
     "autonomous": {
         "enabled": FieldSpec(FieldType.BOOL, default=False, description="Enable autonomous controller"),

@@ -7,17 +7,17 @@ Off by default. Enable with `[autonomous] enabled = true`.
 ## Safety Gate Chain
 
 ```mermaid
-graph TD
-    style A fill:#385723,color:#fff
-    style B fill:#385723,color:#fff
-    style C fill:#385723,color:#fff
-    style D fill:#385723,color:#fff
-    style E fill:#385723,color:#fff
-    style F fill:#385723,color:#fff
-    style G fill:#385723,color:#fff
-    style H fill:#385723,color:#fff
-    style PASS fill:#A6BC92,color:#000
-    style FAIL fill:#595959,color:#fff
+flowchart TD
+    style A fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style B fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style C fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style D fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style E fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style F fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style G fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style H fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style PASS fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style FAIL fill:#404040,color:#c0c0c0,stroke:#606060
 
     A[Controller enabled?] -->|yes| B[Vehicle in allowed mode?]
     A -->|no| FAIL[NO ACTION]

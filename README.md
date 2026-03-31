@@ -1,30 +1,29 @@
 # Hydra Detect v2.0
 
-<!-- TODO: Hero image -- Jetson mounted on USV with camera, SORCC green tint overlay -->
+![CI](https://github.com/rmeadomavic/Hydra/actions/workflows/ci.yml/badge.svg)
+![Platform](https://img.shields.io/badge/Platform-Jetson_Orin_Nano-2d3a2e?style=flat-square&labelColor=1a1a1a)
+![Vehicle](https://img.shields.io/badge/Vehicle-ArduPilot-2d3a2e?style=flat-square&labelColor=1a1a1a)
+![Detection](https://img.shields.io/badge/Detection-YOLOv8-2d3a2e?style=flat-square&labelColor=1a1a1a)
+![License](https://img.shields.io/badge/License-Internal-404040?style=flat-square&labelColor=1a1a1a)
 
-![Platform](https://img.shields.io/badge/Platform-Jetson_Orin_Nano-385723?style=flat-square)
-![Vehicle](https://img.shields.io/badge/Vehicle-ArduPilot-385723?style=flat-square)
-![Detection](https://img.shields.io/badge/Detection-YOLOv8-385723?style=flat-square)
-![Status](https://img.shields.io/badge/Status-Field_Ready-A6BC92?style=flat-square)
-
-Real-time object detection and tracking payload for uncrewed vehicles running ArduPilot. Runs on NVIDIA Jetson Orin Nano, processes a camera feed through YOLO and ByteTrack, and pushes detection data to your GCS over MAVLink. No firmware changes required. Drones, boats, rovers.
+Real-time object detection and tracking for uncrewed vehicles running ArduPilot. Runs on NVIDIA Jetson Orin Nano. Processes a camera feed through YOLO and ByteTrack, pushes detection data to your GCS over MAVLink. No firmware changes. Drones, boats, rovers.
 
 ## Architecture
 
 ```mermaid
 graph LR
-    style CAM fill:#385723,color:#fff
-    style DET fill:#385723,color:#fff
-    style TRK fill:#385723,color:#fff
-    style MAV fill:#A6BC92,color:#000
-    style WEB fill:#A6BC92,color:#000
-    style RTSP fill:#A6BC92,color:#000
-    style TAK fill:#A6BC92,color:#000
-    style LOG fill:#A6BC92,color:#000
-    style OSD fill:#A6BC92,color:#000
-    style MV fill:#A6BC92,color:#000
-    style EVT fill:#A6BC92,color:#000
-    style RF fill:#595959,color:#fff
+    style CAM fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style DET fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style TRK fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style MAV fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style WEB fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style RTSP fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style TAK fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style LOG fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style OSD fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style MV fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style EVT fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style RF fill:#404040,color:#c0c0c0,stroke:#606060
 
     CAM[Camera] --> DET[Detector<br/>YOLO]
     DET --> TRK[ByteTrack<br/>Tracker]
@@ -41,49 +40,76 @@ graph LR
 
 ## Quick Start
 
+**1. Clone and build**
+
 ```bash
 git clone https://github.com/rmeadomavic/Hydra.git && cd Hydra
 docker build --network=host -t hydra-detect .
-docker run --rm --privileged --runtime nvidia --network host \
-  -v $(pwd)/config.ini:/app/config.ini -v $(pwd)/models:/models \
-  -v $(pwd)/output_data:/data hydra-detect
-# Open http://<jetson-ip>:8080
 ```
 
-Or run the interactive setup: `bash scripts/hydra-setup.sh`
+**2. Configure hardware**
+
+Edit `config.ini` — set your camera source and MAVLink connection string. Disable MAVLink for bench testing.
+
+**3. Run**
+
+```bash
+docker run --rm --privileged --runtime nvidia --network host \
+  -v $(pwd)/config.ini:/app/config.ini \
+  -v $(pwd)/models:/models \
+  -v $(pwd)/output_data:/data \
+  hydra-detect
+```
+
+**4. Open the dashboard**
+
+Browse to `http://<jetson-ip>:8080`. Live video with detection overlays.
+
+Or run `bash scripts/hydra-setup.sh` for guided first-time setup.
 
 ## Features
 
-### Operations (Field Use)
+| Category | Feature | Detail |
+|----------|---------|--------|
+| **Operations** | YOLO detection | On-device via CUDA, 5+ FPS on Jetson Orin Nano |
+| | ByteTrack tracking | Persistent IDs across frames, handles occlusion |
+| | Target lock | Vehicle yaws to keep target centered (Keep in Frame) |
+| | Follow / Drop / Strike | Three approach modes with abort at any time |
+| | MAVLink alerts | STATUSTEXT with GPS coordinates to Mission Planner / QGC |
+| | TAK integration | Detection markers, self-SA, GeoChat command listener |
+| | FPV OSD | Detection telemetry on FPV feed (statustext, Lua, MSP DisplayPort) |
+| | RF homing | Locate WiFi/SDR sources via Kismet RSSI gradient ascent |
+| | Mission profiles | RECON / DELIVERY / STRIKE presets |
+| **Output** | Web dashboard | Live MJPEG stream with bounding boxes and HUD |
+| | RTSP server | H.264 output for external displays |
+| | Instructor page | Multi-vehicle overview with per-vehicle abort |
+| | Post-mission review | Map replay with detection markers and track trails |
+| | MAVLink video | Detection thumbnails over telemetry radio |
+| **Development** | Config schema | Typed validation with plain-English error messages |
+| | Chain of custody | SHA-256 hash chain on detection logs |
+| | Model manifest | Hash verification for all YOLO model files |
+| | Test suite | 50+ pytest files covering all subsystems |
+| | SITL mode | Hardware-free testing with ArduPilot simulator |
+| | Config freeze | Safety-critical fields locked during active engagement |
+| | Audit logging | Structured log of all control actions |
 
-- YOLOv8 detection on-device via CUDA, 5+ FPS on Jetson Orin Nano
-- ByteTrack multi-object tracking with persistent IDs
-- Target lock with vehicle yaw control (Keep in Frame)
-- Follow, Drop, and Strike approach modes
-- MAVLink STATUSTEXT alerts with GPS coordinates
-- TAK/ATAK integration: detection markers, self-SA, GeoChat commands
-- FPV OSD overlay (statustext, Lua named_value, MSP DisplayPort)
-- Pre-flight checklist on dashboard load
-- Mobile control page for phone operators
-- RF source localization via Kismet RSSI gradient ascent
-- Mission profiles: RECON, DELIVERY, STRIKE presets
+## Vehicle Compatibility
 
-### Demo (Leadership Showcases)
+| Feature | Drone | USV (Boat) | UGV (Rover) | Fixed Wing |
+|---------|:-----:|:----------:|:-----------:|:----------:|
+| Follow mode | ✓ | ✓ | ✓ | ~ |
+| Drop mode | ✓ | ✓ | ✓ | ~ |
+| Strike mode | ✓ | ✓ | ✓ | — |
+| Yaw control | CONDITION_YAW | Rudder | Steering | — |
+| Hold mode | LOITER | HOLD | HOLD | LOITER |
+| Dogleg RTL | ✓ | — | — | — |
+| SmartRTL | ✓ | ✓ | ✓ | ✓ |
+| Servo tracking | ✓ | ✓ | ✓ | ✓ |
+| RF homing | ✓ | ✓ | ✓ | ✓ |
 
-- Web dashboard with live MJPEG stream and bounding boxes
-- RTSP output for external displays
-- Instructor multi-vehicle overview page
-- Post-mission review map with detection markers and track replay
+`✓` supported  `~` limited  `—` not supported
 
-### Development
-
-- Config schema validation with plain-English errors
-- SHA-256 chain-of-custody on detection logs
-- Model manifest with hash verification
-- 50+ pytest test files covering all subsystems
-- SITL simulation mode for hardware-free testing
-- Config freeze during active engagement
-- Structured audit logging for all control actions
+Any ArduPilot vehicle with GUIDED mode works. The system auto-detects the correct hold mode.
 
 ## Documentation
 
@@ -102,22 +128,6 @@ Or run the interactive setup: `bash scripts/hydra-setup.sh`
 | [Deployment](docs/deployment.md) | systemd, Docker, TLS, multi-Jetson fleet |
 | [Development](docs/development.md) | Project layout, testing, extending |
 
-## Vehicle Compatibility
-
-| Feature | Drone | USV (Boat) | UGV (Rover) | Fixed Wing |
-|---------|-------|------------|-------------|------------|
-| Follow mode | Yes | Yes | Yes | Limited |
-| Drop mode | Yes | Yes | Yes | Limited |
-| Strike mode | Yes | Yes | Yes | Not recommended |
-| Yaw control | CONDITION_YAW | Rudder | Steering | No |
-| Hold mode | LOITER | HOLD | HOLD | LOITER |
-| Dogleg RTL | Yes | No | No | No |
-| SmartRTL | Yes | Yes | Yes | Yes |
-| Servo tracking | Yes | Yes | Yes | Yes |
-| RF homing | Yes | Yes | Yes | Yes |
-
-Any ArduPilot vehicle with GUIDED mode support works. The system auto-detects the correct hold mode.
-
 ## Dependencies
 
 - Python 3.10+
@@ -126,8 +136,9 @@ Any ArduPilot vehicle with GUIDED mode support works. The system auto-detects th
 - [supervision](https://github.com/roboflow/supervision) (ByteTrack)
 - [pymavlink](https://github.com/ArduPilot/pymavlink) + pyserial
 - FastAPI + uvicorn
-- Optional: `mgrs` (military grid coordinates), `requests` (Kismet API)
-- Optional: GStreamer + RTSP server (for RTSP output)
-- Optional: [Kismet](https://www.kismetwireless.net/) (RF source localization)
+- `mgrs` — military grid coordinates (optional)
+- `requests` — Kismet API client (optional)
+- GStreamer — RTSP output (optional)
+- [Kismet](https://www.kismetwireless.net/) — RF source localization (optional)
 
 Base Docker image: `dustynv/l4t-pytorch:r36.4.0` (CUDA, PyTorch, TensorRT included).

@@ -10,19 +10,19 @@ Requires Kismet running on the companion computer with a monitor-mode WiFi adapt
 stateDiagram-v2
     direction LR
 
-    classDef idle fill:#385723,color:#fff
-    classDef active fill:#A6BC92,color:#000
-    classDef done fill:#595959,color:#fff
+    classDef idle fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    classDef active fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    classDef terminal fill:#404040,color:#c0c0c0,stroke:#606060
 
     [*] --> IDLE:::idle
     IDLE --> SCANNING:::active : start command
     SCANNING --> SEARCHING:::active : Kismet connected, GPS valid
     SEARCHING --> HOMING:::active : RSSI > rssi_threshold_dbm
-    HOMING --> CONVERGED:::done : RSSI > rssi_converge_dbm
+    HOMING --> CONVERGED:::terminal : RSSI > rssi_converge_dbm
     HOMING --> LOST:::active : signal drops below threshold
     LOST --> SEARCHING:::active : return to search pattern
-    SEARCHING --> ABORTED:::done : stop command or geofence violation
-    HOMING --> ABORTED:::done : stop command or geofence violation
+    SEARCHING --> ABORTED:::terminal : stop command or geofence violation
+    HOMING --> ABORTED:::terminal : stop command or geofence violation
 ```
 
 ### States

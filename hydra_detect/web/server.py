@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import collections
 import datetime
+import hashlib
 import hmac
 import logging
 import re
+import secrets
 import threading
 import time
 from pathlib import Path
@@ -162,6 +164,13 @@ def _check_auth(
         host = request.headers.get("host", "")
         if origin and host and host in origin:
             return None
+        # Password-authenticated sessions also bypass Bearer token check
+        cookie_header = request.headers.get("cookie", "")
+        if cookie_header:
+            cookies = _parse_cookies(cookie_header)
+            session = cookies.get("hydra_session", "")
+            if session and _validate_session_cookie(session):
+                return None
 
     # Rate limit check — reject if too many recent failures from this IP
     client_ip = request.client.host if request and request.client else "unknown"
@@ -182,6 +191,156 @@ def _check_auth(
         _auth_failures[client_ip].append(now)
         return JSONResponse({"error": "Invalid API token"}, status_code=403)
     return None
+
+
+# ── Web password session auth ────────────────────────────────────────
+_web_password: str | None = None
+_session_secret: bytes = secrets.token_bytes(32)
+_session_timeout_sec: int = 8 * 3600
+_tls_active: bool = False
+
+
+def configure_web_password(
+    password: str | None,
+    timeout_min: int = 480,
+    tls_enabled: bool = False,
+) -> None:
+    """Enable password-based browser access. None or empty disables it."""
+    global _web_password, _session_timeout_sec, _tls_active
+    _web_password = password if password else None
+    _session_timeout_sec = timeout_min * 60
+    _tls_active = tls_enabled
+    if _web_password:
+        logger.info("Web password auth enabled (session timeout: %d min).", timeout_min)
+        if not tls_enabled:
+            logger.warning(
+                "web_password is set but TLS is disabled — "
+                "password will be sent in cleartext over HTTP."
+            )
+    else:
+        logger.info("Web password auth disabled (no password configured).")
+
+
+def _make_session_cookie() -> str:
+    """Create a signed session cookie: nonce:expires:signature."""
+    nonce = secrets.token_hex(16)
+    expires = int(time.time()) + _session_timeout_sec
+    payload = f"{nonce}:{expires}"
+    sig = hmac.new(_session_secret, payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}:{sig}"
+
+
+def _validate_session_cookie(cookie: str) -> bool:
+    """Verify HMAC signature and check expiry of a session cookie."""
+    parts = cookie.split(":")
+    if len(parts) != 3:
+        return False
+    payload = f"{parts[0]}:{parts[1]}"
+    expected = hmac.new(_session_secret, payload.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(parts[2], expected):
+        return False
+    try:
+        return int(parts[1]) > time.time()
+    except ValueError:
+        return False
+
+
+def _parse_cookies(cookie_header: str) -> dict[str, str]:
+    """Parse a Cookie header into a dict."""
+    cookies: dict[str, str] = {}
+    for pair in cookie_header.split(";"):
+        pair = pair.strip()
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            cookies[k.strip()] = v.strip()
+    return cookies
+
+
+# Paths that are always accessible without password login
+_PUBLIC_PATH_PREFIXES = ("/login", "/auth/", "/static/", "/api/health", "/api/preflight", "/api/abort")
+
+
+class _SessionAuthMiddleware:
+    """Pure ASGI middleware — gate all access behind password login.
+
+    Skips entirely when no web_password is configured (default).
+    Allows through requests with a valid Bearer token or session cookie.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or _web_password is None:
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+
+        # Public paths — always accessible
+        if any(path.startswith(p) for p in _PUBLIC_PATH_PREFIXES):
+            await self.app(scope, receive, send)
+            return
+
+        # Extract headers from raw ASGI scope
+        headers = dict(scope.get("headers", []))
+
+        # Allow requests with a valid Bearer token (API clients)
+        auth_header = headers.get(b"authorization", b"").decode()
+        if (
+            _api_token
+            and auth_header.startswith("Bearer ")
+            and hmac.compare_digest(auth_header[7:], _api_token)
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        # Check session cookie
+        cookie_header = headers.get(b"cookie", b"").decode()
+        if cookie_header:
+            cookies = _parse_cookies(cookie_header)
+            session = cookies.get("hydra_session", "")
+            if session and _validate_session_cookie(session):
+                await self.app(scope, receive, send)
+                return
+
+        # Not authenticated — decide response based on request type
+        accept = headers.get(b"accept", b"").decode()
+        if "text/html" in accept:
+            # Browser page request — redirect to login
+            redirect_body = b""
+            await send({
+                "type": "http.response.start",
+                "status": 302,
+                "headers": [
+                    [b"location", b"/login"],
+                    [b"content-length", b"0"],
+                ],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": redirect_body,
+            })
+        else:
+            # API request — return 401 JSON
+            import json as _json
+            body = _json.dumps({"error": "Login required"}).encode()
+            await send({
+                "type": "http.response.start",
+                "status": 401,
+                "headers": [
+                    [b"content-type", b"application/json"],
+                    [b"content-length", str(len(body)).encode()],
+                    [b"x-login-required", b"true"],
+                ],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": body,
+            })
+
+
+app.add_middleware(_SessionAuthMiddleware)
 
 
 # Dedicated audit logger for control actions
@@ -331,6 +490,72 @@ stream_state = StreamState()
 
 
 # ── Routes ────────────────────────────────────────────────────────────
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    """Serve the login page (or redirect to dashboard if already logged in)."""
+    if _web_password is None:
+        return Response(status_code=302, headers={"location": "/"})
+    cookie = request.cookies.get("hydra_session", "")
+    if cookie and _validate_session_cookie(cookie):
+        return Response(status_code=302, headers={"location": "/"})
+    return templates.TemplateResponse(request, "login.html")
+
+
+@app.post("/auth/login")
+async def auth_login(request: Request):
+    """Validate password and set session cookie."""
+    if _web_password is None:
+        return JSONResponse({"status": "ok"})
+
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+
+    # Rate limit check (reuse same tracking as Bearer token auth)
+    _auth_failures[client_ip] = [
+        t for t in _auth_failures.get(client_ip, []) if now - t < _AUTH_FAIL_WINDOW
+    ]
+    if not _auth_failures[client_ip] and client_ip in _auth_failures:
+        del _auth_failures[client_ip]
+    if len(_auth_failures.get(client_ip, [])) >= _AUTH_FAIL_MAX:
+        return JSONResponse(
+            {"error": "Too many failed attempts, try again later"}, status_code=429,
+        )
+
+    body = await _parse_json(request)
+    if not body or "password" not in body:
+        return JSONResponse({"error": "Missing password"}, status_code=400)
+
+    password = str(body["password"])
+    if not hmac.compare_digest(password, _web_password):
+        _auth_failures.setdefault(client_ip, []).append(now)
+        return JSONResponse({"error": "Wrong password"}, status_code=401)
+
+    cookie_value = _make_session_cookie()
+    cookie_flags = (
+        f"hydra_session={cookie_value}; "
+        f"HttpOnly; SameSite=Lax; Path=/; Max-Age={_session_timeout_sec}"
+    )
+    if _tls_active:
+        cookie_flags += "; Secure"
+
+    return JSONResponse(
+        {"status": "ok"},
+        headers={"set-cookie": cookie_flags},
+    )
+
+
+@app.post("/auth/logout")
+async def auth_logout():
+    """Clear session cookie."""
+    return JSONResponse(
+        {"status": "ok"},
+        headers={
+            "set-cookie": "hydra_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0",
+        },
+    )
+
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):

@@ -1,0 +1,126 @@
+/* Login page — Hydra Detect v2.0 */
+
+body {
+    margin: 0;
+    padding: 0;
+    background: var(--panel-bg);
+    color: var(--text-primary);
+    font-family: 'Barlow', sans-serif;
+    min-height: 100vh;
+}
+
+.login-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: var(--gap-lg);
+}
+
+.login-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-lg);
+    padding: var(--gap-xl) var(--gap-xl) var(--gap-lg);
+    width: 100%;
+    max-width: 340px;
+}
+
+.login-header {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+    margin-bottom: var(--gap-xl);
+    justify-content: center;
+}
+
+.login-badge {
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+}
+
+.login-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: var(--font-xl);
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.login-label {
+    display: block;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 600;
+    font-size: var(--font-sm);
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: var(--gap-xs);
+}
+
+.login-input {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    font-family: 'Barlow', sans-serif;
+    font-size: var(--font-base);
+    color: var(--text-primary);
+    background: var(--panel-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-md);
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color var(--transition-fast);
+}
+
+.login-input:focus {
+    border-color: var(--ogt-green);
+    box-shadow: var(--glow-green);
+}
+
+.login-error {
+    min-height: 20px;
+    font-size: var(--font-sm);
+    color: var(--danger);
+    margin-top: var(--gap-xs);
+    margin-bottom: var(--gap-sm);
+}
+
+.login-btn {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: var(--font-base);
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--ogt-light);
+    background: var(--ogt-green);
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.login-btn:hover {
+    background: var(--ogt-green-dark);
+}
+
+.login-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.login-footer {
+    margin-top: var(--gap-lg);
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: var(--font-xs);
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--text-dim);
+}
