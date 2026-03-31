@@ -49,7 +49,7 @@ RESTART_REQUIRED_FIELDS = {
 
 # Fields that must be redacted in GET responses
 REDACTED_FIELDS = {
-    "web": {"api_token"},
+    "web": {"api_token", "web_password"},
     "rf_homing": {"kismet_pass"},
 }
 

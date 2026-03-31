@@ -257,7 +257,14 @@ def _parse_cookies(cookie_header: str) -> dict[str, str]:
 
 
 # Paths that are always accessible without password login
-_PUBLIC_PATH_PREFIXES = ("/login", "/auth/", "/static/", "/api/health", "/api/preflight", "/api/abort")
+_PUBLIC_PATH_PREFIXES = (
+    "/login", "/auth/", "/static/",
+    "/api/health", "/api/preflight", "/api/abort",
+    "/api/stats",      # instructor page polls peers cross-origin
+    "/api/tracks",     # read-only dashboard data
+    "/stream.jpg",     # snapshot polling (img.src, no cookie in some contexts)
+    "/stream.mjpeg",   # MJPEG fallback
+)
 
 
 class _SessionAuthMiddleware:
