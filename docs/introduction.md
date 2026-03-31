@@ -25,15 +25,28 @@ Built by [SORCC](https://github.com/rmeadomavic/Hydra).
 
 ## Architecture
 
-```
-Camera -> Detector (YOLO) -> ByteTrack -> MAVLink Alerts
-                                               -> Target Lock / Strike
-                                               -> Autonomous Strike Controller
-                                               -> FPV OSD (via FC OSD chip)
-                                               -> Web Dashboard (MJPEG)
-                                               -> Detection Logger
+```mermaid
+graph LR
+    style CAM fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style DET fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style TRK fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style MAV fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style LCK fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style AUT fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style OSD fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style WEB fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style LOG fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style RF fill:#404040,color:#c0c0c0,stroke:#606060
 
-Kismet (WiFi/SDR) -> RF Hunt Controller -> RSSI Gradient Ascent -> MAVLink Nav
+    CAM[Camera] --> DET[Detector<br/>YOLO]
+    DET --> TRK[ByteTrack<br/>Tracker]
+    TRK --> MAV[MAVLink Alerts]
+    TRK --> LCK[Target Lock /<br/>Strike]
+    TRK --> AUT[Autonomous<br/>Controller]
+    TRK --> OSD[FPV OSD]
+    TRK --> WEB[Web Dashboard<br/>MJPEG]
+    TRK --> LOG[Detection<br/>Logger]
+    RF[Kismet<br/>SDR/WiFi] --> MAV
 ```
 
 Camera frames flow through YOLO for detection, ByteTrack for persistent multi-object tracking, then fan out to every downstream consumer simultaneously. RF homing runs as an independent pipeline using Kismet for RSSI data.
@@ -83,6 +96,10 @@ Camera frames flow through YOLO for detection, ByteTrack for persistent multi-ob
 </Card>
 
 </Columns>
+
+## What Hydra is NOT
+
+Hydra is a detection and tracking payload. It augments your existing GCS (Mission Planner, QGroundControl) — it does not replace it. It is not a standalone ground control station. It is not a weapons system; it provides targeting data, not fire control. It is not a substitute for operator training — the operator is always in the loop, and the GCS flight mode switch always overrides Hydra. It runs entirely on local hardware with no cloud dependency.
 
 ## Supported vehicles
 

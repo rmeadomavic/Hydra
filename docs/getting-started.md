@@ -4,13 +4,15 @@ Hydra Detect runs on NVIDIA Jetson Orin Nano as a companion computer to an ArduP
 
 ## Hardware Requirements
 
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| Companion computer | Jetson Orin Nano 4GB | Jetson Orin Nano 8GB |
-| Flight controller | Any ArduPilot FC with GUIDED mode | Pixhawk 6C, Matek H743 |
-| Camera | USB webcam (UVC) | Logitech C270/C920, analog via capture card |
-| Storage | 32GB microSD | 64GB+ microSD or NVMe |
-| MAVLink link | USB serial or UART | Pixhawk TELEM2 via GPIO UART |
+| Component | Required | Minimum | Recommended | Notes |
+|-----------|:--------:|---------|-------------|-------|
+| Companion computer | ✓ | Jetson Orin Nano 4GB | Jetson Orin Nano 8GB | 4-8 GB shared CPU/GPU RAM |
+| Flight controller | ✓ | Any ArduPilot FC with GUIDED mode | Pixhawk 6C, Matek H743 | |
+| Camera | ✓ | USB webcam (UVC) | Logitech C270/C920, analog via capture card | |
+| Storage | ✓ | 32GB microSD | 64GB+ microSD or NVMe | |
+| MAVLink link | ✓ | USB serial or UART | Pixhawk TELEM2 via GPIO UART | Disable for bench testing |
+| WiFi adapter | — | — | Monitor-mode capable | RF homing only |
+| RTL-SDR dongle | — | — | RTL-SDR v3/v4 | SDR homing only |
 
 > [!TIP]
 > The Jetson Orin Nano shares its 4-8 GB RAM between CPU and GPU. Keep this in mind when selecting models. `yolov8n.pt` (nano) fits comfortably. `yolov8s.pt` (small) works on 8GB units.
@@ -19,14 +21,14 @@ Hydra Detect runs on NVIDIA Jetson Orin Nano as a companion computer to an ArduP
 
 ```mermaid
 graph TD
-    style A fill:#385723,color:#fff
-    style B fill:#385723,color:#fff
-    style C fill:#385723,color:#fff
-    style D fill:#385723,color:#fff
-    style E fill:#A6BC92,color:#000
-    style F fill:#A6BC92,color:#000
-    style G fill:#A6BC92,color:#000
-    style H fill:#A6BC92,color:#000
+    style A fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style B fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style C fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style D fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style E fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style F fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style G fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style H fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
 
     A[systemd starts hydra-detect.service] --> B[Docker container launches]
     B --> C[Pipeline.__init__ reads config.ini]

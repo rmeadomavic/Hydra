@@ -2,6 +2,24 @@
 
 This guide covers production deployment of Hydra on Jetson hardware for field operations.
 
+## Deployment Topology
+
+```mermaid
+graph LR
+    style JETSON fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style FC fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    style GCS fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style TAK fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style RTSP fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    style TS fill:#404040,color:#c0c0c0,stroke:#606060
+
+    JETSON[Jetson Orin Nano] -->|MAVLink serial/UDP| FC[Flight Controller]
+    JETSON -->|HTTP :8080| GCS[GCS / Laptop]
+    JETSON -->|CoT multicast| TAK[TAK Devices]
+    JETSON -->|RTSP :8554| RTSP[External Display]
+    JETSON -.->|Tailscale tunnel| TS[Remote Access]
+```
+
 ## systemd Service
 
 The systemd unit file runs Hydra in a Docker container with automatic restart.

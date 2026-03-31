@@ -1,22 +1,21 @@
 # Web Dashboard
 
-The Hydra dashboard is a single-page application served on port 8080. It is the primary operator interface for monitoring detections, controlling the vehicle, and managing configuration.
+## Quick Reference
 
-The SPA has two main views (Operations and Settings) that share a common shell (`base.html`). Both views always exist in the DOM and toggle visibility via CSS. A standalone Review page lives at `/review`.
+| URL | Page | Audience | Purpose |
+|-----|------|----------|---------|
+| `/` | Dashboard | Operator | Live stream, tracks, target control |
+| `/control` | Mobile Control | Operator (phone) | Touch-optimized lock/strike/abort |
+| `/instructor` | Instructor | Instructor | Multi-vehicle overview + abort |
+| `/review` | Review | All | Post-mission map replay |
+| `/setup` | Setup Wizard | Instructor / Dev | First-boot hardware config |
+| `/login` | Login | All | Password gate (when `web_password` is set) |
 
-## Pages
-
-| Path | Page | Description |
-|------|------|-------------|
-| `/` | Dashboard SPA | Operations + Settings tabs |
-| `/control` | Mobile Control | Touch-friendly controls for phone |
-| `/instructor` | Instructor Overview | Multi-vehicle status from one browser |
-| `/review` | Post-Mission Review | Map with detection markers and track replay |
-| `/setup` | Setup Wizard | First-boot device configuration |
+The dashboard is a single-page application served on port 8080. Two main views (Operations and Settings) share a common shell. Both always exist in the DOM and toggle via CSS. Review is a standalone page at `/review`.
 
 ## Operations Tab
 
-<!-- TODO: Screenshot — dashboard-ops.png -->
+![Operations tab with active detections](images/dashboard-ops.png)
 
 The Operations tab shows the live video stream with bounding boxes, track IDs, and HUD overlays.
 
@@ -96,7 +95,7 @@ When RF homing is enabled, a dedicated panel shows:
 
 ## Settings Tab
 
-<!-- TODO: Screenshot — dashboard-settings.png -->
+![Settings tab with config editor](images/dashboard-settings.png)
 
 The Settings tab provides:
 
@@ -132,7 +131,7 @@ On Jetson hardware, displays current nvpmodel power mode and allows switching be
 
 ## Pre-flight Checklist
 
-<!-- TODO: Screenshot — dashboard-preflight-pass.png -->
+![Pre-flight checklist overlay](images/dashboard-preflight.png)
 
 On page load, the dashboard overlays a pre-flight checklist. Each subsystem shows green (pass), yellow (warn), or red (fail):
 
@@ -147,7 +146,7 @@ The checklist remains visible until the operator dismisses it. Access programmat
 
 ## Mobile Control Page
 
-<!-- TODO: Screenshot — dashboard-mobile.png -->
+![Mobile control page](images/dashboard-mobile.png)
 
 The `/control` page is a touch-optimized control surface for field use on phones. It shows:
 
@@ -159,7 +158,7 @@ No settings editing. Designed for the operator holding the RC transmitter.
 
 ## Instructor Overview Page
 
-<!-- TODO: Screenshot — dashboard-instructor.png -->
+![Instructor multi-vehicle overview](images/dashboard-instructor.png)
 
 The `/instructor` page shows multiple Hydra vehicles on one screen. It fetches `GET /api/stats` from each configured Jetson's IP address. Each vehicle card shows:
 

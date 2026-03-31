@@ -8,9 +8,9 @@ Hydra controls ArduPilot vehicles through MAVLink GUIDED mode commands. All vehi
 stateDiagram-v2
     direction LR
 
-    classDef idle fill:#385723,color:#fff
-    classDef active fill:#A6BC92,color:#000
-    classDef abort fill:#595959,color:#fff
+    classDef idle fill:#2d3a2e,color:#c8d8c0,stroke:#4a6741
+    classDef active fill:#3a4a3b,color:#b8ccb0,stroke:#5a7751
+    classDef terminal fill:#404040,color:#c0c0c0,stroke:#606060
 
     [*] --> IDLE:::idle
     IDLE --> FOLLOW:::active : operator locks + follow
@@ -29,6 +29,11 @@ stateDiagram-v2
     STRIKE --> IDLE:::idle : abort
     STRIKE_ARMED --> IDLE:::idle : abort (safes all channels)
 ```
+
+> **⚠️ Safety: GCS Always Wins**
+>
+> Changing flight mode from your GCS immediately overrides Hydra. Hydra never
+> holds exclusive control. The RC transmitter kill switch works at all times.
 
 ## Follow Mode
 
@@ -157,15 +162,17 @@ On abort:
 ## Vehicle Compatibility
 
 | Feature | Drone (ArduCopter) | USV (ArduRover boat) | UGV (ArduRover) | Fixed Wing |
-|---------|-------------------|---------------------|-----------------|------------|
-| Follow mode | Yes | Yes | Yes | Limited (no hover) |
-| Drop mode | Yes | Yes | Yes | Limited |
-| Strike mode | Yes | Yes | Yes | Not recommended |
-| Yaw control | CONDITION_YAW | Rudder steering | Steering | Not supported |
+|---------|:------------------:|:--------------------:|:---------------:|:----------:|
+| Follow mode | ✓ | ✓ | ✓ | ~ |
+| Drop mode | ✓ | ✓ | ✓ | ~ |
+| Strike mode | ✓ | ✓ | ✓ | — |
+| Yaw control | CONDITION_YAW | Rudder | Steering | — |
 | Hold mode | LOITER | HOLD | HOLD | LOITER |
-| SmartRTL | Yes | Yes | Yes | Yes |
-| Dogleg RTL | Yes | No | No | No |
-| Servo tracking | Yes | Yes | Yes | Yes |
+| SmartRTL | ✓ | ✓ | ✓ | ✓ |
+| Dogleg RTL | ✓ | — | — | — |
+| Servo tracking | ✓ | ✓ | ✓ | ✓ |
+
+`✓` supported  `~` limited  `—` not supported
 
 > [!TIP]
 > All vehicle control goes through MAVLink GUIDED mode. If you change the flight mode from your GCS at any time, it immediately overrides Hydra. Hydra never holds exclusive control.

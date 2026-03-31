@@ -13,7 +13,22 @@ keywords:
 
 # Quickstart
 
-Get Hydra running on your Jetson (or any Linux machine) and open the operator dashboard. Docker is the recommended path. Bare-metal is available if you need direct hardware access without containerization.
+## Prerequisites
+
+| Requirement | Details |
+|-------------|---------|
+| Hardware | Jetson Orin Nano (or any Linux box with CUDA) |
+| OS | JetPack 6.x (Jetson) or Ubuntu 22.04+ |
+| Docker | 24.0+ with nvidia-container-toolkit |
+| Network | WiFi or Ethernet on same subnet as GCS |
+| Camera | USB webcam or RTSP source |
+| MAVLink | Serial or UDP to flight controller (optional for bench testing) |
+
+**Result:** Hydra running with live video at `http://<jetson-ip>:8080`.
+
+---
+
+Get Hydra running on your Jetson and open the operator dashboard. Docker is the recommended path. Bare-metal works if you need direct hardware access without containerization.
 
 <Info>
   **Jetson users:** If you haven't flashed your Jetson yet, start with the [Jetson flash guide](/setup/jetson-flash) first, then come back here.
