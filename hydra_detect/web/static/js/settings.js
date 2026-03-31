@@ -39,8 +39,9 @@ const HydraSettings = (() => {
     const STATIC_DROPDOWNS = {
         'mode': {
             'osd': [
-                { value: 'statustext', label: 'statustext — simple, no Lua' },
-                { value: 'named_value', label: 'named_value — richer, needs Lua script' },
+                { value: 'statustext', label: 'Basic (MAVLink status text)' },
+                { value: 'named_value', label: 'Enhanced (requires Lua telemetry script)' },
+                { value: 'msp_displayport', label: 'MSP DisplayPort (HDZero VTX direct)' },
             ],
             'rf_homing': [
                 { value: 'wifi', label: 'WiFi (by BSSID)' },
@@ -215,6 +216,19 @@ const HydraSettings = (() => {
         // Show warning for autonomous section
         if (warning) {
             warning.style.display = section === 'autonomous' ? '' : 'none';
+        }
+
+        // Geofence not configured warning
+        if (section === 'autonomous' && configData.autonomous) {
+            const lat = parseFloat(configData.autonomous.geofence_lat || 0);
+            const lon = parseFloat(configData.autonomous.geofence_lon || 0);
+            if (lat === 0 && lon === 0) {
+                const geoWarn = document.createElement('div');
+                geoWarn.className = 'settings-warning';
+                geoWarn.style.display = '';
+                geoWarn.textContent = 'Geofence not configured \u2014 autonomous strike is DISABLED until valid coordinates are set.';
+                form.appendChild(geoWarn);
+            }
         }
 
         // Show power user link only in logging section

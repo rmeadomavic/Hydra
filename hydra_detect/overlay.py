@@ -172,6 +172,14 @@ def draw_tracks(
         mode_str = "STRIKE" if lock_mode == "strike" else "TRACK"
         hud_lines.append(f"LOCKED: #{locked_track_id} [{mode_str}]")
 
+    # Semi-transparent dark backdrop behind HUD text
+    if hud_lines:
+        hud_h = len(hud_lines) * 22 + 12
+        hud_w = 220
+        overlay_roi = frame[2:2 + hud_h, 4:4 + hud_w]
+        if overlay_roi.size > 0:
+            cv2.addWeighted(overlay_roi, 0.5, np.zeros_like(overlay_roi), 0.5, 0, overlay_roi)
+
     for i, line in enumerate(hud_lines):
         y = 24 + i * 22
         cv2.putText(

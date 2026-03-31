@@ -1,5 +1,32 @@
 # Hydra Dashboard Audit Log
 
+## Session: 2026-03-31 (morning UI polish pass)
+
+### STATUS: COMMITTED TO MAIN — PENDING DEPLOY
+
+After the Jetson's `git reset --hard` rolled back UI polish commits, a full
+audit identified 15 issues. All fixed in a single batch commit.
+
+| # | Priority | Issue | Fix |
+|---|----------|-------|-----|
+| 1 | HIGH | Battery shows "0.0V 0%" in red | Show "--" when battery_v < 0.5 (no sensor) |
+| 2 | HIGH | Position text orange | Remove inline `color:var(--warning)` from template |
+| 7 | HIGH | Active tab pill green fill gone | CSS: `background: var(--ogt-green)` on `.topbar-tab.active` |
+| 8 | HIGH | OSD mode shows raw internal values | Human labels: "Basic", "Enhanced", "MSP DisplayPort" |
+| 9 | HIGH | Release Lock enabled with 0 tracks | Disable button when track count is 0 |
+| 3 | MEDIUM | Status dots (CAM/MAV/GPS) gone | Re-added to topbar with color-coded indicators |
+| 4 | MEDIUM | Track counter badge gone | Re-added `0 TRACKS` badge to topbar |
+| 5 | MEDIUM | Footer shows only "UNCLASSIFIED" | 3-column: callsign+uptime \| UNCLASSIFIED \| SORCC |
+| 6 | MEDIUM | LOITER mode not highlighted | Added `.mode-active` class toggled per vehicle_mode |
+| 10 | MEDIUM | LOW BW / LOW LIGHT no tooltips | Added `title` attributes explaining each badge |
+| 11 | MEDIUM | Settings nav has no icons | Added emoji icons to each nav button |
+| 12 | MEDIUM | Geofence 0,0 shows no warning | Warning banner when lat/lon both 0.0 |
+| 13 | LOW | Video OSD text hard to read | Semi-transparent dark backdrop behind HUD |
+| 14 | LOW | Mission start allows blank name | Validation: toast + focus if empty |
+| 15 | LOW | Detection log empty with no message | "No detections yet" empty state |
+
+---
+
 ## Session: 2026-03-30 (overnight ~12:46 AM → ~8:30 AM)
 
 ### STATUS: ALL FIXES MERGED TO MAIN

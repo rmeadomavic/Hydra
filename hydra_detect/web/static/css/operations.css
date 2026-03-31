@@ -303,6 +303,15 @@
     font-size: var(--font-xs);
     padding: 5px 8px;
 }
+.panel-mode-btns .btn.mode-active {
+    background: var(--ogt-green);
+    color: #fff;
+    border-color: var(--ogt-green);
+}
+.panel-mode-btns .btn.btn-danger.mode-active {
+    background: var(--danger);
+    border-color: var(--danger);
+}
 
 /* ── Mode / Armed Badge Colors ── */
 .mode-badge { transition: all 0.3s ease; }

@@ -201,6 +201,35 @@ const HydraApp = (() => {
         if (badge) {
             badge.classList.toggle('visible', !!data.low_light);
         }
+
+        // Status dots (camera, mavlink, GPS)
+        const dotCam = document.getElementById('dot-camera');
+        const dotMav = document.getElementById('dot-mavlink');
+        const dotGps = document.getElementById('dot-gps');
+        if (dotCam) dotCam.className = 'status-dot ' + (data.camera_ok ? 'green' : 'red');
+        if (dotMav) dotMav.className = 'status-dot ' + (data.mavlink ? 'green' : 'red');
+        if (dotGps) {
+            const fix = data.gps_fix || 0;
+            dotGps.className = 'status-dot ' + (fix >= 3 ? 'green' : fix >= 2 ? 'yellow' : 'red');
+        }
+
+        // Track counter badge
+        const trackBadge = document.getElementById('track-count-badge');
+        if (trackBadge) trackBadge.textContent = `${data.active_tracks || 0} TRACKS`;
+
+        // Footer system info
+        const footerLeft = document.getElementById('footer-left');
+        if (footerLeft && data.callsign) {
+            const uptime = data.uptime_sec ? formatUptime(data.uptime_sec) : '--';
+            footerLeft.textContent = `${data.callsign} | TS: ${data.position || '--'} | Up: ${uptime}`;
+        }
+    }
+
+    function formatUptime(sec) {
+        if (!sec || sec < 0) return '--';
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        return `${h}h ${m}m`;
     }
 
     function updateConnectionStatus(connected) {

@@ -57,15 +57,33 @@
     color: #fff;
 }
 .topbar-tab.active {
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--ogt-green);
     color: #fff;
-    border-color: rgba(255, 255, 255, 0.3);
+    border-color: var(--ogt-green);
 }
 
 .topbar-right {
     display: flex;
     align-items: center;
     gap: var(--gap-md);
+}
+.status-dot {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.55rem;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.5);
+}
+.status-dot.green { color: #4ade80; }
+.status-dot.yellow { color: #facc15; }
+.status-dot.red { color: #f87171; }
+.topbar-tracks {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: var(--font-xs);
+    color: var(--ogt-muted);
+    font-weight: 600;
 }
 .topbar-fps {
     font-family: 'JetBrains Mono', monospace;
@@ -104,7 +122,8 @@ body.view-settings .topbar-thumbnail {
     border-top: 1px solid var(--card-border);
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: space-between;
+    padding: 0 var(--gap-md);
     z-index: 100;
     box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.3);
 }

@@ -41,8 +41,13 @@
             <div class="topbar-thumbnail" id="mini-thumbnail" title="Click to go to Operations">
                 <img id="mjpeg-thumbnail" alt="">
             </div>
-            <span class="low-light-badge" id="low-light-badge" aria-label="Low light warning">LOW LIGHT</span>
-            <button class="bandwidth-toggle" id="bandwidth-toggle" onclick="HydraApp.toggleLowBandwidth()" aria-label="Toggle low bandwidth mode">LOW BW</button>
+            <!-- Status dots -->
+            <span class="status-dot green" id="dot-camera" title="Camera">CAM</span>
+            <span class="status-dot" id="dot-mavlink" title="MAVLink">MAV</span>
+            <span class="status-dot" id="dot-gps" title="GPS Fix">GPS</span>
+            <span class="topbar-tracks" id="track-count-badge" title="Active tracks">0 TRACKS</span>
+            <span class="low-light-badge" id="low-light-badge" aria-label="Low light warning" title="Low light detected — image brightness below threshold">LOW LIGHT</span>
+            <button class="bandwidth-toggle" id="bandwidth-toggle" onclick="HydraApp.toggleLowBandwidth()" aria-label="Toggle low bandwidth mode" title="Toggle low bandwidth mode — reduces JPEG quality to save bandwidth">LOW BW</button>
             <span class="pill pill-live" id="connection-pill" aria-label="Connection status">
                 <span class="pill-dot"></span>
                 <span id="connection-text">LIVE</span>
@@ -131,7 +136,9 @@
 
     <!-- ── Footer ── -->
     <footer class="footer" role="contentinfo">
-        <span class="footer-text">Unclassified</span>
+        <span class="footer-text" id="footer-left">--</span>
+        <span class="footer-text">UNCLASSIFIED</span>
+        <span class="footer-text" id="footer-right">SORCC Payload Integrator</span>
     </footer>
 
     <!-- ── Scripts ── -->

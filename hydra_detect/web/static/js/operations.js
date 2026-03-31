@@ -399,6 +399,12 @@ const HydraOperations = (() => {
             modeBadge.className = 'badge mode-badge ' + (mode !== '--' ? mode.toLowerCase() : '');
         }
 
+        // Highlight active mode button
+        document.querySelectorAll('#panel-vehicle .btn-mode').forEach(btn => {
+            const isActive = btn.dataset.mode === s.vehicle_mode;
+            btn.classList.toggle('mode-active', isActive);
+        });
+
         // Check pending mode confirmation
         if (pendingMode && s.vehicle_mode) {
             if (s.vehicle_mode === pendingMode) {
@@ -416,13 +422,18 @@ const HydraOperations = (() => {
             armedBadge.className = 'badge armed-badge ' + (s.armed ? 'armed' : 'disarmed');
         }
 
-        // Battery
+        // Battery — show "--" when 0.0V (no real sensor / MAVLink not reporting)
         const battEl = document.getElementById('ctrl-battery');
-        if (battEl && s.battery_v != null) {
-            const pct = (s.battery_pct != null && s.battery_pct >= 0) ? ' ' + s.battery_pct + '%' : '';
-            battEl.textContent = s.battery_v.toFixed(1) + 'V' + pct;
-            const bpct = s.battery_pct != null ? s.battery_pct : 100;
-            battEl.style.color = bpct > 40 ? '#4a7c2e' : bpct > 20 ? '#eab308' : '#c53030';
+        if (battEl) {
+            if (s.battery_v != null && s.battery_v > 0.5) {
+                const pct = (s.battery_pct != null && s.battery_pct >= 0) ? ' ' + s.battery_pct + '%' : '';
+                battEl.textContent = s.battery_v.toFixed(1) + 'V' + pct;
+                const bpct = s.battery_pct != null ? s.battery_pct : 100;
+                battEl.style.color = bpct > 40 ? 'var(--ogt-green)' : bpct > 20 ? 'var(--warning)' : 'var(--danger)';
+            } else {
+                battEl.textContent = '--';
+                battEl.style.color = 'var(--text-dim)';
+            }
         }
 
         // Speed / Alt / Heading
@@ -507,6 +518,12 @@ const HydraOperations = (() => {
         // Track list — efficient diff to avoid full DOM rebuild every 500ms.
         // Reuses existing DOM nodes when possible to preserve button state
         // and prevent wrong-target-lock race conditions.
+        // Disable Release Lock when no tracks (stale lock state)
+        const releaseBtnNoTracks = document.getElementById('ctrl-btn-release');
+        if (releaseBtnNoTracks && (!tracks || tracks.length === 0)) {
+            releaseBtnNoTracks.disabled = true;
+        }
+
         if (!tracks || tracks.length === 0) {
             if (!list.querySelector('.panel-track-empty')) {
                 clearChildren(list);
@@ -657,7 +674,18 @@ const HydraOperations = (() => {
     function updateDetectionLog() {
         const dets = HydraApp.state.detections;
         const log = document.getElementById('ctrl-det-log');
-        if (!log || !dets || dets.length === 0) return;
+        if (!log) return;
+        if (!dets || dets.length === 0) {
+            if (!log.querySelector('.panel-det-empty')) {
+                clearChildren(log);
+                const empty = document.createElement('div');
+                empty.className = 'panel-det-empty';
+                empty.textContent = 'No detections yet';
+                empty.style.cssText = 'color:var(--text-dim);font-size:var(--font-sm);padding:8px;text-align:center;';
+                log.appendChild(empty);
+            }
+            return;
+        }
 
         clearChildren(log);
         for (let i = dets.length - 1; i >= 0; i--) {
@@ -1440,7 +1468,12 @@ const HydraOperations = (() => {
     async function startMission() {
         const input = document.getElementById('ctrl-mission-name');
         const name = input ? input.value.trim() : '';
-        const result = await HydraApp.apiPost('/api/mission/start', { name: name || undefined });
+        if (!name) {
+            HydraApp.showToast('Enter a mission name before starting', 'info');
+            if (input) input.focus();
+            return;
+        }
+        const result = await HydraApp.apiPost('/api/mission/start', { name });
         if (result && result.status === 'started') {
             HydraApp.showToast('Mission started: ' + result.name, 'success');
             if (input) input.value = '';
