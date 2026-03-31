@@ -99,6 +99,9 @@ class MAVLinkIO:
         # Serializes all MAVLink sends (prevents interleaving from video thread)
         self._send_lock = threading.Lock()
 
+        # Cached mode map (static after connection)
+        self._mode_map: dict | None = None
+
         # MAV_CMD_USER IDs for Hydra commands
         self.CMD_LOCK = 31010     # MAV_CMD_USER_1: param1=track_id
         self.CMD_STRIKE = 31011   # MAV_CMD_USER_2: param1=track_id
@@ -244,7 +247,8 @@ class MAVLinkIO:
                             msg.chan16_raw, msg.chan17_raw, msg.chan18_raw,
                         ]
                 elif msg_type == "HEARTBEAT":
-                    if msg.type == 6:  # Skip GCS heartbeats
+                    from pymavlink import mavutil as _mavutil
+                    if msg.type == _mavutil.mavlink.MAV_TYPE_GCS:  # Skip GCS heartbeats
                         continue
                     self._update_vehicle_mode(msg)
                     self._update_armed_state(msg)
@@ -287,6 +291,12 @@ class MAVLinkIO:
                 self._vehicle_mode = mode_name
         except Exception:
             pass
+
+    def _get_mode_map(self) -> dict:
+        """Return cached mode mapping (fetched once after connection)."""
+        if self._mode_map is None:
+            self._mode_map = self._mav.mode_mapping()
+        return self._mode_map
 
     def get_vehicle_mode(self) -> Optional[str]:
         """Return current vehicle flight mode name, or None if unknown."""
@@ -460,15 +470,14 @@ class MAVLinkIO:
             self._st_send_count = 0
             self._st_count_start = now
         sev = severity if severity is not None else self._severity
-        with self._lock:
-            try:
-                from pymavlink.dialects.v20 import common as mavlink2
-                payload = text[:50].ljust(50, '\0').encode('utf-8')
-                msg = mavlink2.MAVLink_statustext_message(severity=sev, text=payload)
-                with self._send_lock:
-                    self._mav.mav.send(msg, force_mavlink1=False)
-            except Exception as exc:
-                logger.warning("Failed to send STATUSTEXT: %s", exc)
+        try:
+            from pymavlink.dialects.v20 import common as mavlink2
+            payload = text[:50].ljust(50, '\0').encode('utf-8')
+            msg = mavlink2.MAVLink_statustext_message(severity=sev, text=payload)
+            with self._send_lock:
+                self._mav.mav.send(msg, force_mavlink1=False)
+        except Exception as exc:
+            logger.warning("Failed to send STATUSTEXT: %s", exc)
 
     def alert_detection(self, label: str, confidence: float = 0.0) -> None:
         """Rate-limited per-label detection alert with geo-coordinates.
@@ -528,7 +537,7 @@ class MAVLinkIO:
         if self._mav is None or not self._auto_loiter:
             return
         try:
-            mode_map = self._mav.mode_mapping()
+            mode_map = self._get_mode_map()
             # Try LOITER first (Copter), then HOLD (Rover)
             for mode_name in ("LOITER", "HOLD"):
                 if mode_name in mode_map:
@@ -655,7 +664,7 @@ class MAVLinkIO:
             from pymavlink import mavutil
 
             # Switch to GUIDED mode
-            mode_map = self._mav.mode_mapping()
+            mode_map = self._get_mode_map()
             if "GUIDED" in mode_map:
                 with self._send_lock:
                     self._mav.set_mode_apm(mode_map["GUIDED"])
@@ -687,7 +696,6 @@ class MAVLinkIO:
                     0, 0,               # yaw, yaw_rate (ignored)
                 )
             logger.info("GUIDED to %.6f, %.6f alt=%.1fm", lat, lon, alt)
-            self.send_statustext(f"STRIKE: GUIDED to {lat:.5f},{lon:.5f}", severity=1)  # ALERT — red in Mission Planner
             return True
 
         except Exception as exc:
@@ -925,6 +933,42 @@ class MAVLinkIO:
                 self._mav.mav.send(msg, force_mavlink1=False)
         except Exception as exc:
             logger.warning("Failed to send VIDEO_STREAM_INFORMATION: %s", exc)
+
+    # -- Public send helpers -------------------------------------------
+    def send_raw_message(self, msg) -> bool:
+        """Send a pre-built MAVLink message via the send lock."""
+        if self._mav is None:
+            return False
+        try:
+            with self._send_lock:
+                self._mav.mav.send(msg, force_mavlink1=False)
+            return True
+        except Exception as exc:
+            logger.warning("Failed to send raw message: %s", exc)
+            return False
+
+    def send_param_set(self, param_id: str, value: float, param_type: int = 9) -> bool:
+        """Send PARAM_SET message."""
+        if self._mav is None:
+            return False
+        try:
+            with self._send_lock:
+                self._mav.mav.param_set_send(
+                    self._mav.target_system,
+                    self._mav.target_component,
+                    param_id.encode("utf-8"),
+                    value,
+                    param_type,
+                )
+            return True
+        except Exception as exc:
+            logger.warning("Failed to send PARAM_SET %s: %s", param_id, exc)
+            return False
+
+    @property
+    def connected(self) -> bool:
+        """Whether the MAVLink connection is active."""
+        return self._mav is not None
 
     # -- Public accessors / mutators ------------------------------------
     @property
