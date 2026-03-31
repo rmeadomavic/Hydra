@@ -191,10 +191,12 @@ class TestStrikeMode:
 class TestAbort:
     def test_abort_from_follow(self):
         ctrl, mav = _make_controller()
+        # _make_mavlink returns "AUTO" as the vehicle mode captured on start
         ctrl.start_follow(1)
         ctrl.abort()
         assert ctrl.mode == ApproachMode.IDLE
-        mav.set_mode.assert_called_with("LOITER")
+        # Abort restores the pre-approach mode ("AUTO"), not the generic abort_mode
+        mav.set_mode.assert_called_with("AUTO")
 
     def test_abort_from_drop_safes_channel(self):
         ctrl, mav = _make_controller(drop_channel=6)

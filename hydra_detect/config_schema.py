@@ -225,6 +225,7 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
         "follow_speed_max": FieldSpec(FieldType.FLOAT, min_val=0.0, max_val=30.0, default=10.0, description="Maximum follow speed m/s"),
         "follow_distance_m": FieldSpec(FieldType.FLOAT, min_val=1.0, max_val=500.0, default=15.0, description="Follow standoff distance meters"),
         "follow_yaw_rate_max": FieldSpec(FieldType.FLOAT, min_val=1.0, max_val=180.0, default=30.0, description="Maximum yaw rate degrees/sec"),
+        "strike_approach_m": FieldSpec(FieldType.FLOAT, min_val=0.5, max_val=100.0, default=5.0, description="Strike close-approach distance meters (not standoff)"),
         "abort_mode": FieldSpec(FieldType.STRING, default="LOITER", description="ArduPilot mode on abort"),
         "waypoint_interval": FieldSpec(FieldType.FLOAT, min_val=0.1, max_val=10.0, default=0.5, description="Minimum seconds between waypoint updates"),
         "camera_hfov_deg": FieldSpec(FieldType.FLOAT, min_val=10.0, max_val=180.0, default=60.0, description="Camera horizontal FOV degrees"),
