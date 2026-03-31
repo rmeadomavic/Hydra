@@ -193,17 +193,10 @@ class FpvOsd:
 
     def _set_param(self, name: str, value: float) -> None:
         """Send a PARAM_SET message to set a parameter on the FC."""
-        if self._mav._mav is None:
+        if not self._mav.connected:
             return
         try:
-            with self._mav._lock:
-                self._mav._mav.mav.param_set_send(
-                    self._mav._mav.target_system,
-                    self._mav._mav.target_component,
-                    name.encode("utf-8").ljust(16, b"\x00"),
-                    value,
-                    9,  # MAV_PARAM_TYPE_REAL32 (float)
-                )
+            self._mav.send_param_set(name, value)
         except Exception as exc:
             logger.debug("OSD param_set %s failed: %s", name, exc)
 

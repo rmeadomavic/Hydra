@@ -12,8 +12,11 @@ import base64
 import csv
 import html
 import json
+import logging
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def parse_jsonl(path: Path) -> list[dict]:
@@ -83,16 +86,42 @@ def build_summary(records: list[dict]) -> dict:
     }
 
 
-def embed_images(records: list[dict], images_dir: Path) -> list[dict]:
-    """Replace image filenames with base64 data URIs for inline viewing."""
+def embed_images(records: list[dict], images_dir: Path, max_images: int = 100) -> list[dict]:
+    """Replace image filenames with base64 data URIs for inline viewing.
+
+    Args:
+        records: Detection records list (modified in-place).
+        images_dir: Directory containing detection images.
+        max_images: Maximum number of images to embed (prevents GB-scale output).
+
+    Returns:
+        The same records list with ``image_data`` keys added where applicable.
+    """
+    images_dir_resolved = images_dir.resolve()
+    embedded = 0
     for r in records:
         img = r.get("image")
-        if img:
-            img_path = images_dir / img
-            if img_path.exists():
-                data = img_path.read_bytes()
-                b64 = base64.b64encode(data).decode("ascii")
-                r["image_data"] = f"data:image/jpeg;base64,{b64}"
+        if not img:
+            continue
+        img_path = (images_dir / img).resolve()
+        # Guard against path traversal (e.g. img = "../../etc/passwd")
+        try:
+            img_path.relative_to(images_dir_resolved)
+        except ValueError:
+            logger.warning("Skipping image with path traversal attempt: %s", img)
+            continue
+        if not img_path.exists():
+            continue
+        if embedded >= max_images:
+            logger.warning(
+                "embed_images: reached max_images=%d — remaining images skipped",
+                max_images,
+            )
+            break
+        data = img_path.read_bytes()
+        b64 = base64.b64encode(data).decode("ascii")
+        r["image_data"] = f"data:image/jpeg;base64,{b64}"
+        embedded += 1
     return records
 
 
@@ -170,7 +199,7 @@ let ccm={{}},ac=new Set();
 function gc(l){{if(!(l in ccm))ccm[l]=CC[Object.keys(ccm).length%CC.length];return ccm[l]}}
 document.getElementById('hdrStats').textContent=`${{S.total}} detections | ${{S.tracks}} tracks | ${{S.with_gps}} geotagged`;
 const sb=document.getElementById('summaryBox');
-sb.innerHTML=`<div class="st">Total: <span>${{S.total}}</span></div><div class="st">Tracks: <span>${{S.tracks}}</span></div><div class="st">Geotagged: <span>${{S.with_gps}}</span></div><div class="st">Time: <span>${{(S.time_start||'').slice(11,19)}} → ${{(S.time_end||'').slice(11,19)}}</span></div>`;
+sb.innerHTML=`<div class="st">Total: <span>${{esc(S.total)}}</span></div><div class="st">Tracks: <span>${{esc(S.tracks)}}</span></div><div class="st">Geotagged: <span>${{esc(S.with_gps)}}</span></div><div class="st">Time: <span>${{esc((S.time_start||'').slice(11,19))}} \u2192 ${{esc((S.time_end||'').slice(11,19))}}</span></div>`;
 for(const[c,n]of Object.entries(S.classes))sb.innerHTML+=`<div class="st">${{esc(c)}}: <span>${{esc(n)}}</span></div>`;
 const cls=new Set(D.map(d=>d.label).filter(Boolean));ac=new Set(cls);
 const cfEl=document.getElementById('cf');
@@ -191,6 +220,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("logfile", help="Path to JSONL or CSV detection log file")
     parser.add_argument("-o", "--output", default="mission_report.html", help="Output HTML file")
     parser.add_argument("--images-dir", help="Directory of detection images to embed as base64")
+    parser.add_argument("--max-images", type=int, default=100,
+                        help="Maximum number of images to embed (default: 100)")
     parser.add_argument("--title", default="Hydra Mission Report", help="Report title")
     args = parser.parse_args(argv)
 
@@ -206,15 +237,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.images_dir:
         images_path = Path(args.images_dir)
         if images_path.is_dir():
-            records = embed_images(records, images_path)
+            records = embed_images(records, images_path, max_images=args.max_images)
         else:
             print(f"Warning: images directory not found: {images_path}", file=sys.stderr)
 
     summary = build_summary(records)
-    html = generate_html(records, summary, title=args.title)
+    html_content = generate_html(records, summary, title=args.title)
 
     output_path = Path(args.output)
-    output_path.write_text(html)
+    output_path.write_text(html_content)
     print(f"Report written to {output_path} ({len(records)} detections)")
     return 0
 

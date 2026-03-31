@@ -130,26 +130,28 @@ class EventLogger:
 
         Returns events in chronological order. Reads from the current open
         file (by reopening in read mode) so we don't disturb the append handle.
+        The lock is held for the entire read to prevent concurrent end_mission()
+        from deleting the file between the path check and the read.
         """
         with self._lock:
             if self._file is None:
                 return []
-            filepath = self._file.name
-        # Read from disk — the file is flushed after every write
-        try:
-            path = Path(filepath)
+            path = Path(self._file.name)
             if not path.exists():
                 return []
-            lines = path.read_text().strip().splitlines()
-            # Take last N lines
-            recent = lines[-max_events:]
-            events = []
-            for line in recent:
-                try:
-                    events.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-            return events
-        except Exception as exc:
-            logger.debug("Event logger read error: %s", exc)
-            return []
+            try:
+                # Tail-read: take only the last max_events lines to avoid
+                # loading the entire file into memory for large mission logs.
+                lines = path.read_text().strip().splitlines()[-max_events:]
+            except Exception as exc:
+                logger.debug("Event logger read error: %s", exc)
+                return []
+        events = []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return events

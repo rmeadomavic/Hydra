@@ -22,13 +22,16 @@ from hydra_detect.tracker import TrackedObject, TrackingResult
 # ---------------------------------------------------------------------------
 
 def _make_mavlink_mock() -> MagicMock:
-    """Create a mock MAVLinkIO with inner _mav and _lock."""
+    """Create a mock MAVLinkIO with public API (connected + send_param_set)."""
     mav = MagicMock()
     mav._mav = MagicMock()
     mav._lock = MagicMock()
     # Make the lock usable as a context manager
     mav._lock.__enter__ = MagicMock(return_value=None)
     mav._lock.__exit__ = MagicMock(return_value=False)
+    # Public API used by _set_param after Fix 7
+    mav.connected = True
+    mav.send_param_set = MagicMock(return_value=True)
     return mav
 
 
@@ -157,7 +160,7 @@ class TestFpvOsdStatustext:
 
 class TestFpvOsdNamedValue:
     def test_sends_scr_user_params(self):
-        """named_value mode sends PARAM_SET for SCR_USER1-6."""
+        """named_value mode sends PARAM_SET for SCR_USER1-6 via public API."""
         mav = _make_mavlink_mock()
         osd = FpvOsd(mav, mode="named_value", update_interval=0.0)
         state = OSDState(
@@ -167,17 +170,16 @@ class TestFpvOsdNamedValue:
 
         osd.update(state)
 
-        inner = mav._mav.mav
         # Should send PARAM_SET for: USER1(fps), USER2(infms), USER3(trks),
         # USER4(lkid=-1), USER5(lkmod=0), USER6(top_class_id)
-        assert inner.param_set_send.call_count == 6
+        assert mav.send_param_set.call_count == 6
 
         # Verify the param names and values from the calls
-        calls = inner.param_set_send.call_args_list
+        calls = mav.send_param_set.call_args_list
         param_map = {}
         for call in calls:
-            name = call[0][2].rstrip(b"\x00").decode("utf-8")
-            value = call[0][3]
+            name = call[0][0]   # first positional arg = param_id string
+            value = call[0][1]  # second positional arg = value
             param_map[name] = value
 
         assert abs(param_map["SCR_USER1"] - 12.0) < 0.01
@@ -197,16 +199,15 @@ class TestFpvOsdNamedValue:
 
         osd.update(state)
 
-        inner = mav._mav.mav
-        # All 6 SCR_USER params sent
-        assert inner.param_set_send.call_count == 6
+        # All 6 SCR_USER params sent via public API
+        assert mav.send_param_set.call_count == 6
 
         # Verify lock-specific values
-        calls = inner.param_set_send.call_args_list
+        calls = mav.send_param_set.call_args_list
         param_map = {}
         for call in calls:
-            name = call[0][2].rstrip(b"\x00").decode("utf-8")
-            value = call[0][3]
+            name = call[0][0]
+            value = call[0][1]
             param_map[name] = value
 
         assert abs(param_map["SCR_USER4"] - 5.0) < 0.01    # locked_track_id
@@ -214,7 +215,7 @@ class TestFpvOsdNamedValue:
 
     def test_no_send_when_mav_disconnected(self):
         mav = _make_mavlink_mock()
-        mav._mav = None  # Disconnected
+        mav.connected = False  # Simulate disconnected state
         osd = FpvOsd(mav, mode="named_value", update_interval=0.0)
         state = OSDState(fps=10.0, inference_ms=20.0, active_tracks=0)
 
@@ -523,4 +524,4 @@ class TestFpvOsdMspDisplayPort:
         state = OSDState(fps=10.0, inference_ms=20.0, active_tracks=0)
         osd.update(state)
         mav.send_statustext.assert_not_called()
-        mav._mav.mav.param_set_send.assert_not_called()
+        mav.send_param_set.assert_not_called()
