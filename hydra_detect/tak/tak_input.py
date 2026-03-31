@@ -42,6 +42,7 @@ def _callsign_matches(command_prefix: str, my_callsign: str) -> bool:
 
     # Bare "HYDRA" — backwards compat for any HYDRA-* callsign
     if prefix_upper == "HYDRA" and cs_upper.startswith("HYDRA"):
+        logger.debug("Bare HYDRA prefix match — consider using exact callsign")
         return True
 
     # Full wildcard: HYDRA-ALL
@@ -113,6 +114,7 @@ class TAKInput:
         self._commands_dispatched = 0
         self._commands_rejected = 0
         self._duplicate_callsign = False
+        self._duplicate_callsign_time: float = 0.0
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -174,10 +176,19 @@ class TAKInput:
             self._commands_rejected,
         )
 
+    def is_running(self) -> bool:
+        """Return True if the listener thread is alive."""
+        return self._thread is not None and self._thread.is_alive()
+
     def get_status(self) -> dict:
         """Return status dict for the web API."""
+        # Auto-clear duplicate callsign flag after 60 s without re-detection
+        if self._duplicate_callsign and (
+            time.monotonic() - self._duplicate_callsign_time
+        ) > 60:
+            self._duplicate_callsign = False
         return {
-            "listening": self._thread is not None and self._thread.is_alive(),
+            "listening": self.is_running(),
             "port": self._port,
             "events_received": self._events_received,
             "commands_dispatched": self._commands_dispatched,
@@ -281,6 +292,7 @@ class TAKInput:
                         sender_cs,
                     )
                 self._duplicate_callsign = True
+                self._duplicate_callsign_time = time.monotonic()
 
     # ------------------------------------------------------------------
     # Listener thread
