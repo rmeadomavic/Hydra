@@ -1241,6 +1241,7 @@ class Pipeline:
                     track_result,
                     alert_classes=self._alert_classes,
                     locked_track_id=current_lock_id,
+                    frame_w=frame.shape[1],
                 )
 
             # TAK/ATAK CoT output
