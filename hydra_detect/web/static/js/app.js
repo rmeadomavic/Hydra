@@ -262,6 +262,11 @@ const HydraApp = (() => {
                 headers: authHeaders(),
                 body: JSON.stringify(body),
             });
+            // If 401 with login-required header, redirect to login page
+            if (resp.status === 401 && resp.headers.get('x-login-required')) {
+                window.location.href = '/login';
+                return null;
+            }
             // If 401, prompt for token and retry once
             if (resp.status === 401 && promptForToken()) {
                 resp = await fetch(url, {

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login — HYDRA DETECT</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/variables.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/login.css">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <svg class="login-badge" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="17" y="2" width="21" height="21" rx="2" transform="rotate(45 17 2)" fill="#385723" stroke="#A6BC92" stroke-width="1"/>
+                    <text x="17" y="20" text-anchor="middle" fill="#EFF5EB" font-family="Barlow Condensed" font-size="8" font-weight="700" letter-spacing="0.08em">SORCC</text>
+                </svg>
+                <h1 class="login-title">Hydra Detect</h1>
+            </div>
+            <form id="login-form" autocomplete="off">
+                <label class="login-label" for="password">Password</label>
+                <input
+                    class="login-input"
+                    type="password"
+                    id="password"
+                    name="password"
+                    placeholder="Enter password"
+                    autocomplete="current-password"
+                    required
+                >
+                <div class="login-error" id="login-error"></div>
+                <button class="login-btn" type="submit" id="login-btn">Log In</button>
+            </form>
+        </div>
+        <footer class="login-footer">Unclassified</footer>
+    </div>
+    <script src="/static/js/login.js"></script>
+</body>
+</html>
