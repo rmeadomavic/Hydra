@@ -218,6 +218,9 @@ def _configure_analog_input(device: str, video_standard: str) -> None:
 
     Attempts to set the composite input and video standard via v4l2-ctl.
     Logs warnings and continues gracefully if commands fail.
+
+    ``video_standard`` accepts: ``"ntsc"``, ``"pal"``, or ``"auto"`` (relies on
+    the dongle's own auto-detection — skips the ``--set-standard`` call).
     """
     if not _have_v4l2ctl():
         logger.warning(
@@ -383,6 +386,7 @@ class Camera:
             if not ok:
                 logger.warning("Frame grab failed, will reconnect.")
                 self._cap.release()
+                self._cap = None
                 continue
 
             backoff = 1.0
@@ -403,7 +407,8 @@ class Camera:
         # Stop current capture
         self._running = False
         if self._thread is not None:
-            self._thread.join(timeout=5.0)
+            # Timeout must exceed max backoff (30s) to avoid racing with the grab thread
+            self._thread.join(timeout=35.0)
         if self._cap is not None:
             self._cap.release()
 
