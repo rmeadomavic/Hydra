@@ -66,7 +66,12 @@ def _draw_single_track(
     if is_locked and lock_mode == "strike":
         # ── STRIKE MODE: blinking red box with X crosshair ──
         if blink_on:
-            cv2.rectangle(frame, (x1 - 2, y1 - 2), (x2 + 2, y2 + 2), _STRIKE_COLOUR, 3)
+            cv2.rectangle(
+                frame,
+                (max(0, x1 - 2), max(0, y1 - 2)),
+                (min(w - 1, x2 + 2), min(h - 1, y2 + 2)),
+                _STRIKE_COLOUR, 3,
+            )
         _draw_corner_brackets(frame, x1, y1, x2, y2, _STRIKE_COLOUR)
         # X crosshair at center (diagonal lines — large and bold)
         xlen = max(25, min(x2 - x1, y2 - y1) // 3)
@@ -82,7 +87,12 @@ def _draw_single_track(
 
     elif is_locked and lock_mode == "track":
         # ── TRACK MODE: solid green box with + crosshair ──
-        cv2.rectangle(frame, (x1 - 2, y1 - 2), (x2 + 2, y2 + 2), _TRACK_COLOUR, 3)
+        cv2.rectangle(
+            frame,
+            (max(0, x1 - 2), max(0, y1 - 2)),
+            (min(w - 1, x2 + 2), min(h - 1, y2 + 2)),
+            _TRACK_COLOUR, 3,
+        )
         _draw_corner_brackets(frame, x1, y1, x2, y2, _TRACK_COLOUR)
         # + crosshair at center
         cv2.line(frame, (cx - 12, cy), (cx + 12, cy), _TRACK_COLOUR, 1)
@@ -178,7 +188,7 @@ def draw_tracks(
         hud_w = 220
         overlay_roi = frame[2:2 + hud_h, 4:4 + hud_w]
         if overlay_roi.size > 0:
-            cv2.addWeighted(overlay_roi, 0.5, np.zeros_like(overlay_roi), 0.5, 0, overlay_roi)
+            cv2.multiply(overlay_roi, 0.5, dst=overlay_roi)
 
     for i, line in enumerate(hud_lines):
         y = 24 + i * 22
