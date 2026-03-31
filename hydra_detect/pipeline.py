@@ -273,13 +273,17 @@ class Pipeline:
             )
 
         # Pixel-lock servo tracker
+        self._pan_ch: int = 1
+        self._strike_ch: int = 2
         self._servo_tracker: ServoTracker | None = None
         if (
             self._mavlink is not None
             and self._cfg.getboolean("servo_tracking", "enabled", fallback=False)
         ):
-            pan_ch = self._cfg.getint("servo_tracking", "pan_channel", fallback=1)
-            strike_ch = self._cfg.getint("servo_tracking", "strike_channel", fallback=2)
+            self._pan_ch = self._cfg.getint("servo_tracking", "pan_channel", fallback=1)
+            self._strike_ch = self._cfg.getint("servo_tracking", "strike_channel", fallback=2)
+            pan_ch = self._pan_ch
+            strike_ch = self._strike_ch
             # Channel collision check
             channels = [pan_ch, strike_ch]
             if self._light_bar_enabled:
@@ -656,6 +660,13 @@ class Pipeline:
         self._low_light_threshold: float = self._cfg.getfloat(
             "detector", "low_light_luminance", fallback=40.0
         )
+        # Cache engagement distances (read once at init; avoids config reads on web thread)
+        self._strike_distance_m: float = self._cfg.getfloat(
+            "mavlink", "strike_distance_m", fallback=20.0
+        )
+        self._drop_distance_m: float = self._cfg.getfloat(
+            "mavlink", "strike_distance_m", fallback=20.0
+        )
         # Pre-populate the nvpmodel cache synchronously at startup (not in the
         # hot loop, so blocking here is fine) then read sysfs stats.
         _query_nvpmodel_sync()
@@ -674,6 +685,21 @@ class Pipeline:
         if not hasattr(self, "_servo_tracker"):
             self._servo_tracker = None
 
+        # Engagement distances — read from config in __init__; fall back to defaults
+        # here so tests that bypass __init__ still have these attributes defined.
+        if not hasattr(self, "_strike_distance_m"):
+            _cfg = getattr(self, "_cfg", None)
+            self._strike_distance_m = (
+                _cfg.getfloat("mavlink", "strike_distance_m", fallback=20.0)
+                if _cfg is not None else 20.0
+            )
+        if not hasattr(self, "_drop_distance_m"):
+            _cfg = getattr(self, "_cfg", None)
+            self._drop_distance_m = (
+                _cfg.getfloat("mavlink", "strike_distance_m", fallback=20.0)
+                if _cfg is not None else 20.0
+            )
+
         # Mission tagging state
         self._mission_name: str | None = None
         self._mission_start_time: float | None = None
@@ -689,11 +715,6 @@ class Pipeline:
     # ------------------------------------------------------------------
     def start(self) -> None:
         """Initialise all subsystems and run the main loop."""
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-        )
-
         # OPSEC: wipe previous session data on start if configured
         # Must run BEFORE opening log files to avoid deleting a just-opened hydra.log
         if self._cfg.getboolean("logging", "wipe_on_start", fallback=False):
@@ -757,10 +778,10 @@ class Pipeline:
         # Init subsystems — clean up on partial failure
         try:
             self._detector.load()
-        except Exception as exc:
-            logger.error("Detector failed to load: %s", exc)
+        except Exception:
+            logger.exception("Detector failed to load")
             sys.exit(1)
-        logger.info("Detector engine: yolo")
+        logger.info("Detector engine: %s", type(self._detector).__name__)
 
         self._tracker.init()
 
@@ -1052,7 +1073,8 @@ class Pipeline:
 
                 # Restart TAK output if thread died
                 if self._tak is not None:
-                    if self._tak._thread is None or not self._tak._thread.is_alive():
+                    _tak_thread = getattr(self._tak, "_thread", None)
+                    if _tak_thread is None or not _tak_thread.is_alive():
                         logger.info("Restarting TAK output ...")
                         if self._tak.start():
                             logger.info("TAK output restarted")
@@ -1061,7 +1083,8 @@ class Pipeline:
 
                 # Restart TAK command listener if thread died
                 if self._tak_input is not None:
-                    if self._tak_input._thread is None or not self._tak_input._thread.is_alive():
+                    _tak_in_thread = getattr(self._tak_input, "_thread", None)
+                    if _tak_in_thread is None or not _tak_in_thread.is_alive():
                         logger.info("Restarting TAK command listener ...")
                         if self._tak_input.start():
                             logger.info("TAK command listener restarted")
@@ -1070,7 +1093,8 @@ class Pipeline:
 
                 # Restart RF hunt if it was stopped (check thread, not state)
                 if self._rf_hunt is not None:
-                    if self._rf_hunt._thread is None or not self._rf_hunt._thread.is_alive():
+                    _rf_thread = getattr(self._rf_hunt, "_thread", None)
+                    if _rf_thread is None or not _rf_thread.is_alive():
                         logger.info("Restarting RF hunt ...")
                         if self._rf_hunt.start():
                             logger.info("RF hunt restarted")
@@ -1158,9 +1182,8 @@ class Pipeline:
                 time.sleep(0.01)
                 continue
 
-            # Brightness monitoring (cheap: single-channel mean, no copy)
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            self._last_brightness = float(gray.mean())
+            # Brightness monitoring: green channel mean — zero allocation, no copy
+            self._last_brightness = float(frame[:, :, 1].mean())
             was_low = self._low_light
             self._low_light = self._last_brightness < self._low_light_threshold
             if self._low_light and not self._low_light_warned:
@@ -1179,6 +1202,9 @@ class Pipeline:
 
             # Detect
             det_result = self._detector.detect(frame)
+            # Watchdog: stamp immediately after inference so the watchdog knows
+            # the pipeline is alive even if render/RTSP/stats takes time.
+            self._last_frame_time = time.monotonic()
 
             # Track
             track_result = self._tracker.update(det_result)
@@ -1188,21 +1214,19 @@ class Pipeline:
                 current_lock_id = self._locked_track_id
                 current_lock_mode = self._lock_mode
 
-            # Get GPS state for logging and alerts
-            gps = None
-            if self._mavlink is not None:
-                gps = self._mavlink.get_gps()
+            # Cache GPS and telemetry once per frame — reused in stats and logging
+            cached_gps = self._mavlink.get_gps() if self._mavlink is not None else None
+            cached_telem: dict = self._mavlink.get_telemetry() if self._mavlink is not None else {}
 
             # Vehicle track logging at 1 Hz (rate-limited inside)
-            if gps is not None and gps.get("fix", 0) >= 3:
-                telem = self._mavlink.get_telemetry()
+            if cached_gps is not None and cached_gps.get("fix", 0) >= 3:
                 self._event_logger.log_vehicle_track(
-                    lat=gps.get("lat", 0.0),
-                    lon=gps.get("lon", 0.0),
-                    alt=gps.get("alt", 0.0),
-                    heading=telem.get("heading"),
-                    speed=telem.get("groundspeed"),
-                    mode=telem.get("vehicle_mode"),
+                    lat=cached_gps.get("lat", 0.0),
+                    lon=cached_gps.get("lon", 0.0),
+                    alt=cached_gps.get("alt", 0.0),
+                    heading=cached_telem.get("heading"),
+                    speed=cached_telem.get("groundspeed"),
+                    mode=cached_telem.get("vehicle_mode"),
                 )
 
             # MAVLink alerts (per-label throttled)
@@ -1213,10 +1237,13 @@ class Pipeline:
                     if track.label not in alerted_labels:
                         self._mavlink.alert_detection(track.label, track.confidence)
                         alerted_labels.add(track.label)
-                alert_sent = len(alerted_labels) > 0
+                if not alerted_labels and self._alert_classes:
+                    logger.debug(
+                        "No alert-class matches (active=%s)", self._alert_classes
+                    )
 
                 # Flash light bar when detections are present (throttled)
-                if alert_sent and self._light_bar_enabled:
+                if self._light_bar_enabled:
                     now = time.monotonic()
                     interval = self._light_bar_flash_sec + 0.2
                     if (now - self._light_bar_last_flash) >= interval:
@@ -1296,10 +1323,9 @@ class Pipeline:
                         self._handle_target_unlock(reason="lost")
 
             # Log with GPS data
-            self._det_logger.log(track_result, frame, gps=gps)
+            self._det_logger.log(track_result, frame, gps=cached_gps)
 
             # Render overlay
-            self._last_frame_time = time.monotonic()
             fps = fps_counter.tick()
             with self._state_lock:
                 render_lock_id = self._locked_track_id
@@ -1318,7 +1344,7 @@ class Pipeline:
             if self._osd is not None:
                 osd_state = build_osd_state(
                     track_result, fps, det_result.inference_ms,
-                    render_lock_id, render_lock_mode, gps,
+                    render_lock_id, render_lock_mode, cached_gps,
                 )
                 self._osd.update(osd_state)
 
@@ -1351,16 +1377,14 @@ class Pipeline:
                 if self._tak_input is not None:
                     stats_update["duplicate_callsign"] = self._tak_input._duplicate_callsign
                 if self._mavlink is not None:
-                    telem = self._mavlink.get_telemetry()
-                    stats_update["vehicle_mode"] = telem.get("vehicle_mode")
-                    stats_update["armed"] = telem.get("armed", False)
-                    stats_update["battery_v"] = telem.get("battery_v")
-                    stats_update["battery_pct"] = telem.get("battery_pct")
-                    stats_update["groundspeed"] = telem.get("groundspeed")
-                    stats_update["altitude_m"] = telem.get("altitude")
-                    stats_update["heading_deg"] = telem.get("heading")
-                    gps_data = self._mavlink.get_gps()
-                    stats_update["gps_fix"] = gps_data.get("fix", 0)
+                    stats_update["vehicle_mode"] = cached_telem.get("vehicle_mode")
+                    stats_update["armed"] = cached_telem.get("armed", False)
+                    stats_update["battery_v"] = cached_telem.get("battery_v")
+                    stats_update["battery_pct"] = cached_telem.get("battery_pct")
+                    stats_update["groundspeed"] = cached_telem.get("groundspeed")
+                    stats_update["altitude_m"] = cached_telem.get("altitude")
+                    stats_update["heading_deg"] = cached_telem.get("heading")
+                    stats_update["gps_fix"] = cached_gps.get("fix", 0) if cached_gps else 0
                     stats_update["position"] = self._mavlink.get_position_string()
                     stats_update["is_sim_gps"] = self._mavlink.is_sim_gps
                 # Refresh Jetson stats every ~5 seconds (not every frame).
@@ -1561,11 +1585,10 @@ class Pipeline:
         error_x = (cx - frame_w / 2.0) / (frame_w / 2.0)
 
         # Estimate target GPS position
-        approach_dist = self._cfg.getfloat("mavlink", "strike_distance_m", fallback=20.0)
         _hfov_default = 120.0 if self._camera.source_type == "analog" else 60.0
         camera_hfov = self._cfg.getfloat("camera", "hfov_deg", fallback=_hfov_default)
         target_pos = self._mavlink.estimate_target_position(
-            error_x, approach_dist, camera_hfov
+            error_x, self._strike_distance_m, camera_hfov
         )
         if target_pos is None:
             logger.warning("Strike failed: no GPS fix or heading.")
@@ -1765,11 +1788,10 @@ class Pipeline:
             frame_w = 640
         cx = (target_track.x1 + target_track.x2) / 2.0
         error_x = (cx - frame_w / 2.0) / (frame_w / 2.0)
-        approach_dist = self._cfg.getfloat("mavlink", "strike_distance_m", fallback=20.0)
         _hfov_default = 120.0 if self._camera.source_type == "analog" else 60.0
         camera_hfov = self._cfg.getfloat("camera", "hfov_deg", fallback=_hfov_default)
         target_pos = self._mavlink.estimate_target_position(
-            error_x, approach_dist, camera_hfov,
+            error_x, self._drop_distance_m, camera_hfov,
         )
         if target_pos is None:
             logger.warning("Drop failed: no GPS fix or heading.")

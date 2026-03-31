@@ -47,6 +47,11 @@ def _apply_camera_source_override(cfg: configparser.ConfigParser, source: str) -
 
 
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    )
+
     parser = argparse.ArgumentParser(description="Hydra Detect v2.0")
     parser.add_argument(
         "-c", "--config",
