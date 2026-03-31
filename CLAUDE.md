@@ -235,7 +235,7 @@ Full reference: `docs/api-reference.md`.
 python -m hydra_detect --config config.ini
 
 # Run tests
-python -m pytest tests/ -v
+python -m pytest tests/ -v     # no --timeout flag (pytest-timeout not installed)
 
 # Lint
 flake8 hydra_detect/ tests/
@@ -308,7 +308,9 @@ Starlette versions. The `/stream.mjpeg` endpoint is preserved as a fallback.
   JPEG compression), not a vehicle control action.
 - **Safety-critical callbacks** (`/api/abort`) must be wrapped in try/except —
   a callback crash must never prevent the instructor from getting a response.
-- **`_auth_failures` dict** prunes empty IP entries to prevent unbounded growth.
+- **`_auth_failures` dict** is a `defaultdict(list)` — `del` then re-access
+  silently recreates the key. Always use a local variable for the filtered list,
+  then decide whether to store or delete. Prune empty entries to prevent growth.
 - **Log review endpoints** cap at 50k records to prevent OOM on large files.
 - **`/api/export`** cleans up temp ZIP files via `BackgroundTask`.
 
@@ -349,6 +351,10 @@ Starlette versions. The `/stream.mjpeg` endpoint is preserved as a fallback.
 
 ## Serial / MAVLink Conventions
 
+- **MAVLink public API:** Use `mavlink.send_raw_message(msg)` and
+  `mavlink.send_param_set(param_id, value)` for outbound messages — never
+  access `_mav` or `_send_lock` directly. Use `mavlink.connected` property
+  instead of `self._mav._mav is None`.
 - `SERIAL5` = TELEM3 on this Pixhawk 6C setup
 - HDZero DisplayPort protocol = **42** (not 33)
 - ArduPilot does **NOT** support `ENCAPSULATED_DATA` messages
@@ -382,6 +388,14 @@ Pattern for adding a new engagement mode (e.g. pixel_lock, follow, drop, strike)
 4. Add `POST /api/approach/*` endpoint in `web/server.py`
 5. Add config section to `config.ini` + schema in `config_schema.py`
 6. Keep vehicle control logic separate from math — see `guidance.py` pattern
+
+**Approach mode safety invariant:** Always confirm `set_mode("GUIDED")` succeeds
+before committing to an approach mode. Return False on failure — never leave the
+controller in an active mode without GUIDED. `abort()` restores
+`_pre_approach_mode` (not hardcoded LOITER).
+
+**RF navigator `best_position`** can be `None` (no samples recorded). Always
+check `sample_count > 0` before commanding `guided_to` with the position.
 
 ## Deployment
 
