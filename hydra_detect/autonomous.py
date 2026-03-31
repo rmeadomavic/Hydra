@@ -143,6 +143,7 @@ class AutonomousController:
         self._last_evaluate_time: float = 0.0  # monotonic time of last full eval
         self._strike_in_progress = False
         self._suppressed = False  # External suppression (e.g. camera loss)
+        self._empty_classes_warn_time: float = 0.0  # throttle warning for empty allowed_classes
 
     # -- Geofence checks ---------------------------------------------------
 
@@ -192,17 +193,7 @@ class AutonomousController:
         if vehicle_mode.upper() not in self._allowed_modes:
             return
 
-        # Check vehicle inside geofence
-        get_lat_lon = getattr(mavlink, "get_lat_lon", None)
-        if get_lat_lon is None:
-            return
-        lat, lon, _ = get_lat_lon()
-        if lat is None or lon is None:
-            return
-        if not self.check_geofence(lat, lon):
-            return
-
-        # Check GPS freshness
+        # Check GPS freshness BEFORE geofence (Fix 1: stale GPS must be rejected first)
         get_gps = getattr(mavlink, "get_gps", None)
         if get_gps is not None:
             gps_data = get_gps()
@@ -210,6 +201,19 @@ class AutonomousController:
             if gps_age > self._gps_max_stale_sec:
                 logger.debug("GPS stale (%.1fs) — skipping autonomous eval", gps_age)
                 return
+
+        # Check vehicle inside geofence
+        get_lat_lon = getattr(mavlink, "get_lat_lon", None)
+        if get_lat_lon is None:
+            return
+        try:
+            lat, lon, _ = get_lat_lon()
+        except Exception:
+            return
+        if lat is None or lon is None:
+            return
+        if not self.check_geofence(lat, lon):
+            return
 
         # Operator lock requirement
         if self._require_operator_lock and self._operator_locked_track is None:
@@ -228,9 +232,15 @@ class AutonomousController:
             # If operator lock required, only consider the locked track
             if self._require_operator_lock and track.track_id != self._operator_locked_track:
                 continue
-            # Class whitelist
+            # Class whitelist — fail-closed; warn operator if misconfigured (Fix 3)
             if not self._allowed_classes:
-                continue  # no whitelist = no valid targets (fail-closed)
+                if now - self._empty_classes_warn_time >= 30.0:
+                    logger.warning(
+                        "Autonomous controller enabled but allowed_classes is empty — "
+                        "no targets will ever qualify. Set [autonomous] allowed_classes in config.ini."
+                    )
+                    self._empty_classes_warn_time = now
+                continue
             if track.label.lower().strip() not in self._allowed_classes:
                 continue
             # Confidence threshold
@@ -271,6 +281,7 @@ class AutonomousController:
 
         # Lock and strike
         lock_cb(best_track.track_id, "strike")
+        self._strike_in_progress = True
         result = strike_cb(best_track.track_id)
 
         if result:

@@ -59,6 +59,10 @@ class MAVLinkVideoSender:
             return False
         if self._running:
             return True
+        logger.warning(
+            "MAVLink video uses ENCAPSULATED_DATA — not supported by ArduPilot; "
+            "frames will be sent but may not be displayed by the GCS"
+        )
         self._stop_evt.clear()
         self._thread = threading.Thread(
             target=self._sender_loop, daemon=True, name="mav-video",
@@ -120,7 +124,7 @@ class MAVLinkVideoSender:
                 self._jpeg_quality = quality
             if max_fps is not None:
                 self._max_fps = max_fps
-                self._interval = min(self._interval, 1.0 / max_fps)
+                self._interval = 1.0 / max_fps
         return True
 
     def _sender_loop(self) -> None:

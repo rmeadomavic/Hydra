@@ -44,7 +44,7 @@ RESTART_REQUIRED_FIELDS = {
     "web": {"host", "port"},
     "mavlink": {"connection_string", "baud", "source_system"},
     "camera": {"source", "width", "height"},
-    "detector": set(),
+    "detector": {"model", "device", "yolo_imgsz"},
 }
 
 # Fields that must be redacted in GET responses
@@ -97,6 +97,8 @@ def write_config(updates: dict[str, dict[str, str]]) -> dict[str, Any]:
     restart_needed: list[str] = []
     skipped: list[str] = []
     locked: list[str] = []
+    updated: list[str] = []
+    changed = False
 
     # Check if engagement is active (determines safety field locking)
     engagement_active = (
@@ -139,10 +141,16 @@ def write_config(updates: dict[str, dict[str, str]]) -> dict[str, Any]:
             old_value = config.get(section, key)
             if old_value != value:
                 config.set(section, key, value)
-                audit_log.info("CONFIG WRITE: %s.%s = %s", section, key, value)
+                changed = True
+                updated.append(f"{section}.{key}")
+                log_value = "[REDACTED]" if (section in REDACTED_FIELDS and key in REDACTED_FIELDS[section]) else value
+                audit_log.info("CONFIG WRITE: %s.%s = %s", section, key, log_value)
                 # Check if restart required
                 if section in RESTART_REQUIRED_FIELDS and key in RESTART_REQUIRED_FIELDS[section]:
                     restart_needed.append(f"{section}.{key}")
+
+    if not changed:
+        return {"updated": updated, "restart_required": restart_needed, "skipped": skipped, "locked": locked}
 
     # Backup existing file
     bak_path = Path(str(path) + ".bak")
@@ -159,12 +167,12 @@ def write_config(updates: dict[str, dict[str, str]]) -> dict[str, Any]:
             config.write(f)
             f.flush()
             os.fsync(f.fileno())
-        logger.info("Config written to %s (%d fields updated)", path, len(restart_needed))
+        logger.info("Config written to %s (%d fields updated)", path, len(updated))
     finally:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         os.close(lock_fd)
 
-    return {"restart_required": restart_needed, "skipped": skipped, "locked": locked}
+    return {"updated": updated, "restart_required": restart_needed, "skipped": skipped, "locked": locked}
 
 
 def restore_backup() -> bool:

@@ -141,10 +141,14 @@ class TAKOutput:
             self._alert_classes = alert_classes
             self._locked_track_id = locked_track_id
 
+    def is_running(self) -> bool:
+        """Return True if the sender thread is alive."""
+        return self._thread is not None and self._thread.is_alive()
+
     def get_status(self) -> dict:
         """Return status dict for the web API."""
         return {
-            "enabled": self._thread is not None and self._thread.is_alive(),
+            "enabled": self.is_running(),
             "callsign": self._callsign,
             "multicast": f"{self._mcast_group}:{self._mcast_port}",
             "unicast_targets": len(self._unicast_targets),
@@ -157,20 +161,23 @@ class TAKOutput:
     def add_unicast_target(self, host: str, port: int) -> None:
         """Add a unicast target at runtime."""
         target = (host, port)
-        if target not in self._unicast_targets:
-            self._unicast_targets.append(target)
-            logger.info("TAK unicast target added: %s:%d", host, port)
+        with self._data_lock:
+            if target not in self._unicast_targets:
+                self._unicast_targets.append(target)
+        logger.info("TAK unicast target added: %s:%d", host, port)
 
     def remove_unicast_target(self, host: str, port: int) -> None:
         """Remove a unicast target at runtime."""
         target = (host, port)
-        if target in self._unicast_targets:
-            self._unicast_targets.remove(target)
-            logger.info("TAK unicast target removed: %s:%d", host, port)
+        with self._data_lock:
+            if target in self._unicast_targets:
+                self._unicast_targets.remove(target)
+        logger.info("TAK unicast target removed: %s:%d", host, port)
 
     def get_unicast_targets(self) -> list[dict]:
         """Return current unicast targets for API."""
-        return [{"host": h, "port": p} for h, p in self._unicast_targets]
+        with self._data_lock:
+            return [{"host": h, "port": p} for h, p in self._unicast_targets]
 
     # ------------------------------------------------------------------
     # Sender thread
@@ -248,7 +255,7 @@ class TAKOutput:
 
             lat, lon, alt = self._mav.get_lat_lon()
             if lat is None:
-                return
+                continue
             if alt is None or alt <= 0:
                 alt = 0.0
 
@@ -264,7 +271,7 @@ class TAKOutput:
                 camera_hfov_deg=self._hfov,
             )
             if pos is None:
-                return
+                continue
 
             target_lat, target_lon = pos
             cot_type = get_cot_type(track.label)
@@ -293,8 +300,10 @@ class TAKOutput:
                 self._events_sent += 1
             except OSError as exc:
                 logger.debug("TAK multicast send failed: %s", exc)
-        # Unicast targets
-        for host, port in self._unicast_targets:
+        # Unicast targets — copy under lock to avoid concurrent mutation
+        with self._data_lock:
+            unicast_snapshot = list(self._unicast_targets)
+        for host, port in unicast_snapshot:
             try:
                 self._sock.sendto(data, (host, port))
                 self._events_sent += 1

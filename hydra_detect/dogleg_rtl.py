@@ -113,41 +113,60 @@ class DoglegRTL:
 
         # Execute sequence in background thread
         def _run():
-            # Climb to configured altitude before proceeding to offset
-            if self._climb_alt > 0:
-                cur = self._mavlink.get_lat_lon()
-                if cur and cur[0] is not None:
-                    with self._lock:
-                        self._phase = "climb"
-                    logger.info("DoglegRTL: climbing to %.0fm", self._climb_alt)
-                    self._mavlink.command_guided_to(
-                        cur[0], cur[1], alt=self._climb_alt,
+            try:
+                # Climb to configured altitude before proceeding to offset
+                if self._climb_alt > 0:
+                    cur = self._mavlink.get_lat_lon()
+                    if cur and cur[0] is not None:
+                        with self._lock:
+                            self._phase = "climb"
+                        logger.info("DoglegRTL: climbing to %.0fm", self._climb_alt)
+                        self._mavlink.command_guided_to(
+                            cur[0], cur[1], alt=self._climb_alt,
+                        )
+                        # Poll altitude until climb target reached (max 25s)
+                        for _ in range(50):  # 25s max (50 * 0.5s)
+                            if hasattr(self, "_stop_evt") and self._stop_evt and self._stop_evt.is_set():
+                                return
+                            cur = self._mavlink.get_lat_lon()
+                            if cur and cur[2] is not None and cur[2] >= self._climb_alt * 0.9:
+                                break
+                            time.sleep(0.5)
+
+                with self._lock:
+                    self._phase = "offset"
+                logger.info("DoglegRTL: flying to offset point (%.5f, %.5f)", wp_lat, wp_lon)
+                self._mavlink.command_guided_to(wp_lat, wp_lon)
+
+                # Wait for vehicle to reach offset (poll position)
+                from .autonomous import haversine_m
+                for _ in range(120):  # Max 60 seconds at 0.5s intervals
+                    time.sleep(0.5)
+                    pos = self._mavlink.get_lat_lon()
+                    if pos and pos[0] is not None:
+                        dist = haversine_m(pos[0], pos[1], wp_lat, wp_lon)
+                        if dist < 10:
+                            break
+                else:
+                    logger.warning(
+                        "DoglegRTL: offset waypoint not reached within 60s -- proceeding to RTL"
                     )
-                    # Allow time for climb before sending offset waypoint
-                    time.sleep(5)
 
-            with self._lock:
-                self._phase = "offset"
-            logger.info("DoglegRTL: flying to offset point (%.5f, %.5f)", wp_lat, wp_lon)
-            self._mavlink.command_guided_to(wp_lat, wp_lon)
+                # Now fly home via SMART_RTL
+                with self._lock:
+                    self._phase = "home"
+                logger.info("DoglegRTL: heading home (%.5f, %.5f)", self._home_lat, self._home_lon)
+                self._mavlink.set_mode("SMART_RTL")
 
-            # Wait for vehicle to reach offset (poll position)
-            from .autonomous import haversine_m
-            for _ in range(120):  # Max 60 seconds at 0.5s intervals
-                time.sleep(0.5)
-                pos = self._mavlink.get_lat_lon()
-                if pos and pos[0] is not None:
-                    dist = haversine_m(pos[0], pos[1], wp_lat, wp_lon)
-                    if dist < 10:
-                        break
-
-            # Now fly home via SMART_RTL
-            with self._lock:
-                self._phase = "home"
-            logger.info("DoglegRTL: heading home (%.5f, %.5f)", self._home_lat, self._home_lon)
-            self._mavlink.set_mode("SMART_RTL")
-            with self._lock:
-                self._phase = "done"
+            except Exception as exc:
+                logger.error("DoglegRTL failed: %s", exc, exc_info=True)
+                try:
+                    self._mavlink.set_mode("RTL")
+                except Exception:
+                    logger.error("DoglegRTL: fallback RTL command also failed", exc_info=True)
+            finally:
+                with self._lock:
+                    self._phase = "done"
 
         threading.Thread(target=_run, daemon=True, name="dogleg-rtl").start()
         return True

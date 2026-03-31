@@ -129,7 +129,8 @@ class ByteTracker:
 
         tracked = self._tracker.update_with_detections(sv_dets)
 
-        # Build label lookup from original detections
+        # Build label lookup from original detections.
+        # class_id → label is 1:1 for YOLO models (names dict is canonical source)
         label_map: Dict[int, str] = {d.class_id: d.label for d in dets}
 
         tracks: list[TrackedObject] = []

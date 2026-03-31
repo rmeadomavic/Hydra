@@ -30,6 +30,7 @@ class GeoTracker:
         tracks: TrackingResult,
         alert_classes: set[str] | None,
         locked_track_id: int | None,
+        frame_w: int = 640,
     ) -> None:
         """Pick the best target and send its geo position to the GCS."""
         now = time.monotonic()
@@ -67,7 +68,8 @@ class GeoTracker:
 
         # Compute bearing from frame position
         frame_cx = (target.x1 + target.x2) / 2.0
-        error_x = (frame_cx - 320.0) / 320.0  # Normalise to -1..+1
+        half_w = frame_w / 2.0
+        error_x = (frame_cx - half_w) / half_w  # Normalise to -1..+1
 
         pos = self._mav.estimate_target_position(
             error_x, approach_distance_m=est_distance, camera_hfov_deg=self._hfov,
@@ -85,7 +87,7 @@ class GeoTracker:
         self, lat: float, lon: float, alt: float, is_locked: bool,
     ) -> None:
         """Encode and send CAMERA_TRACKING_GEO_STATUS."""
-        if self._mav._mav is None:
+        if not self._mav.connected:
             return
         try:
             from pymavlink.dialects.v20 import common as mavlink2
@@ -108,7 +110,7 @@ class GeoTracker:
                 dist=nan,
                 hdg_acc=nan,
             )
-            self._mav._mav.mav.send(msg, force_mavlink1=False)
+            self._mav.send_raw_message(msg)
             logger.debug("GEO_STATUS sent: %.6f, %.6f (locked=%s)", lat, lon, is_locked)
         except Exception as exc:
             logger.warning("Failed to send CAMERA_TRACKING_GEO_STATUS: %s", exc)

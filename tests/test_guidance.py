@@ -343,10 +343,9 @@ class TestPixelLockApproachIntegration:
         vz_sent = last_call[0][2]
         assert vz_sent > 0.0  # descent allowed
 
-    def test_guided_mode_failure_logs_warning(self):
-        """GUIDED mode switch failure is logged (not silent)."""
+    def test_guided_mode_failure_aborts_start(self):
+        """GUIDED mode switch failure aborts pixel-lock start (safety fix)."""
         self.mavlink.set_mode.return_value = False
-        # Should still start (degraded) but set_mode was called
         result = self.ctrl.start_pixel_lock(1)
-        assert result is True
+        assert result is False
         self.mavlink.set_mode.assert_called_with("GUIDED")

@@ -175,12 +175,13 @@ def _check_auth(
     # Rate limit check — reject if too many recent failures from this IP
     client_ip = request.client.host if request and request.client else "unknown"
     now = time.monotonic()
-    failures = _auth_failures[client_ip]
     # Expire old entries outside the window; prune empty IPs to prevent unbounded growth
-    _auth_failures[client_ip] = [t for t in failures if now - t < _AUTH_FAIL_WINDOW]
-    if not _auth_failures[client_ip]:
+    failures = [t for t in _auth_failures.get(client_ip, []) if now - t < _AUTH_FAIL_WINDOW]
+    if failures:
+        _auth_failures[client_ip] = failures
+    elif client_ip in _auth_failures:
         del _auth_failures[client_ip]
-    if len(_auth_failures[client_ip]) >= _AUTH_FAIL_MAX:
+    if len(failures) >= _AUTH_FAIL_MAX:
         return JSONResponse({"error": "Too many failed attempts, try again later"}, status_code=429)
 
     if not authorization or not authorization.startswith("Bearer "):
@@ -395,7 +396,7 @@ def _categorize_classes(all_classes: list[str]) -> dict[str, list[str]]:
 def _audit(request: Request, action: str, target: str = "", outcome: str = "ok") -> None:
     """Log a control action for accountability."""
     client = request.client.host if request.client else "unknown"
-    ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     audit_log.info("ts=%s actor=%s action=%s target=%s outcome=%s", ts, client, action, target, outcome)
 
 
@@ -520,12 +521,12 @@ async def auth_login(request: Request):
     now = time.monotonic()
 
     # Rate limit check (reuse same tracking as Bearer token auth)
-    _auth_failures[client_ip] = [
-        t for t in _auth_failures.get(client_ip, []) if now - t < _AUTH_FAIL_WINDOW
-    ]
-    if not _auth_failures[client_ip] and client_ip in _auth_failures:
+    failures = [t for t in _auth_failures.get(client_ip, []) if now - t < _AUTH_FAIL_WINDOW]
+    if failures:
+        _auth_failures[client_ip] = failures
+    elif client_ip in _auth_failures:
         del _auth_failures[client_ip]
-    if len(_auth_failures.get(client_ip, [])) >= _AUTH_FAIL_MAX:
+    if len(failures) >= _AUTH_FAIL_MAX:
         return JSONResponse(
             {"error": "Too many failed attempts, try again later"}, status_code=429,
         )
@@ -1175,6 +1176,9 @@ async def api_switch_profile(request: Request, authorization: Optional[str] = He
     profile_id = body.get("profile")
     if not profile_id:
         return JSONResponse({"error": "profile ID required"}, status_code=400)
+    if not isinstance(profile_id, str):
+        return JSONResponse({"error": "profile must be a string"}, status_code=400)
+    profile_id = profile_id.strip()[:100]
     cb = stream_state.get_callback("on_profile_switch")
     if cb:
         success = cb(profile_id)
@@ -1509,6 +1513,8 @@ async def api_add_tak_target(
         port = int(body.get("port", 6969))
     except (TypeError, ValueError):
         return JSONResponse({"error": "port must be a number"}, status_code=400)
+    if not (1 <= port <= 65535):
+        return JSONResponse({"error": "port must be 1-65535"}, status_code=400)
     cb = stream_state.get_callback("add_tak_target")
     if cb:
         cb(host, port)
@@ -1535,6 +1541,8 @@ async def api_remove_tak_target(
         port = int(body.get("port", 6969))
     except (TypeError, ValueError):
         return JSONResponse({"error": "port must be a number"}, status_code=400)
+    if not (1 <= port <= 65535):
+        return JSONResponse({"error": "port must be 1-65535"}, status_code=400)
     cb = stream_state.get_callback("remove_tak_target")
     if cb:
         cb(host, port)
@@ -1896,7 +1904,7 @@ async def api_export_logs(request: Request, authorization: str | None = Header(N
                 p = Path(dir_path)
                 if p.exists():
                     for f in p.rglob("*"):
-                        if f.is_file():
+                        if f.is_file() and not f.is_symlink():
                             zf.write(f, f"{dir_name}/{f.relative_to(p)}")
         tmp_path = tmp.name
     finally:

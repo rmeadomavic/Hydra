@@ -203,7 +203,7 @@ class DetectionLogger:
             img_filename = f"{ts_file}_{frame_no:06d}.jpg"
             self._last_image_save_time = now_mono
 
-        # Build records and update the recent buffer immediately (caller thread).
+        # Build records (do NOT update _recent yet — only after successful enqueue).
         records: list[Dict[str, Any]] = []
         for track in tracking_result:
             record: Dict[str, Any] = {
@@ -233,9 +233,6 @@ class DetectionLogger:
             record["chain_hash"] = chain_hash
             records.append(record)
 
-            with self._recent_lock:
-                self._recent.append(record)  # deque evicts oldest when full
-
         # Copy the frame only when we need it for writing (avoids the copy
         # entirely when image/crop saving is disabled or there is no frame).
         frame_copy: np.ndarray | None = None
@@ -253,9 +250,13 @@ class DetectionLogger:
 
         try:
             self._write_queue.put_nowait(work_item)
-            # Advance chain state only after successful enqueue so dropped
-            # records don't leave a gap in the persisted hash chain.
+            # Advance chain state and update recent buffer only after
+            # successful enqueue so dropped records don't appear in the API
+            # and don't leave a gap in the persisted hash chain.
             self._prev_chain_hash = records[-1]["chain_hash"]
+            with self._recent_lock:
+                for record in records:
+                    self._recent.append(record)  # deque evicts oldest when full
         except queue.Full:
             logger.warning(
                 "Detection logger queue full — dropping frame %d "

@@ -8,6 +8,7 @@ import threading
 import time
 from dataclasses import dataclass
 
+from .autonomous import haversine_m
 from .guidance import GuidanceConfig, GuidanceController
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class ApproachConfig:
     arm_pwm_armed: int = 1900
     arm_pwm_safe: int = 1100
     hw_arm_channel: int | None = None
+    strike_approach_m: float = 5.0  # Close-approach distance for strike (not standoff)
 
     # Pixel-lock guidance
     guidance_cfg: GuidanceConfig | None = None
@@ -162,23 +164,31 @@ class ApproachController:
         with self._lock:
             if self._mode != ApproachMode.IDLE:
                 return False
+
+        # Switch to GUIDED mode BEFORE committing state — if it fails, do not
+        # enter PIXEL_LOCK (vehicle would receive velocity commands in wrong mode).
+        try:
+            ok = self._mavlink.set_mode("GUIDED")
+            if not ok:
+                logger.warning(
+                    "Pixel-lock: GUIDED mode switch failed — aborting start"
+                )
+                return False
+        except Exception as exc:
+            logger.warning("Pixel-lock: GUIDED mode switch error: %s — aborting start", exc)
+            return False
+
+        with self._lock:
+            # Re-check IDLE in case another thread slipped in while we were
+            # switching modes (outside the lock).
+            if self._mode != ApproachMode.IDLE:
+                return False
             self._pre_approach_mode = self._mavlink.get_vehicle_mode()
             self._target_track_id = track_id
             self._mode = ApproachMode.PIXEL_LOCK
             self._running = True
             self._active_since = time.monotonic()
             self._waypoints_sent = 0
-
-        # Switch to GUIDED mode for velocity commands
-        try:
-            ok = self._mavlink.set_mode("GUIDED")
-            if not ok:
-                logger.warning(
-                    "Pixel-lock: GUIDED mode switch failed — "
-                    "vehicle may not respond to velocity commands"
-                )
-        except Exception as exc:
-            logger.warning("Pixel-lock: GUIDED mode switch error: %s", exc)
 
         self._guidance.start()
         logger.info("Pixel-lock mode STARTED for track #%d", track_id)
@@ -223,6 +233,7 @@ class ApproachController:
             self._running = False
             track_id = self._target_track_id
             self._target_track_id = None
+            pre_approach_mode = self._pre_approach_mode
 
         if prev_mode == ApproachMode.IDLE:
             return
@@ -254,18 +265,22 @@ class ApproachController:
             except Exception:
                 pass
 
-        # Switch to abort mode (LOITER/HOLD)
+        # Restore pre-approach mode if captured; fall back to configured abort mode.
+        # This ensures a student aborting from AUTO mid-mission returns to AUTO,
+        # not the generic LOITER fallback.
+        restore_mode = pre_approach_mode or self._cfg.abort_mode
         try:
-            self._mavlink.set_mode(self._cfg.abort_mode)
+            self._mavlink.set_mode(restore_mode)
         except Exception:
             pass
 
         logger.warning(
-            "Approach ABORTED: was %s for track #%s",
-            prev_mode.value, track_id,
+            "Approach ABORTED: was %s for track #%s — restored mode %s",
+            prev_mode.value, track_id, restore_mode,
         )
         audit_log.info(
-            "APPROACH ABORT: mode=%s track_id=%s", prev_mode.value, track_id,
+            "APPROACH ABORT: mode=%s track_id=%s restored_mode=%s",
+            prev_mode.value, track_id, restore_mode,
         )
 
     # ------------------------------------------------------------------
@@ -358,8 +373,12 @@ class ApproachController:
             return
 
         now = time.monotonic()
-        if (now - self._last_wp_time) < self._cfg.waypoint_interval:
-            return
+        # Rate-check and claim the time slot atomically to prevent two concurrent
+        # callers from both passing the interval check (TOCTOU fix).
+        with self._lock:
+            if (now - self._last_wp_time) < self._cfg.waypoint_interval:
+                return
+            self._last_wp_time = now
 
         # Estimate target position from camera frame offset
         cx = (track.x1 + track.x2) / 2.0
@@ -387,7 +406,6 @@ class ApproachController:
 
         try:
             self._mavlink.command_guided_to(target_lat, target_lon)
-            self._last_wp_time = now
             with self._lock:
                 self._waypoints_sent += 1
         except Exception as exc:
@@ -395,22 +413,24 @@ class ApproachController:
 
     def _update_drop(self, track, fw: int, fh: int) -> None:
         """Update drop mode — check distance, fire servo when close."""
-        with self._lock:
-            if self._drop_complete:
-                return
-
         # Get current vehicle position
         pos = self._mavlink.get_lat_lon()
         if pos is None or pos[0] is None:
             return
 
         lat, lon, alt = pos
-        from .autonomous import haversine_m
 
         dist = haversine_m(lat, lon, self._target_lat, self._target_lon)
 
         if dist <= self._cfg.drop_distance_m:
-            # Fire drop servo
+            # Claim the drop atomically BEFORE firing — prevents double-fire if two
+            # callers both pass the distance check before either sets the flag.
+            with self._lock:
+                if self._drop_complete:
+                    return
+                self._drop_complete = True  # Set BEFORE servo fire (outside lock)
+
+            # Fire drop servo outside the lock — MAVLink has its own internal lock.
             if self._cfg.drop_channel:
                 self._mavlink.set_servo(
                     self._cfg.drop_channel, self._cfg.drop_pwm_release,
@@ -434,9 +454,6 @@ class ApproachController:
                     target=_revert, daemon=True, name="drop-revert",
                 ).start()
 
-            with self._lock:
-                self._drop_complete = True
-
     def _update_strike(self, track, fw: int, fh: int) -> None:
         """Update strike mode — continuous approach at max speed."""
         if track is None:
@@ -453,16 +470,20 @@ class ApproachController:
                 return
 
         now = time.monotonic()
-        if (now - self._last_wp_time) < self._cfg.waypoint_interval:
-            return
+        # Rate-check and claim the time slot atomically (TOCTOU fix).
+        with self._lock:
+            if (now - self._last_wp_time) < self._cfg.waypoint_interval:
+                return
+            self._last_wp_time = now
 
-        # Estimate target position
+        # Estimate target position using strike close-approach distance,
+        # not the follow standoff distance (Fix 4).
         cx = (track.x1 + track.x2) / 2.0
         error_x = (cx - fw / 2.0) / (fw / 2.0)
 
         target_pos = self._mavlink.estimate_target_position(
             error_x,
-            self._cfg.follow_distance_m,
+            self._cfg.strike_approach_m,
             self._cfg.camera_hfov_deg,
         )
         if target_pos is None:
@@ -481,7 +502,6 @@ class ApproachController:
         # Continuous waypoint update
         try:
             self._mavlink.command_guided_to(target_lat, target_lon)
-            self._last_wp_time = now
             with self._lock:
                 self._waypoints_sent += 1
         except Exception as exc:

@@ -54,7 +54,7 @@ def _build_event(
 
 def _to_bytes(event: ET.Element) -> bytes:
     """Serialize an ElementTree element to UTF-8 XML bytes."""
-    return ET.tostring(event, encoding="unicode", xml_declaration=True).encode("utf-8")
+    return ET.tostring(event, encoding="utf-8", xml_declaration=True)
 
 
 def build_self_sa(
