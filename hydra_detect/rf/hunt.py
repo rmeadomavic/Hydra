@@ -21,6 +21,7 @@ from collections import deque
 from enum import Enum
 from typing import Callable
 
+from ..autonomous import haversine_m
 from .kismet_client import KismetClient
 from .kismet_manager import KismetManager
 from .navigator import GradientNavigator
@@ -133,6 +134,10 @@ class RFHuntController:
         self._clip_to_geofence = geofence_clip
         self._consecutive_clips = 0
         self._MAX_CONSECUTIVE_CLIPS = 3
+        self._consecutive_none = 0  # count of consecutive None RSSI reads in homing
+        _CONSECUTIVE_NONE_LOST = 4  # how many Nones before declaring LOST
+        self._CONSECUTIVE_NONE_LOST = _CONSECUTIVE_NONE_LOST
+        self._kismet_restart_pending = False  # guard against concurrent restarts
 
         self._kismet = KismetClient(
             host=kismet_host, user=kismet_user, password=kismet_pass,
@@ -171,8 +176,8 @@ class RFHuntController:
         return self._navigator.get_best_rssi()
 
     @property
-    def best_position(self) -> tuple[float, float]:
-        """(lat, lon) of the best RSSI reading (thread-safe)."""
+    def best_position(self) -> tuple[float, float] | None:
+        """(lat, lon) of the best RSSI reading, or None if no samples yet (thread-safe)."""
         return self._navigator.get_best_position()
 
     def get_rssi_history(self) -> list[dict]:
@@ -196,8 +201,8 @@ class RFHuntController:
                 "mode": self._mode,
                 "target": self._target_bssid or f"{self._target_freq_mhz} MHz",
                 "best_rssi": round(best_rssi, 1),
-                "best_lat": round(best_pos[0], 7),
-                "best_lon": round(best_pos[1], 7),
+                "best_lat": round(best_pos[0], 7) if best_pos is not None else None,
+                "best_lon": round(best_pos[1], 7) if best_pos is not None else None,
                 "samples": sample_count,
                 "wp_progress": f"{self._wp_index}/{len(self._waypoints)}",
                 "gps_required": self._gps_required,
@@ -254,6 +259,12 @@ class RFHuntController:
             )
 
         self._stop_evt.clear()
+        # Reset per-run counters so re-starts are clean
+        self._consecutive_clips = 0
+        self._wp_index = 0
+        self._consecutive_none = 0
+        self._navigator.reset()
+        self._filter.reset()
         initial_state = HuntState.SCANNING if not self._gps_required else HuntState.SEARCHING
         self._set_state(initial_state)
 
@@ -288,7 +299,7 @@ class RFHuntController:
             if self._on_state_change:
                 try:
                     self._on_state_change(new_state)
-                except (TypeError, ValueError) as exc:
+                except Exception as exc:
                     logger.warning("State change callback error: %s", exc)
 
     def _run_loop(self) -> None:
@@ -307,7 +318,7 @@ class RFHuntController:
                 elif state in (HuntState.CONVERGED, HuntState.ABORTED):
                     break
                 self._stop_evt.wait(self._poll_interval)
-        except (OSError, RuntimeError) as exc:
+        except Exception as exc:
             logger.error("RF hunt loop error: %s", exc)
             self._set_state(HuntState.ABORTED)
         finally:
@@ -389,15 +400,39 @@ class RFHuntController:
         if self._kismet_manager is None:
             return None
         if not self._kismet.check_connection():
-            logger.warning("Kismet connection lost — attempting restart")
-            if self._kismet_manager.restart(stop_event=self._stop_evt):
-                self._kismet.reset_auth()
-                return self._kismet.get_rssi(
-                    mode=self._mode,
-                    bssid=self._target_bssid,
-                    freq_mhz=self._target_freq_mhz,
-                )
-            logger.error("Kismet restart failed")
+            # Restart Kismet in a background thread and wait up to 5 s for it
+            # to complete. This avoids blocking the hunt loop for the full 15 s
+            # restart, while still returning the retry value when the restart
+            # completes promptly (common case on a healthy Jetson).
+            if not self._kismet_restart_pending:
+                self._kismet_restart_pending = True
+                restart_done = threading.Event()
+                restart_ok: list[bool] = [False]
+                logger.warning("Kismet connection lost — restarting (5 s timeout)")
+
+                def _bg_restart() -> None:
+                    try:
+                        restart_ok[0] = self._kismet_manager.restart(stop_event=self._stop_evt)
+                        if restart_ok[0]:
+                            self._kismet.reset_auth()
+                            logger.info("Kismet restarted successfully")
+                        else:
+                            logger.error("Kismet restart failed")
+                    finally:
+                        self._kismet_restart_pending = False
+                        restart_done.set()
+
+                t = threading.Thread(target=_bg_restart, daemon=True, name="kismet-restart")
+                t.start()
+                restart_done.wait(timeout=5.0)
+                if not restart_done.is_set():
+                    logger.warning("Kismet restart exceeded 5 s timeout — continuing hunt")
+                elif restart_ok[0]:
+                    return self._kismet.get_rssi(
+                        mode=self._mode,
+                        bssid=self._target_bssid,
+                        freq_mhz=self._target_freq_mhz,
+                    )
         return None
 
     def _do_search(self) -> None:
@@ -426,6 +461,12 @@ class RFHuntController:
         if self._wp_index >= len(self._waypoints):
             logger.warning("Search pattern complete — target not found")
             self._mavlink.send_statustext("RF HUNT: No signal found", severity=3)
+            # Command loiter so vehicle holds position rather than staying in GUIDED
+            # with no active waypoint.
+            try:
+                self._mavlink.command_loiter()
+            except Exception as exc:
+                logger.warning("RF hunt loiter command failed: %s", exc)
             self._set_state(HuntState.ABORTED)
             return
 
@@ -435,7 +476,6 @@ class RFHuntController:
             return
 
         # Check arrival against effective (possibly clipped) coordinates
-        from ..autonomous import haversine_m
         check_lat, check_lon = wp[0], wp[1]
         if self._effective_wp is not None:
             check_lat, check_lon = self._effective_wp
@@ -459,13 +499,18 @@ class RFHuntController:
         """Gradient ascent toward signal source."""
         rssi = self._poll_rssi()
         if rssi is None:
-            # Might be a multipath null — push a weak reading
-            self._filter.add(-100.0)
-            if self._filter.average < self._rssi_threshold - 10:
-                logger.warning("Signal lost during homing")
+            # Might be a multipath null — count consecutive failures rather than
+            # injecting -100 dBm which would corrupt the filter average.
+            self._consecutive_none += 1
+            if self._consecutive_none >= self._CONSECUTIVE_NONE_LOST:
+                logger.warning(
+                    "Signal lost during homing (%d consecutive None reads)",
+                    self._consecutive_none,
+                )
                 self._set_state(HuntState.LOST)
             return
 
+        self._consecutive_none = 0  # valid reading — reset the none counter
         smoothed = self._filter.add(rssi)
         lat, lon, alt = self._mavlink.get_lat_lon()
         if lat is None:
@@ -487,6 +532,9 @@ class RFHuntController:
             self._set_state(HuntState.CONVERGED)
             return
 
+        # Fix 12.2: alt can be None from get_lat_lon() — use search altitude as fallback
+        safe_alt = alt if alt is not None else self._search_alt_m
+
         # Gradient step
         nlat, nlon, cont = self._navigator.next_probe(
             lat, lon, smoothed, self._last_rssi,
@@ -494,8 +542,10 @@ class RFHuntController:
         self._last_rssi = smoothed
 
         if not cont:
-            blat, blon = self._navigator.get_best_position()
-            self._geofence_waypoint(blat, blon, alt)
+            best_pos = self._navigator.get_best_position()
+            if best_pos is not None:
+                blat, blon = best_pos
+                self._geofence_waypoint(blat, blon, safe_alt)
             self._mavlink.send_statustext(
                 f"RF HUNT: Best {self._navigator.get_best_rssi():.0f}dBm",
                 severity=2,
@@ -503,17 +553,38 @@ class RFHuntController:
             self._set_state(HuntState.CONVERGED)
             return
 
-        if not self._geofence_waypoint(nlat, nlon, alt):
+        if not self._geofence_waypoint(nlat, nlon, safe_alt):
             return
 
     def _do_lost(self) -> None:
         """Return to last known good position and re-search."""
-        blat, blon = self._navigator.get_best_position()
+        best_pos = self._navigator.get_best_position()
+
+        # Guard: if no samples exist, best_pos is None — sending the vehicle
+        # to (0.0, 0.0) would fly it to the Gulf of Guinea.
+        if best_pos is None or self._navigator.get_sample_count() == 0:
+            logger.error(
+                "RF HUNT LOST: no valid samples to return to — aborting"
+            )
+            if self._mavlink:
+                self._mavlink.send_statustext(
+                    "RF HUNT: LOST with no samples — ABORTED", severity=4,
+                )
+                try:
+                    self._mavlink.command_loiter()
+                except Exception as exc:
+                    logger.warning("RF hunt loiter command failed: %s", exc)
+            self._set_state(HuntState.ABORTED)
+            return
+
+        blat, blon = best_pos
         lat, lon, alt = self._mavlink.get_lat_lon()
         if lat is None:
             return
 
-        self._geofence_waypoint(blat, blon, alt)
+        # Fix 12.2: alt can be None — fall back to configured search altitude
+        safe_alt = alt if alt is not None else self._search_alt_m
+        self._geofence_waypoint(blat, blon, safe_alt)
         self._mavlink.send_statustext("RF HUNT: Re-searching", severity=3)
 
         # Wait briefly then re-search with tighter pattern
@@ -538,15 +609,19 @@ class RFHuntController:
         samples = self._navigator.get_samples_copy()
         best_rssi = self._navigator.get_best_rssi()
         best_pos = self._navigator.get_best_position()
+        best_lat = best_pos[0] if best_pos is not None else float("nan")
+        best_lon = best_pos[1] if best_pos is not None else float("nan")
         audit_log.info(
             "RF HUNT RESULT: state=%s best_rssi=%.1f best_pos=(%.7f,%.7f) "
             "samples=%d",
             self.state.value, best_rssi,
-            best_pos[0], best_pos[1], len(samples),
+            best_lat, best_lon, len(samples),
         )
         if not samples:
             return
-        # Atomic write: write to temp file then rename
+        # /tmp is intentional — ephemeral hunt data, survives the hunt session
+        # but not a reboot. If a persistent log dir is needed, use
+        # os.path.join(config_log_dir, "hydra_rf_hunt_samples.csv") instead.
         csv_path = "/tmp/hydra_rf_hunt_samples.csv"
         try:
             fd, tmp_path = tempfile.mkstemp(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 import requests
 
@@ -134,7 +135,9 @@ class KismetClient:
 
         Returns None if the device is not currently seen.
         """
-        self._ensure_auth()
+        if not self._ensure_auth():
+            logger.warning("Kismet auth failed — skipping WiFi RSSI query")
+            return None
         try:
             r = self._session.get(
                 f"{self._host}/devices/by-mac/{bssid}/devices.json",
@@ -167,7 +170,9 @@ class KismetClient:
         Kismet reports frequency in Hz (e.g. 915000000 for 915 MHz).
         Values are normalised to MHz before comparison.
         """
-        self._ensure_auth()
+        if not self._ensure_auth():
+            logger.warning("Kismet auth failed — skipping SDR RSSI query")
+            return None
         try:
             r = self._session.get(
                 f"{self._host}/devices/views/all/devices.json",
@@ -184,7 +189,13 @@ class KismetClient:
                 return None
             devices = r.json()
             best: float | None = None
+            stale_cutoff = time.time() - 10  # ignore entries not seen in last 10s
             for dev in devices:
+                # Skip stale entries — SDR can retain devices seen minutes ago.
+                # last_time of 0 means not provided by this Kismet version — treat as fresh.
+                last_time = dev.get("kismet.device.base.last_time", 0)
+                if last_time != 0 and last_time < stale_cutoff:
+                    continue
                 freq = dev.get("kismet.device.base.frequency", 0)
                 # Kismet reports frequency in Hz. Normalise to MHz.
                 # Guard: values < 10_000 are already in MHz (manual config).

@@ -57,7 +57,8 @@ class GradientNavigator:
         self.bearing: float = 0.0
         self.probe_count: int = 0
         self.best_rssi: float = -100.0
-        self.best_position: tuple[float, float] = (0.0, 0.0)
+        # None until the first real GPS fix is recorded — avoids Gulf of Guinea (0,0) bug
+        self.best_position: tuple[float, float] | None = None
         self.samples: deque[RSSISample] = deque(maxlen=_MAX_SAMPLES)
 
     def reset(self) -> None:
@@ -70,7 +71,7 @@ class GradientNavigator:
         """Record an RSSI measurement with GPS position (thread-safe)."""
         sample = RSSISample(
             rssi_dbm=rssi, lat=lat, lon=lon, alt=alt,
-            timestamp=time.monotonic(),
+            timestamp=time.time(),  # wall-clock for log correlation
         )
         with self._lock:
             self.samples.append(sample)
@@ -86,8 +87,11 @@ class GradientNavigator:
         with self._lock:
             return self.best_rssi
 
-    def get_best_position(self) -> tuple[float, float]:
-        """Return the (lat, lon) of the best RSSI reading (thread-safe)."""
+    def get_best_position(self) -> tuple[float, float] | None:
+        """Return the (lat, lon) of the best RSSI reading (thread-safe).
+
+        Returns None if no samples have been recorded yet.
+        """
         with self._lock:
             return self.best_position
 
@@ -123,36 +127,36 @@ class GradientNavigator:
 
         improvement = current_rssi - previous_rssi
 
-        if improvement >= self._improve_threshold:
-            # Signal improving — keep going
-            self.probe_count = 0
-            logger.info(
-                "Signal improving (+%.1f dBm), bearing %.0f°",
-                improvement, self.bearing,
-            )
-        elif improvement > -self._improve_threshold:
-            # Marginal — keep direction
-            logger.debug(
-                "Signal marginal (%+.1f dBm), continuing %.0f°",
-                improvement, self.bearing,
-            )
-        else:
-            # Signal dropped — try a different direction
-            self.probe_count += 1
-            if self.probe_count >= self._max_probes:
-                logger.warning("All probe directions exhausted")
-                with self._lock:
+        with self._lock:
+            if improvement >= self._improve_threshold:
+                # Signal improving — keep going
+                self.probe_count = 0
+                logger.info(
+                    "Signal improving (+%.1f dBm), bearing %.0f°",
+                    improvement, self.bearing,
+                )
+            elif improvement > -self._improve_threshold:
+                # Marginal — keep direction
+                logger.debug(
+                    "Signal marginal (%+.1f dBm), continuing %.0f°",
+                    improvement, self.bearing,
+                )
+            else:
+                # Signal dropped — try a different direction
+                self.probe_count += 1
+                if self.probe_count >= self._max_probes:
+                    logger.warning("All probe directions exhausted")
                     bp = self.best_position
-                return bp[0], bp[1], False
-            self.bearing = (self.bearing + self._rotation_deg) % 360
-            logger.info(
-                "Signal dropped (%+.1f dBm), rotating to %.0f° "
-                "(probe %d/%d)",
-                improvement, self.bearing,
-                self.probe_count, self._max_probes,
-            )
+                    return (bp[0], bp[1], False) if bp is not None else (current_lat, current_lon, False)
+                self.bearing = (self.bearing + self._rotation_deg) % 360
+                logger.info(
+                    "Signal dropped (%+.1f dBm), rotating to %.0f° "
+                    "(probe %d/%d)",
+                    improvement, self.bearing,
+                    self.probe_count, self._max_probes,
+                )
 
-        nlat, nlon = offset_position(
-            current_lat, current_lon, self.bearing, self._step_m,
-        )
+            nlat, nlon = offset_position(
+                current_lat, current_lon, self.bearing, self._step_m,
+            )
         return nlat, nlon, True
