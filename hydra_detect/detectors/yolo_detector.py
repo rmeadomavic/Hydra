@@ -34,6 +34,8 @@ class YOLODetector(BaseDetector):
 
         logger.info("Loading YOLO model: %s", self._model_path)
         self._model = YOLO(self._model_path)
+        logger.info("YOLO model: %d classes, task=%s",
+                    len(self._model.names), getattr(self._model, 'task', 'unknown'))
         # Force GPU inference on Jetson — CPU gives 1-2 FPS, GPU gives 5-10+
         try:
             import torch
@@ -66,15 +68,19 @@ class YOLODetector(BaseDetector):
             boxes = r.boxes
             if boxes is None:
                 continue
-            for i in range(len(boxes)):
-                x1, y1, x2, y2 = boxes.xyxy[i].tolist()
-                conf = float(boxes.conf[i])
-                cls = int(boxes.cls[i])
-                label = r.names.get(cls, str(cls))
+            xyxy_np = boxes.xyxy.cpu().numpy()
+            conf_np = boxes.conf.cpu().numpy()
+            cls_np = boxes.cls.cpu().numpy().astype(int)
+            names = r.names
+            for i in range(len(xyxy_np)):
+                x1, y1, x2, y2 = xyxy_np[i]
+                conf = float(conf_np[i])
+                cls_id = int(cls_np[i])
+                label = names.get(cls_id, f"class_{cls_id}")
                 detections.append(
                     Detection(
                         x1=x1, y1=y1, x2=x2, y2=y2,
-                        confidence=conf, class_id=cls, label=label,
+                        confidence=conf, class_id=cls_id, label=label,
                     )
                 )
 
