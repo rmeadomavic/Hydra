@@ -44,6 +44,7 @@ h1, h2, h3, .label-heading {
 .btn:hover { filter: brightness(1.2); }
 .btn:active { transform: scale(0.97); }
 .btn:focus-visible { outline: 2px solid var(--ogt-muted); outline-offset: 2px; }
+.btn:disabled, .btn[disabled] { opacity: 0.4; cursor: not-allowed; filter: none; transform: none; }
 
 .btn-green {
     background: linear-gradient(180deg, var(--ogt-green), var(--ogt-green-dark));
