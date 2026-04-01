@@ -135,7 +135,7 @@ def auto_update_manifest(models_dir: Path) -> bool:
                 "filename": pt_file.name,
                 "sha256": file_hash,
                 "size_mb": size_mb,
-                "input_size": 416,
+                "input_resolution": [640, 640],
                 "classes": classes,
             }
             manifest.append(entry)

@@ -304,3 +304,14 @@ class TestConstructorParams:
         )
         assert dl._max_log_size_bytes == 10 * 1024 * 1024
         assert dl._max_log_files == 20
+
+    def test_custom_queue_size(self, tmp_path):
+        """Custom queue_size parameter sets the write queue maxsize."""
+        dl = _make_logger(tmp_path, queue_size=42)
+        assert dl._write_queue.maxsize == 42
+
+    def test_default_queue_size_when_zero(self, tmp_path):
+        """queue_size=0 falls back to _QUEUE_MAXSIZE_DEFAULT (100)."""
+        dl = _make_logger(tmp_path, queue_size=0)
+        assert dl._write_queue.maxsize == DetectionLogger._QUEUE_MAXSIZE_DEFAULT
+        assert dl._write_queue.maxsize == 100

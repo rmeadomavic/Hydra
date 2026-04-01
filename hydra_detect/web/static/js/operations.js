@@ -1173,11 +1173,11 @@ const HydraOperations = (() => {
         const result = await HydraApp.apiPost('/api/config/alert-classes', { classes: classes });
         if (result) {
             HydraApp.showToast('Alert classes updated', 'success');
+            const profSel = document.getElementById('ctrl-profile-select');
+            if (profSel) profSel.value = '';
+            const descEl = document.getElementById('ctrl-profile-desc');
+            if (descEl) descEl.textContent = '';
         }
-        const profSel = document.getElementById('ctrl-profile-select');
-        if (profSel) profSel.value = '';
-        const descEl = document.getElementById('ctrl-profile-desc');
-        if (descEl) descEl.textContent = '';
     }
 
     // ── RF Hunt ──

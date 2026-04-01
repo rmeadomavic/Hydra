@@ -391,6 +391,8 @@ class Pipeline:
                     "approach", "follow_distance_m", fallback=15.0),
                 follow_yaw_rate_max=self._cfg.getfloat(
                     "approach", "follow_yaw_rate_max", fallback=30.0),
+                strike_approach_m=self._cfg.getfloat(
+                    "approach", "strike_approach_m", fallback=5.0),
                 drop_channel=self._cfg.getint(
                     "drop", "servo_channel", fallback=0) or None,
                 drop_pwm_release=self._cfg.getint(
@@ -610,7 +612,7 @@ class Pipeline:
             max_log_size_mb=self._cfg.getfloat("logging", "max_log_size_mb", fallback=10.0),
             max_log_files=self._cfg.getint("logging", "max_log_files", fallback=20),
             model_hash=_model_hash,
-            queue_size=self._cfg.getint("logging", "log_queue_size", fallback=0),
+            queue_size=self._cfg.getint("logging", "log_queue_size", fallback=100),
         )
 
         # Event timeline logger (operator actions + vehicle track)
@@ -666,7 +668,7 @@ class Pipeline:
             "mavlink", "strike_distance_m", fallback=20.0
         )
         self._drop_distance_m: float = self._cfg.getfloat(
-            "mavlink", "strike_distance_m", fallback=20.0
+            "drop", "drop_distance_m", fallback=3.0
         )
         # Pre-populate the nvpmodel cache synchronously at startup (not in the
         # hot loop, so blocking here is fine) then read sysfs stats.

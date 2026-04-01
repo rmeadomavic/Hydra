@@ -224,7 +224,7 @@ class TestAutoUpdateManifest:
             assert "filename" in entry
             assert "sha256" in entry
             assert "size_mb" in entry
-            assert "input_size" in entry
+            assert "input_resolution" in entry
             assert "classes" in entry
             assert len(entry["sha256"]) == 64
 

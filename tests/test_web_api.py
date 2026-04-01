@@ -7,7 +7,15 @@ import logging
 import pytest
 from fastapi.testclient import TestClient
 
-from hydra_detect.web.server import MAX_PROMPT_LENGTH, MAX_PROMPTS, _auth_failures, app, configure_auth, stream_state
+from hydra_detect.web.server import (
+    MAX_PROMPT_LENGTH,
+    MAX_PROMPTS,
+    _auth_failures,
+    _categorize_classes,
+    app,
+    configure_auth,
+    stream_state,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -324,6 +332,65 @@ class TestAlertClassesEndpoints:
         )
         resp = client.post("/api/config/alert-classes", json={"classes": ["person", "INVALID"]})
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Case-insensitive category matching
+# ---------------------------------------------------------------------------
+
+class TestCategorizeClasses:
+    def test_mixed_case_aircraft(self):
+        """'Drone' (title case) maps to Aircraft via case-insensitive lookup."""
+        result = _categorize_classes(["Drone", "DRONE", "drone"])
+        assert "Aircraft" in result
+        assert result["Aircraft"] == ["Drone", "DRONE", "drone"]
+
+    def test_mixed_case_ground_vehicles(self):
+        """'APC' (uppercase) maps to Ground Vehicles."""
+        result = _categorize_classes(["APC", "Car", "TRUCK"])
+        assert "Ground Vehicles" in result
+        assert set(result["Ground Vehicles"]) == {"APC", "Car", "TRUCK"}
+
+    def test_mixed_case_weapons(self):
+        """'Gun' (title case) maps to Weapons/Threats."""
+        result = _categorize_classes(["Gun", "KNIFE", "grenade"])
+        assert "Weapons/Threats" in result
+        assert set(result["Weapons/Threats"]) == {"Gun", "KNIFE", "grenade"}
+
+    def test_unknown_class_falls_to_other(self):
+        """Classes not in any category fall to 'Other'."""
+        result = _categorize_classes(["spaceship", "laser_cannon"])
+        assert "Other" in result
+        assert set(result["Other"]) == {"spaceship", "laser_cannon"}
+
+    def test_mixed_known_and_unknown(self):
+        """Mix of known and unknown classes are correctly categorized."""
+        result = _categorize_classes(["Person", "unknown_widget", "car"])
+        assert "People" in result
+        assert result["People"] == ["Person"]
+        assert "Ground Vehicles" in result
+        assert result["Ground Vehicles"] == ["car"]
+        assert "Other" in result
+        assert result["Other"] == ["unknown_widget"]
+
+    def test_get_endpoint_categories_case_insensitive(self, client):
+        """GET /api/config/alert-classes returns properly categorized mixed-case classes."""
+        stream_state.set_callbacks(
+            get_class_names=lambda: ["Person", "DRONE", "Gun", "alien"],
+        )
+        stream_state.runtime_config["alert_classes"] = []
+        resp = client.get("/api/config/alert-classes")
+        assert resp.status_code == 200
+        data = resp.json()
+        cats = data["categories"]
+        assert "People" in cats
+        assert "Person" in cats["People"]
+        assert "Aircraft" in cats
+        assert "DRONE" in cats["Aircraft"]
+        assert "Weapons/Threats" in cats
+        assert "Gun" in cats["Weapons/Threats"]
+        assert "Other" in cats
+        assert "alien" in cats["Other"]
 
 
 # ---------------------------------------------------------------------------
