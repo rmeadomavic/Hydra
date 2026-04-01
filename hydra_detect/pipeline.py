@@ -610,6 +610,7 @@ class Pipeline:
             max_log_size_mb=self._cfg.getfloat("logging", "max_log_size_mb", fallback=10.0),
             max_log_files=self._cfg.getint("logging", "max_log_files", fallback=20),
             model_hash=_model_hash,
+            queue_size=self._cfg.getint("logging", "log_queue_size", fallback=0),
         )
 
         # Event timeline logger (operator actions + vehicle track)

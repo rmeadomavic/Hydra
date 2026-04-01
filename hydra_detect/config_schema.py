@@ -184,6 +184,7 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
         "crop_dir": FieldSpec(FieldType.STRING, default="./output_data/crops", description="Crop image directory"),
         "max_log_size_mb": FieldSpec(FieldType.FLOAT, min_val=1.0, max_val=1000.0, default=10.0, description="Max log file size MB"),
         "max_log_files": FieldSpec(FieldType.INT, min_val=1, max_val=100, default=20, description="Max rotated log files"),
+        "log_queue_size": FieldSpec(FieldType.INT, min_val=10, max_val=10000, default=100, description="Detection logger queue depth (increase if seeing queue-full warnings)"),
         "app_log_file": FieldSpec(FieldType.BOOL, default=True, description="Write application log to file"),
         "app_log_level": FieldSpec(FieldType.ENUM, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], default="INFO", description="Application log level"),
         "wipe_on_start": FieldSpec(FieldType.BOOL, default=False, description="Wipe logs on startup"),

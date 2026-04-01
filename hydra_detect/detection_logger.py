@@ -51,7 +51,7 @@ class DetectionLogger:
     snapshots (oldest deleted first).
     """
 
-    _QUEUE_MAXSIZE = 100
+    _QUEUE_MAXSIZE_DEFAULT = 100
 
     def __init__(
         self,
@@ -66,6 +66,7 @@ class DetectionLogger:
         max_log_size_mb: float = 10.0,
         max_log_files: int = 20,
         model_hash: str = "",
+        queue_size: int = 0,
     ):
         self._log_dir = Path(log_dir)
         self._log_format = log_format.lower()
@@ -100,7 +101,8 @@ class DetectionLogger:
         self._recent_lock = threading.Lock()
 
         # Background writer state.
-        self._write_queue: queue.Queue = queue.Queue(maxsize=self._QUEUE_MAXSIZE)
+        maxsize = queue_size if queue_size > 0 else self._QUEUE_MAXSIZE_DEFAULT
+        self._write_queue: queue.Queue = queue.Queue(maxsize=maxsize)
         self._writer_thread: threading.Thread | None = None
 
     # ------------------------------------------------------------------

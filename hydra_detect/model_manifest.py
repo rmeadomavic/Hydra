@@ -13,6 +13,22 @@ logger = logging.getLogger(__name__)
 MANIFEST_FILENAME = "manifest.json"
 
 
+def extract_classes(model_path: Path) -> list[str]:
+    """Extract class names from a .pt model via ultralytics introspection.
+
+    Returns an empty list if the model cannot be loaded or is not a .pt file.
+    """
+    if model_path.suffix != ".pt":
+        return []
+    try:
+        from ultralytics import YOLO
+        model = YOLO(str(model_path))
+        return list(model.names.values())
+    except Exception as exc:
+        logger.warning("Could not extract classes from %s: %s", model_path.name, exc)
+        return []
+
+
 def compute_file_hash(path: Path) -> str:
     """Return SHA-256 hex digest of a file."""
     h = hashlib.sha256()
@@ -85,9 +101,10 @@ def generate_manifest(*model_dirs: str) -> list[dict[str, Any]]:
                 seen.add(path.name)
                 size_mb = round(path.stat().st_size / (1024 * 1024), 1)
                 file_hash = compute_file_hash(path)
+                classes = extract_classes(path)
                 entries.append({
                     "filename": path.name,
-                    "classes": [],  # must be populated manually or by model introspection
+                    "classes": classes,
                     "input_resolution": [640, 640],
                     "sha256": file_hash,
                     "size_mb": size_mb,
@@ -113,12 +130,13 @@ def auto_update_manifest(models_dir: Path) -> bool:
         if pt_file.name not in existing_files:
             file_hash = compute_file_hash(pt_file)
             size_mb = round(pt_file.stat().st_size / (1024 * 1024), 1)
+            classes = extract_classes(pt_file)
             entry = {
                 "filename": pt_file.name,
                 "sha256": file_hash,
                 "size_mb": size_mb,
                 "input_size": 416,
-                "classes": [],
+                "classes": classes,
             }
             manifest.append(entry)
             updated = True
@@ -160,15 +178,27 @@ def main() -> None:
         old = existing_by_name.get(entry["filename"])
         if old and old.get("sha256") == entry["sha256"]:
             # Keep manually-curated fields from old entry
-            entry["classes"] = old.get("classes", entry["classes"])
+            entry["classes"] = old.get("classes") or entry["classes"]
             entry["description"] = old.get("description", entry["description"])
             entry["input_resolution"] = old.get("input_resolution", entry["input_resolution"])
         merged.append(entry)
 
+    # For .engine/.onnx without classes, copy from matching .pt
+    classes_by_stem: dict[str, list[str]] = {}
+    for e in merged:
+        stem = Path(e["filename"]).stem
+        if e["classes"]:
+            classes_by_stem[stem] = e["classes"]
+    for e in merged:
+        if not e["classes"]:
+            stem = Path(e["filename"]).stem
+            if stem in classes_by_stem:
+                e["classes"] = classes_by_stem[stem]
+
     manifest_path.write_text(json.dumps(merged, indent=2) + "\n")
     print(f"Wrote {len(merged)} entries to {manifest_path}")
     for e in merged:
-        status = "classes OK" if e["classes"] else "NEEDS CLASSES"
+        status = f"{len(e['classes'])} classes" if e["classes"] else "NEEDS CLASSES"
         print(f"  {e['filename']} ({e['size_mb']} MB) — {status}")
 
 
