@@ -368,28 +368,56 @@ MAX_PROMPT_LENGTH = 200
 BSSID_RE = re.compile(r"^[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}$")
 
 TACTICAL_CATEGORIES = {
-    "Personnel":        ["person", "soldier", "combatant", "civilian"],
-    "Ground Vehicles":  ["car", "motorcycle", "truck", "bus", "bicycle", "train", "tank", "apc", "humvee"],
-    "Watercraft/Air":   ["boat", "airplane", "drone", "uav", "helicopter", "ship"],
-    "Carried Equipment":["backpack", "suitcase", "handbag", "cell phone", "laptop", "radio"],
-    "Animals":          ["dog", "horse", "bird", "cow", "sheep", "cat", "bear"],
-    "Potential Weapons": ["knife", "scissors", "baseball bat", "rifle", "pistol", "rpg"],
-    "Landmarks":        ["fire hydrant", "stop sign", "traffic light", "bench"],
+    "People": [
+        "person", "pedestrian", "people", "soldier", "combatant", "civilian",
+    ],
+    "Ground Vehicles": [
+        "car", "truck", "bus", "van", "motorcycle", "bicycle", "tricycle",
+        "awning-tricycle", "motor", "train", "tank", "apc", "afv", "mev",
+        "lav", "humvee",
+    ],
+    "Aircraft": [
+        "airplane", "helicopter", "drone", "fighter jet", "fighter plane",
+        "light aircraft", "commercial aircraft", "cargo aircraft",
+    ],
+    "Watercraft": [
+        "boat", "ship", "warship", "cargo ship", "cruise ship", "yacht",
+        "sailboat",
+    ],
+    "Weapons/Threats": [
+        "gun", "knife", "grenade", "explosion", "missile", "scissors",
+        "baseball bat", "rifle", "pistol", "rpg",
+    ],
+    "Equipment": [
+        "backpack", "suitcase", "handbag", "cell phone", "laptop", "radio",
+        "bottle", "umbrella",
+    ],
+    "Animals": [
+        "dog", "horse", "bird", "cow", "sheep", "cat", "bear", "elephant",
+        "zebra", "giraffe",
+    ],
+    "Infrastructure": [
+        "fire hydrant", "stop sign", "traffic light", "bench", "parking meter",
+    ],
 }
+
+# Pre-built lowercase lookup: maps lowercase class name -> category name.
+# Rebuilt once at import time (and after any hot-reload).
+_CATEGORY_LOOKUP: Dict[str, str] = {}
+for _cat, _members in TACTICAL_CATEGORIES.items():
+    for _m in _members:
+        _CATEGORY_LOOKUP[_m.lower()] = _cat
 
 
 def _categorize_classes(all_classes: list[str]) -> dict[str, list[str]]:
-    """Group class names into tactical categories. Unmatched go to 'Other'."""
+    """Group class names into tactical categories (case-insensitive).
+
+    Unmatched classes fall into 'Other'.
+    """
     result: Dict[str, List[str]] = {}
-    categorized: set[str] = set()
-    for cat_name, cat_classes in TACTICAL_CATEGORIES.items():
-        matched = [c for c in all_classes if c in cat_classes]
-        if matched:
-            result[cat_name] = matched
-            categorized.update(matched)
-    other = [c for c in all_classes if c not in categorized]
-    if other:
-        result["Other"] = other
+    for c in all_classes:
+        cat = _CATEGORY_LOOKUP.get(c.lower(), "Other")
+        result.setdefault(cat, []).append(c)
     return result
 
 

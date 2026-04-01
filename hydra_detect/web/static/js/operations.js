@@ -1170,7 +1170,10 @@ const HydraOperations = (() => {
         const classes = alertClassData.selected.size === alertClassData.all.length
             ? []
             : Array.from(alertClassData.selected);
-        await HydraApp.apiPost('/api/config/alert-classes', { classes: classes });
+        const result = await HydraApp.apiPost('/api/config/alert-classes', { classes: classes });
+        if (result) {
+            HydraApp.showToast('Alert classes updated', 'success');
+        }
         const profSel = document.getElementById('ctrl-profile-select');
         if (profSel) profSel.value = '';
         const descEl = document.getElementById('ctrl-profile-desc');
