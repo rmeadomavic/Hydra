@@ -195,6 +195,122 @@
     }
 }
 
+/* ── Context Menu (bounding-box click actions) ── */
+.ops-context-menu {
+    position: absolute;
+    z-index: 20;
+    background: rgba(26, 26, 26, 0.95);
+    border: 1px solid var(--card-border-hover);
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    padding: var(--gap-xs) 0;
+    min-width: 140px;
+    pointer-events: auto;
+    display: none;
+}
+
+.ops-context-menu.visible {
+    display: block;
+}
+
+.ops-context-menu-header {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--ogt-muted);
+    padding: var(--gap-xs) var(--gap-sm);
+    border-bottom: 1px solid var(--divider);
+    white-space: nowrap;
+}
+
+.ops-context-menu-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    padding: 5px var(--gap-sm);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.ops-context-menu-btn:hover {
+    background: rgba(56, 87, 35, 0.25);
+}
+
+.ops-context-menu-btn.danger {
+    color: #fca5a5;
+}
+
+.ops-context-menu-btn.danger:hover {
+    background: rgba(197, 48, 48, 0.25);
+}
+
+.ops-context-menu-btn.warning {
+    color: #fcd34d;
+}
+
+.ops-context-menu-btn.warning:hover {
+    background: rgba(180, 83, 9, 0.25);
+}
+
+/* ── Confirmation Overlay (strike/drop from ops context menu) ── */
+.ops-confirm-overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 25;
+    background: rgba(0, 0, 0, 0.7);
+    align-items: center;
+    justify-content: center;
+}
+
+.ops-confirm-overlay.active {
+    display: flex;
+}
+
+.ops-confirm-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-lg);
+    padding: var(--gap-lg);
+    max-width: 320px;
+    width: 85%;
+    text-align: center;
+}
+
+.ops-confirm-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: var(--font-md);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-primary);
+    margin-bottom: var(--gap-md);
+}
+
+.ops-confirm-title.danger {
+    color: #fca5a5;
+}
+
+.ops-confirm-title.warning {
+    color: #fcd34d;
+}
+
+.ops-confirm-actions {
+    display: flex;
+    gap: var(--gap-sm);
+    justify-content: center;
+}
+
+.ops-confirm-actions .btn {
+    min-width: 80px;
+    font-size: var(--font-sm) !important;
+    padding: 6px 14px !important;
+}
+
 /* ── Touch targets ── */
 @media (pointer: coarse) {
     .ops-action-btn {
@@ -206,5 +322,10 @@
 
     .ops-telem-value {
         font-size: var(--font-md);
+    }
+
+    .ops-context-menu-btn {
+        padding: 8px var(--gap-sm);
+        font-size: var(--font-base);
     }
 }
