@@ -50,22 +50,32 @@
 
 /* ── HUD Sidebar Sections ── */
 .ops-sidebar-section {
-    background: var(--card-bg);
+    background: var(--card-bg-gradient);
     border: 1px solid var(--card-border);
     border-radius: var(--radius-md);
     overflow: hidden;
+    transition: border-color var(--transition-normal);
+}
+
+.ops-sidebar-section:hover {
+    border-color: var(--card-border-hover);
 }
 
 .ops-sidebar-header {
     font-family: 'Barlow Condensed', sans-serif;
-    font-size: 0.6rem;
-    font-weight: 600;
+    font-size: var(--font-sm);
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: var(--ls-condensed);
-    color: var(--text-dim);
+    color: var(--ogt-muted);
     padding: var(--gap-xs) var(--gap-sm);
-    background: var(--sidebar-bg);
-    border-bottom: 1px solid var(--card-border);
+    background: linear-gradient(180deg, rgba(42, 65, 24, 0.1), rgba(0, 0, 0, 0.2));
+    border-bottom: 1px solid var(--divider);
+    border-top: 2px solid var(--ogt-green);
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    min-height: 30px;
+    display: flex;
+    align-items: center;
 }
 
 .ops-track-list {
@@ -121,7 +131,7 @@
 }
 
 .ops-minimap {
-    background: #0a0a0a;
+    background: var(--panel-bg);
     height: 200px;
     display: flex;
     align-items: center;

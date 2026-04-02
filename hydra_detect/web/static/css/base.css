@@ -213,6 +213,24 @@ input[type="range"]::-webkit-slider-thumb {
     transition: width var(--transition-normal), background-color var(--transition-normal);
 }
 
+/* ── Dark Scrollbars (global) ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* Narrower scrollbars for inner panels / lists */
+.ops-track-list::-webkit-scrollbar,
+.ops-hud-sidebar::-webkit-scrollbar,
+.settings-content::-webkit-scrollbar,
+.log-viewer::-webkit-scrollbar { width: 4px; }
+
+/* Firefox scrollbar */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: #333 transparent;
+}
+
 /* ── Utility ── */
 .visually-hidden {
     position: absolute;

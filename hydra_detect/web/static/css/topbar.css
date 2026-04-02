@@ -37,7 +37,7 @@
 
 .topbar-center {
     display: flex;
-    gap: 2px;
+    gap: var(--gap-sm);
 }
 .topbar-tab {
     font-family: 'Barlow Condensed', sans-serif;
@@ -45,22 +45,22 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: var(--ls-condensed);
-    padding: 3px 10px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    padding: 3px 10px 5px;
+    border-radius: 0;
+    border: none;
+    border-bottom: 2px solid transparent;
     background: transparent;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgba(255, 255, 255, 0.45);
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: color var(--transition-fast), border-color var(--transition-fast);
 }
 .topbar-tab:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #fff;
+    color: rgba(255, 255, 255, 0.85);
+    border-bottom-color: rgba(166, 188, 146, 0.3);
 }
 .topbar-tab.active {
-    background: rgba(0, 0, 0, 0.25);
     color: #fff;
-    border-color: rgba(255, 255, 255, 0.2);
+    border-bottom-color: var(--ogt-muted);
 }
 
 .topbar-right {
@@ -153,8 +153,8 @@ body.view-settings .topbar-thumbnail {
     text-transform: uppercase;
     color: var(--text-dim);
     background: none;
-    border: 1px solid var(--border);
-    border-radius: 3px;
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-sm);
     padding: 1px 8px;
     cursor: pointer;
     transition: color var(--transition-fast), border-color var(--transition-fast);
