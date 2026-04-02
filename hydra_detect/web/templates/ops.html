@@ -1,0 +1,55 @@
+<!-- Ops HUD View — full-width video with telemetry + quick actions overlay -->
+
+<!-- Video Container with Canvas Overlay -->
+<div class="ops-video-container" id="ops-video-container">
+    <img id="ops-video-frame" class="ops-video-frame" alt="Live video feed">
+    <canvas id="ops-bbox-canvas" class="ops-bbox-canvas"></canvas>
+
+    <!-- Stream Lost Badge -->
+    <div class="ops-hud-stream-lost" id="ops-hud-stream-lost" style="display:none;">
+        <span>STREAM LOST</span>
+    </div>
+
+    <!-- Lock Info Overlay (shown when target engaged) -->
+    <div class="ops-lock-overlay" id="ops-lock-overlay" style="display:none;">
+        <span class="ops-lock-icon">&#8853;</span>
+        <span class="ops-lock-label" id="ops-lock-label">--</span>
+        <span class="ops-lock-mode" id="ops-lock-mode">TRACK</span>
+        <span class="ops-lock-elapsed" id="ops-lock-elapsed"></span>
+    </div>
+
+    <!-- Telemetry Strip -->
+    <div class="ops-telemetry-strip" id="ops-telemetry-strip">
+        <div class="ops-telem-item">
+            <span class="ops-telem-label">MODE</span>
+            <span class="ops-telem-value" id="ops-telem-mode">--</span>
+        </div>
+        <div class="ops-telem-item">
+            <span class="ops-telem-label">BATT</span>
+            <span class="ops-telem-value" id="ops-telem-battery">--</span>
+        </div>
+        <div class="ops-telem-item">
+            <span class="ops-telem-label">SPD</span>
+            <span class="ops-telem-value" id="ops-telem-speed">--</span>
+        </div>
+        <div class="ops-telem-item">
+            <span class="ops-telem-label">ALT</span>
+            <span class="ops-telem-value" id="ops-telem-alt">--</span>
+        </div>
+        <div class="ops-telem-item">
+            <span class="ops-telem-label">HDG</span>
+            <span class="ops-telem-value" id="ops-telem-heading">--</span>
+        </div>
+        <div class="ops-telem-item">
+            <span class="ops-telem-label">GPS</span>
+            <span class="ops-telem-value" id="ops-telem-gps">--</span>
+        </div>
+    </div>
+
+    <!-- Quick Action Bar -->
+    <div class="ops-quick-actions" id="ops-quick-actions">
+        <button class="btn btn-danger ops-action-btn" id="ops-btn-abort" title="Emergency abort">ABORT</button>
+        <button class="btn ops-action-btn" id="ops-btn-loiter" title="Hold position">LOITER</button>
+        <button class="btn ops-action-btn" id="ops-btn-rtl" title="Return to launch">RTL</button>
+    </div>
+</div>

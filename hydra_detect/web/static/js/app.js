@@ -49,9 +49,14 @@ const HydraApp = (() => {
     }
 
     // ── View Router ──
+    const VALID_VIEWS = ['ops', 'config', 'settings'];
+    // Map legacy hash values to new view names
+    const VIEW_ALIASES = { 'operations': 'config' };
+
     function initRouter() {
         window.addEventListener('hashchange', onHashChange);
-        const hash = window.location.hash.replace('#', '') || 'operations';
+        const rawHash = window.location.hash.replace('#', '') || 'ops';
+        const hash = VIEW_ALIASES[rawHash] || rawHash;
         switchView(hash);
 
         document.querySelectorAll('.topbar-tab').forEach(tab => {
@@ -64,29 +69,28 @@ const HydraApp = (() => {
         const thumb = document.getElementById('mini-thumbnail');
         if (thumb) {
             thumb.addEventListener('click', () => {
-                window.location.hash = 'operations';
+                window.location.hash = 'ops';
             });
         }
     }
 
     function onHashChange() {
-        const hash = window.location.hash.replace('#', '') || 'operations';
+        const rawHash = window.location.hash.replace('#', '') || 'ops';
+        const hash = VIEW_ALIASES[rawHash] || rawHash;
         switchView(hash);
     }
 
     function switchView(view) {
-        if (!['operations', 'settings'].includes(view)) view = 'operations';
+        if (!VALID_VIEWS.includes(view)) view = 'ops';
         const prev = currentView;
         currentView = view;
 
-        // Pause/resume stream polling on view switch to avoid CSS-triggered
-        // error events (Settings view sets img width/height to 0, which aborts
-        // pending requests and fires error events).
-        if (view === 'operations') resumeStream();
+        // Video polling active on ops and config, paused on settings
+        if (view === 'ops' || view === 'config') resumeStream();
         else pauseStream();
 
-        ['view-operations', 'view-settings'].forEach(c =>
-            document.body.classList.remove(c));
+        VALID_VIEWS.forEach(v =>
+            document.body.classList.remove(`view-${v}`));
         document.body.classList.add(`view-${view}`);
 
         document.querySelectorAll('.topbar-tab').forEach(tab => {
@@ -95,9 +99,15 @@ const HydraApp = (() => {
 
         updatePollers();
 
+        // Lifecycle: Ops HUD
+        if (typeof HydraOps !== 'undefined' && prev !== view) {
+            if (view === 'ops') HydraOps.onEnter();
+            if (prev === 'ops') HydraOps.onLeave();
+        }
+        // Lifecycle: Config (uses HydraOperations module name for now)
         if (typeof HydraOperations !== 'undefined' && prev !== view) {
-            if (view === 'operations') HydraOperations.onEnter();
-            if (prev === 'operations') HydraOperations.onLeave();
+            if (view === 'config') HydraOperations.onEnter();
+            if (prev === 'config') HydraOperations.onLeave();
         }
         if (typeof HydraSettings !== 'undefined' && prev !== view) {
             if (view === 'settings') HydraSettings.onEnter();
@@ -158,13 +168,14 @@ const HydraApp = (() => {
             });
         }
 
-        const isOps = currentView === 'operations';
-        if (isOps && !pollers['tracks']) {
+        // Track/target/RF/detection pollers active on both ops and config views
+        const needsDetailPollers = currentView === 'ops' || currentView === 'config';
+        if (needsDetailPollers && !pollers['tracks']) {
             startPoller('tracks', '/api/tracks', 1000, data => { state.tracks = data; });
             startPoller('target', '/api/target', 1000, data => { state.target = data; });
             startPoller('rf', '/api/rf/status', 2000, data => { state.rfStatus = data; });
             startPoller('detections', '/api/detections', 3000, data => { state.detections = data; });
-        } else if (!isOps) {
+        } else if (!needsDetailPollers) {
             stopPoller('tracks');
             stopPoller('target');
             stopPoller('rf');
@@ -488,13 +499,13 @@ const HydraApp = (() => {
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
                 pauseStream();
-            } else if (currentView === 'operations') {
+            } else if (currentView === 'ops' || currentView === 'config') {
                 resumeStream();
             }
         });
 
-        // Start polling if we're on operations view
-        if (currentView === 'operations') {
+        // Start polling if we're on a video-enabled view
+        if (currentView === 'ops' || currentView === 'config') {
             resumeStream();
         }
 
@@ -503,10 +514,11 @@ const HydraApp = (() => {
         const thumb = document.getElementById('mjpeg-thumbnail');
         if (thumb) {
             setInterval(() => {
-                if (currentView !== 'operations') {
+                if (currentView === 'settings') {
+                    // Settings view: poll directly since main stream is paused
                     thumb.src = '/stream.jpg?thumb=1&t=' + Date.now();
                 } else if (streamImg.naturalWidth > 0) {
-                    // In operations view, copy from the main img (no extra request)
+                    // Ops/Config views: copy from the main img (no extra request)
                     const canvas = document.createElement('canvas');
                     const ctx = canvas.getContext('2d');
                     canvas.width = 120;

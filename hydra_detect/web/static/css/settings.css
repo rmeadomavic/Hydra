@@ -1,6 +1,6 @@
 /* ── Settings View ── */
 /* Note: .view { display: none } in topbar.css hides all views by default.
-   body.view-settings .view-settings { display: flex } in topbar.css shows it.
+   body.view-settings .view.view-settings { display: flex } in topbar.css shows it.
    Do NOT set display:flex here unconditionally — it overrides the hide rule. */
 
 .settings-nav {
