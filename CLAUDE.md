@@ -58,7 +58,7 @@ Kismet (WiFi/SDR) → RF Hunt Controller → RSSI Gradient Ascent → MAVLink Na
 | `review_export.py` | Standalone HTML map report generator |
 | `rtsp_server.py` | GStreamer RTSP H.264 output |
 | `servo_tracker.py` | Pixel-lock servo controller (pan + strike) |
-| `model_manifest.py` | Model hash verification and manifest |
+| `model_manifest.py` | Model hash verification, manifest, class introspection |
 | `config_schema.py` | Typed config validation with error messages |
 | `system.py` | Jetson stats, power modes, model listing |
 | `tls.py` | Self-signed TLS certificate generation |
@@ -180,6 +180,9 @@ Follow the **discover → review → fix** workflow:
   implement `BaseDetector`
 - Web endpoints in `web/server.py` require bearer token auth for control actions
 - Never commit secrets or API tokens — use `config.ini` (gitignored values)
+- **Config fallbacks must match schema defaults** — when adding a new config key,
+  ensure the `fallback=` in `pipeline.py` matches the `default=` in
+  `config_schema.py`. Mismatches bypass schema validation.
 
 ## Config Sections
 
@@ -338,6 +341,17 @@ Starlette versions. The `/stream.mjpeg` endpoint is preserved as a fallback.
   Never add inline `<script>` blocks to templates — create external files instead.
 - **CSP allows `frame-src youtube-nocookie.com`** for the Power User easter egg.
 
+## Model Manifest
+
+- **Class introspection:** `model_manifest.py:extract_classes()` loads `.pt` files
+  via ultralytics to auto-populate class names. `.engine`/`.onnx` inherit classes
+  from matching `.pt` by stem name. Run
+  `python -m hydra_detect.model_manifest models/` to regenerate.
+- **Alert class categories** in `server.py` use case-insensitive matching via
+  `_CATEGORY_LOOKUP` dict (built once at import). Categories: People, Ground
+  Vehicles, Aircraft, Watercraft, Weapons/Threats, Equipment, Animals,
+  Infrastructure. Unknown classes fall to "Other".
+
 ## Hardware Environment
 
 - **Architecture:** Jetson Orin Nano is ARM64/aarch64 — always check architecture
@@ -399,6 +413,14 @@ check `sample_count > 0` before commanding `guided_to` with the position.
 
 ## Deployment
 
+- **Always run in Docker** — bare `python -m hydra_detect` lacks CUDA (1.5 FPS
+  vs 7+ FPS with GPU). Use Docker or systemd service for all runs.
+- **`output_data/` ownership:** Docker creates root-owned files. Run
+  `sudo chown -R sorcc:sorcc output_data/` if bare-Python run fails with
+  PermissionError on `hydra.log`.
+- **Deploy timing:** After `systemctl restart hydra-detect`, allow ~35 seconds
+  for YOLO model load before health check responds. Verify with
+  `curl -s http://localhost:8080/api/health`.
 - **Code is baked into Docker** at build time (`COPY hydra_detect/` in Dockerfile).
   A `git pull` on the host does NOT update the running container.
 - **`/api/restart`** only restarts the pipeline loop — does NOT restart the Python
@@ -425,3 +447,23 @@ check `sample_count > 0` before commanding `guided_to` with the position.
   proper cleanup with `try/finally` or `atexit` handlers to prevent orphaned processes
 - Before spawning a subprocess, check for existing instances (`pgrep`, `fuser`)
   to avoid dual-instance problems
+
+## Companion Project
+
+**SORCC-PI** (`/home/sorcc/sorcc-pi`, `github.com/rmeadomavic/SORCC-PI`) is the
+RF survey payload on Raspberry Pi — companion to Hydra. Patterns adopted from it:
+config schema validation, event logger, TAK/CoT export, config API. Patterns
+worth porting: response caching with stale fallback, waypoint export (QGC WPL 110).
+
+## UI/UX Design Standards
+
+Both Hydra and SORCC-PI dashboards target **defense-grade polish** — think
+Palantir Foundry / Anduril Lattice, not startup landing pages. Every element
+must be functional, not decorative:
+
+- **Consistent dark theme** and design tokens shared between projects
+- **Data-dense layouts** — maximize info per screen for rapid operator scanning
+- **Real data only** — no placeholder content, no gratuitous animations
+- **Useful graphics** — signal charts, FPS trends, detection heatmaps that aid decisions
+- **Ops-center aesthetic** — typography and spacing optimized for stress and low light
+- **Mobile-first** — large touch targets for gloved hands, works on tablets in the field
