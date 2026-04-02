@@ -1334,6 +1334,10 @@ class Pipeline:
                 render_lock_id = self._locked_track_id
                 render_lock_mode = self._lock_mode
                 total_det = self._total_detections
+            # Store raw (un-annotated) frame for Ops HUD canvas overlay
+            if self._web_enabled:
+                stream_state.update_raw_frame(frame.copy())
+
             annotated = draw_tracks(
                 frame, track_result,
                 inference_ms=det_result.inference_ms,

@@ -41,7 +41,7 @@ const HydraOps = (() => {
         streamPolling = true;
         streamBackoff = 1000;
         var img = document.getElementById('ops-video-frame');
-        if (img) img.src = '/stream.jpg?t=' + Date.now();
+        if (img) img.src = '/stream.jpg?raw=1&t=' + Date.now();
     }
 
     function stopVideoPolling() {
@@ -51,7 +51,7 @@ const HydraOps = (() => {
     function pollFrame() {
         if (!streamPolling) return;
         var img = document.getElementById('ops-video-frame');
-        if (img) img.src = '/stream.jpg?t=' + Date.now();
+        if (img) img.src = '/stream.jpg?raw=1&t=' + Date.now();
     }
 
     function initVideoListeners() {
@@ -282,23 +282,23 @@ const HydraOps = (() => {
         }
     }
 
-    // ── Context Menu ──
-    function getOrCreateContextMenu() {
-        var menu = document.getElementById('ops-context-menu');
+    // ── Radial Context Menu ──
+    function getOrCreateRadialMenu() {
+        var menu = document.getElementById('ops-radial-menu');
         if (menu) return menu;
 
         var container = document.getElementById('ops-video-container');
         if (!container) return null;
 
         menu = document.createElement('div');
-        menu.id = 'ops-context-menu';
-        menu.className = 'ops-context-menu';
+        menu.id = 'ops-radial-menu';
+        menu.className = 'ops-radial-menu';
         container.appendChild(menu);
         return menu;
     }
 
     function showContextMenu(track, clickX, clickY) {
-        var menu = getOrCreateContextMenu();
+        var menu = getOrCreateRadialMenu();
         if (!menu) return;
 
         contextMenuTrack = track;
@@ -306,53 +306,63 @@ const HydraOps = (() => {
         // Clear previous content
         while (menu.firstChild) menu.removeChild(menu.firstChild);
 
-        // Header
-        var header = document.createElement('div');
-        header.className = 'ops-context-menu-header';
-        header.textContent = '#' + track.track_id + ' ' + (track.label || '?') +
-            ' (' + Math.round((track.confidence || 0) * 100) + '%)';
-        menu.appendChild(header);
+        // Clamp center so the full wheel (center + radius + item size) stays visible
+        var container = document.getElementById('ops-video-container');
+        var containerRect = container ? container.getBoundingClientRect() : null;
+        var radius = 80;
+        var itemHalf = 25; // half of 50px item
+        var margin = radius + itemHalf + 4;
+        var cW = containerRect ? containerRect.width : 800;
+        var cH = containerRect ? containerRect.height : 600;
+        var centerX = Math.max(margin, Math.min(clickX, cW - margin));
+        var centerY = Math.max(margin, Math.min(clickY, cH - margin));
 
-        // Action buttons
+        // Center label: track info
+        var center = document.createElement('div');
+        center.className = 'ops-radial-center';
+        center.style.left = centerX + 'px';
+        center.style.top = centerY + 'px';
+        var centerLabel = document.createElement('span');
+        centerLabel.className = 'ops-radial-center-label';
+        centerLabel.textContent = '#' + track.track_id + ' ' + (track.label || '?');
+        center.appendChild(centerLabel);
+        menu.appendChild(center);
+
+        // Action items arranged radially
         var actions = [
-            { label: 'Follow', action: 'follow' },
-            { label: 'P-Lock', action: 'pixel_lock' },
-            { label: 'Lock', action: 'lock' },
-            { label: 'Loiter', action: 'loiter' },
-            { label: 'Drop', action: 'drop', cls: 'warning' },
-            { label: 'Strike', action: 'strike', cls: 'danger' },
+            { label: 'Follow', action: 'follow', angle: 0 },
+            { label: 'Lock', action: 'lock', angle: 60 },
+            { label: 'P-Lock', action: 'pixel_lock', angle: 120 },
+            { label: 'Loiter', action: 'loiter', angle: 180 },
+            { label: 'Drop', action: 'drop', cls: 'warning', angle: 240 },
+            { label: 'Strike', action: 'strike', cls: 'danger', angle: 300 },
         ];
 
         for (var i = 0; i < actions.length; i++) {
             var a = actions[i];
-            var btn = document.createElement('button');
-            btn.className = 'ops-context-menu-btn';
-            if (a.cls) btn.className += ' ' + a.cls;
-            btn.textContent = a.label;
-            btn.dataset.action = a.action;
-            btn.addEventListener('click', onContextMenuAction);
-            menu.appendChild(btn);
+            var item = document.createElement('button');
+            item.className = 'ops-radial-item';
+            if (a.cls) item.className += ' ' + a.cls;
+            item.textContent = a.label;
+            item.dataset.action = a.action;
+
+            // Position using angle: 0 = top, clockwise
+            var rad = a.angle * Math.PI / 180;
+            var ix = centerX + radius * Math.sin(rad);
+            var iy = centerY - radius * Math.cos(rad);
+            item.style.left = ix + 'px';
+            item.style.top = iy + 'px';
+
+            item.addEventListener('click', onContextMenuAction);
+            menu.appendChild(item);
         }
 
-        // Position: clamp to stay within container
-        var container = document.getElementById('ops-video-container');
-        var containerRect = container ? container.getBoundingClientRect() : null;
+        // Show with scale-up animation
         menu.classList.add('visible');
-
-        // Measure menu after making visible
-        var menuW = menu.offsetWidth;
-        var menuH = menu.offsetHeight;
-        var maxX = (containerRect ? containerRect.width : 800) - menuW - 4;
-        var maxY = (containerRect ? containerRect.height : 600) - menuH - 4;
-        var posX = Math.max(4, Math.min(clickX, maxX));
-        var posY = Math.max(4, Math.min(clickY, maxY));
-
-        menu.style.left = posX + 'px';
-        menu.style.top = posY + 'px';
     }
 
     function hideContextMenu() {
-        var menu = document.getElementById('ops-context-menu');
+        var menu = document.getElementById('ops-radial-menu');
         if (menu) menu.classList.remove('visible');
         contextMenuTrack = null;
     }
@@ -685,9 +695,9 @@ const HydraOps = (() => {
             drawBoundingBoxes();
         });
 
-        // Click outside context menu to dismiss
+        // Click outside radial menu to dismiss
         document.addEventListener('click', function (e) {
-            var menu = document.getElementById('ops-context-menu');
+            var menu = document.getElementById('ops-radial-menu');
             if (!menu) return;
             if (!menu.contains(e.target)) {
                 // Let onCanvasClick handle canvas clicks (it calls show/hide)

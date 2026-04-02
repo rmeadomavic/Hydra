@@ -462,6 +462,7 @@ class StreamState:
 
     def __init__(self):
         self.frame: Optional[np.ndarray] = None
+        self.raw_frame: Optional[np.ndarray] = None
         self.stats: Dict[str, Any] = {
             "fps": 0.0,
             "inference_ms": 0.0,
@@ -501,6 +502,14 @@ class StreamState:
     def get_frame(self) -> Optional[np.ndarray]:
         with self._lock:
             return self.frame.copy() if self.frame is not None else None
+
+    def update_raw_frame(self, frame: np.ndarray) -> None:
+        with self._lock:
+            self.raw_frame = frame
+
+    def get_raw_frame(self) -> Optional[np.ndarray]:
+        with self._lock:
+            return self.raw_frame.copy() if self.raw_frame is not None else None
 
     def update_stats(self, **kwargs: Any) -> None:
         with self._lock:
@@ -2141,17 +2150,26 @@ async def mjpeg_stream():
 
 # Cached snapshot to avoid re-encoding the same frame on rapid polls.
 _snapshot_cache: dict[str, Any] = {"bytes": b"", "ts": 0.0, "quality": 0}
+_raw_snapshot_cache: dict[str, Any] = {"bytes": b"", "ts": 0.0, "quality": 0}
 _SNAPSHOT_TTL = 0.033  # 30 fps cap — serve cached JPEG if <33ms old
 
 
 @app.get("/stream.jpg")
-async def snapshot_frame():
+async def snapshot_frame(request: Request):
     """Single JPEG frame snapshot — polled by the dashboard as a fallback
-    for browsers/middleware stacks where MJPEG streaming hangs."""
+    for browsers/middleware stacks where MJPEG streaming hangs.
+
+    Pass ?raw=1 to get the un-annotated frame (no overlay bounding boxes).
+    The Ops HUD uses this so its canvas-drawn boxes don't double up with
+    the server-side overlay.
+    """
+    use_raw = request.query_params.get("raw") == "1"
+    cache = _raw_snapshot_cache if use_raw else _snapshot_cache
+
     now = time.monotonic()
-    if now - _snapshot_cache["ts"] < _SNAPSHOT_TTL and _snapshot_cache["bytes"]:
-        return Response(content=_snapshot_cache["bytes"], media_type="image/jpeg")
-    frame = stream_state.get_frame()
+    if now - cache["ts"] < _SNAPSHOT_TTL and cache["bytes"]:
+        return Response(content=cache["bytes"], media_type="image/jpeg")
+    frame = stream_state.get_raw_frame() if use_raw else stream_state.get_frame()
     if frame is None:
         return Response(status_code=204)
     quality = stream_state.get_mjpeg_quality()
@@ -2159,9 +2177,9 @@ async def snapshot_frame():
     if not ok:
         return Response(status_code=204)
     jpeg_bytes = buf.tobytes()
-    _snapshot_cache["bytes"] = jpeg_bytes
-    _snapshot_cache["ts"] = now
-    _snapshot_cache["quality"] = quality
+    cache["bytes"] = jpeg_bytes
+    cache["ts"] = now
+    cache["quality"] = quality
     return Response(content=jpeg_bytes, media_type="image/jpeg")
 
 
