@@ -428,6 +428,34 @@ def _audit(request: Request, action: str, target: str = "", outcome: str = "ok")
     audit_log.info("ts=%s actor=%s action=%s target=%s outcome=%s", ts, client, action, target, outcome)
 
 
+# ── Response cache with stale-data fallback ──────────────────────────
+
+_response_cache: dict[str, tuple[float, Any]] = {}
+_RESPONSE_CACHE_TTL = 30.0
+
+
+def _cached_callback(key: str, callback: Callable | None, *args: Any) -> Any | None:
+    """Call a pipeline callback with stale-data fallback.
+
+    If the callback succeeds, cache the result. If it raises or returns None
+    and we have cached data within TTL, return the cached data instead.
+    """
+    now = time.monotonic()
+    try:
+        if callback is None:
+            raise RuntimeError("no callback")
+        result = callback(*args)
+        if result is not None:
+            _response_cache[key] = (now, result)
+        return result
+    except Exception:
+        cached = _response_cache.get(key)
+        if cached and (now - cached[0]) < _RESPONSE_CACHE_TTL:
+            logger.warning("Serving stale %s (age %.1fs)", key, now - cached[0])
+            return cached[1]
+        return None
+
+
 class StreamState:
     """Shared state between the pipeline and the web server."""
 
@@ -633,7 +661,10 @@ async def api_preflight():
 @app.get("/api/stats")
 async def api_stats():
     """Return current pipeline statistics as JSON."""
-    return stream_state.get_stats()
+    result = _cached_callback("stats", stream_state.get_stats)
+    if result is not None:
+        return result
+    return stream_state.stats.copy()  # fallback: return raw defaults
 
 
 @app.get("/api/config")
@@ -799,8 +830,9 @@ async def api_set_vehicle_mode(request: Request, authorization: Optional[str] = 
 async def api_active_tracks():
     """Return currently active tracked objects (for target selection)."""
     cb = stream_state.get_callback("get_active_tracks")
-    if cb:
-        return cb()
+    result = _cached_callback("tracks", cb)
+    if result is not None:
+        return result
     return []
 
 
@@ -1945,6 +1977,137 @@ async def api_export_logs(request: Request, authorization: str | None = Header(N
         media_type="application/zip",
         filename="hydra-export.zip",
         background=BackgroundTask(lambda: Path(tmp_path).unlink(missing_ok=True)),
+    )
+
+
+@app.get("/api/export/waypoints")
+async def api_export_waypoints(request: Request, classes: str = "", alt_m: float = 15.0):
+    """Export GPS-tagged detections as a QGC WPL 110 waypoint file.
+
+    Query params:
+        classes: comma-separated class filter (e.g. ?classes=person,car)
+        alt_m: waypoint altitude in meters (default 15)
+    """
+    from hydra_detect.waypoint_export import (
+        deduplicate,
+        format_wpl,
+        tracks_to_waypoints,
+    )
+
+    cb = stream_state.get_callback("get_recent_detections")
+    detections = cb() if cb else []
+    if not detections:
+        return JSONResponse({"error": "No detections available"}, status_code=404)
+
+    class_filter: set[str] | None = None
+    if classes.strip():
+        class_filter = {c.strip() for c in classes.split(",") if c.strip()}
+
+    waypoints = tracks_to_waypoints(detections, alt_m=alt_m, classes=class_filter)
+    if not waypoints:
+        return JSONResponse(
+            {"error": "No GPS-tagged detections found (need GPS fix)"},
+            status_code=404,
+        )
+    waypoints = deduplicate(waypoints)
+
+    # Home position: use first detection with GPS, or vehicle stats position
+    home_lat = waypoints[0].lat
+    home_lon = waypoints[0].lon
+
+    content = format_wpl(waypoints, home_lat, home_lon,
+                         home_alt=0.0, loiter_sec=5.0)
+    return Response(
+        content=content,
+        media_type="text/plain",
+        headers={"Content-Disposition": 'attachment; filename="hydra-waypoints.wpl"'},
+    )
+
+
+@app.get("/api/review/waypoints/{filename}")
+async def api_review_waypoints(
+    filename: str, classes: str = "", alt_m: float = 15.0,
+):
+    """Export waypoints from a saved detection log file.
+
+    Query params:
+        classes: comma-separated class filter (e.g. ?classes=person,car)
+        alt_m: waypoint altitude in meters (default 15)
+    """
+    import json as _json
+
+    from hydra_detect.waypoint_export import (
+        deduplicate,
+        format_wpl,
+        tracks_to_waypoints,
+    )
+
+    # Prevent path traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return JSONResponse({"error": "Invalid filename"}, status_code=400)
+
+    cb = stream_state.get_callback("get_log_dir")
+    log_dir = cb() if cb else "/data/logs"
+    path = Path(log_dir) / filename
+
+    if not path.exists() or not path.is_file():
+        return JSONResponse({"error": "Log file not found"}, status_code=404)
+
+    records: list[dict] = []
+    max_records = 50000
+    if path.suffix == ".jsonl":
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        records.append(_json.loads(line))
+                    except _json.JSONDecodeError:
+                        continue
+                    if len(records) >= max_records:
+                        break
+    elif path.suffix == ".csv":
+        import csv as _csv
+        with open(path) as f:
+            reader = _csv.DictReader(f)
+            for row in reader:
+                for key in ("confidence", "lat", "lon", "alt"):
+                    if key in row and row[key]:
+                        try:
+                            row[key] = float(row[key])
+                        except ValueError:
+                            pass
+                records.append(row)
+                if len(records) >= max_records:
+                    break
+    else:
+        return JSONResponse({"error": "Unsupported file type"}, status_code=400)
+
+    if not records:
+        return JSONResponse({"error": "No records in log file"}, status_code=404)
+
+    class_filter: set[str] | None = None
+    if classes.strip():
+        class_filter = {c.strip() for c in classes.split(",") if c.strip()}
+
+    waypoints = tracks_to_waypoints(records, alt_m=alt_m, classes=class_filter)
+    if not waypoints:
+        return JSONResponse(
+            {"error": "No GPS-tagged detections found in log"},
+            status_code=404,
+        )
+    waypoints = deduplicate(waypoints)
+
+    # Home position from first GPS-tagged record
+    home_lat = waypoints[0].lat
+    home_lon = waypoints[0].lon
+
+    content = format_wpl(waypoints, home_lat, home_lon,
+                         home_alt=0.0, loiter_sec=5.0)
+    return Response(
+        content=content,
+        media_type="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="hydra-waypoints-{path.stem}.wpl"'},
     )
 
 

@@ -11,7 +11,10 @@ from hydra_detect.web.server import (
     MAX_PROMPT_LENGTH,
     MAX_PROMPTS,
     _auth_failures,
+    _cached_callback,
     _categorize_classes,
+    _response_cache,
+    _RESPONSE_CACHE_TTL,
     app,
     configure_auth,
     stream_state,
@@ -23,6 +26,7 @@ def _reset_state():
     """Reset stream_state and auth between tests."""
     configure_auth(None)
     _auth_failures.clear()
+    _response_cache.clear()
     stream_state.target_lock = {"locked": False, "track_id": None, "mode": None, "label": None}
     stream_state.runtime_config = {"prompts": ["person"], "threshold": 0.25, "auto_loiter": False}
     # Clear callbacks
@@ -599,3 +603,113 @@ class TestProfileEndpoints:
                            json={},
                            headers={"Authorization": "Bearer secret-token"})
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Response caching with stale-data fallback
+# ---------------------------------------------------------------------------
+
+class TestResponseCaching:
+    """Tests for _cached_callback and stale-data fallback on /api/stats and /api/tracks."""
+
+    def test_stale_cache_served_when_callback_raises(self):
+        """When a callback raises, the cache should serve last-known-good data."""
+        call_count = 0
+
+        def good_then_bad():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"fps": 30.0}
+            raise RuntimeError("pipeline busy")
+
+        # First call succeeds and caches
+        result = _cached_callback("test_key", good_then_bad)
+        assert result == {"fps": 30.0}
+        assert "test_key" in _response_cache
+
+        # Second call raises — should return cached data
+        result = _cached_callback("test_key", good_then_bad)
+        assert result == {"fps": 30.0}
+
+    def test_fresh_data_replaces_cache(self):
+        """New successful callback data should replace previous cache entry."""
+        _cached_callback("test_key", lambda: {"fps": 10.0})
+        assert _response_cache["test_key"][1] == {"fps": 10.0}
+
+        _cached_callback("test_key", lambda: {"fps": 25.0})
+        assert _response_cache["test_key"][1] == {"fps": 25.0}
+
+    def test_cache_expires_after_ttl(self, monkeypatch):
+        """Stale cache beyond TTL should return None, not stale data."""
+        # Seed the cache
+        _cached_callback("test_key", lambda: {"fps": 15.0})
+
+        # Advance time beyond TTL
+        original_ts = _response_cache["test_key"][0]
+        _response_cache["test_key"] = (original_ts - _RESPONSE_CACHE_TTL - 1, {"fps": 15.0})
+
+        # Callback raises — cache is too old, should return None
+        result = _cached_callback("test_key", lambda: (_ for _ in ()).throw(RuntimeError("fail")))
+        assert result is None
+
+    def test_none_callback_returns_cached(self):
+        """When callback is None and cache exists, serve cached data."""
+        _cached_callback("test_key", lambda: [{"id": 1, "label": "person"}])
+        result = _cached_callback("test_key", None)
+        assert result == [{"id": 1, "label": "person"}]
+
+    def test_none_callback_no_cache_returns_none(self):
+        """When callback is None and no cache exists, return None."""
+        result = _cached_callback("test_key", None)
+        assert result is None
+
+    def test_stats_endpoint_serves_stale_on_failure(self, client):
+        """GET /api/stats should serve cached data when get_stats raises."""
+        # Prime the cache via a normal call
+        stream_state.update_stats(fps=20.0, camera_ok=True)
+        resp = client.get("/api/stats")
+        assert resp.status_code == 200
+        assert resp.json()["fps"] == 20.0
+
+        # Sabotage get_stats to simulate lock contention / pipeline failure
+        original_get_stats = stream_state.get_stats
+        stream_state.get_stats = lambda: (_ for _ in ()).throw(RuntimeError("busy"))
+        try:
+            resp = client.get("/api/stats")
+            assert resp.status_code == 200
+            # Should serve cached data with fps=20.0
+            assert resp.json()["fps"] == 20.0
+        finally:
+            stream_state.get_stats = original_get_stats
+
+    def test_tracks_endpoint_serves_stale_on_failure(self, client):
+        """GET /api/tracks should serve cached data when callback raises."""
+        tracks_data = [{"id": 1, "label": "person", "bbox": [10, 20, 100, 200]}]
+
+        call_count = 0
+
+        def tracks_callback():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return tracks_data
+            raise RuntimeError("pipeline busy")
+
+        stream_state.set_callbacks(get_active_tracks=tracks_callback)
+
+        # First call succeeds and caches
+        resp = client.get("/api/tracks")
+        assert resp.status_code == 200
+        assert resp.json() == tracks_data
+
+        # Second call — callback raises, should serve stale data
+        resp = client.get("/api/tracks")
+        assert resp.status_code == 200
+        assert resp.json() == tracks_data
+
+    def test_tracks_endpoint_returns_empty_when_no_callback_no_cache(self, client):
+        """GET /api/tracks with no callback and no cache returns empty list."""
+        resp = client.get("/api/tracks")
+        assert resp.status_code == 200
+        assert resp.json() == []
