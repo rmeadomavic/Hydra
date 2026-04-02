@@ -21,8 +21,14 @@ h1, h2, h3, .label-heading {
     font-weight: 600;
 }
 .mono, code, .stat-value {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     letter-spacing: var(--ls-mono);
+}
+.data-value {
+    font-family: var(--font-mono);
+    letter-spacing: var(--ls-mono);
+    color: var(--text-data);
+    font-weight: 500;
 }
 
 /* ── Buttons ── */
@@ -32,14 +38,14 @@ h1, h2, h3, .label-heading {
     letter-spacing: var(--ls-condensed);
     font-size: var(--font-sm);
     font-weight: 600;
-    padding: 6px 14px;
+    padding: 4px 10px;
     border: 1px solid var(--card-border);
     border-radius: var(--radius-md);
-    background: linear-gradient(180deg, #2a2a2a, #1e1e1e);
+    background: linear-gradient(180deg, #252525, #1a1a1a);
     color: var(--text-primary);
     cursor: pointer;
     transition: filter var(--transition-fast), transform var(--transition-fast);
-    min-height: 32px;
+    min-height: 28px;
 }
 .btn:hover { filter: brightness(1.2); }
 .btn:active { transform: scale(0.97); }
@@ -60,13 +66,13 @@ h1, h2, h3, .label-heading {
 .pill {
     display: inline-flex;
     align-items: center;
-    gap: var(--gap-xs);
+    gap: 2px;
     font-family: 'Barlow Condensed', sans-serif;
     font-size: var(--font-xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: var(--ls-condensed);
-    padding: 2px 8px;
+    padding: 1px 6px;
     border-radius: 999px;
 }
 .pill-live {
@@ -86,14 +92,14 @@ h1, h2, h3, .label-heading {
 
 /* ── Form Inputs ── */
 .input, select, input[type="text"], input[type="number"], input[type="password"] {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: var(--font-sm);
-    padding: 6px 10px;
+    padding: 4px 8px;
     border: 1px solid var(--card-border);
     border-radius: var(--radius-md);
-    background: #111;
+    background: #0e0e0e;
     color: var(--text-primary);
-    min-height: 32px;
+    min-height: 28px;
 }
 input:focus, select:focus {
     outline: none;
@@ -135,8 +141,8 @@ input[type="range"]::-webkit-slider-thumb {
     background: var(--card-bg);
     border: 1px solid var(--card-border);
     border-radius: var(--radius-xl);
-    padding: var(--gap-xl);
-    max-width: 420px;
+    padding: var(--gap-lg);
+    max-width: 400px;
     width: 90%;
 }
 
@@ -155,11 +161,11 @@ input[type="range"]::-webkit-slider-thumb {
     pointer-events: auto;
     background: var(--danger-bg);
     border: 1px solid var(--danger);
-    border-radius: var(--radius-lg);
-    padding: var(--gap-sm) var(--gap-md);
+    border-radius: var(--radius-md);
+    padding: var(--gap-xs) var(--gap-sm);
     color: #fca5a5;
     font-size: var(--font-sm);
-    max-width: 320px;
+    max-width: 300px;
     animation: toast-in 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
     cursor: pointer;
 }
@@ -240,7 +246,7 @@ input[type="range"]::-webkit-slider-thumb {
     animation: sentience-glitch 500ms ease-out;
 }
 #sentience-terminal {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 1.1rem;
     color: #00ff41;
     text-align: left;
@@ -284,8 +290,8 @@ input[type="range"]::-webkit-slider-thumb {
     top: 0;
     left: 0;
     right: 0;
-    padding: 8px 16px;
-    font-family: 'JetBrains Mono', monospace;
+    padding: 6px 12px;
+    font-family: var(--font-mono);
     font-size: 14px;
     font-weight: 700;
     text-align: center;
@@ -309,7 +315,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* ── Low-Light Badge ── */
 .low-light-badge {
     display: none;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: var(--font-xs);
     font-weight: 700;
     padding: 2px 8px;
@@ -384,6 +390,6 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ── Touch Target (Steam Deck / tablet) ── */
 @media (pointer: coarse) {
-    .btn { min-height: 44px; min-width: 44px; padding: 10px 16px; }
-    input[type="range"]::-webkit-slider-thumb { width: 24px; height: 24px; }
+    .btn { min-height: 40px; min-width: 40px; padding: 8px 14px; }
+    input[type="range"]::-webkit-slider-thumb { width: 22px; height: 22px; }
 }
