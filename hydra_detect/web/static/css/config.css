@@ -59,13 +59,13 @@
 }
 
 /* Panel container: right 40% of view */
-.view-config {
+#view-config {
     display: flex;
     justify-content: flex-end;
 }
 
-.view-config > .panel-toolbar,
-.view-config > .operations-panels {
+#view-config > .panel-toolbar,
+#view-config > .operations-panels {
     position: relative;
     z-index: 2;
 }

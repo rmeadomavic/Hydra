@@ -1,5 +1,12 @@
 /* ── Ops HUD View — Full-Width Video with Overlay Elements ── */
 
+/* Ops view fills full viewport */
+#view-ops {
+    display: flex;
+    width: 100%;
+    height: 100%;
+}
+
 /* Video container: fills the entire view area */
 .ops-video-container {
     position: relative;
