@@ -5,6 +5,7 @@ const HydraSettings = (() => {
     let currentSection = 'camera';
     let hasUnsavedChanges = false;
     let initialized = false;
+    let logAutoRefreshTimer = null;
 
     // Fields that require restart
     const RESTART_FIELDS = {
@@ -120,7 +121,12 @@ const HydraSettings = (() => {
         if (!initialized) {
             initNavHandlers();
             initActionHandlers();
+            initLogViewer();
             initialized = true;
+        }
+        // Resume auto-refresh if returning to logs section
+        if (currentSection === 'system_logs') {
+            startLogAutoRefresh();
         }
     }
 
@@ -129,6 +135,7 @@ const HydraSettings = (() => {
             // Could warn, but for now just reset
             hasUnsavedChanges = false;
         }
+        stopLogAutoRefresh();
     }
 
     async function loadConfig() {
@@ -167,6 +174,7 @@ const HydraSettings = (() => {
         const exportBtn = document.getElementById('settings-export');
         const importBtn = document.getElementById('settings-import');
         const importFile = document.getElementById('settings-import-file');
+        const sessionExportBtn = document.getElementById('settings-session-export');
 
         if (applyBtn) applyBtn.addEventListener('click', handleApply);
         if (resetBtn) resetBtn.addEventListener('click', handleReset);
@@ -174,6 +182,9 @@ const HydraSettings = (() => {
         if (restartBtn) restartBtn.addEventListener('click', handleRestart);
         if (factoryBtn) factoryBtn.addEventListener('click', handleFactoryReset);
         if (exportBtn) exportBtn.addEventListener('click', handleExport);
+        if (sessionExportBtn) sessionExportBtn.addEventListener('click', function() {
+            window.location.href = '/api/export';
+        });
         if (importBtn) importBtn.addEventListener('click', function() {
             if (importFile) importFile.click();
         });
@@ -207,8 +218,34 @@ const HydraSettings = (() => {
         const warning = document.getElementById('settings-warning');
         const error = document.getElementById('settings-error');
         const restart = document.getElementById('settings-restart');
+        const logPanel = document.getElementById('log-viewer-panel');
+        const actionsBar = document.querySelector('.settings-actions');
+        const recoverySection = document.querySelector('.settings-recovery');
 
-        if (!form || !configData) return;
+        if (!form) return;
+
+        // Toggle log viewer vs config form
+        if (section === 'system_logs') {
+            form.style.display = 'none';
+            if (logPanel) logPanel.style.display = '';
+            if (actionsBar) actionsBar.style.display = 'none';
+            if (recoverySection) recoverySection.style.display = 'none';
+            if (warning) warning.style.display = 'none';
+            if (error) error.style.display = 'none';
+            if (restart) restart.style.display = 'none';
+            fetchAndRenderLogs();
+            startLogAutoRefresh();
+            return;
+        }
+
+        // Normal config section — hide log viewer, show form + actions
+        form.style.display = '';
+        if (logPanel) logPanel.style.display = 'none';
+        if (actionsBar) actionsBar.style.display = '';
+        if (recoverySection) recoverySection.style.display = '';
+        stopLogAutoRefresh();
+
+        if (!configData) return;
         clearElement(form);
         if (error) error.style.display = 'none';
         if (restart) restart.style.display = 'none';
@@ -518,6 +555,98 @@ const HydraSettings = (() => {
             el.textContent = msg;
             el.style.display = '';
         }
+    }
+
+    // ── Log Viewer ──
+
+    function initLogViewer() {
+        const refreshBtn = document.getElementById('log-refresh-btn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', fetchAndRenderLogs);
+        }
+        const levelFilter = document.getElementById('log-level-filter');
+        if (levelFilter) {
+            levelFilter.addEventListener('change', fetchAndRenderLogs);
+        }
+        const lineCount = document.getElementById('log-line-count');
+        if (lineCount) {
+            lineCount.addEventListener('change', fetchAndRenderLogs);
+        }
+    }
+
+    async function fetchAndRenderLogs() {
+        const levelEl = document.getElementById('log-level-filter');
+        const linesEl = document.getElementById('log-line-count');
+        const output = document.getElementById('log-viewer-output');
+        if (!output) return;
+
+        const level = levelEl ? levelEl.value : 'INFO';
+        const lines = linesEl ? linesEl.value : '50';
+        const queryLevel = level === 'ALL' ? 'DEBUG' : level;
+
+        const entries = await HydraApp.apiGet(
+            '/api/logs?lines=' + lines + '&level=' + queryLevel
+        );
+
+        clearElement(output);
+
+        if (!entries || !Array.isArray(entries) || entries.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'log-entry log-empty';
+            empty.textContent = 'No log entries found.';
+            output.appendChild(empty);
+            return;
+        }
+
+        entries.forEach(function(entry) {
+            const line = document.createElement('div');
+            line.className = 'log-entry';
+
+            // Color-code by level
+            const lvl = (entry.level || '').toUpperCase();
+            if (lvl === 'ERROR' || lvl === 'CRITICAL') {
+                line.classList.add('log-error');
+            } else if (lvl === 'WARNING') {
+                line.classList.add('log-warning');
+            } else if (lvl === 'DEBUG') {
+                line.classList.add('log-debug');
+            }
+
+            // Build text: [TIMESTAMP] [LEVEL] [MODULE] message
+            var parts = [];
+            if (entry.timestamp) {
+                parts.push('[' + entry.timestamp + ']');
+            }
+            if (entry.level) {
+                parts.push('[' + entry.level + ']');
+            }
+            if (entry.module) {
+                parts.push('[' + entry.module + ']');
+            }
+            parts.push(entry.message || '');
+            line.textContent = parts.join(' ');
+
+            output.appendChild(line);
+        });
+
+        // Auto-scroll to bottom
+        output.scrollTop = output.scrollHeight;
+    }
+
+    function startLogAutoRefresh() {
+        stopLogAutoRefresh();
+        logAutoRefreshTimer = setInterval(fetchAndRenderLogs, 5000);
+        const indicator = document.getElementById('log-auto-indicator');
+        if (indicator) indicator.classList.add('active');
+    }
+
+    function stopLogAutoRefresh() {
+        if (logAutoRefreshTimer) {
+            clearInterval(logAutoRefreshTimer);
+            logAutoRefreshTimer = null;
+        }
+        const indicator = document.getElementById('log-auto-indicator');
+        if (indicator) indicator.classList.remove('active');
     }
 
     return { onEnter, onLeave };
