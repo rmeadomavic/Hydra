@@ -363,6 +363,17 @@ function renderTimeline(index) {
     }
 }
 
+// --- Waypoint export ---
+function exportWaypoints() {
+    const sel = document.getElementById('logSelect');
+    const filename = sel ? sel.value : '';
+    if (!filename) {
+        alert('Select a log file first.');
+        return;
+    }
+    window.location.href = '/api/review/waypoints/' + encodeURIComponent(filename);
+}
+
 // --- Event listeners ---
 document.getElementById('logSelect').onchange = e => loadLog(e.target.value);
 document.getElementById('confSlider').oninput = e => {
@@ -375,6 +386,12 @@ document.getElementById('eventSelect').onchange = e => loadEventLog(e.target.val
 document.getElementById('timeSlider').oninput = e => renderTimeline(parseInt(e.target.value));
 document.getElementById('showVehicleTrack').onchange = renderVehicleTrack;
 document.getElementById('showEvents').onchange = renderVehicleTrack;
+
+// Export buttons
+const geojsonBtn = document.getElementById('btn-export-geojson');
+if (geojsonBtn) geojsonBtn.addEventListener('click', exportGeoJSON);
+const waypointBtn = document.getElementById('btn-export-waypoints');
+if (waypointBtn) waypointBtn.addEventListener('click', exportWaypoints);
 
 // --- Init ---
 loadLogList();

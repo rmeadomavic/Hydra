@@ -296,6 +296,9 @@ const HydraOperations = (() => {
         // Mission control
         addClick('ctrl-btn-mission-start', () => startMission());
         addClick('ctrl-btn-mission-end', () => endMission());
+        addClick('ctrl-btn-export-waypoints', () => {
+            window.location.href = '/api/export/waypoints';
+        });
     }
 
     function addClick(id, handler) {
@@ -624,6 +627,17 @@ const HydraOperations = (() => {
                     });
                     actions.appendChild(dropBtn);
 
+                    const plockBtn = document.createElement('button');
+                    plockBtn.className = 'btn btn-sm track-btn';
+                    plockBtn.textContent = 'P-Lock';
+                    plockBtn.style.color = '#7c87ee';
+                    plockBtn.style.borderColor = '#7c87ee';
+                    plockBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        HydraApp.apiPost('/api/approach/pixel_lock/' + trackId, {});
+                    });
+                    actions.appendChild(plockBtn);
+
                     const strikeBtn = document.createElement('button');
                     strikeBtn.className = 'btn btn-sm btn-danger track-btn';
                     strikeBtn.textContent = 'Strike';
@@ -656,6 +670,9 @@ const HydraOperations = (() => {
                 } else if (target.mode === 'follow') {
                     lockEl.className = 'panel-lock-indicator tracking';
                     lockEl.textContent = 'FOLLOW: #' + target.track_id + ' ' + (target.label || '');
+                } else if (target.mode === 'pixel_lock') {
+                    lockEl.className = 'panel-lock-indicator tracking';
+                    lockEl.textContent = 'P-LOCK: #' + target.track_id + ' ' + (target.label || '');
                 } else {
                     lockEl.className = 'panel-lock-indicator tracking';
                     lockEl.textContent = 'TRACKING: #' + target.track_id + ' ' + (target.label || '');

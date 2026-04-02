@@ -145,6 +145,24 @@ body.view-settings .topbar-thumbnail {
     text-transform: uppercase;
     color: var(--text-dim);
 }
+.footer-logout {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.55rem;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 8px;
+    cursor: pointer;
+    transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+.footer-logout:hover {
+    color: var(--danger);
+    border-color: var(--danger);
+}
 
 /* ── MJPEG Stream Positioning ── */
 #mjpeg-stream {

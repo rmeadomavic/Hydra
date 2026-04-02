@@ -219,6 +219,7 @@
     padding: 6px 12px;
     opacity: 0.7;
     transition: opacity var(--transition-fast);
+    text-decoration: none;
 }
 .btn-recovery:hover {
     opacity: 1;
@@ -229,6 +230,98 @@
 }
 .btn-danger-outline:hover {
     background: var(--danger-bg);
+}
+
+/* ── Log Viewer ── */
+.log-viewer-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-sm);
+}
+
+.log-viewer-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+    flex-wrap: wrap;
+}
+
+.log-viewer-label {
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+}
+
+.log-viewer-controls select {
+    background: #0e0e0e;
+    color: var(--text-primary);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-md);
+    padding: 4px 8px;
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    cursor: pointer;
+}
+
+.log-auto-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.log-auto-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--card-border);
+    transition: background var(--transition-fast);
+}
+.log-auto-indicator.active {
+    background: var(--ogt-green);
+    box-shadow: 0 0 6px var(--ogt-green);
+}
+
+.log-viewer {
+    background: #0a0a0a;
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-md);
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    line-height: 1.4;
+}
+
+.log-entry {
+    padding: 2px 8px;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.log-entry:nth-child(even) {
+    background: rgba(255, 255, 255, 0.015);
+}
+
+.log-error {
+    color: #f87171;
+}
+
+.log-warning {
+    color: #fb923c;
+}
+
+.log-debug {
+    color: #6b7280;
+}
+
+.log-empty {
+    color: var(--text-dim);
+    padding: var(--gap-md);
+    text-align: center;
+    font-style: italic;
 }
 
 /* ── Responsive ── */

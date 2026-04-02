@@ -698,6 +698,24 @@ const HydraApp = (() => {
         if (overlay) overlay.style.display = 'none';
     }
 
+    // ── Logout Button ──
+    function initLogoutButton() {
+        const btn = document.getElementById('footer-logout');
+        if (!btn) return;
+        // Show logout button only when a session cookie exists
+        if (document.cookie.split(';').some(c => c.trim().startsWith('hydra_session='))) {
+            btn.style.display = '';
+        }
+        btn.addEventListener('click', async () => {
+            try {
+                await fetch('/auth/logout', { method: 'POST' });
+            } catch (e) {
+                // Ignore network errors on logout
+            }
+            window.location.href = '/login';
+        });
+    }
+
     // ── Init ──
     function init() {
         runPreflight();
@@ -707,6 +725,7 @@ const HydraApp = (() => {
         initModalEscape();
         initStreamWatcher();
         initAdaptiveQuality();
+        initLogoutButton();
         updatePollers();
     }
 
