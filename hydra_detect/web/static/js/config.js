@@ -52,11 +52,14 @@ const HydraOperations = (() => {
         loadPowerModes();
         loadConfig();
         loadAlertClasses();
+        loadCameraSources();
         rfModeChanged();
         loadRTSPStatus();
         loadMAVLinkVideoStatus();
         loadTAKStatus();
     }
+
+    let missionProfileMeta = {};
 
     async function loadProfiles() {
         const data = await HydraApp.apiGet('/api/profiles');
@@ -66,6 +69,13 @@ const HydraOperations = (() => {
         if (!sel || !data) return;
         profileData.profiles = data.profiles || [];
         profileData.active = data.active_profile;
+
+        // Fetch rich metadata from mission-profiles endpoint
+        const richData = await HydraApp.apiGet('/api/mission-profiles');
+        if (richData) {
+            missionProfileMeta = richData;
+        }
+
         clearChildren(sel);
 
         const customOpt = document.createElement('option');
@@ -74,17 +84,34 @@ const HydraOperations = (() => {
         if (!profileData.active) customOpt.selected = true;
         sel.appendChild(customOpt);
 
+        const ICON_MAP = {
+            eye: '\uD83D\uDC41',
+            package: '\uD83D\uDCE6',
+            target: '\uD83C\uDFAF'
+        };
+
         for (const p of profileData.profiles) {
             const opt = document.createElement('option');
             opt.value = p.id;
-            opt.textContent = p.name;
+            const meta = missionProfileMeta[p.id];
+            const icon = meta && meta.icon && ICON_MAP[meta.icon] ? ICON_MAP[meta.icon] + ' ' : '';
+            opt.textContent = icon + p.name;
             if (!p.model_exists) opt.textContent += ' (model missing)';
             if (p.id === profileData.active) opt.selected = true;
             sel.appendChild(opt);
         }
 
         const active = profileData.profiles.find(p => p.id === profileData.active);
-        if (descEl) descEl.textContent = active ? active.description : 'Select a mission profile or configure manually below.';
+        const activeMeta = active ? missionProfileMeta[active.id] : null;
+        if (descEl) {
+            if (activeMeta) {
+                descEl.textContent = activeMeta.description + (activeMeta.behavior ? ' [' + activeMeta.behavior.toUpperCase() + ']' : '');
+            } else if (active) {
+                descEl.textContent = active.description || '';
+            } else {
+                descEl.textContent = 'Select a mission profile or configure manually below.';
+            }
+        }
 
         const modelInfoEl = document.getElementById('ctrl-model-info');
         const modelNameEl = document.getElementById('ctrl-model-name');
@@ -138,6 +165,36 @@ const HydraOperations = (() => {
             if (slider) slider.value = data.threshold;
             if (val) val.textContent = data.threshold;
         }
+    }
+
+    async function loadCameraSources() {
+        const data = await HydraApp.apiGet('/api/camera/sources');
+        const sel = document.getElementById('ctrl-camera-select');
+        if (!sel) return;
+        if (!data || !data.length) return;
+        clearChildren(sel);
+        for (const s of data) {
+            const opt = document.createElement('option');
+            opt.value = String(s.index);
+            const label = s.name || ('Video ' + s.index);
+            opt.textContent = label + ' (' + s.device + ')';
+            if (s.active) opt.selected = true;
+            sel.appendChild(opt);
+        }
+    }
+
+    async function switchCamera(source) {
+        if (source === '' || source === undefined) return;
+        const sel = document.getElementById('ctrl-camera-select');
+        if (sel) sel.disabled = true;
+        const result = await HydraApp.apiPost('/api/camera/switch', { source: source });
+        if (result && result.status === 'ok') {
+            HydraApp.showToast('Camera switched to ' + result.source, 'success');
+        } else {
+            HydraApp.showToast('Camera switch failed', 'error');
+        }
+        if (sel) sel.disabled = false;
+        loadCameraSources();
     }
 
     async function loadAlertClasses() {
@@ -214,7 +271,21 @@ const HydraOperations = (() => {
         addChange('ctrl-power-mode', (e) => setPowerMode(e.target.value));
 
         // Profile select
-        addChange('ctrl-profile-select', (e) => switchProfile(e.target.value));
+        addChange('ctrl-profile-select', (e) => {
+            const profileId = e.target.value;
+            // Update description immediately from rich metadata
+            const descEl = document.getElementById('ctrl-profile-desc');
+            if (descEl && profileId && missionProfileMeta[profileId]) {
+                const meta = missionProfileMeta[profileId];
+                descEl.textContent = meta.description + (meta.behavior ? ' [' + meta.behavior.toUpperCase() + ']' : '');
+            } else if (descEl && !profileId) {
+                descEl.textContent = 'Select a mission profile or configure manually below.';
+            }
+            switchProfile(profileId);
+        });
+
+        // Camera select
+        addChange('ctrl-camera-select', (e) => switchCamera(e.target.value));
 
         // Model select
         addChange('ctrl-model-select', async function() {
@@ -292,6 +363,13 @@ const HydraOperations = (() => {
 
         // TAK/ATAK
         addClick('ctrl-tak-toggle', () => toggleTAK());
+        addClick('ctrl-tak-target-add', () => addTAKTarget());
+        const takInput = document.getElementById('ctrl-tak-target-input');
+        if (takInput) {
+            takInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') addTAKTarget();
+            });
+        }
 
         // Mission control
         addClick('ctrl-btn-mission-start', () => startMission());
@@ -1334,6 +1412,7 @@ const HydraOperations = (() => {
         const toggle = document.getElementById('ctrl-tak-toggle');
         const status = document.getElementById('ctrl-tak-status');
         const details = document.getElementById('ctrl-tak-details');
+        const targetsSection = document.getElementById('ctrl-tak-targets-section');
         if (!toggle || !status) return;
 
         if (data.enabled || data.running) {
@@ -1345,10 +1424,15 @@ const HydraOperations = (() => {
                 details.textContent = data.callsign + ' \u2192 ' + data.multicast;
                 details.style.display = 'block';
             }
+            if (targetsSection) {
+                targetsSection.style.display = 'block';
+                loadTAKTargets();
+            }
         } else {
             toggle.classList.remove('active');
             status.textContent = 'OFF';
             if (details) details.style.display = 'none';
+            if (targetsSection) targetsSection.style.display = 'none';
         }
     }
 
@@ -1358,6 +1442,98 @@ const HydraOperations = (() => {
         const nowActive = toggle.classList.contains('active');
         await HydraApp.apiPost('/api/tak/toggle', { enabled: !nowActive });
         loadTAKStatus();
+    }
+
+    // -- TAK Unicast Targets -----------------------------------------------
+
+    async function loadTAKTargets() {
+        const data = await HydraApp.apiGet('/api/tak/targets');
+        const list = document.getElementById('ctrl-tak-target-list');
+        if (!list) return;
+        clearChildren(list);
+        const targets = (data && data.targets) ? data.targets : [];
+        if (targets.length === 0) {
+            const empty = document.createElement('div');
+            empty.style.cssText = 'color:var(--text-dim);font-size:var(--font-xs);padding:2px 0;';
+            empty.textContent = 'No unicast targets';
+            list.appendChild(empty);
+            return;
+        }
+        for (const t of targets) {
+            const addr = (typeof t === 'string') ? t : (t.host + ':' + t.port);
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:4px;padding:2px 0;';
+            const label = document.createElement('span');
+            label.className = 'mono';
+            label.style.cssText = 'font-size:var(--font-xs);color:var(--text-secondary);flex:1;';
+            label.textContent = addr;
+            const delBtn = document.createElement('button');
+            delBtn.className = 'btn btn-sm';
+            delBtn.style.cssText = 'color:var(--danger);border-color:var(--danger);padding:0 4px;min-width:0;line-height:1.2;';
+            delBtn.textContent = '\u00D7';
+            delBtn.title = 'Remove ' + addr;
+            delBtn.addEventListener('click', () => removeTAKTarget(addr));
+            row.appendChild(label);
+            row.appendChild(delBtn);
+            list.appendChild(row);
+        }
+    }
+
+    async function addTAKTarget() {
+        const input = document.getElementById('ctrl-tak-target-input');
+        if (!input) return;
+        const raw = input.value.trim();
+        if (!raw) {
+            HydraApp.showToast('Enter a target address (host:port)', 'info');
+            input.focus();
+            return;
+        }
+        // Parse host:port
+        let host = raw;
+        let port = 6969;
+        const colonIdx = raw.lastIndexOf(':');
+        if (colonIdx > 0) {
+            const portStr = raw.substring(colonIdx + 1);
+            const portNum = parseInt(portStr, 10);
+            if (!isNaN(portNum) && portNum > 0 && portNum <= 65535) {
+                host = raw.substring(0, colonIdx);
+                port = portNum;
+            }
+        }
+        const result = await HydraApp.apiPost('/api/tak/targets', { host: host, port: port });
+        if (result && result.status === 'added') {
+            input.value = '';
+            HydraApp.showToast('TAK target added: ' + host + ':' + port, 'success');
+            loadTAKTargets();
+        }
+    }
+
+    async function removeTAKTarget(addr) {
+        // Parse "host:port" string
+        let host = addr;
+        let port = 6969;
+        const colonIdx = addr.lastIndexOf(':');
+        if (colonIdx > 0) {
+            const portStr = addr.substring(colonIdx + 1);
+            const portNum = parseInt(portStr, 10);
+            if (!isNaN(portNum) && portNum > 0 && portNum <= 65535) {
+                host = addr.substring(0, colonIdx);
+                port = portNum;
+            }
+        }
+        try {
+            const resp = await fetch('/api/tak/targets', {
+                method: 'DELETE',
+                headers: HydraApp.authHeaders(),
+                body: JSON.stringify({ host: host, port: port }),
+            });
+            if (resp.ok) {
+                HydraApp.showToast('TAK target removed', 'info');
+            }
+        } catch (e) {
+            HydraApp.showToast('Failed to remove TAK target', 'error');
+        }
+        loadTAKTargets();
     }
 
     // ── Helpers ──
