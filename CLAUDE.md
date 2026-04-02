@@ -255,9 +255,23 @@ tegrastats
 
 ## Web Frontend (SPA)
 
-- **SPA structure:** `base.html` includes `operations.html` + `settings.html` via
-  Jinja2 `{% include %}`. Both views always exist in DOM, shown/hidden via CSS.
+- **SPA structure:** `base.html` includes `ops.html` + `config.html` + `settings.html` via
+  Jinja2 `{% include %}`. All three views always exist in DOM, shown/hidden via CSS.
   `review.html` is standalone — does not share `base.html`, `app.js`, or CSS.
+- **3-page layout:** Ops (HUD with clickable bounding boxes), Config (mission
+  tuning with video + panels), Settings (backend config with sliders/dropdowns).
+  Route via hash: `#ops`, `#config`, `#settings`. Default: `#ops`.
+  `#operations` is a backward-compatible alias for `#config`.
+- **JS modules:** `ops.js` (HUD + canvas overlay), `config.js` (panels, evolved
+  from operations.js), `settings.js` (schema-driven form), `app.js` (router +
+  polling). Each has `onEnter()`/`onLeave()` lifecycle hooks.
+- **Canvas bounding box overlay:** `ops.js` draws track bounding boxes on a
+  `<canvas>` over the video `<img>`. Click hit-testing maps display coords to
+  frame space (letterbox-aware). Context menu appears at click position with
+  Follow/Strike/Drop/P-Lock/Loiter/Lock actions.
+- **Schema-driven settings:** `GET /api/config/schema` exposes field metadata
+  (type, min, max, choices, default). Settings.js auto-generates sliders for
+  numeric ranges and dropdowns for enums.
 - **CSS transitions + display:** Cannot transition `opacity` in the same class toggle
   that changes `display: none` → `display: flex`. Use JS to set `display` first,
   force reflow (`void el.offsetWidth`), then add class for opacity transition.
