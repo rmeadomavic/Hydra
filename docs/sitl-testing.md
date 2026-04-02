@@ -151,6 +151,88 @@ The `--sim` flag sets these defaults (override in config.ini):
 | servo_tracking.enabled | false | false |
 | rf_homing.enabled | false | false |
 
+## Windows / Mission Planner SITL (Recommended for SORCC)
+
+The easiest way to run SITL on a Windows laptop and connect to Hydra on the
+Jetson over Tailscale.
+
+### 1. Start SITL in Mission Planner
+
+1. Open Mission Planner
+2. Go to **Simulation** tab (bottom-left)
+3. Select vehicle type: **Multirotor** (drone), **Rover** (UGV/USV), or **Plane**
+4. Click **Start SITL** — MP downloads and runs the SITL binary automatically
+
+### 2. Forward to Jetson over Tailscale
+
+In the Mission Planner **SITL** window or MAVProxy console:
+
+```
+output add <JETSON_TAILSCALE_IP>:14550
+```
+
+Example with Jetson at `100.109.160.122`:
+```
+output add 100.109.160.122:14550
+```
+
+### 3. Configure Hydra on the Jetson
+
+Edit `config.ini` (or use `--sim` flag which sets UDP automatically):
+
+```ini
+[mavlink]
+enabled = true
+port = udp:0.0.0.0:14550
+baud = 115200
+```
+
+Start Hydra in Docker:
+```bash
+sudo systemctl restart hydra-detect
+```
+
+### 4. Verify Connection
+
+```bash
+curl -s http://localhost:8080/api/stats | python3 -c "
+import sys, json
+s = json.load(sys.stdin)
+print(f'MAVLink: {s[\"mavlink\"]} | Mode: {s[\"vehicle_mode\"]} | GPS: {s[\"gps_fix\"]}')
+"
+```
+
+Expected: `MAVLink: True | Mode: STABILIZE | GPS: 3`
+
+### 5. Test from the Dashboard
+
+Open `http://<JETSON_TAILSCALE_IP>:8080` in your laptop browser.
+You should see the SITL vehicle's mode, GPS position, and battery.
+
+### Alternative: WSL2 Command Line
+
+If you prefer `sim_vehicle.py` over Mission Planner:
+
+```bash
+# In WSL2 Ubuntu terminal
+git clone --recurse-submodules https://github.com/ArduPilot/ardupilot.git
+cd ardupilot
+Tools/environment_install/install-prereqs-ubuntu.sh -y
+. ~/.profile
+
+# Start with output to Jetson
+cd ArduCopter
+sim_vehicle.py -v ArduCopter --out=udp:100.109.160.122:14550
+```
+
+### Firewall Notes
+
+- Windows Firewall may block SITL's outbound UDP. Allow `sim_vehicle.exe` or
+  `ArduCopter.exe` through Windows Firewall if connection fails.
+- Tailscale handles routing — no port forwarding needed on your router.
+- If using WSL2, the UDP output goes through the WSL network bridge. Use the
+  WSL2 host's Tailscale IP, not the WSL internal IP.
+
 ## Troubleshooting
 
 **No MAVLink connection:** Check SITL is running and listening on 14550. Try `mavproxy.py --master=udp:127.0.0.1:14550` to verify.
