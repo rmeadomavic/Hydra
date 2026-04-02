@@ -492,7 +492,74 @@ const HydraOps = (() => {
         if (!stats) return;
         updateTelemetry(stats);
         updateLockInfo(HydraApp.state.target);
+        updateSidebarTracks();
+        updateSidebarVehicle(stats);
         drawBoundingBoxes();
+    }
+
+    function updateSidebarTracks() {
+        var container = document.getElementById('ops-track-list');
+        if (!container) return;
+        var tracks = HydraApp.state.tracks || [];
+        var target = HydraApp.state.target || {};
+        var lockedId = target.track_id;
+
+        if (tracks.length === 0) {
+            if (container.children.length !== 1 || !container.querySelector('.ops-track-empty')) {
+                container.textContent = '';
+                var empty = document.createElement('div');
+                empty.className = 'ops-track-empty';
+                empty.textContent = 'No tracks';
+                container.appendChild(empty);
+            }
+            return;
+        }
+
+        // DOM diffing: reuse existing rows
+        while (container.children.length > tracks.length) {
+            container.removeChild(container.lastChild);
+        }
+        // Remove empty placeholder if present
+        var emptyEl = container.querySelector('.ops-track-empty');
+        if (emptyEl) container.removeChild(emptyEl);
+
+        tracks.forEach(function(t, i) {
+            var row = container.children[i];
+            if (!row || !row.classList.contains('ops-track-row')) {
+                row = document.createElement('div');
+                row.className = 'ops-track-row';
+                var idSpan = document.createElement('span');
+                idSpan.className = 'ops-track-id';
+                var labelSpan = document.createElement('span');
+                labelSpan.className = 'ops-track-label';
+                var confSpan = document.createElement('span');
+                confSpan.className = 'ops-track-conf';
+                row.appendChild(idSpan);
+                row.appendChild(labelSpan);
+                row.appendChild(confSpan);
+                if (i < container.children.length) {
+                    container.replaceChild(row, container.children[i]);
+                } else {
+                    container.appendChild(row);
+                }
+            }
+            row.children[0].textContent = '#' + t.id;
+            row.children[1].textContent = t.label || 'unknown';
+            row.children[2].textContent = ((t.confidence || 0) * 100).toFixed(0) + '%';
+            row.classList.toggle('locked', t.id === lockedId);
+        });
+    }
+
+    function updateSidebarVehicle(stats) {
+        var mode = document.getElementById('ops-info-mode');
+        var armed = document.getElementById('ops-info-armed');
+        var battery = document.getElementById('ops-info-battery');
+        var position = document.getElementById('ops-info-position');
+
+        if (mode) mode.textContent = stats.vehicle_mode || '--';
+        if (armed) armed.textContent = stats.armed ? 'ARMED' : 'DISARMED';
+        if (battery) battery.textContent = (stats.battery_pct || '--') + '%';
+        if (position) position.textContent = stats.position || '--';
     }
 
     function updateTelemetry(stats) {

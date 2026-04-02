@@ -53,3 +53,33 @@
         <button class="btn ops-action-btn" id="ops-btn-rtl" title="Return to launch">RTL</button>
     </div>
 </div>
+
+<!-- HUD Sidebar (right 40%) -->
+<div class="ops-hud-sidebar" id="ops-hud-sidebar">
+    <!-- Track Summary -->
+    <div class="ops-sidebar-section">
+        <div class="ops-sidebar-header">TRACKS</div>
+        <div class="ops-track-list" id="ops-track-list">
+            <div class="ops-track-empty">No tracks</div>
+        </div>
+    </div>
+
+    <!-- Minimap Placeholder -->
+    <div class="ops-sidebar-section">
+        <div class="ops-sidebar-header">MAP</div>
+        <div class="ops-minimap" id="ops-minimap">
+            <canvas id="ops-minimap-canvas" width="300" height="200"></canvas>
+        </div>
+    </div>
+
+    <!-- Vehicle Info -->
+    <div class="ops-sidebar-section">
+        <div class="ops-sidebar-header">VEHICLE</div>
+        <div class="ops-vehicle-info" id="ops-vehicle-info">
+            <div class="ops-info-row"><span class="ops-info-label">Mode</span><span class="ops-info-value" id="ops-info-mode">--</span></div>
+            <div class="ops-info-row"><span class="ops-info-label">Armed</span><span class="ops-info-value" id="ops-info-armed">--</span></div>
+            <div class="ops-info-row"><span class="ops-info-label">Battery</span><span class="ops-info-value" id="ops-info-battery">--</span></div>
+            <div class="ops-info-row"><span class="ops-info-label">Position</span><span class="ops-info-value" id="ops-info-position">--</span></div>
+        </div>
+    </div>
+</div>

@@ -1,19 +1,20 @@
 /* ── Ops HUD View — Full-Width Video with Overlay Elements ── */
 
-/* Ops view fills full viewport */
+/* Ops view: 60% video left, 40% HUD panels right */
 #view-ops {
     display: flex;
     width: 100%;
     height: 100%;
 }
 
-/* Video container: fills the entire view area */
+/* Video container: left 60% */
 .ops-video-container {
     position: relative;
-    width: 100%;
+    width: 60%;
     height: 100%;
     background: #000;
     overflow: hidden;
+    flex-shrink: 0;
 }
 
 /* Video frame: fill container, maintain aspect ratio */
@@ -25,6 +26,18 @@
     background: #000;
 }
 
+/* HUD sidebar: right 40% */
+.ops-hud-sidebar {
+    width: 40%;
+    height: 100%;
+    background: var(--panel-bg);
+    overflow-y: auto;
+    padding: var(--gap-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-sm);
+}
+
 /* Canvas overlay: same size as container, layered over video */
 .ops-bbox-canvas {
     position: absolute;
@@ -33,6 +46,113 @@
     width: 100%;
     height: 100%;
     pointer-events: auto;
+}
+
+/* ── HUD Sidebar Sections ── */
+.ops-sidebar-section {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.ops-sidebar-header {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.6rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-dim);
+    padding: var(--gap-xs) var(--gap-sm);
+    background: var(--sidebar-bg);
+    border-bottom: 1px solid var(--card-border);
+}
+
+.ops-track-list {
+    max-height: 200px;
+    overflow-y: auto;
+    padding: var(--gap-xs);
+}
+
+.ops-track-empty {
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    text-align: center;
+    padding: var(--gap-md);
+}
+
+.ops-track-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px var(--gap-xs);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: var(--font-xs);
+    transition: background var(--transition-fast);
+}
+
+.ops-track-row:hover {
+    background: rgba(56, 87, 35, 0.15);
+}
+
+.ops-track-row.locked {
+    background: rgba(56, 87, 35, 0.25);
+    border-left: 2px solid var(--ogt-green);
+}
+
+.ops-track-id {
+    font-family: var(--font-mono);
+    color: var(--ogt-muted);
+    min-width: 30px;
+}
+
+.ops-track-label {
+    flex: 1;
+    color: var(--text-primary);
+    margin: 0 var(--gap-xs);
+}
+
+.ops-track-conf {
+    font-family: var(--font-mono);
+    color: var(--text-data);
+    text-align: right;
+    min-width: 35px;
+}
+
+.ops-minimap {
+    background: #0a0a0a;
+    height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ops-minimap canvas {
+    width: 100%;
+    height: 100%;
+}
+
+.ops-vehicle-info {
+    padding: var(--gap-xs) var(--gap-sm);
+}
+
+.ops-info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 1px 0;
+}
+
+.ops-info-label {
+    font-size: 0.6rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+}
+
+.ops-info-value {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-data);
 }
 
 /* ── Stream Lost Badge ── */
@@ -186,6 +306,14 @@
 
 /* ── Responsive: tablet/Steam Deck ── */
 @media (max-width: 1279px) {
+    .ops-video-container {
+        width: 100%;
+    }
+
+    .ops-hud-sidebar {
+        display: none;
+    }
+
     .ops-telemetry-strip {
         gap: var(--gap-sm);
         padding: var(--gap-xs) var(--gap-sm);
