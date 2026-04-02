@@ -230,7 +230,8 @@ const HydraSettings = (() => {
         slider.className = 'schema-slider';
         slider.min = String(spec.min);
         slider.max = String(spec.max);
-        slider.step = spec.type === 'float' ? '0.01' : '1';
+        var range = spec.max - spec.min;
+        slider.step = spec.type === 'float' ? (range > 100 ? '1' : range > 10 ? '0.1' : '0.01') : '1';
         slider.value = value;
 
         var valLabel = document.createElement('span');

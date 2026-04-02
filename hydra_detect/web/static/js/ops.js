@@ -94,10 +94,14 @@ const HydraOps = (() => {
         var canvas = document.getElementById('ops-bbox-canvas');
         var img = document.getElementById('ops-video-frame');
         if (!canvas || !img) return;
-        // Match canvas pixel dimensions to the displayed image size
         var rect = img.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
+        var dpr = window.devicePixelRatio || 1;
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        canvas.style.width = rect.width + 'px';
+        canvas.style.height = rect.height + 'px';
+        var ctx = canvas.getContext('2d');
+        ctx.scale(dpr, dpr);
     }
 
     // ── Video-to-Canvas Coordinate Mapping ──

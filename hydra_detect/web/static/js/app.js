@@ -85,8 +85,8 @@ const HydraApp = (() => {
         const prev = currentView;
         currentView = view;
 
-        // Video polling active on ops and config, paused on settings
-        if (view === 'ops' || view === 'config') resumeStream();
+        // Video polling: config uses global stream, ops manages its own, settings paused
+        if (view === 'config') resumeStream();
         else pauseStream();
 
         VALID_VIEWS.forEach(v =>
