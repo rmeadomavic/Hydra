@@ -2,6 +2,7 @@
 
 const HydraSettings = (() => {
     let configData = null;
+    let schemaData = null;
     let currentSection = 'camera';
     let hasUnsavedChanges = false;
     let initialized = false;
@@ -139,7 +140,12 @@ const HydraSettings = (() => {
     }
 
     async function loadConfig() {
-        configData = await HydraApp.apiGet('/api/config/full');
+        const results = await Promise.all([
+            HydraApp.apiGet('/api/config/full'),
+            schemaData ? Promise.resolve(schemaData) : HydraApp.apiGet('/api/config/schema'),
+        ]);
+        configData = results[0];
+        if (results[1]) schemaData = results[1];
         if (!configData) {
             showError('Failed to load configuration');
             return;
@@ -211,6 +217,42 @@ const HydraSettings = (() => {
         while (el.firstChild) {
             el.removeChild(el.firstChild);
         }
+    }
+
+    function buildSlider(key, section, value, spec) {
+        var container = document.createElement('div');
+        container.className = 'slider-container';
+        container.dataset.key = key;
+        container.dataset.section = section;
+
+        var slider = document.createElement('input');
+        slider.type = 'range';
+        slider.className = 'schema-slider';
+        slider.min = String(spec.min);
+        slider.max = String(spec.max);
+        slider.step = spec.type === 'float' ? '0.01' : '1';
+        slider.value = value;
+
+        var valLabel = document.createElement('span');
+        valLabel.className = 'slider-value';
+        valLabel.textContent = value;
+
+        // Show default hint
+        var defaultHint = document.createElement('span');
+        defaultHint.className = 'slider-default';
+        if (spec.default != null) {
+            defaultHint.textContent = 'default: ' + spec.default;
+        }
+
+        slider.addEventListener('input', function() {
+            valLabel.textContent = slider.value;
+            hasUnsavedChanges = true;
+        });
+
+        container.appendChild(slider);
+        container.appendChild(valLabel);
+        container.appendChild(defaultHint);
+        return container;
     }
 
     function renderSection(section) {
@@ -288,6 +330,14 @@ const HydraSettings = (() => {
             label.className = 'settings-field-label';
             label.textContent = key;
 
+            // Schema metadata for this field (may be null)
+            const spec = schemaData && schemaData[section] && schemaData[section][key];
+
+            // Description tooltip from schema
+            if (spec && spec.description) {
+                label.title = spec.description;
+            }
+
             // Restart icon
             if (RESTART_FIELDS[section] && RESTART_FIELDS[section].includes(key)) {
                 const icon = document.createElement('span');
@@ -346,7 +396,20 @@ const HydraSettings = (() => {
                         input.appendChild(o);
                     });
                 })();
-            } else if (BOOLEAN_FIELDS.includes(key)) {
+            } else if (spec && spec.type === 'enum' && spec.choices) {
+                // Schema-driven dropdown for enum fields
+                input = document.createElement('select');
+                input.dataset.key = key;
+                input.dataset.section = section;
+                input.addEventListener('change', () => { hasUnsavedChanges = true; });
+                spec.choices.forEach(choice => {
+                    const o = document.createElement('option');
+                    o.value = choice;
+                    o.textContent = choice;
+                    if (choice === value) o.selected = true;
+                    input.appendChild(o);
+                });
+            } else if ((spec && spec.type === 'bool') || BOOLEAN_FIELDS.includes(key)) {
                 // Toggle switch
                 input = document.createElement('div');
                 input.className = 'toggle-switch' + (value === 'true' ? ' active' : '');
@@ -371,6 +434,9 @@ const HydraSettings = (() => {
                 input.dataset.section = section;
                 input.rows = 3;
                 input.addEventListener('input', () => { hasUnsavedChanges = true; });
+            } else if (spec && (spec.type === 'float' || spec.type === 'int') && spec.min != null && spec.max != null) {
+                // Schema-driven range slider for numeric fields with known bounds
+                input = buildSlider(key, section, value, spec);
             } else {
                 input = document.createElement('input');
                 // Detect numeric fields
@@ -408,6 +474,9 @@ const HydraSettings = (() => {
 
             if (el.classList.contains('toggle-switch')) {
                 value = el.classList.contains('active') ? 'true' : 'false';
+            } else if (el.classList.contains('slider-container')) {
+                var rangeInput = el.querySelector('input[type="range"]');
+                value = rangeInput ? rangeInput.value : '';
             } else {
                 value = el.value;
             }

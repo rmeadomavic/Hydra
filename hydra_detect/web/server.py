@@ -32,6 +32,7 @@ from hydra_detect.web.config_api import (
     restore_factory,
     write_config,
 )
+from hydra_detect.config_schema import SCHEMA as CONFIG_SCHEMA
 
 logger = logging.getLogger(__name__)
 
@@ -2206,6 +2207,30 @@ async def api_get_full_config():
     except Exception as e:
         logger.error("Failed to read config: %s", e)
         return JSONResponse({"error": "Failed to read configuration"}, status_code=500)
+
+
+@app.get("/api/config/schema")
+async def api_get_config_schema():
+    """Return config schema metadata for UI control generation.
+
+    No auth required — read-only metadata describing field types, ranges,
+    choices, and defaults. Used by settings.js to render sliders and
+    dropdowns instead of plain text inputs.
+    """
+    result: dict[str, dict[str, dict[str, Any]]] = {}
+    for section, fields in CONFIG_SCHEMA.items():
+        section_schema: dict[str, dict[str, Any]] = {}
+        for key, spec in fields.items():
+            section_schema[key] = {
+                "type": spec.type.value,
+                "min": spec.min_val,
+                "max": spec.max_val,
+                "choices": spec.choices,
+                "default": spec.default,
+                "description": spec.description,
+            }
+        result[section] = section_schema
+    return result
 
 
 @app.post("/api/config/full")
