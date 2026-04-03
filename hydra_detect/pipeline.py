@@ -155,7 +155,7 @@ class Pipeline:
 
         # Camera
         self._camera = Camera(
-            source=self._cfg.get("camera", "source", fallback="0"),
+            source=self._cfg.get("camera", "source", fallback="auto"),
             width=self._cfg.getint("camera", "width", fallback=640),
             height=self._cfg.getint("camera", "height", fallback=480),
             fps=self._cfg.getint("camera", "fps", fallback=30),
@@ -184,12 +184,12 @@ class Pipeline:
 
         # MAVLink
         self._mavlink: Optional[MAVLinkIO] = None
-        if self._cfg.getboolean("mavlink", "enabled", fallback=False):
+        if self._cfg.getboolean("mavlink", "enabled", fallback=True):
             self._mavlink = MAVLinkIO(
                 connection_string=self._cfg.get(
                     "mavlink", "connection_string", fallback="/dev/ttyACM0"
                 ),
-                baud=self._cfg.getint("mavlink", "baud", fallback=115200),
+                baud=self._cfg.getint("mavlink", "baud", fallback=921600),
                 source_system=self._cfg.getint("mavlink", "source_system", fallback=1),
                 alert_statustext=self._cfg.getboolean(
                     "mavlink", "alert_statustext", fallback=True
@@ -232,7 +232,7 @@ class Pipeline:
                 self._mavlink,
                 mode=self._cfg.get("osd", "mode", fallback="statustext"),
                 update_interval=self._cfg.getfloat(
-                    "osd", "update_interval", fallback=0.2
+                    "osd", "update_interval", fallback=2.0
                 ),
                 serial_port=self._cfg.get(
                     "osd", "serial_port", fallback="/dev/ttyUSB0"
@@ -355,7 +355,7 @@ class Pipeline:
                 enabled=True,
                 geofence_lat=self._cfg.getfloat("autonomous", "geofence_lat", fallback=0.0),
                 geofence_lon=self._cfg.getfloat("autonomous", "geofence_lon", fallback=0.0),
-                geofence_radius_m=self._cfg.getfloat("autonomous", "geofence_radius_m", fallback=100.0),
+                geofence_radius_m=self._cfg.getfloat("autonomous", "geofence_radius_m", fallback=500.0),
                 geofence_polygon=polygon,
                 min_confidence=self._cfg.getfloat("autonomous", "min_confidence", fallback=0.85),
                 min_track_frames=self._cfg.getint("autonomous", "min_track_frames", fallback=5),
@@ -370,7 +370,7 @@ class Pipeline:
             logger.info(
                 "Autonomous strike ENABLED: fence_radius=%.0fm, min_conf=%.2f, "
                 "min_frames=%d, classes=%s",
-                self._cfg.getfloat("autonomous", "geofence_radius_m", fallback=100.0),
+                self._cfg.getfloat("autonomous", "geofence_radius_m", fallback=500.0),
                 self._cfg.getfloat("autonomous", "min_confidence", fallback=0.85),
                 self._cfg.getint("autonomous", "min_track_frames", fallback=5),
                 classes_raw or "NONE (fail-closed)",
@@ -593,9 +593,9 @@ class Pipeline:
             logger.warning("Could not compute model hash: %s", exc)
 
         # Use callsign in log directory path for multi-instance separation
-        _base_log_dir = self._cfg.get("logging", "log_dir", fallback="/data/logs")
-        _base_image_dir = self._cfg.get("logging", "image_dir", fallback="/data/images")
-        _base_crop_dir = self._cfg.get("logging", "crop_dir", fallback="/data/crops")
+        _base_log_dir = self._cfg.get("logging", "log_dir", fallback="./output_data/logs")
+        _base_image_dir = self._cfg.get("logging", "image_dir", fallback="./output_data/images")
+        _base_crop_dir = self._cfg.get("logging", "crop_dir", fallback="./output_data/crops")
         if self._callsign and self._callsign != "HYDRA-1":
             _base_log_dir = str(Path(_base_log_dir).parent / self._callsign / Path(_base_log_dir).name)
             _base_image_dir = str(Path(_base_image_dir).parent / self._callsign / Path(_base_image_dir).name)
@@ -620,7 +620,7 @@ class Pipeline:
             log_dir=self._cfg.get(
                 "logging", "log_dir", fallback="./output_data/logs"
             ),
-            callsign=self._cfg.get("tak", "callsign", fallback="HYDRA"),
+            callsign=self._cfg.get("tak", "callsign", fallback="HYDRA-1"),
         )
         self._event_logger.start_mission("default")
 
@@ -819,7 +819,7 @@ class Pipeline:
         if self._osd is not None:
             logger.info("FPV OSD enabled (mode=%s, interval=%.2fs)",
                         self._osd.mode, self._cfg.getfloat(
-                            "osd", "update_interval", fallback=0.2))
+                            "osd", "update_interval", fallback=2.0))
 
         self._det_logger.start()
 
@@ -896,8 +896,8 @@ class Pipeline:
                 get_power_modes=self._get_power_modes,
                 get_models=self._get_models,
                 on_model_switch=self._handle_model_switch,
-                get_log_dir=lambda: self._cfg.get("logging", "log_dir", fallback="/data/logs"),
-                get_image_dir=lambda: self._cfg.get("logging", "image_dir", fallback="/data/images"),
+                get_log_dir=lambda: self._cfg.get("logging", "log_dir", fallback="./output_data/logs"),
+                get_image_dir=lambda: self._cfg.get("logging", "image_dir", fallback="./output_data/images"),
                 get_rf_status=self._get_rf_status,
                 get_rf_rssi_history=self._get_rf_rssi_history,
                 on_rf_start=self._handle_rf_start,
@@ -956,7 +956,7 @@ class Pipeline:
 
         # Start RTSP output
         if self._rtsp_enabled:
-            rtsp_bind = self._cfg.get("rtsp", "bind", fallback="127.0.0.1")
+            rtsp_bind = self._cfg.get("rtsp", "bind", fallback="")
             self._rtsp = RTSPServer(
                 port=self._rtsp_port,
                 mount=self._rtsp_mount,
@@ -1042,7 +1042,7 @@ class Pipeline:
                 )
                 self._tracker.init()
                 self._camera = Camera(
-                    source=self._cfg.get("camera", "source", fallback="0"),
+                    source=self._cfg.get("camera", "source", fallback="auto"),
                     width=self._cfg.getint("camera", "width", fallback=640),
                     height=self._cfg.getint("camera", "height", fallback=480),
                     fps=self._cfg.getint("camera", "fps", fallback=30),
@@ -2218,7 +2218,7 @@ class Pipeline:
             poll_interval_sec=self._cfg.getfloat("rf_homing", "poll_interval_sec", fallback=0.5),
             arrival_tolerance_m=self._cfg.getfloat("rf_homing", "arrival_tolerance_m", fallback=3.0),
             kismet_manager=self._kismet_manager,
-            gps_required=self._cfg.getboolean("rf_homing", "gps_required", fallback=True),
+            gps_required=self._cfg.getboolean("rf_homing", "gps_required", fallback=False),
         )
         return self._rf_hunt.start()
 
@@ -2232,7 +2232,7 @@ class Pipeline:
         """Start or stop the RTSP server at runtime."""
         if enabled and self._rtsp is None:
             rtsp_bind = self._cfg.get(
-                "rtsp", "bind", fallback="127.0.0.1",
+                "rtsp", "bind", fallback="",
             )
             self._rtsp = RTSPServer(
                 port=self._rtsp_port,
@@ -2409,7 +2409,7 @@ class Pipeline:
         self._mission_start_time = time.monotonic()
         logger.info("Mission STARTED: %s", name)
         if self._mavlink is not None:
-            callsign = self._cfg.get("tak", "callsign", fallback="HYDRA")
+            callsign = self._cfg.get("tak", "callsign", fallback="HYDRA-1")
             self._mavlink.send_statustext(
                 f"{callsign}: MISSION START - {name}", severity=5
             )
@@ -2420,7 +2420,7 @@ class Pipeline:
             elapsed = time.monotonic() - (self._mission_start_time or 0)
             logger.info("Mission ENDED: %s (%.0fs)", self._mission_name, elapsed)
             if self._mavlink is not None:
-                callsign = self._cfg.get("tak", "callsign", fallback="HYDRA")
+                callsign = self._cfg.get("tak", "callsign", fallback="HYDRA-1")
                 self._mavlink.send_statustext(
                     f"{callsign}: MISSION END - {self._mission_name}", severity=5
                 )
@@ -2451,7 +2451,7 @@ class Pipeline:
         self._det_logger.stop(timeout=5.0)
         self._event_logger.stop()
         # Send STATUSTEXT shutdown message before closing MAVLink
-        callsign = self._cfg.get("tak", "callsign", fallback="HYDRA")
+        callsign = self._cfg.get("tak", "callsign", fallback="HYDRA-1")
         if self._mavlink is not None and self._mavlink.connected:
             try:
                 self._mavlink.send_statustext(f"{callsign}: SHUTDOWN", severity=5)
