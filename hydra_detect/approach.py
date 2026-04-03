@@ -244,8 +244,8 @@ class ApproachController:
             # Send zero velocity to brake
             try:
                 self._mavlink.send_velocity_ned(0, 0, 0, 0)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Abort: failed to send zero-velocity brake: %s", exc)
 
         # Safe the arm channel
         if self._cfg.arm_channel:
@@ -253,8 +253,11 @@ class ApproachController:
                 self._mavlink.set_servo(
                     self._cfg.arm_channel, self._cfg.arm_pwm_safe,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Abort: failed to safe arm channel %d: %s",
+                    self._cfg.arm_channel, exc,
+                )
 
         # Safe the drop channel
         if self._cfg.drop_channel:
@@ -262,8 +265,11 @@ class ApproachController:
                 self._mavlink.set_servo(
                     self._cfg.drop_channel, self._cfg.drop_pwm_hold,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Abort: failed to safe drop channel %d: %s",
+                    self._cfg.drop_channel, exc,
+                )
 
         # Restore pre-approach mode if captured; fall back to configured abort mode.
         # This ensures a student aborting from AUTO mid-mission returns to AUTO,
@@ -271,8 +277,8 @@ class ApproachController:
         restore_mode = pre_approach_mode or self._cfg.abort_mode
         try:
             self._mavlink.set_mode(restore_mode)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Abort: failed to restore mode %s: %s", restore_mode, exc)
 
         logger.warning(
             "Approach ABORTED: was %s for track #%s — restored mode %s",
@@ -358,8 +364,8 @@ class ApproachController:
                 if pwm is None or pwm == 0 or pwm == 65535:
                     return None
                 return pwm > 1500  # Armed if above center
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to read RC channels for hw arm status: %s", exc)
         return None
 
     # ------------------------------------------------------------------
@@ -401,8 +407,8 @@ class ApproachController:
         )
         try:
             self._mavlink.command_do_change_speed(speed)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Follow: failed to set speed %.1f: %s", speed, exc)
 
         try:
             self._mavlink.command_guided_to(target_lat, target_lon)
@@ -496,8 +502,8 @@ class ApproachController:
             self._mavlink.command_do_change_speed(
                 self._cfg.follow_speed_max * 2,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Strike: failed to set speed: %s", exc)
 
         # Continuous waypoint update
         try:
