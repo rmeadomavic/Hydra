@@ -512,12 +512,23 @@ class TestSPAShell:
         assert "/static/css/variables.css" in resp.text
         assert "/static/js/app.js" in resp.text
 
+    def test_bandwidth_toggle_uses_js_listener_for_csp(self, client):
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert 'id="bandwidth-toggle"' in resp.text
+        assert 'onclick="HydraApp.toggleLowBandwidth()"' not in resp.text
+
 
 class TestStaticFileServing:
     def test_css_variables_served(self, client):
         resp = client.get("/static/css/variables.css")
         assert resp.status_code == 200
         assert "ogt-green" in resp.text
+
+    def test_app_js_binds_bandwidth_click_handler(self, client):
+        resp = client.get("/static/js/app.js")
+        assert resp.status_code == 200
+        assert "btn.addEventListener('click', toggleLowBandwidth);" in resp.text
 
     def test_missing_static_file_404(self, client):
         resp = client.get("/static/nonexistent.css")
