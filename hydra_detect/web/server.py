@@ -7,6 +7,7 @@ import collections
 import datetime
 import hashlib
 import hmac
+import json
 import logging
 import re
 import secrets
@@ -360,7 +361,7 @@ async def _parse_json(request: Request) -> dict | None:
     """Safely parse JSON body, returning None on malformed input."""
     try:
         return await request.json()
-    except Exception:
+    except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
         return None
 
 # Prompt constraints
@@ -1806,7 +1807,8 @@ async def api_review_logs():
                                 "filename": f.name,
                                 "size_kb": round(f.stat().st_size / 1024, 1),
                             })
-            except Exception:
+            except (json.JSONDecodeError, OSError):
+                logger.debug("Skipping unreadable event log: %s", f.name)
                 continue
     return {"logs": result, "event_logs": event_logs, "image_dir": image_dir}
 
@@ -1892,7 +1894,8 @@ async def api_review_events(filename: str):
                         continue
                     if len(events) >= max_events:
                         break
-    except Exception:
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.error("Failed to read event log %s: %s", filename, exc)
         return JSONResponse({"error": "read error"}, status_code=500)
 
     return {"events": events, "filename": filename}
