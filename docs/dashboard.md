@@ -188,3 +188,12 @@ All pages include defense-in-depth headers:
 - Content Security Policy restricting scripts, styles, and connections
 
 The instructor page has a relaxed CSP (`connect-src *`) to allow cross-origin fetches to other Jetsons.
+
+## Keyboard Accessibility Test Checklist (Confirmation Modals)
+
+Use this quick checklist for strike/drop/continuous strike confirmation modals:
+
+- [ ] **Tab cycle:** Open modal, press `Tab` through controls, verify focus stays trapped in modal and loops back to first control.
+- [ ] **Reverse Tab cycle:** Press `Shift+Tab`, verify focus loops from first control back to last control.
+- [ ] **Escape close:** Press `Escape`, verify modal closes and focus returns to the original trigger button.
+- [ ] **Screen reader label:** Confirm modal is announced as a dialog with the correct title (from `aria-labelledby`).
