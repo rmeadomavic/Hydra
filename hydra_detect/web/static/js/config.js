@@ -1158,7 +1158,7 @@ const HydraOperations = (() => {
         const label = document.getElementById('strike-target-label');
         if (label) label.textContent = '#' + selectedTrackId + ' (' + selectedTrackLabel + ')';
         const modal = document.getElementById('strike-modal');
-        if (modal) modal.classList.add('active');
+        if (modal) HydraApp.openModal(modal);
 
         // Wire confirm/cancel (idempotent via replaceWith clone)
         wireStrikeModal();
@@ -1173,7 +1173,7 @@ const HydraOperations = (() => {
             confirmBtn.parentNode.replaceChild(clone, confirmBtn);
             clone.addEventListener('click', async () => {
                 const modal = document.getElementById('strike-modal');
-                if (modal) modal.classList.remove('active');
+                if (modal) HydraApp.closeModal(modal);
                 if (selectedTrackId === null) return;
                 const result = await HydraApp.apiPost('/api/target/strike', {
                     track_id: selectedTrackId,
@@ -1191,7 +1191,7 @@ const HydraOperations = (() => {
             cancelBtn.parentNode.replaceChild(clone, cancelBtn);
             clone.addEventListener('click', () => {
                 const modal = document.getElementById('strike-modal');
-                if (modal) modal.classList.remove('active');
+                if (modal) HydraApp.closeModal(modal);
             });
         }
     }
@@ -1576,7 +1576,7 @@ const HydraOperations = (() => {
         const label = document.getElementById('drop-target-label');
         if (label) label.textContent = '#' + selectedTrackId + ' (' + selectedTrackLabel + ')';
         const modal = document.getElementById('drop-modal');
-        if (modal) modal.classList.add('active');
+        if (modal) HydraApp.openModal(modal);
         wireDropModal();
     }
 
@@ -1588,7 +1588,7 @@ const HydraOperations = (() => {
             confirmBtn.parentNode.replaceChild(clone, confirmBtn);
             clone.addEventListener('click', async () => {
                 const modal = document.getElementById('drop-modal');
-                if (modal) modal.classList.remove('active');
+                if (modal) HydraApp.closeModal(modal);
                 if (selectedTrackId === null) return;
                 await HydraApp.apiPost('/api/approach/drop/' + selectedTrackId, { confirm: true });
             });
@@ -1598,7 +1598,7 @@ const HydraOperations = (() => {
             cancelBtn.parentNode.replaceChild(clone, cancelBtn);
             clone.addEventListener('click', () => {
                 const modal = document.getElementById('drop-modal');
-                if (modal) modal.classList.remove('active');
+                if (modal) HydraApp.closeModal(modal);
             });
         }
     }
@@ -1609,7 +1609,7 @@ const HydraOperations = (() => {
         const label = document.getElementById('approach-strike-target-label');
         if (label) label.textContent = '#' + selectedTrackId + ' (' + selectedTrackLabel + ')';
         const modal = document.getElementById('approach-strike-modal');
-        if (modal) modal.classList.add('active');
+        if (modal) HydraApp.openModal(modal);
         wireApproachStrikeModal();
     }
 
@@ -1621,7 +1621,7 @@ const HydraOperations = (() => {
             confirmBtn.parentNode.replaceChild(clone, confirmBtn);
             clone.addEventListener('click', async () => {
                 const modal = document.getElementById('approach-strike-modal');
-                if (modal) modal.classList.remove('active');
+                if (modal) HydraApp.closeModal(modal);
                 if (selectedTrackId === null) return;
                 await HydraApp.apiPost('/api/approach/strike/' + selectedTrackId, { confirm: true });
             });
@@ -1631,7 +1631,7 @@ const HydraOperations = (() => {
             cancelBtn.parentNode.replaceChild(clone, cancelBtn);
             clone.addEventListener('click', () => {
                 const modal = document.getElementById('approach-strike-modal');
-                if (modal) modal.classList.remove('active');
+                if (modal) HydraApp.closeModal(modal);
             });
         }
     }
