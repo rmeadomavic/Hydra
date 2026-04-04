@@ -1098,6 +1098,20 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             description="MAVLink video link budget bytes/sec",
         ),
     },
+    "vehicle.fw": {
+        "autonomous.post_action_mode": FieldSpec(
+            FieldType.STRING,
+            default="LOITER",
+            description="Flight mode after autonomous action completes (fixed-wing)",
+        ),
+        "autonomous.min_track_frames": FieldSpec(
+            FieldType.INT,
+            min_val=1,
+            max_val=100,
+            default=2,
+            description="Minimum consecutive track frames before autonomous action (fixed-wing)",
+        ),
+    },
 }
 
 
