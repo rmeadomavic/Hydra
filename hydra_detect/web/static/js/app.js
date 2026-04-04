@@ -710,6 +710,12 @@ const HydraApp = (() => {
         if (overlay) overlay.style.display = 'none';
     }
 
+    function initBandwidthToggle() {
+        const btn = document.getElementById('bandwidth-toggle');
+        if (!btn) return;
+        btn.addEventListener('click', toggleLowBandwidth);
+    }
+
     // ── Logout Button ──
     function initLogoutButton() {
         const btn = document.getElementById('footer-logout');
@@ -737,6 +743,7 @@ const HydraApp = (() => {
         initModalEscape();
         initStreamWatcher();
         initAdaptiveQuality();
+        initBandwidthToggle();
         initLogoutButton();
         updatePollers();
     }
