@@ -49,22 +49,31 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 # API token for control endpoints — set via configure_auth()
 _api_token: Optional[str] = None
+_allow_insecure_control = False
 
 
-def configure_auth(token: Optional[str]) -> None:
-    """Set the API token for control endpoints. None or empty disables auth."""
-    global _api_token
+def configure_auth(token: Optional[str], *, allow_insecure_control: bool = False) -> None:
+    """Configure control-route auth.
+
+    Control routes require Bearer auth unless an explicit insecure override is on.
+    """
+    global _api_token, _allow_insecure_control
     _api_token = token if token else None
+    _allow_insecure_control = allow_insecure_control
     if _api_token:
         logger.info("API token auth enabled for control endpoints.")
+    elif _allow_insecure_control:
+        logger.warning("Insecure override enabled: control endpoints accept unauthenticated requests.")
     else:
-        logger.info("API token auth disabled (no token configured).")
+        logger.info("API token missing: control endpoints remain disabled until authenticated access is configured.")
 
 
 def _check_auth(authorization: Optional[str]) -> Optional[JSONResponse]:
     """Validate Bearer token. Returns an error response if auth fails, None if OK."""
     if _api_token is None:
-        return None  # Auth disabled
+        if _allow_insecure_control:
+            return None
+        return JSONResponse({"error": "Control endpoints require a configured API token or explicit insecure override"}, status_code=401)
     if not authorization or not authorization.startswith("Bearer "):
         return JSONResponse({"error": "Authorization header with Bearer token required"}, status_code=401)
     provided = authorization[len("Bearer "):]
@@ -898,7 +907,7 @@ async def api_restore_config_backup(request: Request, authorization: str | None 
 
 # ── Server launcher ──────────────────────────────────────────────────
 
-def run_server(host: str = "0.0.0.0", port: int = 8080) -> threading.Thread:
+def run_server(host: str = "127.0.0.1", port: int = 8080) -> threading.Thread:
     """Start uvicorn in a daemon thread and return the thread handle."""
     import uvicorn
 

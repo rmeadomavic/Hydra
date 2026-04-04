@@ -62,7 +62,7 @@ docker run --rm --privileged --runtime nvidia \
   hydra-detect
 ```
 
-Open **http://localhost:8080** in a browser. That's the operator dashboard.
+Open **http://127.0.0.1:8080** in a browser. That's the operator dashboard. By default Hydra now binds the dashboard to localhost and keeps control routes fail-closed unless you configure an API token or explicitly opt into insecure unauthenticated control.
 
 For a full walkthrough starting from a bare Jetson, see the [Jetson flash guide](docs/setup/jetson-flash.mdx) followed by the [Docker install guide](docs/setup/jetson-docker.mdx).
 
@@ -106,6 +106,30 @@ sudo jetson_clocks
 sudo cp scripts/hydra-detect.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now hydra-detect
+```
+
+## Web Control Safety Defaults
+
+Hydra now ships with a **safe web default**:
+
+- `[web] host = 127.0.0.1` keeps the dashboard local to the Jetson unless you intentionally expose it.
+- Empty `[web] api_token` no longer makes control routes public. Vehicle, strike, RF, config-write, and stop/pause routes fail closed until you set a Bearer token.
+- Read-only routes such as stats, review, and the MJPEG stream can still be served without a token.
+
+To intentionally enable remote control, choose one of these patterns:
+
+1. **Recommended:** set a strong `[web] api_token`, then send `Authorization: Bearer <token>` on control requests.
+2. **Explicitly insecure override:** set `[web] allow_unauthenticated_control = true` only for trusted lab setups where you accept the risk of unauthenticated control.
+3. If you also want remote browser access, change `[web] host` from `127.0.0.1` to a LAN/WAN bind such as `0.0.0.0` only when you intend to expose it.
+
+Example secure remote-control configuration:
+
+```ini
+[web]
+host = 0.0.0.0
+port = 8080
+api_token = replace-with-a-long-random-token
+allow_unauthenticated_control = false
 ```
 
 ## The Dashboard
@@ -279,8 +303,10 @@ Everything lives in `config.ini`. Full reference below.
 | Key | Default | Description |
 |-----|---------|-------------|
 | `enabled` | `true` | Turn the web dashboard on or off |
-| `host` | `0.0.0.0` | Bind address |
+| `host` | `127.0.0.1` | Bind address. Localhost by default so the dashboard is not remotely exposed unless you intentionally change it |
 | `port` | `8080` | HTTP port |
+| `api_token` | *(empty)* | Bearer token for control routes. Blank token now keeps control routes fail-closed |
+| `allow_unauthenticated_control` | `false` | Explicit insecure override for control routes; only enable intentionally |
 | `mjpeg_quality` | `70` | JPEG quality for the video stream (1-100) |
 
 ### [osd]
@@ -410,7 +436,7 @@ Hydra/
 | `POST` | `/api/pipeline/stop` | Gracefully stop the pipeline |
 | `POST` | `/api/pipeline/pause` | Pause or resume detection (`{"paused": true}`) |
 
-Control endpoints (POST routes for target, vehicle, pipeline, and RF) require bearer token authentication.
+Control endpoints (POST routes for target, vehicle, pipeline, RF, and config writes) require bearer token authentication by default. If `api_token` is blank, those control routes now return `401` unless you explicitly set `allow_unauthenticated_control = true`.
 
 ## Vehicle Compatibility
 

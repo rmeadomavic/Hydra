@@ -292,7 +292,7 @@ class Pipeline:
 
         # Web UI
         self._web_enabled = self._cfg.getboolean("web", "enabled", fallback=True)
-        self._web_host = self._cfg.get("web", "host", fallback="0.0.0.0")
+        self._web_host = self._cfg.get("web", "host", fallback="127.0.0.1")
         self._web_port = self._cfg.getint("web", "port", fallback=8080)
 
         self._running = False
@@ -361,12 +361,22 @@ class Pipeline:
         if self._web_enabled:
             # Configure API auth
             api_token = self._cfg.get("web", "api_token", fallback="").strip()
-            if not api_token:
+            allow_insecure_control = self._cfg.getboolean(
+                "web", "allow_unauthenticated_control", fallback=False
+            )
+            if not api_token and not allow_insecure_control:
                 logger.warning(
-                    "WARNING: No API token configured — web control endpoints are "
-                    "unauthenticated. Set [web] api_token in config.ini for production use."
+                    "No API token configured — control routes fail closed until [web] api_token "
+                    "is set or allow_unauthenticated_control=true is explicitly enabled."
                 )
-            configure_auth(api_token or None)
+            elif not api_token and allow_insecure_control:
+                logger.warning(
+                    "WARNING: allow_unauthenticated_control=true enables unauthenticated control routes."
+                )
+            configure_auth(
+                api_token or None,
+                allow_insecure_control=allow_insecure_control,
+            )
 
             # Set initial runtime config for web UI
             stream_state.update_runtime_config({

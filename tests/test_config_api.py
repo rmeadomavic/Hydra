@@ -33,7 +33,7 @@ def tmp_config(tmp_path):
     config = configparser.ConfigParser()
     config["camera"] = {"source": "auto", "width": "640", "height": "480", "fps": "30"}
     config["detector"] = {"yolo_model": "yolov8s.pt", "yolo_confidence": "0.45"}
-    config["web"] = {"host": "0.0.0.0", "port": "8080", "api_token": "secret-test-token"}
+    config["web"] = {"host": "127.0.0.1", "port": "8080", "api_token": "secret-test-token", "allow_unauthenticated_control": "false"}
     config["tracker"] = {"track_thresh": "0.5", "track_buffer": "30"}
     path = tmp_path / "config.ini"
     with open(path, "w") as f:
@@ -57,9 +57,9 @@ class TestConfigGetEndpoint:
         assert resp.status_code == 200
         assert resp.json()["web"]["api_token"] == "***"
 
-    def test_get_config_requires_auth_when_enabled(self, client, tmp_config):
-        configure_auth("my-token")
-        resp = client.get("/api/config/full")
+    def test_get_config_requires_auth_with_secure_default(self, client, tmp_config):
+        with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
+            resp = client.get("/api/config/full")
         assert resp.status_code == 401
 
 
@@ -93,10 +93,17 @@ class TestConfigPostEndpoint:
         assert resp.status_code == 200
         assert (tmp_config.parent / "config.ini.bak").exists()
 
-    def test_post_config_requires_auth_when_enabled(self, client, tmp_config):
-        configure_auth("my-token")
-        resp = client.post("/api/config/full", json={"camera": {"fps": "15"}})
+    def test_post_config_requires_auth_with_secure_default(self, client, tmp_config):
+        with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
+            resp = client.post("/api/config/full", json={"camera": {"fps": "15"}})
         assert resp.status_code == 401
+
+
+    def test_post_config_allows_explicit_insecure_override(self, client, tmp_config):
+        configure_auth(None, allow_insecure_control=True)
+        with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
+            resp = client.post("/api/config/full", json={"camera": {"fps": "15"}})
+        assert resp.status_code == 200
 
     def test_post_config_rejects_oversized_body(self, client, tmp_config):
         huge = {"camera": {"source": "x" * 70000}}
