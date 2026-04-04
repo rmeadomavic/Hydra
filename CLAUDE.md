@@ -56,6 +56,7 @@ Kismet (WiFi/SDR) → RF Hunt Controller → RSSI Gradient Ascent → MAVLink Na
 | `event_logger.py` | Mission event timeline (actions + vehicle track at 1 Hz) |
 | `verify_log.py` | SHA-256 hash chain verification |
 | `review_export.py` | Standalone HTML map report generator |
+| `waypoint_export.py` | QGC WPL 110 waypoint file export |
 | `rtsp_server.py` | GStreamer RTSP H.264 output |
 | `servo_tracker.py` | Pixel-lock servo controller (pan + strike) |
 | `model_manifest.py` | Model hash verification, manifest, class introspection |
@@ -71,6 +72,8 @@ Kismet (WiFi/SDR) → RF Hunt Controller → RSSI Gradient Ascent → MAVLink Na
 | `rf/navigator.py` | Gradient ascent waypoint navigation |
 | `rf/search.py` | Lawnmower and spiral pattern generators |
 | `rf/signal.py` | RSSI filtering and gradient analysis |
+| `rf/rssi_protocol.py` | RSSI protocol handling for RF hunt |
+| `rf/rtl_power_client.py` | RTL-SDR power spectrum client |
 | `tak/tak_output.py` | CoT multicast/unicast output thread |
 | `tak/tak_input.py` | CoT command listener (GeoChat + custom types) |
 | `tak/cot_builder.py` | Cursor-on-Target XML builder |
@@ -219,9 +222,30 @@ Full reference: `docs/configuration.md`. Schema: `hydra_detect/config_schema.py`
 
 Full reference: `docs/api-reference.md`.
 
+## Codebase Stats (as of April 2026)
+
+| Metric | Count |
+|--------|-------|
+| App LOC (`hydra_detect/`) | ~15,800 |
+| Test LOC (`tests/`) | ~12,700 |
+| Test files | 55 |
+| App modules | 50 |
+| Merged PRs | 58 |
+
+**CODE_REVIEW_TRACKER.md** exists on the `check-branches-pr-status-Pmeg8` branch
+(not yet merged to main). It contains a risk-ordered review plan with 10 chunks
+populated, none reviewed yet.
+
+**Orphan branches:** The three known orphans (`claude/compare-config-frameworks-3FuSP`,
+`claude/implement-todo-item-KrrRT`, `feat/follow-mode-approach-controller`) have
+been identified and are queued for deletion from the remote.
+
+> **Process gap:** Zero human code reviews across 58 merged PRs. Codex
+> auto-reviews ~7% of PRs via org-level GitHub App.
+
 ## Test Files
 
-50+ test files in `tests/`. Key coverage areas:
+55 test files in `tests/`. Key coverage areas:
 - Autonomous controller: `test_autonomous.py`, `test_drop_strike.py`
 - Guidance: `test_guidance.py`
 - Config: `test_config_schema.py`, `test_config_api.py`, `test_config_freeze.py`
