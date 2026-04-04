@@ -197,13 +197,17 @@ class AutonomousController:
             return
 
         # Check GPS freshness BEFORE geofence (Fix 1: stale GPS must be rejected first)
+        # Skip freshness check when last_update is 0.0 — this means GPS data
+        # is operator-provided/static (sim mode, bench config), not stale.
         get_gps = getattr(mavlink, "get_gps", None)
         if get_gps is not None:
             gps_data = get_gps()
-            gps_age = now - gps_data.get("last_update", 0.0)
-            if gps_age > self._gps_max_stale_sec:
-                logger.debug("GPS stale (%.1fs) — skipping autonomous eval", gps_age)
-                return
+            last_update = gps_data.get("last_update", 0.0)
+            if last_update > 0.0:
+                gps_age = now - last_update
+                if gps_age > self._gps_max_stale_sec:
+                    logger.debug("GPS stale (%.1fs) — skipping autonomous eval", gps_age)
+                    return
 
         # Check vehicle inside geofence
         get_lat_lon = getattr(mavlink, "get_lat_lon", None)
