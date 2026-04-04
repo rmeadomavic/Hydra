@@ -117,8 +117,8 @@ def find_default_camera() -> int:
                     return idx
             else:
                 cap.release()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to probe /dev/video%d: %s", idx, exc)
 
     logger.warning("No camera auto-detected, falling back to /dev/video0")
     return 0

@@ -208,7 +208,10 @@ class AutonomousController:
             return
         try:
             lat, lon, _ = get_lat_lon()
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Autonomous: GPS unavailable for geofence check: %s", exc,
+            )
             return
         if lat is None or lon is None:
             return

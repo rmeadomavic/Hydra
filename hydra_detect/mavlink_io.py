@@ -289,8 +289,8 @@ class MAVLinkIO:
             mode_name = self._reverse_mode_map.get(heartbeat_msg.custom_mode)
             with self._vehicle_mode_lock:
                 self._vehicle_mode = mode_name
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to parse vehicle mode from heartbeat: %s", exc)
 
     def _get_mode_map(self) -> dict:
         """Return cached mode mapping (fetched once after connection)."""
@@ -432,8 +432,8 @@ class MAVLinkIO:
         if self._mgrs is not None:
             try:
                 return self._mgrs.toMGRS(lat, lon)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("MGRS conversion failed, using lat/lon: %s", exc)
         return f"{lat:.5f},{lon:.5f}"
 
     def get_lat_lon(self) -> tuple[Optional[float], Optional[float], Optional[float]]:
