@@ -15,6 +15,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+from urllib.parse import urlsplit
 
 import cv2
 import numpy as np
@@ -154,17 +155,9 @@ def _check_auth(
     if _api_token is None:
         return None  # Auth disabled
 
-    # Same-origin requests from the built-in dashboard skip auth.
-    # Check multiple signals — browsers set these on fetch/XHR and they
-    # cannot be forged by external scripts or curl.
     if request is not None:
-        sec_fetch = request.headers.get("sec-fetch-site", "")
-        if sec_fetch in ("same-origin", "same-site"):
-            return None
-        # Fallback: check Origin header matches Host
         origin = request.headers.get("origin", "")
-        host = request.headers.get("host", "")
-        if origin and host and host in origin:
+        if origin and _origin_matches_request(origin, request):
             return None
         # Password-authenticated sessions also bypass Bearer token check
         cookie_header = request.headers.get("cookie", "")
@@ -197,6 +190,30 @@ def _check_auth(
         _auth_failures[client_ip].append(now)
         return JSONResponse({"error": "Invalid API token"}, status_code=403)
     return None
+
+
+def _origin_matches_request(origin: str, request: Request) -> bool:
+    """Return True when Origin exactly matches request scheme + host + port."""
+    try:
+        parsed = urlsplit(origin)
+    except ValueError:
+        return False
+    if not parsed.scheme or not parsed.netloc or parsed.hostname is None:
+        return False
+    if parsed.username or parsed.password:
+        return False
+
+    req_scheme = request.url.scheme
+    req_host = request.url.hostname
+    if not req_scheme or not req_host:
+        return False
+
+    origin_port = parsed.port or (443 if parsed.scheme == "https" else 80 if parsed.scheme == "http" else None)
+    req_port = request.url.port or (443 if req_scheme == "https" else 80 if req_scheme == "http" else None)
+    if origin_port is None or req_port is None:
+        return False
+
+    return parsed.scheme == req_scheme and parsed.hostname == req_host and origin_port == req_port
 
 
 # ── Web password session auth ────────────────────────────────────────
