@@ -124,6 +124,25 @@ class TestConfigPostEndpoint:
         data = resp.json()
         assert len(data["skipped"]) == 2
 
+    @pytest.mark.parametrize(
+        ("payload", "field"),
+        [
+            ({"camera": {"fps": "not-an-int"}}, "camera.fps"),
+            ({"detector": {"yolo_confidence": "not-a-float"}}, "detector.yolo_confidence"),
+            ({"mavlink": {"enabled": "not-a-bool"}}, "mavlink.enabled"),
+            ({"camera": {"video_standard": "secam"}}, "camera.video_standard"),
+        ],
+    )
+    def test_post_config_rejects_invalid_schema_values(self, client, tmp_config, payload, field):
+        original_content = tmp_config.read_text()
+        with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
+            resp = client.post("/api/config/full", json=payload)
+        assert resp.status_code == 400
+        data = resp.json()
+        assert data["error"] == "Validation failed"
+        assert field in data["field_errors"]
+        assert tmp_config.read_text() == original_content
+
 
 class TestConfigAuthPositiveCases:
     def test_get_config_with_valid_token(self, client, tmp_config):
@@ -171,3 +190,25 @@ class TestConfigRestoreBackup:
         with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
             resp = client.post("/api/config/restore-backup")
         assert resp.status_code == 404
+
+
+class TestConfigImportValidation:
+    @pytest.mark.parametrize(
+        ("payload", "field"),
+        [
+            ({"camera": {"fps": "bad-int"}}, "camera.fps"),
+            ({"detector": {"yolo_confidence": "bad-float"}}, "detector.yolo_confidence"),
+            ({"mavlink": {"enabled": "bad-bool"}}, "mavlink.enabled"),
+            ({"camera": {"video_standard": "bad-enum"}}, "camera.video_standard"),
+        ],
+    )
+    def test_import_rejects_invalid_schema_values(self, client, tmp_config, payload, field):
+        original_content = tmp_config.read_text()
+        with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
+            resp = client.post("/api/config/import", json=payload)
+        assert resp.status_code == 400
+        data = resp.json()
+        assert data["error"] == "Validation failed"
+        assert field in data["field_errors"]
+        assert tmp_config.read_text() == original_content
+

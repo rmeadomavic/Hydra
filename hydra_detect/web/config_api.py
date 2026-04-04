@@ -11,6 +11,8 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable
 
+from hydra_detect.config_schema import SCHEMA, FieldType
+
 logger = logging.getLogger(__name__)
 audit_log = logging.getLogger("hydra.audit")
 
@@ -185,6 +187,72 @@ def write_config(updates: dict[str, dict[str, str]]) -> dict[str, Any]:
         "updated": updated, "restart_required": restart_needed,
         "skipped": skipped, "locked": locked,
     }
+
+
+def validate_config_updates(updates: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """Validate update payload values against schema field specs.
+
+    Returns a dict of field errors keyed as "section.key".
+    Unknown fields are ignored here and still handled by write_config().
+    """
+    field_errors: dict[str, str] = {}
+    for section, fields in updates.items():
+        if not isinstance(fields, dict):
+            continue
+        schema_fields = SCHEMA.get(section)
+        if not schema_fields:
+            continue
+
+        for key, value in fields.items():
+            spec = schema_fields.get(key)
+            if spec is None:
+                continue
+
+            # Preserve existing redacted secret behavior.
+            if section in REDACTED_FIELDS and key in REDACTED_FIELDS[section] and value == REDACTED_VALUE:
+                continue
+
+            raw = value if isinstance(value, str) else str(value)
+            raw = raw.strip()
+            field_path = f"{section}.{key}"
+
+            if spec.type == FieldType.BOOL:
+                if raw.lower() not in ("true", "false", "yes", "no", "1", "0", "on", "off"):
+                    field_errors[field_path] = "must be a boolean (true/false)"
+                continue
+
+            if spec.type == FieldType.ENUM:
+                if spec.choices and raw.lower() not in [c.lower() for c in spec.choices]:
+                    choices = ", ".join(spec.choices)
+                    field_errors[field_path] = f"must be one of: {choices}"
+                continue
+
+            if spec.type == FieldType.INT:
+                try:
+                    num = int(raw)
+                except ValueError:
+                    field_errors[field_path] = "must be an integer"
+                    continue
+                if spec.min_val is not None and num < spec.min_val:
+                    field_errors[field_path] = f"must be >= {int(spec.min_val)}"
+                    continue
+                if spec.max_val is not None and num > spec.max_val:
+                    field_errors[field_path] = f"must be <= {int(spec.max_val)}"
+                continue
+
+            if spec.type == FieldType.FLOAT:
+                try:
+                    num = float(raw)
+                except ValueError:
+                    field_errors[field_path] = "must be a number"
+                    continue
+                if spec.min_val is not None and num < spec.min_val:
+                    field_errors[field_path] = f"must be >= {spec.min_val}"
+                    continue
+                if spec.max_val is not None and num > spec.max_val:
+                    field_errors[field_path] = f"must be <= {spec.max_val}"
+
+    return field_errors
 
 
 def restore_backup() -> bool:
