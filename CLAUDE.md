@@ -464,14 +464,36 @@ check `sample_count > 0` before commanding `guided_to` with the position.
 
 ## Companion Project
 
-**SORCC-PI** (`/home/sorcc/sorcc-pi`, `github.com/rmeadomavic/SORCC-PI`) is the
+**Argus** (`/home/sorcc/argus`, `github.com/rmeadomavic/Argus`) is the
 RF survey payload on Raspberry Pi — companion to Hydra. Patterns adopted from it:
 config schema validation, event logger, TAK/CoT export, config API. Patterns
 worth porting: response caching with stale fallback, waypoint export (QGC WPL 110).
 
+## SORCC Ecosystem
+
+This project is part of the SORCC ecosystem alongside
+[Argus](https://github.com/rmeadomavic/Argus) (RF survey payload on
+Raspberry Pi).
+
+- Use consistent terminology: **uncrewed** (not unmanned), **sortie** (not
+  mission/run), **CULEX** (culminating exercise), **STX** (situational training
+  exercise), **EENT** (night ops), **platform** (not vehicle, when referring to
+  the full system)
+- Documentation tone: technical but accessible — SOF operators are smart and
+  mission-focused but may not have software backgrounds
+- Shared config pattern: INI with `.factory` defaults (`config.ini` is the user
+  interface; `config.ini.factory` ships known-good defaults for factory reset)
+- Shared code patterns: config schema validation, event logger, TAK/CoT export,
+  config API, detection/survey logging with hash-chain verification
+- Cross-references: link to sibling projects where relevant — Hydra handles
+  detection/tracking/engagement, Argus handles RF survey/SIGINT, both feed
+  TAK for a common operating picture
+- Shared UI standards: dark ops-center theme, data-dense layouts, defense-grade
+  polish (see UI/UX Design Standards below)
+
 ## UI/UX Design Standards
 
-Both Hydra and SORCC-PI dashboards target **defense-grade polish** — think
+Both Hydra and Argus dashboards target **defense-grade polish** — think
 Palantir Foundry / Anduril Lattice, not startup landing pages. Every element
 must be functional, not decorative:
 
