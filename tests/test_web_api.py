@@ -17,6 +17,7 @@ from hydra_detect.web.server import (
     _RESPONSE_CACHE_TTL,
     app,
     configure_auth,
+    configure_web_password,
     stream_state,
 )
 
@@ -25,6 +26,7 @@ from hydra_detect.web.server import (
 def _reset_state():
     """Reset stream_state and auth between tests."""
     configure_auth(None)
+    configure_web_password(None)
     _auth_failures.clear()
     _response_cache.clear()
     stream_state.target_lock = {"locked": False, "track_id": None, "mode": None, "label": None}
@@ -142,8 +144,7 @@ class TestAuthEnforcement:
                 resp = client.post(url, headers=headers)
             assert resp.status_code == 403, f"{url} should reject wrong token"
 
-    def test_same_origin_skips_auth(self, client):
-        """Dashboard requests with Sec-Fetch-Site: same-origin bypass auth."""
+    def test_forged_sec_fetch_site_does_not_bypass_token_checks(self, client):
         configure_auth("secret-token-123")
         headers = {"Sec-Fetch-Site": "same-origin"}
         for method, url, body in self.CONTROL_ENDPOINTS:
@@ -151,18 +152,31 @@ class TestAuthEnforcement:
                 resp = client.post(url, json=body, headers=headers)
             else:
                 resp = client.post(url, headers=headers)
-            assert resp.status_code != 401, f"{url} should skip auth for same-origin"
+            assert resp.status_code == 401, f"{url} should require auth despite forged sec-fetch-site"
 
-    def test_origin_header_skips_auth(self, client):
-        """Dashboard requests with matching Origin header bypass auth."""
+    def test_origin_subdomain_spoof_does_not_bypass_token_checks(self, client):
         configure_auth("secret-token-123")
-        headers = {"Origin": "http://testserver"}
+        headers = {"Origin": "https://testserver.evil.tld"}
         for method, url, body in self.CONTROL_ENDPOINTS:
             if body:
                 resp = client.post(url, json=body, headers=headers)
             else:
                 resp = client.post(url, headers=headers)
-            assert resp.status_code != 401, f"{url} should skip auth for matching origin"
+            assert resp.status_code == 401, f"{url} should require auth for spoofed origin"
+
+    def test_valid_session_cookie_bypasses_bearer_token(self, client):
+        configure_auth("secret-token-123")
+        configure_web_password("ui-password-1")
+        login_resp = client.post("/auth/login", json={"password": "ui-password-1"})
+        assert login_resp.status_code == 200
+        assert "hydra_session" in login_resp.headers.get("set-cookie", "")
+
+        for method, url, body in self.CONTROL_ENDPOINTS:
+            if body:
+                resp = client.post(url, json=body)
+            else:
+                resp = client.post(url)
+            assert resp.status_code not in (401, 403), f"{url} should accept valid session cookie"
 
     def test_correct_token_accepted(self, client):
         configure_auth("secret-token-123")
