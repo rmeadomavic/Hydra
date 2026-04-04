@@ -21,9 +21,13 @@ def _apply_sim_overrides(cfg: configparser.ConfigParser) -> None:
     cfg.set("mavlink", "connection_string", "udp:127.0.0.1:14550")
     cfg.set("mavlink", "baud", "115200")
     # Sim GPS for when no SITL is running
-    if not cfg.has_option("mavlink", "sim_gps_lat") or not cfg.get("mavlink", "sim_gps_lat").strip():
+    has_lat = (cfg.has_option("mavlink", "sim_gps_lat")
+               and cfg.get("mavlink", "sim_gps_lat").strip())
+    if not has_lat:
         cfg.set("mavlink", "sim_gps_lat", "35.0527")  # Default sim location
-    if not cfg.has_option("mavlink", "sim_gps_lon") or not cfg.get("mavlink", "sim_gps_lon").strip():
+    has_lon = (cfg.has_option("mavlink", "sim_gps_lon")
+               and cfg.get("mavlink", "sim_gps_lon").strip())
+    if not has_lon:
         cfg.set("mavlink", "sim_gps_lon", "-79.4927")
     # Disable hardware-dependent features
     if cfg.has_section("osd"):

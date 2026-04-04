@@ -74,11 +74,14 @@ class TestKismetManagerStart:
     @patch("hydra_detect.rf.kismet_manager.subprocess.Popen")
     @patch("hydra_detect.rf.kismet_manager.requests.get")
     @patch("hydra_detect.rf.kismet_manager.shutil.which", return_value="/usr/bin/kismet")
-    def test_start_spawns_kismet(self, mock_which, mock_get_check, mock_popen, mock_makedirs, mock_file):
+    def test_start_spawns_kismet(
+        self, mock_which, mock_get_check, mock_popen, mock_makedirs, mock_file,
+    ):
         """If Kismet is not running, spawn it and wait for API."""
         import requests
 
         call_count = [0]
+
         def side_effect(*args, **kwargs):
             call_count[0] += 1
             if call_count[0] == 1:
@@ -116,9 +119,12 @@ class TestKismetManagerStart:
     @patch("hydra_detect.rf.kismet_manager.subprocess.Popen")
     @patch("hydra_detect.rf.kismet_manager.requests.get")
     @patch("hydra_detect.rf.kismet_manager.shutil.which", return_value="/usr/bin/kismet")
-    def test_start_creates_directories(self, mock_which, mock_get, mock_popen, mock_makedirs, mock_file):
+    def test_start_creates_directories(
+        self, mock_which, mock_get, mock_popen, mock_makedirs, mock_file,
+    ):
         import requests
         call_count = [0]
+
         def side_effect(*args, **kwargs):
             call_count[0] += 1
             if call_count[0] == 1:

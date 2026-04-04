@@ -109,7 +109,9 @@ class TestHTMLStructure:
         assert 'L.map' in html  # Leaflet map init
 
     def test_empty_records(self):
-        html = generate_html([], {"total": 0, "tracks": 0, "with_gps": 0,
-                                   "time_start": "", "time_end": "", "classes": {}})
+        html = generate_html([], {
+            "total": 0, "tracks": 0, "with_gps": 0,
+            "time_start": "", "time_end": "", "classes": {},
+        })
         assert '<title>Hydra Mission Report</title>' in html
         assert 'const D=[]' in html

@@ -1,4 +1,7 @@
-"""Event timeline logger — records operator actions and vehicle telemetry for after-action review."""
+"""Event timeline logger.
+
+Records operator actions and vehicle telemetry for after-action review.
+"""
 
 from __future__ import annotations
 

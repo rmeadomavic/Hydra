@@ -357,7 +357,7 @@ class TestServoTrackerIntegration:
 # Kismet auto-start on RF hunt
 # ---------------------------------------------------------------------------
 
-from hydra_detect.rf.kismet_manager import KismetManager
+from hydra_detect.rf.kismet_manager import KismetManager  # noqa: E402
 
 
 class TestKismetAutoStart:
@@ -410,7 +410,7 @@ class TestKismetAutoStart:
 # Profile switch
 # ---------------------------------------------------------------------------
 
-from hydra_detect.profiles import load_profiles
+from hydra_detect.profiles import load_profiles  # noqa: E402
 
 
 class TestProfileSwitch:

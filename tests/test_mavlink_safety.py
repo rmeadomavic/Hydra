@@ -119,7 +119,10 @@ class TestEstimateTargetPosition:
 
     def test_valid_estimate(self):
         m = _make_mavlink(min_gps_fix=3)
-        m._gps.update({"fix": 3, "lat": 340000000, "lon": -1180000000, "alt": 100000, "hdg": 9000})  # 90 deg
+        m._gps.update({
+            "fix": 3, "lat": 340000000, "lon": -1180000000,
+            "alt": 100000, "hdg": 9000,
+        })  # 90 deg
         result = m.estimate_target_position(0.0, approach_distance_m=100.0)
         assert result is not None
         lat, lon = result

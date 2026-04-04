@@ -5,6 +5,8 @@ from __future__ import annotations
 import configparser
 from unittest.mock import MagicMock, patch
 
+import numpy as np
+
 from hydra_detect.autonomous import AutonomousController
 from hydra_detect.pipeline import Pipeline
 
@@ -43,8 +45,6 @@ def _make_pipeline(**overrides) -> Pipeline:
     p._event_logger = MagicMock()
     return p
 
-
-import numpy as np
 
 _FAKE_FRAME = np.zeros((480, 640, 3), dtype=np.uint8)
 

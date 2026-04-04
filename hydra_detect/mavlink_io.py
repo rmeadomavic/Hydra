@@ -53,7 +53,7 @@ class MAVLinkIO:
         self._alert_classes = alert_classes  # None = alert on all classes
         self._global_max_per_sec = global_max_per_sec
         self._priority_labels = set(
-            l.lower().strip() for l in (priority_labels or [])
+            lbl.lower().strip() for lbl in (priority_labels or [])
         )
         self._sim_gps_lat = sim_gps_lat
         self._sim_gps_lon = sim_gps_lon
@@ -289,8 +289,8 @@ class MAVLinkIO:
             mode_name = self._reverse_mode_map.get(heartbeat_msg.custom_mode)
             with self._vehicle_mode_lock:
                 self._vehicle_mode = mode_name
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to parse vehicle mode from heartbeat: %s", exc)
 
     def _get_mode_map(self) -> dict:
         """Return cached mode mapping (fetched once after connection)."""
@@ -334,7 +334,10 @@ class MAVLinkIO:
             if cb:
                 ok = cb(track_id)
                 result = 0 if ok else 4  # MAV_RESULT_FAILED
-                audit.info("MAVLINK_CMD lock track_id=%d result=%s", track_id, "ok" if ok else "failed")
+                audit.info(
+                    "MAVLINK_CMD lock track_id=%d result=%s",
+                    track_id, "ok" if ok else "failed",
+                )
             else:
                 result = 3  # MAV_RESULT_UNSUPPORTED
         elif cmd_id == self.CMD_STRIKE:
@@ -343,7 +346,10 @@ class MAVLinkIO:
             if cb:
                 ok = cb(track_id)
                 result = 0 if ok else 4
-                audit.info("MAVLINK_CMD strike track_id=%d result=%s", track_id, "ok" if ok else "failed")
+                audit.info(
+                    "MAVLINK_CMD strike track_id=%d result=%s",
+                    track_id, "ok" if ok else "failed",
+                )
             else:
                 result = 3
         elif cmd_id == self.CMD_UNLOCK:
@@ -376,7 +382,10 @@ class MAVLinkIO:
             cb = callbacks.get("strike")
             if cb:
                 ok = cb(value)
-                audit.info("MAVLINK_NV strike track_id=%d result=%s", value, "ok" if ok else "failed")
+                audit.info(
+                    "MAVLINK_NV strike track_id=%d result=%s",
+                    value, "ok" if ok else "failed",
+                )
         elif name == self.NV_UNLOCK:
             cb = callbacks.get("unlock")
             if cb:
@@ -432,8 +441,8 @@ class MAVLinkIO:
         if self._mgrs is not None:
             try:
                 return self._mgrs.toMGRS(lat, lon)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("MGRS conversion failed, using lat/lon: %s", exc)
         return f"{lat:.5f},{lon:.5f}"
 
     def get_lat_lon(self) -> tuple[Optional[float], Optional[float], Optional[float]]:
@@ -618,7 +627,8 @@ class MAVLinkIO:
         try:
             from pymavlink import mavutil
 
-            # CONDITION_YAW: param1=target_angle, param2=yaw_speed, param3=direction, param4=relative
+            # CONDITION_YAW: param1=target_angle, param2=yaw_speed,
+            # param3=direction, param4=relative
             # We use relative yaw: small incremental adjustments each frame
             direction = 1 if yaw_rate >= 0 else -1  # 1=CW, -1=CCW
             angle = abs(yaw_rate) * 0.1  # Small step per call (~100ms frame interval)
@@ -855,12 +865,12 @@ class MAVLinkIO:
     # ArduPilot QBASIC-style tune strings. See:
     # https://ardupilot.org/dev/docs/mavlink-play-tune.html
     TUNES = {
-        "alert":    "MFT200L8CDEC",           # Quick alert beep
-        "success":  "MFT240L4CEG>C",          # Happy ascending
-        "warning":  "MFT180L4GFED",           # Descending warning
-        "error":    "MFT200L2C<C",             # Two low beeps
-        "charles":  "MFT255L8CDEFEDCL4C",     # Special tune for Charles
-        "startup":  "MFT200L4CL8EGL4>C",      # Boot jingle
+        "alert": "MFT200L8CDEC",           # Quick alert beep
+        "success": "MFT240L4CEG>C",         # Happy ascending
+        "warning": "MFT180L4GFED",          # Descending warning
+        "error": "MFT200L2C<C",             # Two low beeps
+        "charles": "MFT255L8CDEFEDCL4C",    # Special tune for Charles
+        "startup": "MFT200L4CL8EGL4>C",     # Boot jingle
     }
 
     def play_tune(self, tune: str = "alert") -> bool:
@@ -1047,10 +1057,6 @@ class MAVLinkIO:
         except Exception as exc:
             logger.warning("DO_CHANGE_SPEED failed: %s", exc)
             return False
-
-    @property
-    def connected(self) -> bool:
-        return self._mav is not None
 
     @property
     def send_lock(self) -> threading.Lock:

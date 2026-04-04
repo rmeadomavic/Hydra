@@ -421,7 +421,8 @@ class TAKInput:
         # HMAC verification on custom CoT (same security as GeoChat path)
         if self._hmac_secret:
             remarks_el = root.find("detail/remarks")
-            remarks_text = remarks_el.text.strip() if remarks_el is not None and remarks_el.text else ""
+            has_text = remarks_el is not None and remarks_el.text
+            remarks_text = remarks_el.text.strip() if has_text else ""
             if self._verify_hmac(remarks_text) is None:
                 audit_logger.warning(
                     "TAK_CMD_REJECTED reason=hmac_custom_cot sender=%s type=%s",

@@ -7,6 +7,7 @@ import collections
 import datetime
 import hashlib
 import hmac
+import json
 import logging
 import re
 import secrets
@@ -187,7 +188,10 @@ def _check_auth(
 
     if not authorization or not authorization.startswith("Bearer "):
         _auth_failures[client_ip].append(now)
-        return JSONResponse({"error": "Authorization header with Bearer token required"}, status_code=401)
+        return JSONResponse(
+            {"error": "Authorization header with Bearer token required"},
+            status_code=401,
+        )
     provided = authorization[len("Bearer "):]
     if not hmac.compare_digest(provided, _api_token):
         _auth_failures[client_ip].append(now)
@@ -360,7 +364,7 @@ async def _parse_json(request: Request) -> dict | None:
     """Safely parse JSON body, returning None on malformed input."""
     try:
         return await request.json()
-    except Exception:
+    except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
         return None
 
 # Prompt constraints
@@ -426,7 +430,10 @@ def _audit(request: Request, action: str, target: str = "", outcome: str = "ok")
     """Log a control action for accountability."""
     client = request.client.host if request.client else "unknown"
     ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    audit_log.info("ts=%s actor=%s action=%s target=%s outcome=%s", ts, client, action, target, outcome)
+    audit_log.info(
+        "ts=%s actor=%s action=%s target=%s outcome=%s",
+        ts, client, action, target, outcome,
+    )
 
 
 # ── Response cache with stale-data fallback ──────────────────────────
@@ -767,7 +774,10 @@ async def api_get_alert_classes():
 
 @app.post("/api/config/alert-classes")
 async def api_set_alert_classes(request: Request, authorization: Optional[str] = Header(None)):
-    """Update alert class filter. Body: {"classes": ["person", "car"]} or {"classes": []} for all."""
+    """Update alert class filter.
+
+    Body: {"classes": ["person", "car"]} or {"classes": []} for all.
+    """
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
@@ -823,7 +833,11 @@ async def api_set_vehicle_mode(request: Request, authorization: Optional[str] = 
     if not mode or not isinstance(mode, str):
         return JSONResponse({"error": "mode is required (string)"}, status_code=400)
     if mode not in _ALLOWED_MODES:
-        return JSONResponse({"error": f"mode must be one of: {', '.join(sorted(_ALLOWED_MODES))}"}, status_code=400)
+        allowed = ', '.join(sorted(_ALLOWED_MODES))
+        return JSONResponse(
+            {"error": f"mode must be one of: {allowed}"},
+            status_code=400,
+        )
     cb = stream_state.get_callback("on_set_mode_command")
     if cb:
         success = cb(mode)
@@ -1256,7 +1270,10 @@ async def api_switch_profile(request: Request, authorization: Optional[str] = He
             _audit(request, "profile_switch", target=profile_id)
             return {"status": "ok", "profile": profile_id}
         _audit(request, "profile_switch", target=profile_id, outcome="failed")
-        return JSONResponse({"error": f"Failed to switch to profile '{profile_id}'"}, status_code=400)
+        return JSONResponse(
+            {"error": f"Failed to switch to profile '{profile_id}'"},
+            status_code=400,
+        )
     return JSONResponse({"error": "Profile switching not available"}, status_code=503)
 
 
@@ -1326,7 +1343,10 @@ async def api_rf_start(request: Request, authorization: Optional[str] = Header(N
     if mode == "wifi" and not bssid:
         return JSONResponse({"error": "target_bssid required for wifi mode"}, status_code=400)
     if bssid and not BSSID_RE.fullmatch(bssid):
-        return JSONResponse({"error": "target_bssid must be MAC format AA:BB:CC:DD:EE:FF"}, status_code=400)
+        return JSONResponse(
+            {"error": "target_bssid must be MAC format AA:BB:CC:DD:EE:FF"},
+            status_code=400,
+        )
 
     # Validate freq if SDR
     freq = body.get("target_freq_mhz")
@@ -1341,7 +1361,10 @@ async def api_rf_start(request: Request, authorization: Optional[str] = Header(N
     # Validate search pattern
     pattern = body.get("search_pattern")
     if pattern and pattern not in ("lawnmower", "spiral"):
-        return JSONResponse({"error": "search_pattern must be 'lawnmower' or 'spiral'"}, status_code=400)
+        return JSONResponse(
+            {"error": "search_pattern must be 'lawnmower' or 'spiral'"},
+            status_code=400,
+        )
 
     # Validate numeric fields
     for field, lo, hi in [
@@ -1806,7 +1829,8 @@ async def api_review_logs():
                                 "filename": f.name,
                                 "size_kb": round(f.stat().st_size / 1024, 1),
                             })
-            except Exception:
+            except (_json.JSONDecodeError, OSError, UnicodeDecodeError):
+                logger.debug("Skipping unreadable event log: %s", f.name)
                 continue
     return {"logs": result, "event_logs": event_logs, "image_dir": image_dir}
 
@@ -1892,7 +1916,8 @@ async def api_review_events(filename: str):
                         continue
                     if len(events) >= max_events:
                         break
-    except Exception:
+    except (_json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+        logger.error("Failed to read event log %s: %s", filename, exc)
         return JSONResponse({"error": "read error"}, status_code=500)
 
     return {"events": events, "filename": filename}
@@ -2422,7 +2447,10 @@ async def api_setup_save(request: Request, authorization: Optional[str] = Header
     if len(callsign) > 50:
         return JSONResponse({"error": "callsign too long"}, status_code=400)
     if vehicle_type and vehicle_type not in ("drone", "usv", "ugv", "fw"):
-        return JSONResponse({"error": "vehicle_type must be drone, usv, ugv, or fw"}, status_code=400)
+        return JSONResponse(
+            {"error": "vehicle_type must be drone, usv, ugv, or fw"},
+            status_code=400,
+        )
 
     # Build callsign from team + vehicle if not explicitly set
     if not callsign and team_number and vehicle_type:

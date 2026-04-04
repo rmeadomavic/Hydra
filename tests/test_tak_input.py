@@ -4,8 +4,6 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from unittest.mock import MagicMock
 
-import pytest
-
 from hydra_detect.tak.tak_input import TAKInput
 
 

@@ -159,7 +159,10 @@ class AutonomousController:
         """Return True if the position is inside the geofence."""
         if self._geofence_polygon and len(self._geofence_polygon) >= 3:
             return point_in_polygon(lat, lon, self._geofence_polygon)
-        return haversine_m(lat, lon, self._geofence_lat, self._geofence_lon) <= self._geofence_radius_m
+        dist = haversine_m(
+            lat, lon, self._geofence_lat, self._geofence_lon,
+        )
+        return dist <= self._geofence_radius_m
 
     # -- Main evaluation ----------------------------------------------------
 
@@ -208,7 +211,10 @@ class AutonomousController:
             return
         try:
             lat, lon, _ = get_lat_lon()
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Autonomous: GPS unavailable for geofence check: %s", exc,
+            )
             return
         if lat is None or lon is None:
             return
@@ -237,7 +243,8 @@ class AutonomousController:
                 if now - self._empty_classes_warn_time >= 30.0:
                     logger.warning(
                         "Autonomous controller enabled but allowed_classes is empty — "
-                        "no targets will ever qualify. Set [autonomous] allowed_classes in config.ini."
+                        "no targets will ever qualify. "
+                        "Set [autonomous] allowed_classes in config.ini."
                     )
                     self._empty_classes_warn_time = now
                 continue

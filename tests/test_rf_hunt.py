@@ -299,7 +299,7 @@ class TestHuntKismetManagerIntegration:
         assert rssi == -60.0
 
 
-import time
+import time  # noqa: E402
 
 
 class TestRssiHistory:
