@@ -209,8 +209,12 @@ def _origin_matches_request(origin: str, request: Request) -> bool:
     if not req_scheme or not req_host:
         return False
 
-    origin_port = parsed.port or (443 if parsed.scheme == "https" else 80 if parsed.scheme == "http" else None)
-    req_port = request.url.port or (443 if req_scheme == "https" else 80 if req_scheme == "http" else None)
+    origin_port = parsed.port or (
+        443 if parsed.scheme == "https" else 80 if parsed.scheme == "http" else None
+    )
+    req_port = request.url.port or (
+        443 if req_scheme == "https" else 80 if req_scheme == "http" else None
+    )
     if origin_port is None or req_port is None:
         return False
 

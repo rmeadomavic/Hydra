@@ -152,7 +152,9 @@ class TestAuthEnforcement:
                 resp = client.post(url, json=body, headers=headers)
             else:
                 resp = client.post(url, headers=headers)
-            assert resp.status_code == 401, f"{url} should require auth despite forged sec-fetch-site"
+            assert resp.status_code == 401, (
+                f"{url} should require auth despite forged sec-fetch-site"
+            )
 
     def test_origin_subdomain_spoof_does_not_bypass_token_checks(self, client):
         configure_auth("secret-token-123")
