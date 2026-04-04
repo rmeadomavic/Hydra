@@ -56,6 +56,7 @@ Kismet (WiFi/SDR) → RF Hunt Controller → RSSI Gradient Ascent → MAVLink Na
 | `event_logger.py` | Mission event timeline (actions + vehicle track at 1 Hz) |
 | `verify_log.py` | SHA-256 hash chain verification |
 | `review_export.py` | Standalone HTML map report generator |
+| `waypoint_export.py` | QGC WPL 110 waypoint export for detection-driven missions |
 | `rtsp_server.py` | GStreamer RTSP H.264 output |
 | `servo_tracker.py` | Pixel-lock servo controller (pan + strike) |
 | `model_manifest.py` | Model hash verification, manifest, class introspection |
@@ -71,6 +72,8 @@ Kismet (WiFi/SDR) → RF Hunt Controller → RSSI Gradient Ascent → MAVLink Na
 | `rf/navigator.py` | Gradient ascent waypoint navigation |
 | `rf/search.py` | Lawnmower and spiral pattern generators |
 | `rf/signal.py` | RSSI filtering and gradient analysis |
+| `rf/rssi_protocol.py` | Protocol defining the RSSI client interface for RF hunt |
+| `rf/rtl_power_client.py` | RTL-SDR raw power measurement client for FHSS radios |
 | `tak/tak_output.py` | CoT multicast/unicast output thread |
 | `tak/tak_input.py` | CoT command listener (GeoChat + custom types) |
 | `tak/cot_builder.py` | Cursor-on-Target XML builder |
