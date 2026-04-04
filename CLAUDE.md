@@ -56,6 +56,7 @@ Kismet (WiFi/SDR) → RF Hunt Controller → RSSI Gradient Ascent → MAVLink Na
 | `event_logger.py` | Mission event timeline (actions + vehicle track at 1 Hz) |
 | `verify_log.py` | SHA-256 hash chain verification |
 | `review_export.py` | Standalone HTML map report generator |
+| `waypoint_export.py` | QGC WPL 110 waypoint file export |
 | `rtsp_server.py` | GStreamer RTSP H.264 output |
 | `servo_tracker.py` | Pixel-lock servo controller (pan + strike) |
 | `model_manifest.py` | Model hash verification, manifest, class introspection |
@@ -79,7 +80,6 @@ Kismet (WiFi/SDR) → RF Hunt Controller → RSSI Gradient Ascent → MAVLink Na
 | `tak/type_mapping.py` | YOLO class to MIL-STD-2525 mapping |
 | `web/server.py` | FastAPI REST API + MJPEG stream + HTML pages |
 | `web/config_api.py` | Config read/write with file locking and safety |
-| `waypoint_export.py` | QGC WPL 110 waypoint file export |
 
 ## SORCC Course Context
 
@@ -230,16 +230,18 @@ Full reference: `docs/api-reference.md`.
 | Test LOC (`tests/`) | ~12,700 |
 | Test files | 55 |
 | App modules | 50 |
-| Merged PRs | ~101 |
+| Merged PRs | 58 |
 
 **CODE_REVIEW_TRACKER.md** exists on the `check-branches-pr-status-Pmeg8` branch
-(not yet merged to main). It contains a risk-ordered review plan with 10 chunks.
-Being populated now.
+(not yet merged to main). It contains a risk-ordered review plan with 10 chunks
+populated, none reviewed yet.
 
-> **Process gap:** Zero human code reviews across all PRs to date. GitHub Codex
-> has reviewed ~7% of Hydra PRs (notably PR #83). All other PRs were merged
-> without any reviewer — human or automated. This applies to both Hydra and the
-> companion Argus project (0% Codex review rate there).
+**Orphan branches:** The three known orphans (`claude/compare-config-frameworks-3FuSP`,
+`claude/implement-todo-item-KrrRT`, `feat/follow-mode-approach-controller`) have
+been identified and are queued for deletion from the remote.
+
+> **Process gap:** Zero human code reviews across 58 merged PRs. Codex
+> auto-reviews ~7% of PRs via org-level GitHub App.
 
 ## Test Files
 
