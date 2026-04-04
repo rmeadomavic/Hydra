@@ -207,6 +207,7 @@ class DetectionLogger:
 
         # Build records (do NOT update _recent yet — only after successful enqueue).
         records: list[Dict[str, Any]] = []
+        chain_hash_before_loop = self._prev_chain_hash
         for track in tracking_result:
             record: Dict[str, Any] = {
                 "timestamp": ts_iso,
@@ -227,12 +228,14 @@ class DetectionLogger:
                 "model_hash": self._model_hash,
             }
             # Rolling SHA-256 chain: hash(record_json + prev_hash)
-            # Chain state is advanced only after successful enqueue (below)
-            # to avoid breaking the chain when records are dropped.
+            # Each record chains against the previous record's hash so
+            # multi-detection frames produce a sequential chain, not a
+            # fan-out from the same prev_hash.
             record_json = json.dumps(record, sort_keys=True)
             chain_input = record_json + self._prev_chain_hash
             chain_hash = hashlib.sha256(chain_input.encode()).hexdigest()
             record["chain_hash"] = chain_hash
+            self._prev_chain_hash = chain_hash
             records.append(record)
 
         # Copy the frame only when we need it for writing (avoids the copy
@@ -252,14 +255,13 @@ class DetectionLogger:
 
         try:
             self._write_queue.put_nowait(work_item)
-            # Advance chain state and update recent buffer only after
-            # successful enqueue so dropped records don't appear in the API
-            # and don't leave a gap in the persisted hash chain.
-            self._prev_chain_hash = records[-1]["chain_hash"]
             with self._recent_lock:
                 for record in records:
                     self._recent.append(record)  # deque evicts oldest when full
         except queue.Full:
+            # Revert chain state so dropped records don't leave a gap
+            # in the persisted hash chain.
+            self._prev_chain_hash = chain_hash_before_loop
             logger.warning(
                 "Detection logger queue full — dropping frame %d "
                 "(storage too slow?)",
