@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -404,3 +405,73 @@ class TestPreflightEndpoint:
         )
         resp = client.get("/api/preflight")
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Fallback / schema default alignment
+# ---------------------------------------------------------------------------
+
+class TestFallbackAlignment:
+    """Meta-test: pipeline.py fallback values must match config_schema.py defaults."""
+
+    def test_pipeline_fallbacks_match_schema_defaults(self):
+        import ast
+        import re as _re
+
+        from hydra_detect.config_schema import SCHEMA
+
+        pipeline_path = (
+            Path(__file__).resolve().parent.parent
+            / "hydra_detect"
+            / "pipeline.py"
+        )
+        source = pipeline_path.read_text()
+
+        # Match self._cfg.get*("section", "key", fallback=VALUE)
+        pattern = _re.compile(
+            r'self\._cfg\.get(int|float|boolean)?'
+            r'\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,'
+            r'\s*fallback\s*=\s*(.+?)\s*\)'
+        )
+
+        mismatches: list[str] = []
+        for match in pattern.finditer(source):
+            getter_type = match.group(1)
+            section = match.group(2)
+            key = match.group(3)
+            fallback_raw = match.group(4)
+
+            if section not in SCHEMA or key not in SCHEMA[section]:
+                continue
+
+            spec = SCHEMA[section][key]
+            if spec.default is None:
+                continue
+
+            try:
+                fallback_val = ast.literal_eval(fallback_raw)
+            except (ValueError, SyntaxError):
+                continue  # dynamic expression, skip
+
+            schema_default = spec.default
+            if getter_type == "boolean" or spec.type.value == "bool":
+                fallback_val = bool(fallback_val)
+                schema_default = bool(schema_default)
+            elif getter_type == "int":
+                fallback_val = int(fallback_val)
+                schema_default = int(schema_default)
+            elif getter_type == "float":
+                fallback_val = float(fallback_val)
+                schema_default = float(schema_default)
+
+            if fallback_val != schema_default:
+                mismatches.append(
+                    f"[{section}] {key}: "
+                    f"fallback={fallback_val!r} "
+                    f"!= schema default={schema_default!r}"
+                )
+
+        assert not mismatches, (
+            "Pipeline fallback / schema default mismatches:\n"
+            + "\n".join(mismatches)
+        )
