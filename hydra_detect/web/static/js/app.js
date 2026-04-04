@@ -792,16 +792,25 @@ const HydraApp = (() => {
     }
 
     // ── Logout Button ──
-    function initLogoutButton() {
+    async function initLogoutButton() {
         const btn = document.getElementById('footer-logout');
         if (!btn) return;
-        // Show logout button only when a session cookie exists
-        if (document.cookie.split(';').some(c => c.trim().startsWith('hydra_session='))) {
-            btn.style.display = '';
+
+        try {
+            const resp = await fetch('/auth/status', { credentials: 'same-origin' });
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data && data.password_enabled && data.authenticated) {
+                    btn.style.display = '';
+                }
+            }
+        } catch (e) {
+            // Ignore auth-status lookup failures and keep button hidden.
         }
+
         btn.addEventListener('click', async () => {
             try {
-                await fetch('/auth/logout', { method: 'POST' });
+                await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
             } catch (e) {
                 // Ignore network errors on logout
             }
