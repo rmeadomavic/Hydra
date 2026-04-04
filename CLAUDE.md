@@ -71,12 +71,15 @@ Kismet (WiFi/SDR) → RF Hunt Controller → RSSI Gradient Ascent → MAVLink Na
 | `rf/navigator.py` | Gradient ascent waypoint navigation |
 | `rf/search.py` | Lawnmower and spiral pattern generators |
 | `rf/signal.py` | RSSI filtering and gradient analysis |
+| `rf/rssi_protocol.py` | RSSI protocol handling for RF hunt |
+| `rf/rtl_power_client.py` | RTL-SDR power spectrum client |
 | `tak/tak_output.py` | CoT multicast/unicast output thread |
 | `tak/tak_input.py` | CoT command listener (GeoChat + custom types) |
 | `tak/cot_builder.py` | Cursor-on-Target XML builder |
 | `tak/type_mapping.py` | YOLO class to MIL-STD-2525 mapping |
 | `web/server.py` | FastAPI REST API + MJPEG stream + HTML pages |
 | `web/config_api.py` | Config read/write with file locking and safety |
+| `waypoint_export.py` | QGC WPL 110 waypoint file export |
 
 ## SORCC Course Context
 
@@ -219,9 +222,28 @@ Full reference: `docs/configuration.md`. Schema: `hydra_detect/config_schema.py`
 
 Full reference: `docs/api-reference.md`.
 
+## Codebase Stats (as of April 2026)
+
+| Metric | Count |
+|--------|-------|
+| App LOC (`hydra_detect/`) | ~15,800 |
+| Test LOC (`tests/`) | ~12,700 |
+| Test files | 55 |
+| App modules | 50 |
+| Merged PRs | ~101 |
+
+**CODE_REVIEW_TRACKER.md** exists on the `check-branches-pr-status-Pmeg8` branch
+(not yet merged to main). It contains a risk-ordered review plan with 10 chunks.
+Being populated now.
+
+> **Process gap:** Zero human code reviews across all PRs to date. GitHub Codex
+> has reviewed ~7% of Hydra PRs (notably PR #83). All other PRs were merged
+> without any reviewer — human or automated. This applies to both Hydra and the
+> companion Argus project (0% Codex review rate there).
+
 ## Test Files
 
-50+ test files in `tests/`. Key coverage areas:
+55 test files in `tests/`. Key coverage areas:
 - Autonomous controller: `test_autonomous.py`, `test_drop_strike.py`
 - Guidance: `test_guidance.py`
 - Config: `test_config_schema.py`, `test_config_api.py`, `test_config_freeze.py`
