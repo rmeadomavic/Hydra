@@ -9,8 +9,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from hydra_detect.config_schema import (
-    FieldSpec,
-    FieldType,
     ValidationResult,
     validate_config,
 )
@@ -439,7 +437,7 @@ class TestFallbackAlignment:
             getter_type = match.group(1)
             section = match.group(2)
             key = match.group(3)
-            fallback_raw = match.group(4)
+            fallback_raw = match.group(4).rstrip(",").strip()
 
             if section not in SCHEMA or key not in SCHEMA[section]:
                 continue
@@ -463,6 +461,10 @@ class TestFallbackAlignment:
             elif getter_type == "float":
                 fallback_val = float(fallback_val)
                 schema_default = float(schema_default)
+            elif getter_type is None and spec.type.value != "string":
+                # Plain .get() returns strings; coerce schema default
+                # to string for comparison with non-string fields.
+                schema_default = str(schema_default)
 
             if fallback_val != schema_default:
                 mismatches.append(

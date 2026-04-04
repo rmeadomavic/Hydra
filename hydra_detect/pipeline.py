@@ -13,8 +13,6 @@ from collections import deque
 from pathlib import Path
 from typing import Optional
 
-import cv2
-
 from .approach import ApproachConfig, ApproachController, ApproachMode
 from .guidance import GuidanceConfig
 from .autonomous import AutonomousController, parse_polygon
@@ -119,7 +117,8 @@ class Pipeline:
                         self._cfg.set(section, option, value)
                     else:
                         logger.warning(
-                            "Vehicle config key %r missing section prefix (expected section.option)",
+                            "Vehicle config key %r missing section prefix "
+                            "(expected section.option)",
                             key,
                         )
             else:
@@ -187,7 +186,7 @@ class Pipeline:
         if self._cfg.getboolean("mavlink", "enabled", fallback=True):
             self._mavlink = MAVLinkIO(
                 connection_string=self._cfg.get(
-                    "mavlink", "connection_string", fallback="/dev/ttyACM0"
+                    "mavlink", "connection_string", fallback="/dev/ttyTHS1"
                 ),
                 baud=self._cfg.getint("mavlink", "baud", fallback=921600),
                 source_system=self._cfg.getint("mavlink", "source_system", fallback=1),
@@ -210,9 +209,9 @@ class Pipeline:
                     "alerts", "global_max_per_sec", fallback=2.0
                 ),
                 priority_labels=[
-                    l.strip() for l in self._cfg.get(
+                    lbl.strip() for lbl in self._cfg.get(
                         "alerts", "priority_labels", fallback=""
-                    ).split(",") if l.strip()
+                    ).split(",") if lbl.strip()
                 ] or None,
                 sim_gps_lat=self._cfg.getfloat("mavlink", "sim_gps_lat", fallback=None)
                 if self._cfg.get("mavlink", "sim_gps_lat", fallback="").strip()
@@ -265,7 +264,9 @@ class Pipeline:
             self._light_bar_channel = self._cfg.getint("alerts", "light_bar_channel", fallback=4)
             self._light_bar_pwm_on = self._cfg.getint("alerts", "light_bar_pwm_on", fallback=1900)
             self._light_bar_pwm_off = self._cfg.getint("alerts", "light_bar_pwm_off", fallback=1100)
-            self._light_bar_flash_sec = self._cfg.getfloat("alerts", "light_bar_flash_sec", fallback=0.5)
+            self._light_bar_flash_sec = self._cfg.getfloat(
+                "alerts", "light_bar_flash_sec", fallback=0.5
+            )
             logger.info(
                 "Light bar enabled: channel=%d, on=%d, off=%d, flash=%.1fs",
                 self._light_bar_channel, self._light_bar_pwm_on,
@@ -298,16 +299,34 @@ class Pipeline:
                 self._servo_tracker = ServoTracker(
                     self._mavlink,
                     pan_channel=pan_ch,
-                    pan_pwm_center=self._cfg.getint("servo_tracking", "pan_pwm_center", fallback=1500),
-                    pan_pwm_range=self._cfg.getint("servo_tracking", "pan_pwm_range", fallback=500),
-                    pan_invert=self._cfg.getboolean("servo_tracking", "pan_invert", fallback=False),
-                    pan_dead_zone=self._cfg.getfloat("servo_tracking", "pan_dead_zone", fallback=0.05),
-                    pan_smoothing=self._cfg.getfloat("servo_tracking", "pan_smoothing", fallback=0.3),
+                    pan_pwm_center=self._cfg.getint(
+                        "servo_tracking", "pan_pwm_center", fallback=1500
+                    ),
+                    pan_pwm_range=self._cfg.getint(
+                        "servo_tracking", "pan_pwm_range", fallback=500
+                    ),
+                    pan_invert=self._cfg.getboolean(
+                        "servo_tracking", "pan_invert", fallback=False
+                    ),
+                    pan_dead_zone=self._cfg.getfloat(
+                        "servo_tracking", "pan_dead_zone", fallback=0.05
+                    ),
+                    pan_smoothing=self._cfg.getfloat(
+                        "servo_tracking", "pan_smoothing", fallback=0.3
+                    ),
                     strike_channel=strike_ch,
-                    strike_pwm_fire=self._cfg.getint("servo_tracking", "strike_pwm_fire", fallback=1900),
-                    strike_pwm_safe=self._cfg.getint("servo_tracking", "strike_pwm_safe", fallback=1100),
-                    strike_duration=self._cfg.getfloat("servo_tracking", "strike_duration", fallback=0.5),
-                    replaces_yaw=self._cfg.getboolean("servo_tracking", "replaces_yaw", fallback=False),
+                    strike_pwm_fire=self._cfg.getint(
+                        "servo_tracking", "strike_pwm_fire", fallback=1900
+                    ),
+                    strike_pwm_safe=self._cfg.getint(
+                        "servo_tracking", "strike_pwm_safe", fallback=1100
+                    ),
+                    strike_duration=self._cfg.getfloat(
+                        "servo_tracking", "strike_duration", fallback=0.5
+                    ),
+                    replaces_yaw=self._cfg.getboolean(
+                        "servo_tracking", "replaces_yaw", fallback=False
+                    ),
                 )
                 logger.info(
                     "Pixel-lock servo tracking ENABLED: pan_ch=%d, strike_ch=%d, replaces_yaw=%s",
@@ -340,7 +359,10 @@ class Pipeline:
                             f"SAFETY: {conflict_msg} conflicts with {vehicle} reserved channels"
                         )
                 except ValueError:
-                    logger.warning("Invalid reserved_channels in [%s]: %s", vehicle_section, reserved_raw)
+                    logger.warning(
+                        "Invalid reserved_channels in [%s]: %s",
+                        vehicle_section, reserved_raw,
+                    )
 
         # Autonomous strike controller
         self._autonomous: AutonomousController | None = None
@@ -355,14 +377,24 @@ class Pipeline:
                 enabled=True,
                 geofence_lat=self._cfg.getfloat("autonomous", "geofence_lat", fallback=0.0),
                 geofence_lon=self._cfg.getfloat("autonomous", "geofence_lon", fallback=0.0),
-                geofence_radius_m=self._cfg.getfloat("autonomous", "geofence_radius_m", fallback=500.0),
+                geofence_radius_m=self._cfg.getfloat(
+                    "autonomous", "geofence_radius_m", fallback=500.0
+                ),
                 geofence_polygon=polygon,
-                min_confidence=self._cfg.getfloat("autonomous", "min_confidence", fallback=0.85),
-                min_track_frames=self._cfg.getint("autonomous", "min_track_frames", fallback=5),
+                min_confidence=self._cfg.getfloat(
+                    "autonomous", "min_confidence", fallback=0.85
+                ),
+                min_track_frames=self._cfg.getint(
+                    "autonomous", "min_track_frames", fallback=5
+                ),
                 allowed_classes=allowed_classes,
-                strike_cooldown_sec=self._cfg.getfloat("autonomous", "strike_cooldown_sec", fallback=30.0),
+                strike_cooldown_sec=self._cfg.getfloat(
+                    "autonomous", "strike_cooldown_sec", fallback=30.0
+                ),
                 allowed_vehicle_modes=allowed_modes,
-                gps_max_stale_sec=self._cfg.getfloat("autonomous", "gps_max_stale_sec", fallback=2.0),
+                gps_max_stale_sec=self._cfg.getfloat(
+                    "autonomous", "gps_max_stale_sec", fallback=2.0
+                ),
                 require_operator_lock=self._cfg.getboolean(
                     "autonomous", "require_operator_lock", fallback=True
                 ),
@@ -449,16 +481,36 @@ class Pipeline:
         self._kismet_manager: KismetManager | None = None
         if self._cfg.getboolean("rf_homing", "enabled", fallback=False):
             if self._mavlink is not None:
-                kismet_host = self._cfg.get("rf_homing", "kismet_host", fallback="http://localhost:2501")
+                kismet_host = self._cfg.get(
+                    "rf_homing", "kismet_host",
+                    fallback="http://localhost:2501",
+                )
                 self._kismet_manager = KismetManager(
-                    source=self._cfg.get("rf_homing", "kismet_source", fallback="rtl433-0"),
-                    capture_dir=self._cfg.get("rf_homing", "kismet_capture_dir", fallback="./output_data/kismet"),
+                    source=self._cfg.get(
+                        "rf_homing", "kismet_source", fallback="rtl433-0"
+                    ),
+                    capture_dir=self._cfg.get(
+                        "rf_homing", "kismet_capture_dir",
+                        fallback="./output_data/kismet",
+                    ),
                     host=kismet_host,
-                    user=self._cfg.get("rf_homing", "kismet_user", fallback=""),
-                    password=self._cfg.get("rf_homing", "kismet_pass", fallback=""),
-                    log_dir=self._cfg.get("logging", "log_dir", fallback="./output_data/logs"),
-                    max_capture_mb=self._cfg.getfloat("rf_homing", "kismet_max_capture_mb", fallback=100.0),
-                    auto_spawn=self._cfg.getboolean("rf_homing", "kismet_auto_spawn", fallback=False),
+                    user=self._cfg.get(
+                        "rf_homing", "kismet_user", fallback=""
+                    ),
+                    password=self._cfg.get(
+                        "rf_homing", "kismet_pass", fallback=""
+                    ),
+                    log_dir=self._cfg.get(
+                        "logging", "log_dir",
+                        fallback="./output_data/logs",
+                    ),
+                    max_capture_mb=self._cfg.getfloat(
+                        "rf_homing", "kismet_max_capture_mb",
+                        fallback=100.0,
+                    ),
+                    auto_spawn=self._cfg.getboolean(
+                        "rf_homing", "kismet_auto_spawn", fallback=False
+                    ),
                 )
                 if self._kismet_manager.start():
                     # Pass geofence callbacks if autonomous controller is available
@@ -469,23 +521,63 @@ class Pipeline:
                         geofence_clip = self._autonomous.clip_to_geofence
                     self._rf_hunt = RFHuntController(
                         self._mavlink,
-                        mode=self._cfg.get("rf_homing", "mode", fallback="wifi"),
-                        target_bssid=self._cfg.get("rf_homing", "target_bssid", fallback="").strip() or None,
-                        target_freq_mhz=self._cfg.getfloat("rf_homing", "target_freq_mhz", fallback=915.0),
+                        mode=self._cfg.get(
+                            "rf_homing", "mode", fallback="wifi"
+                        ),
+                        target_bssid=self._cfg.get(
+                            "rf_homing", "target_bssid", fallback=""
+                        ).strip() or None,
+                        target_freq_mhz=self._cfg.getfloat(
+                            "rf_homing", "target_freq_mhz",
+                            fallback=915.0,
+                        ),
                         kismet_host=kismet_host,
-                        kismet_user=self._cfg.get("rf_homing", "kismet_user", fallback=""),
-                        kismet_pass=self._cfg.get("rf_homing", "kismet_pass", fallback=""),
-                        search_pattern=self._cfg.get("rf_homing", "search_pattern", fallback="lawnmower"),
-                        search_area_m=self._cfg.getfloat("rf_homing", "search_area_m", fallback=100.0),
-                        search_spacing_m=self._cfg.getfloat("rf_homing", "search_spacing_m", fallback=20.0),
-                        search_alt_m=self._cfg.getfloat("rf_homing", "search_alt_m", fallback=15.0),
-                        rssi_threshold_dbm=self._cfg.getfloat("rf_homing", "rssi_threshold_dbm", fallback=-80.0),
-                        rssi_converge_dbm=self._cfg.getfloat("rf_homing", "rssi_converge_dbm", fallback=-40.0),
-                        rssi_window=self._cfg.getint("rf_homing", "rssi_window", fallback=10),
-                        gradient_step_m=self._cfg.getfloat("rf_homing", "gradient_step_m", fallback=5.0),
-                        gradient_rotation_deg=self._cfg.getfloat("rf_homing", "gradient_rotation_deg", fallback=45.0),
-                        poll_interval_sec=self._cfg.getfloat("rf_homing", "poll_interval_sec", fallback=0.5),
-                        arrival_tolerance_m=self._cfg.getfloat("rf_homing", "arrival_tolerance_m", fallback=3.0),
+                        kismet_user=self._cfg.get(
+                            "rf_homing", "kismet_user", fallback=""
+                        ),
+                        kismet_pass=self._cfg.get(
+                            "rf_homing", "kismet_pass", fallback=""
+                        ),
+                        search_pattern=self._cfg.get(
+                            "rf_homing", "search_pattern",
+                            fallback="lawnmower",
+                        ),
+                        search_area_m=self._cfg.getfloat(
+                            "rf_homing", "search_area_m", fallback=100.0
+                        ),
+                        search_spacing_m=self._cfg.getfloat(
+                            "rf_homing", "search_spacing_m",
+                            fallback=20.0,
+                        ),
+                        search_alt_m=self._cfg.getfloat(
+                            "rf_homing", "search_alt_m", fallback=15.0
+                        ),
+                        rssi_threshold_dbm=self._cfg.getfloat(
+                            "rf_homing", "rssi_threshold_dbm",
+                            fallback=-80.0,
+                        ),
+                        rssi_converge_dbm=self._cfg.getfloat(
+                            "rf_homing", "rssi_converge_dbm",
+                            fallback=-40.0,
+                        ),
+                        rssi_window=self._cfg.getint(
+                            "rf_homing", "rssi_window", fallback=10
+                        ),
+                        gradient_step_m=self._cfg.getfloat(
+                            "rf_homing", "gradient_step_m", fallback=5.0
+                        ),
+                        gradient_rotation_deg=self._cfg.getfloat(
+                            "rf_homing", "gradient_rotation_deg",
+                            fallback=45.0,
+                        ),
+                        poll_interval_sec=self._cfg.getfloat(
+                            "rf_homing", "poll_interval_sec",
+                            fallback=0.5,
+                        ),
+                        arrival_tolerance_m=self._cfg.getfloat(
+                            "rf_homing", "arrival_tolerance_m",
+                            fallback=3.0,
+                        ),
                         kismet_manager=self._kismet_manager,
                         geofence_check=geofence_check,
                         geofence_clip=geofence_clip,
@@ -493,8 +585,12 @@ class Pipeline:
                     logger.info(
                         "RF homing configured: mode=%s target=%s",
                         self._cfg.get("rf_homing", "mode", fallback="wifi"),
-                        self._cfg.get("rf_homing", "target_bssid", fallback="")
-                        or f"{self._cfg.getfloat('rf_homing', 'target_freq_mhz', fallback=915.0)}MHz",
+                        self._cfg.get(
+                            "rf_homing", "target_bssid", fallback=""
+                        ) or (
+                            f"{self._cfg.getfloat('rf_homing', 'target_freq_mhz', fallback=915.0)}"
+                            "MHz"
+                        ),
                     )
                 else:
                     logger.warning("Kismet failed to start — RF homing disabled")
@@ -597,9 +693,18 @@ class Pipeline:
         _base_image_dir = self._cfg.get("logging", "image_dir", fallback="./output_data/images")
         _base_crop_dir = self._cfg.get("logging", "crop_dir", fallback="./output_data/crops")
         if self._callsign and self._callsign != "HYDRA-1":
-            _base_log_dir = str(Path(_base_log_dir).parent / self._callsign / Path(_base_log_dir).name)
-            _base_image_dir = str(Path(_base_image_dir).parent / self._callsign / Path(_base_image_dir).name)
-            _base_crop_dir = str(Path(_base_crop_dir).parent / self._callsign / Path(_base_crop_dir).name)
+            _base_log_dir = str(
+                Path(_base_log_dir).parent
+                / self._callsign / Path(_base_log_dir).name
+            )
+            _base_image_dir = str(
+                Path(_base_image_dir).parent
+                / self._callsign / Path(_base_image_dir).name
+            )
+            _base_crop_dir = str(
+                Path(_base_crop_dir).parent
+                / self._callsign / Path(_base_crop_dir).name
+            )
 
         self._det_logger = DetectionLogger(
             log_dir=_base_log_dir,
@@ -653,8 +758,8 @@ class Pipeline:
         self._CAM_FAIL_THRESHOLD: int = 2
         # Watchdog: last frame processed timestamp
         self._last_frame_time: float = time.monotonic()
-        self._watchdog_max_stall_sec: float = float(
-            self._cfg.get("watchdog", "max_stall_sec", fallback="30")
+        self._watchdog_max_stall_sec: float = self._cfg.getfloat(
+            "watchdog", "max_stall_sec", fallback=30.0
         )
         # Low-light brightness monitoring
         self._last_brightness: float = 0.0
@@ -850,7 +955,10 @@ class Pipeline:
                         api_token[:8], cfg_path,
                     )
                 except Exception as exc:
-                    logger.warning("Could not persist auto-generated API token: %s — auth DISABLED", exc)
+                    logger.warning(
+                        "Could not persist auto-generated API token:"
+                        " %s — auth DISABLED", exc,
+                    )
                     self._cfg.set("web", "api_token", "")
                     api_token = ""
             configure_auth(api_token or None)
@@ -896,8 +1004,14 @@ class Pipeline:
                 get_power_modes=self._get_power_modes,
                 get_models=self._get_models,
                 on_model_switch=self._handle_model_switch,
-                get_log_dir=lambda: self._cfg.get("logging", "log_dir", fallback="./output_data/logs"),
-                get_image_dir=lambda: self._cfg.get("logging", "image_dir", fallback="./output_data/images"),
+                get_log_dir=lambda: self._cfg.get(
+                    "logging", "log_dir",
+                    fallback="./output_data/logs",
+                ),
+                get_image_dir=lambda: self._cfg.get(
+                    "logging", "image_dir",
+                    fallback="./output_data/images",
+                ),
                 get_rf_status=self._get_rf_status,
                 get_rf_rssi_history=self._get_rf_rssi_history,
                 on_rf_start=self._handle_rf_start,
@@ -943,8 +1057,8 @@ class Pipeline:
             ssl_key = None
             if tls_enabled:
                 from .tls import ensure_tls_cert
-                cert_path = self._cfg.get("web", "tls_cert", fallback="certs/hydra.crt")
-                key_path = self._cfg.get("web", "tls_key", fallback="certs/hydra.key")
+                cert_path = self._cfg.get("web", "tls_cert", fallback="")
+                key_path = self._cfg.get("web", "tls_key", fallback="")
                 if ensure_tls_cert(cert_path, key_path):
                     ssl_cert = cert_path
                     ssl_key = key_path
@@ -978,7 +1092,10 @@ class Pipeline:
                 jpeg_quality=self._cfg.getint("mavlink_video", "jpeg_quality", fallback=20),
                 max_fps=self._cfg.getfloat("mavlink_video", "max_fps", fallback=2.0),
                 min_fps=self._cfg.getfloat("mavlink_video", "min_fps", fallback=0.2),
-                link_budget_bytes_sec=self._cfg.getint("mavlink_video", "link_budget_bytes_sec", fallback=8000),
+                link_budget_bytes_sec=self._cfg.getint(
+                    "mavlink_video", "link_budget_bytes_sec",
+                    fallback=8000,
+                ),
             )
             if not self._mavlink_video.start():
                 logger.warning("MAVLink video failed to start — continuing without.")
@@ -2183,12 +2300,18 @@ class Pipeline:
         if self._kismet_manager is None:
             self._kismet_manager = KismetManager(
                 source=self._cfg.get("rf_homing", "kismet_source", fallback="rtl433-0"),
-                capture_dir=self._cfg.get("rf_homing", "kismet_capture_dir", fallback="./output_data/kismet"),
+                capture_dir=self._cfg.get(
+                    "rf_homing", "kismet_capture_dir",
+                    fallback="./output_data/kismet",
+                ),
                 host=self._cfg.get("rf_homing", "kismet_host", fallback="http://localhost:2501"),
                 user=self._cfg.get("rf_homing", "kismet_user", fallback=""),
                 password=self._cfg.get("rf_homing", "kismet_pass", fallback=""),
                 log_dir=self._cfg.get("logging", "log_dir", fallback="./output_data/logs"),
-                max_capture_mb=self._cfg.getfloat("rf_homing", "kismet_max_capture_mb", fallback=100.0),
+                max_capture_mb=self._cfg.getfloat(
+                    "rf_homing", "kismet_max_capture_mb",
+                    fallback=100.0,
+                ),
                 auto_spawn=self._cfg.getboolean("rf_homing", "kismet_auto_spawn", fallback=False),
             )
             if not self._kismet_manager.start():
@@ -2213,10 +2336,16 @@ class Pipeline:
             rssi_threshold_dbm=float(params.get("rssi_threshold_dbm", -80.0)),
             rssi_converge_dbm=float(params.get("rssi_converge_dbm", -40.0)),
             gradient_step_m=float(params.get("gradient_step_m", 5.0)),
-            gradient_rotation_deg=self._cfg.getfloat("rf_homing", "gradient_rotation_deg", fallback=45.0),
+            gradient_rotation_deg=self._cfg.getfloat(
+                "rf_homing", "gradient_rotation_deg",
+                fallback=45.0,
+            ),
             rssi_window=self._cfg.getint("rf_homing", "rssi_window", fallback=10),
             poll_interval_sec=self._cfg.getfloat("rf_homing", "poll_interval_sec", fallback=0.5),
-            arrival_tolerance_m=self._cfg.getfloat("rf_homing", "arrival_tolerance_m", fallback=3.0),
+            arrival_tolerance_m=self._cfg.getfloat(
+                "rf_homing", "arrival_tolerance_m",
+                fallback=3.0,
+            ),
             kismet_manager=self._kismet_manager,
             gps_required=self._cfg.getboolean("rf_homing", "gps_required", fallback=False),
         )
@@ -2283,7 +2412,10 @@ class Pipeline:
                 jpeg_quality=self._cfg.getint("mavlink_video", "jpeg_quality", fallback=20),
                 max_fps=self._cfg.getfloat("mavlink_video", "max_fps", fallback=2.0),
                 min_fps=self._cfg.getfloat("mavlink_video", "min_fps", fallback=0.2),
-                link_budget_bytes_sec=self._cfg.getint("mavlink_video", "link_budget_bytes_sec", fallback=8000),
+                link_budget_bytes_sec=self._cfg.getint(
+                    "mavlink_video", "link_budget_bytes_sec",
+                    fallback=8000,
+                ),
             )
             if self._mavlink_video.start():
                 return {"status": "ok", "running": True}
