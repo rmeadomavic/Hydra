@@ -2033,7 +2033,12 @@ async def api_export_logs(request: Request, authorization: str | None = Header(N
 
 
 @app.get("/api/export/waypoints")
-async def api_export_waypoints(request: Request, classes: str = "", alt_m: float = 15.0):
+async def api_export_waypoints(
+    request: Request,
+    classes: str = "",
+    alt_m: float = 15.0,
+    authorization: str | None = Header(None),
+):
     """Export GPS-tagged detections as a QGC WPL 110 waypoint file.
 
     Query params:
@@ -2045,6 +2050,10 @@ async def api_export_waypoints(request: Request, classes: str = "", alt_m: float
         format_wpl,
         tracks_to_waypoints,
     )
+
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
 
     cb = stream_state.get_callback("get_recent_detections")
     detections = cb() if cb else []

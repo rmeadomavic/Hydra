@@ -190,6 +190,50 @@ class TestAuthEnforcement:
             assert resp.status_code not in (401, 403), f"{url} returned {resp.status_code}"
 
 
+class TestWaypointExportAuth:
+    def test_waypoint_export_requires_auth_when_token_enabled(self, client):
+        stream_state.set_callbacks(
+            get_recent_detections=lambda: [
+                {"label": "person", "confidence": 0.9, "lat": 35.1, "lon": -117.2},
+            ],
+        )
+        configure_auth("secret-token-123")
+
+        resp = client.get("/api/export/waypoints")
+        assert resp.status_code == 401
+
+    def test_waypoint_export_rejects_wrong_token(self, client):
+        stream_state.set_callbacks(
+            get_recent_detections=lambda: [
+                {"label": "person", "confidence": 0.9, "lat": 35.1, "lon": -117.2},
+            ],
+        )
+        configure_auth("secret-token-123")
+
+        resp = client.get(
+            "/api/export/waypoints",
+            headers={"Authorization": "Bearer wrong-token"},
+        )
+        assert resp.status_code == 403
+
+    def test_waypoint_export_succeeds_with_valid_token(self, client):
+        stream_state.set_callbacks(
+            get_recent_detections=lambda: [
+                {"label": "person", "confidence": 0.9, "lat": 35.1, "lon": -117.2},
+            ],
+        )
+        configure_auth("secret-token-123")
+
+        resp = client.get(
+            "/api/export/waypoints",
+            headers={"Authorization": "Bearer secret-token-123"},
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/plain")
+        assert "hydra-waypoints.wpl" in resp.headers["content-disposition"]
+        assert resp.text.startswith("QGC WPL 110\n")
+
+
 # ---------------------------------------------------------------------------
 # Control endpoint behaviour
 # ---------------------------------------------------------------------------
