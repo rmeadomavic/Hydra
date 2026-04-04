@@ -268,7 +268,9 @@ class TestRotationIntegration:
         assert all("label" in r for r in records)
 
     @patch("hydra_detect.detection_logger.open", new_callable=mock_open)
-    def test_rotation_failure_disables_logger_without_closing_current_file(self, mock_file, tmp_path):
+    def test_rotation_failure_disables_logger_without_closing_current_file(
+        self, mock_file, tmp_path,
+    ):
         dl = _make_logger(tmp_path)
         dl._log_dir.mkdir(parents=True, exist_ok=True)
         assert dl._open_log_file()

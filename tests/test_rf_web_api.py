@@ -43,7 +43,10 @@ class TestRFStatusEndpoint:
 
 class TestRFStartEndpoint:
     def test_start_without_callback(self, client):
-        resp = client.post("/api/rf/start", json={"mode": "wifi", "target_bssid": "AA:BB:CC:DD:EE:FF"})
+        resp = client.post(
+            "/api/rf/start",
+            json={"mode": "wifi", "target_bssid": "AA:BB:CC:DD:EE:FF"},
+        )
         assert resp.status_code == 503
 
     def test_start_invalid_mode(self, client):

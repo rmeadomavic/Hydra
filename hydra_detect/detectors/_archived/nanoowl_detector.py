@@ -61,7 +61,7 @@ class NanoOWLDetector(BaseDetector):
 
     # ------------------------------------------------------------------
     def _detect_nanoowl(self, frame: np.ndarray) -> DetectionResult:
-        import torch
+        import torch  # noqa: F401
         from PIL import Image
 
         t0 = time.perf_counter()

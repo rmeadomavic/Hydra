@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from hydra_detect.autonomous import AutonomousController, haversine_m
 from hydra_detect.rf.hunt import HuntState, RFHuntController

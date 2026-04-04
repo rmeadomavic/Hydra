@@ -121,7 +121,8 @@ class RFHuntController:
         self._target_freq_mhz = target_freq_mhz
         self._search_pattern = search_pattern
         self._search_area_m = max(_SEARCH_AREA_MIN, min(search_area_m, _SEARCH_AREA_MAX))
-        self._search_spacing_m = max(_SEARCH_SPACING_MIN, min(search_spacing_m, _SEARCH_SPACING_MAX))
+        clamped_spacing = min(search_spacing_m, _SEARCH_SPACING_MAX)
+        self._search_spacing_m = max(_SEARCH_SPACING_MIN, clamped_spacing)
         self._search_alt_m = max(_SEARCH_ALT_MIN, min(search_alt_m, _SEARCH_ALT_MAX))
         self._rssi_threshold = rssi_threshold_dbm
         self._rssi_converge = rssi_converge_dbm

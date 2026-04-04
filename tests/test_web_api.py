@@ -277,14 +277,20 @@ class TestAuditLogging:
         with caplog.at_level(logging.INFO, logger="hydra.audit"):
             resp = client.post("/api/vehicle/loiter")
         assert resp.status_code == 200
-        assert any("action=loiter" in r.message and "outcome=ok" in r.message for r in caplog.records)
+        assert any(
+            "action=loiter" in r.message and "outcome=ok" in r.message
+            for r in caplog.records
+        )
 
     def test_failed_action_logs_outcome(self, client, caplog):
         stream_state.set_callbacks(on_strike_command=lambda tid: False)
         with caplog.at_level(logging.INFO, logger="hydra.audit"):
             resp = client.post("/api/target/strike", json={"track_id": 3, "confirm": True})
         assert resp.status_code == 503
-        assert any("action=strike" in r.message and "outcome=failed" in r.message for r in caplog.records)
+        assert any(
+            "action=strike" in r.message and "outcome=failed" in r.message
+            for r in caplog.records
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +314,7 @@ class TestAlertClassesEndpoints:
 
     def test_post_alert_classes(self, client):
         called = {}
+
         def on_change(classes):
             called["classes"] = classes
         stream_state.set_callbacks(
@@ -320,6 +327,7 @@ class TestAlertClassesEndpoints:
 
     def test_post_empty_means_all(self, client):
         called = {}
+
         def on_change(classes):
             called["classes"] = classes
         stream_state.set_callbacks(
@@ -404,6 +412,7 @@ class TestCategorizeClasses:
 class TestVehicleModeEndpoint:
     def test_set_mode_success(self, client):
         called = {}
+
         def on_mode(mode):
             called["mode"] = mode
             return True
@@ -478,6 +487,7 @@ class TestRTSPEndpoints:
     def test_rtsp_toggle_with_auth(self, client):
         configure_auth("secret-token-123")
         called = {}
+
         def on_toggle(enabled):
             called["enabled"] = enabled
             return {"status": "ok", "running": enabled}
@@ -490,6 +500,7 @@ class TestRTSPEndpoints:
     def test_rtsp_toggle_no_auth_when_disabled(self, client):
         configure_auth(None)
         called = {}
+
         def on_toggle(enabled):
             called["enabled"] = enabled
             return {"status": "ok", "running": enabled}
@@ -521,6 +532,7 @@ class TestMAVLinkVideoEndpoints:
 
     def test_toggle_works(self, client):
         called = {}
+
         def on_toggle(enabled):
             called["enabled"] = enabled
             return {"status": "ok", "running": enabled}

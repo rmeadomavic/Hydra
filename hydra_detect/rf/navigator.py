@@ -147,7 +147,9 @@ class GradientNavigator:
                 if self.probe_count >= self._max_probes:
                     logger.warning("All probe directions exhausted")
                     bp = self.best_position
-                    return (bp[0], bp[1], False) if bp is not None else (current_lat, current_lon, False)
+                    if bp is not None:
+                        return (bp[0], bp[1], False)
+                    return (current_lat, current_lon, False)
                 self.bearing = (self.bearing + self._rotation_deg) % 360
                 logger.info(
                     "Signal dropped (%+.1f dBm), rotating to %.0f° "

@@ -1,8 +1,11 @@
 """CLI tool to export detection logs as standalone HTML map reports.
 
-Usage:
-    python -m hydra_detect.review_export /data/logs/detections_20260315_120000.jsonl -o report.html
-    python -m hydra_detect.review_export /data/logs/detections.csv --images-dir /data/images -o report.html
+Usage::
+
+    python -m hydra_detect.review_export \\
+        /data/logs/detections_20260315_120000.jsonl -o report.html
+    python -m hydra_detect.review_export \\
+        /data/logs/detections.csv --images-dir /data/images -o report.html
 """
 
 from __future__ import annotations
@@ -138,8 +141,14 @@ def generate_html(records: list[dict], summary: dict, title: str = "Hydra Missio
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{safe_title}</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
+<link rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+  crossorigin="anonymous"/>
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+  crossorigin="anonymous"></script>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{font-family:'Courier New',monospace;background:#0a0a0a;color:#e0e0e0}}
@@ -149,7 +158,8 @@ body{{font-family:'Courier New',monospace;background:#0a0a0a;color:#e0e0e0}}
 .wrap{{display:flex;height:calc(100vh - 42px)}}
 #map{{flex:1}}
 .side{{width:300px;background:#111;border-left:1px solid #333;overflow-y:auto;padding:12px}}
-.side h3{{color:#00ff88;font-size:13px;margin-bottom:6px;border-bottom:1px solid #333;padding-bottom:4px}}
+.side h3{{color:#00ff88;font-size:13px;margin-bottom:6px;
+  border-bottom:1px solid #333;padding-bottom:4px}}
 .sec{{margin-bottom:14px}}
 .st{{font-size:12px;color:#aaa;margin-bottom:3px}}
 .st span{{color:#00ff88}}

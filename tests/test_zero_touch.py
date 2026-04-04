@@ -279,8 +279,10 @@ class TestConfigImport:
         assert any("source" in f for f in data["restart_required"])
 
     def test_import_rejects_invalid_json(self, client, tmp_config):
-        resp = client.post("/api/config/import", content=b"not json",
-                          headers={"Content-Type": "application/json"})
+        resp = client.post(
+            "/api/config/import", content=b"not json",
+            headers={"Content-Type": "application/json"},
+        )
         assert resp.status_code == 400
 
     def test_import_rejects_oversized_body(self, client, tmp_config):

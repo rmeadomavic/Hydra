@@ -10,7 +10,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from hydra_detect.mission_profiles import (
-    DEFAULT_PROFILES,
     MissionProfile,
     get_profile,
     get_profiles,
@@ -217,7 +216,7 @@ class TestDoglegRTL:
         )
 
         # Count threads before
-        threads_before = threading.active_count()
+        threading.active_count()  # snapshot before execute
         result = rtl.execute()
 
         assert result is True
@@ -264,6 +263,7 @@ class TestDoglegRTL:
         # all subsequent calls (in _run loop) return waypoint position
         # so the distance check passes on the first poll.
         call_count = {"n": 0}
+
         def _get_lat_lon():
             call_count["n"] += 1
             if call_count["n"] == 1:

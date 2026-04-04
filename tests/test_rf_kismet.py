@@ -40,7 +40,6 @@ class TestKismetConnection:
         client._session = session
         assert client.check_connection() is False
 
-
     @patch("hydra_detect.rf.kismet_client.requests.Session")
     def test_connection_timeout_failure(self, mock_session_cls):
         import requests

@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import time
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from hydra_detect.approach import ApproachConfig, ApproachController, ApproachMode
 
@@ -153,10 +150,12 @@ class TestStrikeMode:
     def test_strike_hardware_arm_not_engaged_aborts(self):
         ctrl, mav = _make_controller(hw_arm_channel=8, waypoint_interval=0.0)
         # RC channel 8 below 1500 = not armed
-        mav.get_rc_channels.return_value = [1500, 1500, 1500, 1500,
-                                             1500, 1500, 1500, 1000,
-                                             1500, 1500, 1500, 1500,
-                                             1500, 1500, 1500, 1500]
+        mav.get_rc_channels.return_value = [
+            1500, 1500, 1500, 1500,
+            1500, 1500, 1500, 1000,
+            1500, 1500, 1500, 1500,
+            1500, 1500, 1500, 1500,
+        ]
         ctrl.start_strike(1)
         track = _make_track()
         ctrl.update(track, 640, 480)
@@ -166,10 +165,12 @@ class TestStrikeMode:
     def test_strike_hardware_arm_engaged_continues(self):
         ctrl, mav = _make_controller(hw_arm_channel=8, waypoint_interval=0.0)
         # RC channel 8 above 1500 = armed
-        mav.get_rc_channels.return_value = [1500, 1500, 1500, 1500,
-                                             1500, 1500, 1500, 1900,
-                                             1500, 1500, 1500, 1500,
-                                             1500, 1500, 1500, 1500]
+        mav.get_rc_channels.return_value = [
+            1500, 1500, 1500, 1500,
+            1500, 1500, 1500, 1900,
+            1500, 1500, 1500, 1500,
+            1500, 1500, 1500, 1500,
+        ]
         ctrl.start_strike(1)
         track = _make_track()
         ctrl.update(track, 640, 480)

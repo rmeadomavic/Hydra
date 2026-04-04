@@ -19,6 +19,7 @@ def generate_api_token() -> str:
     """Generate a random API token for this Jetson instance."""
     return secrets.token_hex(32)
 
+
 # Default config path — can be overridden by pipeline at startup
 _config_path: Path | None = None
 
@@ -38,6 +39,7 @@ def set_engagement_check(cb: Callable[[], bool]) -> None:
     """Register callback that returns True when safety config should be locked."""
     global _engagement_active_cb
     _engagement_active_cb = cb
+
 
 # Fields that require a service restart to take effect
 RESTART_REQUIRED_FIELDS = {
@@ -143,14 +145,21 @@ def write_config(updates: dict[str, dict[str, str]]) -> dict[str, Any]:
                 config.set(section, key, value)
                 changed = True
                 updated.append(f"{section}.{key}")
-                log_value = "[REDACTED]" if (section in REDACTED_FIELDS and key in REDACTED_FIELDS[section]) else value
+                is_redacted = (
+                    section in REDACTED_FIELDS
+                    and key in REDACTED_FIELDS[section]
+                )
+                log_value = "[REDACTED]" if is_redacted else value
                 audit_log.info("CONFIG WRITE: %s.%s = %s", section, key, log_value)
                 # Check if restart required
                 if section in RESTART_REQUIRED_FIELDS and key in RESTART_REQUIRED_FIELDS[section]:
                     restart_needed.append(f"{section}.{key}")
 
     if not changed:
-        return {"updated": updated, "restart_required": restart_needed, "skipped": skipped, "locked": locked}
+        return {
+            "updated": updated, "restart_required": restart_needed,
+            "skipped": skipped, "locked": locked,
+        }
 
     # Backup existing file
     bak_path = Path(str(path) + ".bak")
@@ -172,7 +181,10 @@ def write_config(updates: dict[str, dict[str, str]]) -> dict[str, Any]:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         os.close(lock_fd)
 
-    return {"updated": updated, "restart_required": restart_needed, "skipped": skipped, "locked": locked}
+    return {
+        "updated": updated, "restart_required": restart_needed,
+        "skipped": skipped, "locked": locked,
+    }
 
 
 def restore_backup() -> bool:

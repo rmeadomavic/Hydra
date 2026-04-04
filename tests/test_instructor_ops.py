@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import time
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -119,6 +117,7 @@ class TestAbortEndpoint:
         """Abort is intentionally unauthenticated (safety exception)."""
         configure_auth("secret-token-123")
         # No auth header — should still work
+
         def fake_set_mode(mode):
             return True
 

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import configparser
+import time
 from unittest.mock import patch
 
 import pytest
 
 from hydra_detect.web.config_api import (
-    SAFETY_LOCKED_FIELDS,
     set_engagement_check,
     write_config,
 )
@@ -176,9 +176,6 @@ class TestConfigFreezeDuringEngagement:
 # ---------------------------------------------------------------------------
 # has_active_evaluation tests
 # ---------------------------------------------------------------------------
-
-import time
-
 
 class TestHasActiveEvaluation:
     def test_no_tracks_returns_false(self):

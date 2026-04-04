@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import configparser
 import tempfile
-from pathlib import Path
 from unittest.mock import patch
 
 from hydra_detect.pipeline import Pipeline

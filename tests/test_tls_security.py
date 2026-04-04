@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import configparser
 import io
-import sys
 import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch

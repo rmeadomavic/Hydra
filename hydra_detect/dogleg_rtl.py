@@ -126,7 +126,9 @@ class DoglegRTL:
                         )
                         # Poll altitude until climb target reached (max 25s)
                         for _ in range(50):  # 25s max (50 * 0.5s)
-                            if hasattr(self, "_stop_evt") and self._stop_evt and self._stop_evt.is_set():
+                            if (hasattr(self, "_stop_evt")
+                                    and self._stop_evt
+                                    and self._stop_evt.is_set()):
                                 return
                             cur = self._mavlink.get_lat_lon()
                             if cur and cur[2] is not None and cur[2] >= self._climb_alt * 0.9:

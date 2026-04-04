@@ -35,7 +35,7 @@ class TestLogFileSetup:
             handler.close()
 
 
-import re
+import re  # noqa: E402
 
 
 LOG_LINE_RE = re.compile(
