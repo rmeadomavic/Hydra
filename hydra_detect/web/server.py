@@ -33,6 +33,7 @@ from hydra_detect.web.config_api import (
     restore_backup,
     restore_factory,
     write_config,
+    validate_config_updates,
 )
 from hydra_detect.config_schema import SCHEMA as CONFIG_SCHEMA
 
@@ -2316,6 +2317,12 @@ async def api_set_full_config(request: Request, authorization: str | None = Head
         body = _json.loads(body_bytes)
     except (ValueError, _json.JSONDecodeError):
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    field_errors = validate_config_updates(body)
+    if field_errors:
+        return JSONResponse(
+            {"error": "Validation failed", "field_errors": field_errors},
+            status_code=400,
+        )
     try:
         result = write_config(body)
         _audit(request, "config_update", target=str(len(body)))
@@ -2394,6 +2401,12 @@ async def api_config_import(request: Request, authorization: str | None = Header
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
     if not isinstance(body, dict):
         return JSONResponse({"error": "Expected JSON object with config sections"}, status_code=400)
+    field_errors = validate_config_updates(body)
+    if field_errors:
+        return JSONResponse(
+            {"error": "Validation failed", "field_errors": field_errors},
+            status_code=400,
+        )
     try:
         result = write_config(body)
         _audit(request, "config_import", target=str(len(body)))
@@ -2489,6 +2502,13 @@ async def api_setup_save(request: Request, authorization: Optional[str] = Header
     }
     if callsign:
         updates["tak"] = {"callsign": callsign}
+
+    field_errors = validate_config_updates(updates)
+    if field_errors:
+        return JSONResponse(
+            {"error": "Validation failed", "field_errors": field_errors},
+            status_code=400,
+        )
 
     try:
         result = write_config(updates)
