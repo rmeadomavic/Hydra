@@ -19,7 +19,7 @@ visual depth (Palantir/Anduril aesthetic). Keep existing dark + green palette.
   numbers/data, tighten line-height
 - **Status indicators** — sharper color coding, pulsing glow on active alerts
 - **Track list density** — more tracks visible without scrolling
-- **Consistent with SORCC-PI** — shared CSS variable names where possible
+- **Consistent with Argus** — shared CSS variable names where possible
 
 ### Files
 - `hydra_detect/web/static/css/variables.css` — adjust spacing/sizing tokens
@@ -40,7 +40,7 @@ visual depth (Palantir/Anduril aesthetic). Keep existing dark + green palette.
 Dashboard shows last-known-good data when the pipeline thread is busy, instead
 of hanging or showing empty state.
 
-### Pattern (from SORCC-PI)
+### Pattern (from Argus)
 ```python
 _response_cache: dict[str, tuple[float, Any]] = {}
 _CACHE_TTL = 30.0  # seconds
