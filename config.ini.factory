@@ -159,6 +159,37 @@ advertise_host =                          ; set to your Jetson Tailscale IP
 listen_commands = true
 listen_port = 6969
 
+[approach]
+follow_speed_min = 2.0
+follow_speed_max = 10.0
+follow_distance_m = 15.0
+follow_yaw_rate_max = 30.0
+strike_approach_m = 5.0
+abort_mode = LOITER
+waypoint_interval = 0.5
+
+[drop]
+servo_channel = 0
+pwm_release = 1900
+pwm_hold = 1100
+pulse_duration = 1.0
+drop_distance_m = 3.0
+
+[guidance]
+fwd_gain = 2.0
+lat_gain = 1.5
+vert_gain = 1.0
+yaw_gain = 30.0
+max_fwd_speed = 5.0
+max_lat_speed = 2.0
+max_vert_speed = 1.5
+max_yaw_rate = 45.0
+deadzone = 0.05
+smoothing = 0.4
+target_bbox_ratio = 0.15
+lost_track_timeout_s = 2.0
+min_altitude_m = 5.0
+
 ; ---------------------------------------------------------------------------
 ; Vehicle profiles — override base sections via --vehicle <name> or HYDRA_VEHICLE
 ; Keys use "section.option" format to override the matching base section.
@@ -180,3 +211,7 @@ listen_port = 6969
 ; autonomous.abort_action = cut_throttle
 ; alerts.priority_labels = person,vehicle
 ; tak.callsign = HYDRA-UGV
+
+[vehicle.fw]
+autonomous.post_action_mode = LOITER
+autonomous.min_track_frames = 2

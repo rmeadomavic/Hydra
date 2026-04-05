@@ -285,6 +285,35 @@ class TestEvaluate:
 
         strike_cb.assert_not_called()
 
+    def test_simulated_gps_zero_last_update_proceeds(self):
+        """GPS with last_update=0.0 (sim/static) should not block eval."""
+        ctrl = _make_controller(min_track_frames=1)
+        mav = _make_mavlink()
+        # Simulate static/sim GPS: last_update=0.0
+        mav.get_gps.return_value = {"last_update": 0.0, "fix": 4}
+        strike_cb = MagicMock(return_value=True)
+        tracks = _make_tracks((1, "mine", 0.92))
+
+        ctrl.evaluate(tracks, mav, MagicMock(return_value=True), strike_cb)
+
+        strike_cb.assert_called_once()
+
+    def test_stale_real_gps_blocks_eval(self):
+        """GPS with a real but stale last_update should block eval."""
+        ctrl = _make_controller(min_track_frames=1)
+        mav = _make_mavlink()
+        # Simulate stale GPS: last_update was 5 seconds ago (> default 2.0)
+        mav.get_gps.return_value = {
+            "last_update": time.monotonic() - 5.0,
+            "fix": 4,
+        }
+        strike_cb = MagicMock()
+        tracks = _make_tracks((1, "mine", 0.92))
+
+        ctrl.evaluate(tracks, mav, MagicMock(return_value=True), strike_cb)
+
+        strike_cb.assert_not_called()
+
     def test_unknown_vehicle_mode(self):
         ctrl = _make_controller()
         mav = _make_mavlink(mode=None)

@@ -209,7 +209,12 @@ def validate_config_updates(updates: dict[str, dict[str, Any]]) -> dict[str, str
                 continue
 
             # Preserve existing redacted secret behavior.
-            if section in REDACTED_FIELDS and key in REDACTED_FIELDS[section] and value == REDACTED_VALUE:
+            is_redacted = (
+                section in REDACTED_FIELDS
+                and key in REDACTED_FIELDS[section]
+                and value == REDACTED_VALUE
+            )
+            if is_redacted:
                 continue
 
             raw = value if isinstance(value, str) else str(value)
