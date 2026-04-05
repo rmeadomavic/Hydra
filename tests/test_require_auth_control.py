@@ -128,7 +128,11 @@ class TestControlPageActionsWithTokenAuth:
 
         lock_auth = client.post("/api/target/lock", json={"track_id": 7}, headers=headers)
         unlock_auth = client.post("/api/target/unlock", headers=headers)
-        strike_auth = client.post("/api/target/strike", json={"track_id": 7, "confirm": True}, headers=headers)
+        strike_auth = client.post(
+            "/api/target/strike",
+            json={"track_id": 7, "confirm": True},
+            headers=headers,
+        )
 
         assert lock_auth.status_code == 200
         assert unlock_auth.status_code == 200
