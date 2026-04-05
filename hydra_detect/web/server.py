@@ -139,6 +139,21 @@ _AUTH_FAIL_MAX = 50  # max failures per window before lockout
 _auth_failures: Dict[str, list] = collections.defaultdict(list)
 
 
+def _recent_auth_failures(client_ip: str, now: float) -> list[float]:
+    """Return recent auth failures for an IP and prune expired entries."""
+    failures = [t for t in _auth_failures.get(client_ip, []) if now - t < _AUTH_FAIL_WINDOW]
+    if failures:
+        _auth_failures[client_ip] = failures
+    elif client_ip in _auth_failures:
+        del _auth_failures[client_ip]
+    return failures
+
+
+def _record_auth_failure(client_ip: str, now: float) -> None:
+    """Record one failed auth attempt for an IP."""
+    _auth_failures.setdefault(client_ip, []).append(now)
+
+
 def configure_auth(
     token: Optional[str],
     require_auth_for_control: bool = False,
@@ -184,24 +199,19 @@ def _check_auth(
     # Rate limit check — reject if too many recent failures from this IP
     client_ip = request.client.host if request and request.client else "unknown"
     now = time.monotonic()
-    # Expire old entries outside the window; prune empty IPs to prevent unbounded growth
-    failures = [t for t in _auth_failures.get(client_ip, []) if now - t < _AUTH_FAIL_WINDOW]
-    if failures:
-        _auth_failures[client_ip] = failures
-    elif client_ip in _auth_failures:
-        del _auth_failures[client_ip]
+    failures = _recent_auth_failures(client_ip, now)
     if len(failures) >= _AUTH_FAIL_MAX:
         return JSONResponse({"error": "Too many failed attempts, try again later"}, status_code=429)
 
     if not authorization or not authorization.startswith("Bearer "):
-        _auth_failures[client_ip].append(now)
+        _record_auth_failure(client_ip, now)
         return JSONResponse(
             {"error": "Authorization header with Bearer token required"},
             status_code=401,
         )
     provided = authorization[len("Bearer "):]
     if not hmac.compare_digest(provided, _api_token):
-        _auth_failures[client_ip].append(now)
+        _record_auth_failure(client_ip, now)
         return JSONResponse({"error": "Invalid API token"}, status_code=403)
     return None
 
@@ -629,11 +639,7 @@ async def auth_login(request: Request):
     now = time.monotonic()
 
     # Rate limit check (reuse same tracking as Bearer token auth)
-    failures = [t for t in _auth_failures.get(client_ip, []) if now - t < _AUTH_FAIL_WINDOW]
-    if failures:
-        _auth_failures[client_ip] = failures
-    elif client_ip in _auth_failures:
-        del _auth_failures[client_ip]
+    failures = _recent_auth_failures(client_ip, now)
     if len(failures) >= _AUTH_FAIL_MAX:
         return JSONResponse(
             {"error": "Too many failed attempts, try again later"}, status_code=429,
@@ -645,7 +651,7 @@ async def auth_login(request: Request):
 
     password = str(body["password"])
     if not hmac.compare_digest(password, _web_password):
-        _auth_failures.setdefault(client_ip, []).append(now)
+        _record_auth_failure(client_ip, now)
         return JSONResponse({"error": "Wrong password"}, status_code=401)
 
     cookie_value = _make_session_cookie()
