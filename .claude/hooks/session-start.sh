@@ -1,8 +1,23 @@
 #!/bin/bash
-# session-start.sh — Provide session context and workflow reminders
+# session-start.sh — Install deps (web sessions) and provide session context
 # Triggered by SessionStart hook
 
+set -euo pipefail
+
 cd "$CLAUDE_PROJECT_DIR" || exit 0
+
+# Install dependencies in remote/web sessions
+if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
+  # ultralytics and supervision pull heavy transitive deps — install without deps
+  # then install the rest from requirements.txt excluding those + opencv
+  pip install --no-deps ultralytics supervision 2>/dev/null
+  grep -v "opencv-python\|ultralytics\|supervision" requirements.txt > /tmp/reqs.txt
+  pip install -r /tmp/reqs.txt 2>/dev/null
+  pip install opencv-python-headless httpx pytest flake8 mypy 2>/dev/null
+
+  # Make hydra_detect importable for mypy/tests
+  echo "export PYTHONPATH=\"$CLAUDE_PROJECT_DIR\"" >> "$CLAUDE_ENV_FILE"
+fi
 
 echo "=== Recent commits ==="
 git log --oneline -5 2>/dev/null
