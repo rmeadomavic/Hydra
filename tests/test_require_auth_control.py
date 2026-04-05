@@ -100,3 +100,36 @@ class TestRequireAuthForControl:
         msg = resp.json()["error"]
         assert "api_token" in msg
         assert "require_auth_for_control" in msg
+
+
+class TestControlPageActionsWithTokenAuth:
+    """Regression coverage for legacy /control actions when token auth is enabled."""
+
+    def test_lock_unlock_strike_require_and_accept_bearer_token(self, client):
+        token = "control-secret-token"
+        configure_auth(token, require_auth_for_control=True)
+
+        stream_state.set_callbacks(
+            on_target_lock=lambda track_id, mode="track": True,
+            on_target_unlock=lambda: True,
+            on_strike_command=lambda track_id: True,
+        )
+
+        # Legacy /control action APIs should deny unauthenticated control posts.
+        lock_unauth = client.post("/api/target/lock", json={"track_id": 7})
+        unlock_unauth = client.post("/api/target/unlock")
+        strike_unauth = client.post("/api/target/strike", json={"track_id": 7, "confirm": True})
+
+        assert lock_unauth.status_code == 401
+        assert unlock_unauth.status_code == 401
+        assert strike_unauth.status_code == 401
+
+        headers = {"Authorization": f"Bearer {token}"}
+
+        lock_auth = client.post("/api/target/lock", json={"track_id": 7}, headers=headers)
+        unlock_auth = client.post("/api/target/unlock", headers=headers)
+        strike_auth = client.post("/api/target/strike", json={"track_id": 7, "confirm": True}, headers=headers)
+
+        assert lock_auth.status_code == 200
+        assert unlock_auth.status_code == 200
+        assert strike_auth.status_code == 200

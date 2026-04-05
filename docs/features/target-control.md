@@ -73,3 +73,5 @@ Target control is fully accessible via the REST API:
 | `POST` | `/api/target/unlock` | Release target lock |
 | `POST` | `/api/target/strike` | Send strike command (`{"track_id": 5, "confirm": true}`) |
 | `POST` | `/api/vehicle/loiter` | Command vehicle to hold position |
+
+> Legacy `/control` remains available for now for mobile/operator fallback, but new feature work should target the main SPA dashboard and `/control` should be treated as maintenance-only pending deprecation.

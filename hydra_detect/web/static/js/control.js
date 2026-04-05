@@ -1,6 +1,7 @@
 'use strict';
 (function() {
     var lockedTrackId = null;
+    var apiToken = sessionStorage.getItem('hydra_token') || '';
 
     // Stream — use snapshot polling (same as main dashboard)
     var img = document.getElementById('stream');
@@ -25,15 +26,65 @@
     pollFrame();
 
     // API helpers
-    function apiGet(url) {
-        return fetch(url).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; });
+    function authHeaders() {
+        var headers = { 'Content-Type': 'application/json' };
+        if (apiToken) headers.Authorization = 'Bearer ' + apiToken;
+        return headers;
     }
+
+    function setApiToken(token) {
+        apiToken = token || '';
+        sessionStorage.setItem('hydra_token', apiToken);
+    }
+
+    function promptForToken() {
+        var token = prompt('API token required.\nEnter the api_token from config.ini:');
+        if (!token) return false;
+        setApiToken(token.trim());
+        return !!apiToken;
+    }
+
+    function handleActionAuthFailure(resp) {
+        if (resp && resp.status === 401 && resp.headers.get('x-login-required')) {
+            window.location.href = '/login';
+            return 'redirect';
+        }
+        if (resp && (resp.status === 401 || resp.status === 403)) {
+            if (!promptForToken()) {
+                alert('Authentication required for control actions.');
+                return 'stop';
+            }
+            return 'retry';
+        }
+        return 'stop';
+    }
+
+    function apiGet(url) {
+        return fetch(url, { headers: authHeaders() })
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .catch(function() { return null; });
+    }
+
     function apiPost(url, body) {
-        return fetch(url, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(body),
-        }).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; });
+        function send() {
+            return fetch(url, {
+                method: 'POST',
+                headers: authHeaders(),
+                body: JSON.stringify(body),
+            });
+        }
+
+        return send().then(function(resp) {
+            if (resp.ok) return resp.json();
+
+            var action = handleActionAuthFailure(resp);
+            if (action !== 'retry') return null;
+
+            return send().then(function(retryResp) {
+                if (retryResp.ok) return retryResp.json();
+                return null;
+            }).catch(function() { return null; });
+        }).catch(function() { return null; });
     }
 
     // Build a track card using safe DOM methods (no innerHTML)
