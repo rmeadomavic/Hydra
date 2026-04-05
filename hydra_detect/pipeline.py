@@ -1877,11 +1877,13 @@ class Pipeline:
                 "message": "Duplicate callsign detected on TAK network — change in config",
             })
 
-        # 7. Auth hardening check
-        require_auth = self._cfg.getboolean(
-            "web", "require_auth_for_control", fallback=False,
+        # 7. Auth hardening check — only warn when web is enabled and
+        #    control endpoints are actually exposed without authentication.
+        web_enabled = self._cfg.getboolean("web", "enabled", fallback=True)
+        has_token = bool(
+            self._cfg.get("web", "api_token", fallback="").strip()
         )
-        if not require_auth:
+        if web_enabled and not has_token:
             checks.append({
                 "name": "auth",
                 "status": "warn",
