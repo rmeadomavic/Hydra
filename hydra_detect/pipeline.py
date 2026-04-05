@@ -961,7 +961,10 @@ class Pipeline:
                     )
                     self._cfg.set("web", "api_token", "")
                     api_token = ""
-            configure_auth(api_token or None)
+            require_auth = self._cfg.getboolean(
+                "web", "require_auth_for_control", fallback=False,
+            )
+            configure_auth(api_token or None, require_auth_for_control=require_auth)
 
             # Web password login (empty = disabled, current behavior preserved)
             web_password = self._cfg.get("web", "web_password", fallback="").strip()
@@ -1872,6 +1875,22 @@ class Pipeline:
                 "name": "callsign",
                 "status": "warn",
                 "message": "Duplicate callsign detected on TAK network — change in config",
+            })
+
+        # 7. Auth hardening check — only warn when web is enabled and
+        #    control endpoints are actually exposed without authentication.
+        web_enabled = self._cfg.getboolean("web", "enabled", fallback=True)
+        has_token = bool(
+            self._cfg.get("web", "api_token", fallback="").strip()
+        )
+        if web_enabled and not has_token:
+            checks.append({
+                "name": "auth",
+                "status": "warn",
+                "message": (
+                    "Control endpoints are unauthenticated."
+                    " Set api_token in config.ini for production use."
+                ),
             })
 
         # Compute overall status (worst of all checks)

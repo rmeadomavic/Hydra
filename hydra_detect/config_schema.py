@@ -321,6 +321,9 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
         "session_timeout_min": FieldSpec(
             FieldType.INT, min_val=5, max_val=1440, default=480,
             description="Login session timeout in minutes"),
+        "require_auth_for_control": FieldSpec(
+            FieldType.BOOL, default=False,
+            description="Require api_token for control POST endpoints"),
     },
     "autonomous": {
         "enabled": FieldSpec(

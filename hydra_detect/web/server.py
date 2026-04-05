@@ -131,6 +131,7 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 # API token for control endpoints — set via configure_auth()
 _api_token: Optional[str] = None
+_require_auth_for_control: bool = False
 
 # Rate limiting for auth failures — per-IP, sliding window
 _AUTH_FAIL_WINDOW = 60  # seconds
@@ -138,10 +139,14 @@ _AUTH_FAIL_MAX = 50  # max failures per window before lockout
 _auth_failures: Dict[str, list] = collections.defaultdict(list)
 
 
-def configure_auth(token: Optional[str]) -> None:
+def configure_auth(
+    token: Optional[str],
+    require_auth_for_control: bool = False,
+) -> None:
     """Set the API token for control endpoints. None or empty disables auth."""
-    global _api_token
+    global _api_token, _require_auth_for_control
     _api_token = token if token else None
+    _require_auth_for_control = require_auth_for_control
     if _api_token:
         logger.info("API token auth enabled for control endpoints.")
     else:
@@ -154,6 +159,14 @@ def _check_auth(
 ) -> Optional[JSONResponse]:
     """Validate Bearer token. Returns an error response if auth fails, None if OK."""
     if _api_token is None:
+        if _require_auth_for_control:
+            return JSONResponse(
+                {"error": (
+                    "Control endpoint requires api_token. Set it in"
+                    " config.ini or set require_auth_for_control = false."
+                )},
+                status_code=401,
+            )
         return None  # Auth disabled
 
     if request is not None:
