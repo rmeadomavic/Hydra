@@ -141,7 +141,7 @@ The report includes:
 - OpenStreetMap base layer
 - Detection markers with popups
 - Optional embedded images (base64-encoded)
-- No external dependencies, works offline
+- Optional fully-offline coordinate plot mode (`--offline-mode`)
 
 Options:
 ```
@@ -149,6 +149,9 @@ python -m hydra_detect.review_export <logfile> [OPTIONS]
 
   -o, --output PATH       Output HTML file (default: report.html)
   --images-dir PATH       Directory with saved detection images
+  --max-images N          Max images to embed as base64 (default: 100)
+  --max-records N         Decimate very large logs to N records (0 = no cap)
+  --offline-mode          Disable CDN/Leaflet and render offline coordinate plot
 ```
 
 ## Log File Management

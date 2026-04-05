@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hydra_detect.review_export import generate_html
+from hydra_detect.review_export import decimate_records, generate_html
 
 
 def _make_records(labels: list[str]) -> list[dict]:
@@ -115,3 +115,26 @@ class TestHTMLStructure:
         })
         assert '<title>Hydra Mission Report</title>' in html
         assert 'const D=[]' in html
+
+    def test_offline_mode_omits_cdn_leaflet(self):
+        records = _make_records(['person'])
+        summary = _make_summary(['person'])
+        html = generate_html(records, summary, offline_mode=True)
+        assert 'unpkg.com/leaflet' not in html
+        assert 'OFFLINE COORDINATE VIEW' in html
+        assert 'renderOffline' in html
+
+
+class TestDecimation:
+    """Large-log decimation behavior for export size control."""
+
+    def test_decimate_keeps_first_and_last(self):
+        records = [{"track_id": i} for i in range(10)]
+        trimmed = decimate_records(records, 4)
+        assert len(trimmed) == 4
+        assert trimmed[0]["track_id"] == 0
+        assert trimmed[-1]["track_id"] == 9
+
+    def test_decimate_disabled_when_zero(self):
+        records = [{"track_id": i} for i in range(10)]
+        assert decimate_records(records, 0) == records
