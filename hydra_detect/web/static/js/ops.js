@@ -332,7 +332,7 @@ const HydraOps = (() => {
         var actions = [
             { label: 'Follow', action: 'follow', angle: 0 },
             { label: 'Lock', action: 'lock', angle: 60 },
-            { label: 'P-Lock', action: 'pixel_lock', angle: 120 },
+            { label: 'Keep Frame', action: 'keep_in_frame', angle: 120 },
             { label: 'Loiter', action: 'loiter', angle: 180 },
             { label: 'Drop', action: 'drop', cls: 'warning', angle: 240 },
             { label: 'Strike', action: 'strike', cls: 'danger', angle: 300 },
@@ -392,9 +392,9 @@ const HydraOps = (() => {
             HydraApp.apiPost('/api/approach/follow/' + trackId, {}).then(function (r) {
                 if (r) HydraApp.showToast('Follow engaged on #' + trackId, 'success');
             });
-        } else if (action === 'pixel_lock') {
+        } else if (action === 'pixel_lock' || action === 'keep_in_frame') {
             HydraApp.apiPost('/api/approach/pixel_lock/' + trackId, {}).then(function (r) {
-                if (r) HydraApp.showToast('Pixel-lock on #' + trackId, 'success');
+                if (r) HydraApp.showToast('Keep-in-frame engaged on #' + trackId, 'success');
             });
         } else if (action === 'lock') {
             HydraApp.apiPost('/api/target/lock', { track_id: trackId }).then(function (r) {
