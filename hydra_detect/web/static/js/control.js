@@ -137,22 +137,75 @@
         apiPost('/api/target/unlock', {}).then(poll);
     }
 
+    function getConfirmFocusable() {
+        var modal = document.querySelector('#confirm-overlay [role=\"dialog\"]');
+        if (!modal) return [];
+        return Array.prototype.slice.call(modal.querySelectorAll('button:not([disabled]), [tabindex]:not([tabindex=\"-1\"])'));
+    }
+
+    function openConfirmModal(triggerEl) {
+        var overlay = document.getElementById('confirm-overlay');
+        if (!overlay) return;
+        overlay.__triggerElement = triggerEl || document.activeElement;
+        overlay.classList.add('active');
+        var modal = overlay.querySelector('[role=\"dialog\"]');
+        var focusables = getConfirmFocusable();
+        if (focusables.length) focusables[0].focus();
+        else if (modal) modal.focus();
+    }
+
+    function closeConfirmModal() {
+        var overlay = document.getElementById('confirm-overlay');
+        if (!overlay) return;
+        overlay.classList.remove('active');
+        var trigger = overlay.__triggerElement;
+        if (trigger && document.contains(trigger) && typeof trigger.focus === 'function') {
+            trigger.focus();
+        }
+        overlay.__triggerElement = null;
+    }
+
+    document.addEventListener('keydown', function (e) {
+        var overlay = document.getElementById('confirm-overlay');
+        if (!overlay || !overlay.classList.contains('active')) return;
+
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeConfirmModal();
+            pendingStrikeId = null;
+            return;
+        }
+
+        if (e.key !== 'Tab') return;
+        var focusables = getConfirmFocusable();
+        if (!focusables.length) return;
+        var first = focusables[0];
+        var last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+        }
+    });
+
     // Strike confirmation
     var pendingStrikeId = null;
     function confirmStrike(trackId) {
         pendingStrikeId = trackId;
         document.getElementById('confirm-tid').textContent = '#' + trackId;
-        document.getElementById('confirm-overlay').classList.add('active');
+        openConfirmModal(document.activeElement);
     }
     document.getElementById('confirm-yes').addEventListener('click', function() {
-        document.getElementById('confirm-overlay').classList.remove('active');
+        closeConfirmModal();
         if (pendingStrikeId != null) {
             apiPost('/api/target/strike', { track_id: pendingStrikeId, confirm: true }).then(poll);
             pendingStrikeId = null;
         }
     });
     document.getElementById('confirm-no').addEventListener('click', function() {
-        document.getElementById('confirm-overlay').classList.remove('active');
+        closeConfirmModal();
         pendingStrikeId = null;
     });
 

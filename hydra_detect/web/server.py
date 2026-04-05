@@ -660,6 +660,17 @@ async def auth_logout():
     )
 
 
+@app.get("/auth/status")
+async def auth_status(request: Request):
+    """Return whether web password auth is enabled and this request is authenticated."""
+    if _web_password is None:
+        return {"password_enabled": False, "authenticated": True}
+
+    cookie = request.cookies.get("hydra_session", "")
+    authenticated = bool(cookie and _validate_session_cookie(cookie))
+    return {"password_enabled": True, "authenticated": authenticated}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Serve the operator dashboard SPA."""

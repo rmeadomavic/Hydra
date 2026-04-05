@@ -52,7 +52,7 @@
             <span class="status-dot" id="dot-gps" title="GPS Fix">GPS</span>
             <span class="topbar-tracks" id="track-count-badge" title="Active tracks">0 TRACKS</span>
             <span class="low-light-badge" id="low-light-badge" aria-label="Low light warning" title="Low light detected — image brightness below threshold">LOW LIGHT</span>
-            <button class="bandwidth-toggle" id="bandwidth-toggle" onclick="HydraApp.toggleLowBandwidth()" aria-label="Toggle low bandwidth mode" title="Toggle low bandwidth mode — reduces JPEG quality to save bandwidth">LOW BW</button>
+            <button class="bandwidth-toggle" id="bandwidth-toggle" aria-label="Toggle low bandwidth mode" title="Toggle low bandwidth mode — reduces JPEG quality to save bandwidth">LOW BW</button>
             <span class="pill pill-live" id="connection-pill" aria-label="Connection status">
                 <span class="pill-dot"></span>
                 <span id="connection-text">LIVE</span>
@@ -81,8 +81,8 @@
 
     <!-- ── Strike Confirmation Modal ── -->
     <div class="modal-overlay" id="strike-modal">
-        <div class="modal">
-            <h3 style="color: var(--danger); margin-bottom: var(--gap-md);">Confirm Strike</h3>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="strike-modal-title" tabindex="-1">
+            <h3 id="strike-modal-title" style="color: var(--danger); margin-bottom: var(--gap-md);">Confirm Strike</h3>
             <p style="margin-bottom: var(--gap-sm);">Target: <strong id="strike-target-label">--</strong></p>
             <p style="font-size: var(--font-sm); color: var(--text-secondary); margin-bottom: var(--gap-lg);">
                 Vehicle will navigate toward the target. Manual GCS override is always available.
@@ -96,8 +96,8 @@
 
     <!-- ── Drop Confirmation Modal ── -->
     <div class="modal-overlay" id="drop-modal">
-        <div class="modal">
-            <h3 style="color: var(--warning); margin-bottom: var(--gap-md);">Confirm Drop</h3>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="drop-modal-title" tabindex="-1">
+            <h3 id="drop-modal-title" style="color: var(--warning); margin-bottom: var(--gap-md);">Confirm Drop</h3>
             <p style="margin-bottom: var(--gap-sm);">Target: <strong id="drop-target-label">--</strong></p>
             <p style="font-size: var(--font-sm); color: var(--text-secondary); margin-bottom: var(--gap-lg);">
                 Vehicle will approach target and release drop servo on arrival. Manual GCS override is always available.
@@ -111,8 +111,8 @@
 
     <!-- ── Approach Strike Confirmation Modal ── -->
     <div class="modal-overlay" id="approach-strike-modal">
-        <div class="modal">
-            <h3 style="color: var(--danger); margin-bottom: var(--gap-md);">Confirm Continuous Strike</h3>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="approach-strike-modal-title" tabindex="-1">
+            <h3 id="approach-strike-modal-title" style="color: var(--danger); margin-bottom: var(--gap-md);">Confirm Continuous Strike</h3>
             <p style="margin-bottom: var(--gap-sm);">Target: <strong id="approach-strike-target-label">--</strong></p>
             <p style="font-size: var(--font-sm); color: var(--text-secondary); margin-bottom: var(--gap-lg);">
                 Vehicle will continuously approach target at maximum speed with arm engaged. Manual GCS override is always available.
@@ -132,8 +132,8 @@
 
     <!-- ── Power User Easter Egg Modal ── -->
     <div class="modal-overlay" id="power-user-modal">
-        <div class="modal">
-            <h3 style="color: var(--text-primary); margin-bottom: var(--gap-md);">Advanced Configuration</h3>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="power-user-modal-title" tabindex="-1">
+            <h3 id="power-user-modal-title" style="color: var(--text-primary); margin-bottom: var(--gap-md);">Advanced Configuration</h3>
             <p style="margin-bottom: var(--gap-lg); font-size: var(--font-sm); color: var(--text-secondary);">
                 Enable advanced configuration mode? This exposes low-level system parameters.
             </p>

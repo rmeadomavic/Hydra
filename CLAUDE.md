@@ -222,9 +222,30 @@ Full reference: `docs/configuration.md`. Schema: `hydra_detect/config_schema.py`
 
 Full reference: `docs/api-reference.md`.
 
+## Codebase Stats (as of April 2026)
+
+| Metric | Count |
+|--------|-------|
+| App LOC (`hydra_detect/`) | ~15,800 |
+| Test LOC (`tests/`) | ~12,700 |
+| Test files | 55 |
+| App modules | 50 |
+| Merged PRs | 58 |
+
+**CODE_REVIEW_TRACKER.md** exists on the `check-branches-pr-status-Pmeg8` branch
+(not yet merged to main). It contains a risk-ordered review plan with 10 chunks
+populated, none reviewed yet.
+
+**Orphan branches:** The three known orphans (`claude/compare-config-frameworks-3FuSP`,
+`claude/implement-todo-item-KrrRT`, `feat/follow-mode-approach-controller`) have
+been identified and are queued for deletion from the remote.
+
+> **Process gap:** Zero human code reviews across 58 merged PRs. Codex
+> auto-reviews ~7% of PRs via org-level GitHub App.
+
 ## Test Files
 
-50+ test files in `tests/`. Key coverage areas:
+55 test files in `tests/`. Key coverage areas:
 - Autonomous controller: `test_autonomous.py`, `test_drop_strike.py`
 - Guidance: `test_guidance.py`
 - Config: `test_config_schema.py`, `test_config_api.py`, `test_config_freeze.py`

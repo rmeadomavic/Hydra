@@ -590,11 +590,11 @@ const HydraSettings = (() => {
     document.addEventListener('click', e => {
         if (e.target.id === 'settings-power-user') {
             const modal = document.getElementById('power-user-modal');
-            if (modal) modal.classList.add('active');
+            if (modal) HydraApp.openModal(modal, e.target);
         }
         if (e.target.id === 'power-user-cancel') {
             const modal = document.getElementById('power-user-modal');
-            if (modal) modal.classList.remove('active');
+            if (modal) HydraApp.closeModal(modal);
         }
         if (e.target.id === 'power-user-enable') {
             // Rickroll — commitment to the bit
@@ -615,7 +615,7 @@ const HydraSettings = (() => {
             }
             // Close the modal
             const modal = document.getElementById('power-user-modal');
-            if (modal) modal.classList.remove('active');
+            if (modal) HydraApp.closeModal(modal);
         }
     });
 

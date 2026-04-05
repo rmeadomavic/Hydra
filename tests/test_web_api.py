@@ -192,6 +192,29 @@ class TestAuthEnforcement:
             assert resp.status_code not in (401, 403), f"{url} returned {resp.status_code}"
 
 
+class TestAuthStatusEndpoint:
+    def test_auth_status_when_password_disabled(self, client):
+        configure_web_password(None)
+        resp = client.get("/auth/status")
+        assert resp.status_code == 200
+        assert resp.json() == {"password_enabled": False, "authenticated": True}
+
+    def test_auth_status_when_password_enabled_without_session(self, client):
+        configure_web_password("ui-password-1")
+        resp = client.get("/auth/status")
+        assert resp.status_code == 200
+        assert resp.json() == {"password_enabled": True, "authenticated": False}
+
+    def test_auth_status_when_password_enabled_with_session(self, client):
+        configure_web_password("ui-password-1")
+        login_resp = client.post("/auth/login", json={"password": "ui-password-1"})
+        assert login_resp.status_code == 200
+
+        resp = client.get("/auth/status")
+        assert resp.status_code == 200
+        assert resp.json() == {"password_enabled": True, "authenticated": True}
+
+
 class TestWaypointExportAuth:
     def test_waypoint_export_requires_auth_when_token_enabled(self, client):
         stream_state.set_callbacks(
@@ -514,12 +537,23 @@ class TestSPAShell:
         assert "/static/css/variables.css" in resp.text
         assert "/static/js/app.js" in resp.text
 
+    def test_bandwidth_toggle_uses_js_listener_for_csp(self, client):
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert 'id="bandwidth-toggle"' in resp.text
+        assert 'onclick="HydraApp.toggleLowBandwidth()"' not in resp.text
+
 
 class TestStaticFileServing:
     def test_css_variables_served(self, client):
         resp = client.get("/static/css/variables.css")
         assert resp.status_code == 200
         assert "ogt-green" in resp.text
+
+    def test_app_js_binds_bandwidth_click_handler(self, client):
+        resp = client.get("/static/js/app.js")
+        assert resp.status_code == 200
+        assert "btn.addEventListener('click', toggleLowBandwidth);" in resp.text
 
     def test_missing_static_file_404(self, client):
         resp = client.get("/static/nonexistent.css")

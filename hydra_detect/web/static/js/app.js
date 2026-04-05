@@ -17,6 +17,7 @@ const HydraApp = (() => {
     const MAX_TOASTS = 3;
     const TOAST_DEDUP_MS = 5000;
     let apiToken = sessionStorage.getItem('hydra_token') || '';
+    let activeModal = null;
 
     // ── Shared Data (updated by pollers, read by views) ──
     const state = {
@@ -337,13 +338,87 @@ const HydraApp = (() => {
         }
     }
 
-    // ── Modal: Escape to close ──
+    function getModalDialog(modal) {
+        return modal ? (modal.querySelector('[role="dialog"]') || modal) : null;
+    }
+
+    function getFocusableElements(container) {
+        if (!container) return [];
+        return Array.from(container.querySelectorAll(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )).filter(el => el.offsetParent !== null);
+    }
+
+    function openModal(modal, triggerElement) {
+        if (!modal) return;
+        if (activeModal && activeModal !== modal) closeModal(activeModal);
+
+        modal.__triggerElement = triggerElement || document.activeElement;
+        modal.classList.add('active');
+        activeModal = modal;
+
+        const dialog = getModalDialog(modal);
+        const focusables = getFocusableElements(dialog);
+        if (focusables.length > 0) {
+            focusables[0].focus();
+        } else if (dialog) {
+            dialog.focus();
+        }
+    }
+
+    function closeModal(modal) {
+        if (!modal) return;
+        modal.classList.remove('active');
+        if (activeModal === modal) activeModal = null;
+
+        const trigger = modal.__triggerElement;
+        if (trigger && document.contains(trigger) && typeof trigger.focus === 'function') {
+            trigger.focus();
+        }
+        modal.__triggerElement = null;
+    }
+
+    function closeActiveModal() {
+        if (activeModal) {
+            closeModal(activeModal);
+            return;
+        }
+        const openModalEl = document.querySelector('.modal-overlay.active');
+        if (openModalEl) closeModal(openModalEl);
+    }
+
+    // ── Modal: Escape to close + Tab focus trap ──
     function initModalEscape() {
         document.addEventListener('keydown', e => {
+            const modal = activeModal || document.querySelector('.modal-overlay.active');
+            if (!modal) return;
+
             if (e.key === 'Escape') {
-                document.querySelectorAll('.modal-overlay.active').forEach(m => {
-                    m.classList.remove('active');
-                });
+                e.preventDefault();
+                closeModal(modal);
+                return;
+            }
+
+            if (e.key === 'Tab') {
+                const dialog = getModalDialog(modal);
+                const focusables = getFocusableElements(dialog);
+                if (focusables.length === 0) {
+                    e.preventDefault();
+                    if (dialog) dialog.focus();
+                    return;
+                }
+
+                const first = focusables[0];
+                const last = focusables[focusables.length - 1];
+                const current = document.activeElement;
+
+                if (e.shiftKey && current === first) {
+                    e.preventDefault();
+                    last.focus();
+                } else if (!e.shiftKey && current === last) {
+                    e.preventDefault();
+                    first.focus();
+                }
             }
         });
     }
@@ -710,17 +785,32 @@ const HydraApp = (() => {
         if (overlay) overlay.style.display = 'none';
     }
 
+    function initBandwidthToggle() {
+        const btn = document.getElementById('bandwidth-toggle');
+        if (!btn) return;
+        btn.addEventListener('click', toggleLowBandwidth);
+    }
+
     // ── Logout Button ──
-    function initLogoutButton() {
+    async function initLogoutButton() {
         const btn = document.getElementById('footer-logout');
         if (!btn) return;
-        // Show logout button only when a session cookie exists
-        if (document.cookie.split(';').some(c => c.trim().startsWith('hydra_session='))) {
-            btn.style.display = '';
+
+        try {
+            const resp = await fetch('/auth/status', { credentials: 'same-origin' });
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data && data.password_enabled && data.authenticated) {
+                    btn.style.display = '';
+                }
+            }
+        } catch (e) {
+            // Ignore auth-status lookup failures and keep button hidden.
         }
+
         btn.addEventListener('click', async () => {
             try {
-                await fetch('/auth/logout', { method: 'POST' });
+                await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
             } catch (e) {
                 // Ignore network errors on logout
             }
@@ -737,6 +827,7 @@ const HydraApp = (() => {
         initModalEscape();
         initStreamWatcher();
         initAdaptiveQuality();
+        initBandwidthToggle();
         initLogoutButton();
         updatePollers();
     }
@@ -760,5 +851,8 @@ const HydraApp = (() => {
         toggleFullscreen,
         runPreflight,
         dismissPreflight,
+        openModal,
+        closeModal,
+        closeActiveModal,
     };
 })();

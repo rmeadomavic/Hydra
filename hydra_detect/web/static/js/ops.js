@@ -441,6 +441,9 @@ const HydraOps = (() => {
 
         var card = document.createElement('div');
         card.className = 'ops-confirm-card';
+        card.setAttribute('role', 'dialog');
+        card.setAttribute('aria-modal', 'true');
+        card.setAttribute('tabindex', '-1');
 
         var title = document.createElement('div');
         title.className = 'ops-confirm-title';
@@ -451,6 +454,9 @@ const HydraOps = (() => {
             title.className += ' warning';
             title.textContent = 'Confirm Drop';
         }
+        var titleId = 'ops-confirm-title-' + action + '-' + trackId;
+        title.id = titleId;
+        card.setAttribute('aria-labelledby', titleId);
         card.appendChild(title);
 
         var desc = document.createElement('div');
@@ -487,12 +493,12 @@ const HydraOps = (() => {
 
         card.appendChild(actionsDiv);
         overlay.appendChild(card);
-        overlay.classList.add('active');
+        HydraApp.openModal(overlay);
     }
 
     function hideConfirmOverlay() {
         var overlay = document.getElementById('ops-confirm-overlay');
-        if (overlay) overlay.classList.remove('active');
+        if (overlay) HydraApp.closeModal(overlay);
         confirmAction = null;
     }
 
