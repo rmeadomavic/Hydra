@@ -26,6 +26,7 @@ jobs:
         run: |
           pip install flake8
           flake8 hydra_detect/ tests/ --count --show-source --statistics
+          python scripts/lint_no_duplicate_init_assignments.py hydra_detect/pipeline/facade.py
 
       - name: Tests
         run: python -m pytest tests/ -q --tb=short

@@ -13,26 +13,26 @@ from collections import deque
 from pathlib import Path
 from typing import Optional
 
-from .approach import ApproachConfig, ApproachController, ApproachMode
-from .guidance import GuidanceConfig
-from .autonomous import AutonomousController, parse_polygon
-from .servo_tracker import ServoTracker
-from .camera import Camera, list_video_sources
-from .rf.hunt import RFHuntController
-from .rf.kismet_manager import KismetManager
-from .detection_logger import DetectionLogger
-from .event_logger import EventLogger
-from .model_manifest import (
+from ..approach import ApproachConfig, ApproachController, ApproachMode
+from ..guidance import GuidanceConfig
+from ..autonomous import AutonomousController, parse_polygon
+from ..servo_tracker import ServoTracker
+from ..camera import Camera, list_video_sources
+from ..rf.hunt import RFHuntController
+from ..rf.kismet_manager import KismetManager
+from ..detection_logger import DetectionLogger
+from ..event_logger import EventLogger
+from ..model_manifest import (
     auto_update_manifest,
     load_manifest,
     validate_model,
     MANIFEST_FILENAME,
 )
-from .detectors.yolo_detector import YOLODetector
-from .mavlink_io import MAVLinkIO
-from .osd import FpvOsd, build_osd_state
-from .overlay import draw_tracks
-from .system import (
+from ..detectors.yolo_detector import YOLODetector
+from ..mavlink_io import MAVLinkIO
+from ..osd import FpvOsd, build_osd_state
+from ..overlay import draw_tracks
+from ..system import (
     list_models as _list_models,
     list_power_modes as _list_power_modes,
     query_nvpmodel_sync as _query_nvpmodel_sync,
@@ -40,51 +40,25 @@ from .system import (
     refresh_nvpmodel_async as _refresh_nvpmodel_async,
     set_power_mode as _set_power_mode,
 )
-from .rtsp_server import RTSPServer
-from .mavlink_video import MAVLinkVideoSender
-from .tak.tak_input import TAKInput
-from .tak.tak_output import TAKOutput
-from .tracker import ByteTracker
-from .profiles import get_profile, load_profiles
-from .web.config_api import set_config_path, set_engagement_check
-from .web.server import configure_auth, configure_web_password, run_server, stream_state
+from ..rtsp_server import RTSPServer
+from ..mavlink_video import MAVLinkVideoSender
+from ..tak.tak_input import TAKInput
+from ..tak.tak_output import TAKOutput
+from ..tracker import ByteTracker
+from ..profiles import get_profile, load_profiles
+from ..web.config_api import set_config_path, set_engagement_check
+from ..web.server import configure_auth, configure_web_password, run_server, stream_state
+from .bootstrap import build_detector
+from .control import PipelineControlAdapter
+from .integrations import PipelineIntegrations
+from .runtime import PipelineRuntime
 
 logger = logging.getLogger(__name__)
 
 
 def _build_detector(cfg: configparser.ConfigParser, models_dir: Path | None = None) -> YOLODetector:
-    """Build a YOLO detector from config."""
-    classes_raw = cfg.get("detector", "yolo_classes", fallback="")
-    classes = None
-    if classes_raw.strip():
-        try:
-            classes = [int(c.strip()) for c in classes_raw.split(",") if c.strip()]
-            if any(c < 0 for c in classes):
-                logger.warning("Negative YOLO class IDs removed from filter list.")
-                classes = [c for c in classes if c >= 0]
-            classes = classes or None
-        except ValueError:
-            logger.error("Invalid yolo_classes config (comma-separated ints): %s",
-                         classes_raw)
-            classes = None
-    model_name = cfg.get("detector", "yolo_model", fallback="yolov8n.pt")
-    # Search for the model in /models (Docker), then local models/, then project root
-    model_path = model_name
-    project_dir = models_dir.parent if models_dir is not None else None
-    for candidate_dir in [Path("/models"), models_dir, project_dir]:
-        if candidate_dir is not None:
-            candidate = candidate_dir / model_name
-            if candidate.exists():
-                model_path = str(candidate)
-                break
-    imgsz_raw = cfg.get("detector", "yolo_imgsz", fallback="")
-    imgsz = int(imgsz_raw) if imgsz_raw.strip() else None
-    return YOLODetector(
-        model_path=model_path,
-        confidence=cfg.getfloat("detector", "yolo_confidence", fallback=0.45),
-        classes=classes,
-        imgsz=imgsz,
-    )
+    """Backwards-compatible wrapper for detector construction."""
+    return build_detector(cfg, models_dir)
 
 
 class Pipeline:
@@ -604,7 +578,7 @@ class Pipeline:
             self._mavlink is not None
             and self._cfg.getboolean("mavlink", "geo_tracking", fallback=True)
         ):
-            from .geo_tracking import GeoTracker
+            from ..geo_tracking import GeoTracker
             self._geo_tracker = GeoTracker(
                 self._mavlink,
                 camera_hfov_deg=self._cfg.getfloat("camera", "hfov_deg", fallback=60.0),
@@ -779,6 +753,9 @@ class Pipeline:
         # hot loop, so blocking here is fine) then read sysfs stats.
         _query_nvpmodel_sync()
         self._jetson_stats: dict = _read_jetson_stats()
+        self._runtime = PipelineRuntime(self)
+        self._integrations = PipelineIntegrations(self)
+        self._control_adapter = PipelineControlAdapter(self)
         self._init_target_state()
 
     def _init_target_state(self) -> None:
@@ -804,8 +781,8 @@ class Pipeline:
         if not hasattr(self, "_drop_distance_m"):
             _cfg = getattr(self, "_cfg", None)
             self._drop_distance_m = (
-                _cfg.getfloat("mavlink", "strike_distance_m", fallback=20.0)
-                if _cfg is not None else 20.0
+                _cfg.getfloat("drop", "drop_distance_m", fallback=3.0)
+                if _cfg is not None else 3.0
             )
 
         # Mission tagging state
@@ -863,11 +840,11 @@ class Pipeline:
         logger.info("=== Hydra Detect v2.0 starting ===")
 
         # Backup current config on boot for recovery
-        from .web.config_api import backup_on_boot
+        from ..web.config_api import backup_on_boot
         backup_on_boot()
 
         # Validate config
-        from .config_schema import validate_config
+        from ..config_schema import validate_config
         validation = validate_config(self._cfg)
         for err in validation.errors:
             logger.error("Config error: %s", err)
@@ -932,7 +909,7 @@ class Pipeline:
             # Auto-generate API token on first boot if not configured
             api_token = self._cfg.get("web", "api_token", fallback="").strip()
             if not api_token:
-                from .web.config_api import generate_api_token, get_config_path
+                from ..web.config_api import generate_api_token, get_config_path
                 api_token = generate_api_token()
                 self._cfg.set("web", "api_token", api_token)
                 # Persist to config.ini so the token survives restarts
@@ -989,65 +966,8 @@ class Pipeline:
                     logger.warning("Default profile '%s' failed to apply — "
                                    "using config.ini defaults.", default_id)
 
-            # Wire runtime config callbacks
-            stream_state.set_callbacks(
-                on_threshold_change=self._handle_threshold_change,
-                on_loiter_command=self._handle_loiter_command,
-                on_target_lock=self._handle_target_lock,
-                on_target_unlock=self._handle_target_unlock,
-                on_strike_command=self._handle_strike_command,
-                get_recent_detections=self._det_logger.get_recent,
-                get_active_tracks=self._get_active_tracks,
-                on_stop_command=self._handle_stop_command,
-                on_pause_command=self._handle_pause_command,
-                on_resume_command=self._handle_resume_command,
-                get_camera_sources=self._get_camera_sources,
-                on_camera_switch=self._handle_camera_switch,
-                on_set_power_mode=self._handle_set_power_mode,
-                get_power_modes=self._get_power_modes,
-                get_models=self._get_models,
-                on_model_switch=self._handle_model_switch,
-                get_log_dir=lambda: self._cfg.get(
-                    "logging", "log_dir",
-                    fallback="./output_data/logs",
-                ),
-                get_image_dir=lambda: self._cfg.get(
-                    "logging", "image_dir",
-                    fallback="./output_data/images",
-                ),
-                get_rf_status=self._get_rf_status,
-                get_rf_rssi_history=self._get_rf_rssi_history,
-                on_rf_start=self._handle_rf_start,
-                on_rf_stop=self._handle_rf_stop,
-                on_set_mode_command=self._handle_set_mode_command,
-                on_alert_classes_change=self._handle_alert_classes_change,
-                get_class_names=self._detector.get_class_names,
-                on_rtsp_toggle=self._handle_rtsp_toggle,
-                get_rtsp_status=self._get_rtsp_status,
-                on_mavlink_video_toggle=self._handle_mavlink_video_toggle,
-                on_mavlink_video_tune=self._handle_mavlink_video_tune,
-                get_mavlink_video_status=self._get_mavlink_video_status,
-                on_tak_toggle=self._handle_tak_toggle,
-                get_tak_status=self._get_tak_status,
-                get_tak_targets=self._get_tak_targets,
-                add_tak_target=self._add_tak_target,
-                remove_tak_target=self._remove_tak_target,
-                get_profiles=self._get_profiles,
-                on_profile_switch=self._handle_profile_switch,
-                get_preflight=self._get_preflight,
-                on_restart_command=self._handle_restart_command,
-                on_drop_command=self._handle_drop_command,
-                on_follow_command=self._handle_follow_command,
-                on_approach_strike_command=self._handle_approach_strike_command,
-                on_pixel_lock_command=self._handle_pixel_lock_command,
-                on_approach_abort=self._handle_approach_abort,
-                get_approach_status=self._get_approach_status,
-                on_mission_start=self._handle_mission_start,
-                on_mission_end=self._handle_mission_end,
-                get_events=self._get_events,
-                get_event_status=self._event_logger.get_status,
-                play_tune=self._play_tune,
-            )
+            # Wire runtime config callbacks through dedicated adapter
+            self._integrations.register_web_callbacks(self._control_adapter)
 
             stream_state.update_stats(
                 detector="yolo",
@@ -1059,7 +979,7 @@ class Pipeline:
             ssl_cert = None
             ssl_key = None
             if tls_enabled:
-                from .tls import ensure_tls_cert
+                from ..tls import ensure_tls_cert
                 cert_path = self._cfg.get("web", "tls_cert", fallback="")
                 key_path = self._cfg.get("web", "tls_key", fallback="")
                 if ensure_tls_cert(cert_path, key_path):
@@ -1150,7 +1070,7 @@ class Pipeline:
             logger.info("=== Pipeline restart requested — reinitializing ===")
             self._shutdown()
             try:
-                from .web.config_api import get_config_path
+                from ..web.config_api import get_config_path
                 self._cfg.read(get_config_path())
                 self._detector = _build_detector(self._cfg, self._models_dir)
                 self._detector.load()
@@ -1799,7 +1719,7 @@ class Pipeline:
             })
 
         # 3. Config validation
-        from .config_schema import validate_config, SCHEMA as _SCHEMA
+        from ..config_schema import validate_config, SCHEMA as _SCHEMA
         validation = validate_config(self._cfg)
         if validation.ok and not validation.warnings:
             checks.append({
@@ -2304,7 +2224,7 @@ class Pipeline:
     def _handle_rf_start(self, params: dict) -> bool:
         """Start (or restart) an RF hunt from the web UI."""
         # Re-read config so web UI changes (e.g. gps_required) take effect
-        from .web.config_api import get_config_path
+        from ..web.config_api import get_config_path
         self._cfg.read(get_config_path())
 
         if self._mavlink is None:
