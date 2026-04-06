@@ -31,7 +31,9 @@ class PipelineControlAdapter:
             "get_models": p._get_models,
             "on_model_switch": p._handle_model_switch,
             "get_log_dir": lambda: p._cfg.get("logging", "log_dir", fallback="./output_data/logs"),
-            "get_image_dir": lambda: p._cfg.get("logging", "image_dir", fallback="./output_data/images"),
+            "get_image_dir": lambda: p._cfg.get(
+                "logging", "image_dir", fallback="./output_data/images"
+            ),
             "get_rf_status": p._get_rf_status,
             "get_rf_rssi_history": p._get_rf_rssi_history,
             "on_rf_start": p._handle_rf_start,

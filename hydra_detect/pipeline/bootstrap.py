@@ -42,7 +42,8 @@ class PipelineBootstrap:
                 for key, value in cfg.items(vehicle_section):
                     if "." not in key:
                         logger.warning(
-                            "Vehicle config key %r missing section prefix (expected section.option)",
+                            "Vehicle config key %r missing section prefix "
+                            "(expected section.option)",
                             key,
                         )
                         continue
@@ -51,7 +52,11 @@ class PipelineBootstrap:
                         cfg.add_section(section)
                     cfg.set(section, option, value)
             else:
-                logger.error("Vehicle profile %r not found (no [%s] section in config)", vehicle, vehicle_section)
+                logger.error(
+                    "Vehicle profile %r not found (no [%s] section in config)",
+                    vehicle,
+                    vehicle_section,
+                )
 
         callsign = cfg.get("tak", "callsign", fallback="HYDRA-1")
         if callsign == "HYDRA-1" and vehicle:
@@ -62,7 +67,13 @@ class PipelineBootstrap:
 
         project_dir = Path(config_path).resolve().parent
         models_dir = project_dir / "models"
-        return BootstrapContext(cfg=cfg, callsign=callsign, vehicle=vehicle, project_dir=project_dir, models_dir=models_dir)
+        return BootstrapContext(
+            cfg=cfg,
+            callsign=callsign,
+            vehicle=vehicle,
+            project_dir=project_dir,
+            models_dir=models_dir,
+        )
 
 
 def build_detector(cfg: configparser.ConfigParser, models_dir: Path | None = None) -> YOLODetector:
