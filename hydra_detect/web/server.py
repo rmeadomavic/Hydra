@@ -63,7 +63,12 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     field_errors = []
     for err in exc.errors():
         loc = [str(v) for v in err.get("loc", []) if v != "body"]
-        field_errors.append({"field": ".".join(loc) or "body", "message": err.get("msg", "invalid")})
+        field_errors.append(
+            {
+                "field": ".".join(loc) or "body",
+                "message": err.get("msg", "invalid"),
+            }
+        )
     return JSONResponse(
         {"error": "Validation failed", "field_errors": field_errors},
         status_code=400,
@@ -2514,29 +2519,32 @@ async def api_setup_save(request: Request, authorization: Optional[str] = Header
 
     return {"status": "saved", "callsign": callsign, **result}
 
+def _mount_domain_routers() -> None:
+    """Mount package-based API routers by domain."""
+    from hydra_detect.web.routes import auth as auth_routes
+    from hydra_detect.web.routes import config as config_routes
+    from hydra_detect.web.routes import review as review_routes
+    from hydra_detect.web.routes import rf as rf_routes
+    from hydra_detect.web.routes import setup as setup_routes
+    from hydra_detect.web.routes import stream as stream_routes
+    from hydra_detect.web.routes import vehicle as vehicle_routes
+
+    for _router in (
+        auth_routes.router,
+        config_routes.router,
+        vehicle_routes.router,
+        rf_routes.router,
+        review_routes.router,
+        stream_routes.router,
+        setup_routes.router,
+    ):
+        app.include_router(_router, include_in_schema=False)
 
 
-# ── Router mounts (package-based route layout) ─────────────────────────────
-from hydra_detect.web.routes import auth as auth_routes
-from hydra_detect.web.routes import config as config_routes
-from hydra_detect.web.routes import rf as rf_routes
-from hydra_detect.web.routes import review as review_routes
-from hydra_detect.web.routes import setup as setup_routes
-from hydra_detect.web.routes import stream as stream_routes
-from hydra_detect.web.routes import vehicle as vehicle_routes
-
-for _router in (
-    auth_routes.router,
-    config_routes.router,
-    vehicle_routes.router,
-    rf_routes.router,
-    review_routes.router,
-    stream_routes.router,
-    setup_routes.router,
-):
-    app.include_router(_router, include_in_schema=False)
+_mount_domain_routers()
 
 # ── Server launcher ──────────────────────────────────────────────────
+
 
 def run_server(
     host: str = "0.0.0.0",

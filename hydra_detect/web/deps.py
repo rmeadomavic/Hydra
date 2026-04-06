@@ -29,7 +29,9 @@ async def request_size_guard(request: Request) -> JSONResponse | None:
     return None
 
 
-async def parse_json_with_size_guard(request: Request) -> tuple[dict[str, Any] | None, JSONResponse | None]:
+async def parse_json_with_size_guard(
+    request: Request,
+) -> tuple[dict[str, Any] | None, JSONResponse | None]:
     """Parse JSON payload after enforcing MAX_BODY_SIZE."""
     size_err = await request_size_guard(request)
     if size_err:
