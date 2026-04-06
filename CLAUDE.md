@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Hydra Detect v2.0 — Claude Code Guidelines
 
 ## Project Context
@@ -34,52 +38,16 @@ Kismet (WiFi/SDR) → RF Hunt Controller → RSSI Gradient Ascent → MAVLink Na
 - **Tests:** `pytest` — run with `python -m pytest tests/`
 - **Docs:** `docs/*.md` — structured documentation, one file per topic
 
-### Module Index
+### Module Groups
 
-| Module | Purpose |
-|--------|---------|
-| `pipeline.py` | Main loop: detect, track, alert, repeat |
-| `camera.py` | Thread-safe capture (USB, RTSP, file, V4L2, analog) |
-| `tracker.py` | ByteTrack wrapper (TrackedObject, TrackingResult) |
-| `overlay.py` | Bounding boxes, HUD, target lock rendering |
-| `approach.py` | Follow, Drop, Strike, Pixel-Lock approach modes |
-| `guidance.py` | Velocity-based visual servoing controller (pure math, extractable) |
-| `autonomous.py` | Geofenced autonomous strike controller |
-| `dogleg_rtl.py` | Tactical return path (drones) |
-| `mission_profiles.py` | RECON / DELIVERY / STRIKE presets |
-| `mavlink_io.py` | MAVLink connection, alerts, vehicle commands |
-| `mavlink_video.py` | Detection thumbnails over telemetry radio |
-| `geo_tracking.py` | CAMERA_TRACKING_GEO_STATUS for GCS map |
-| `osd.py` | FPV OSD (statustext, named_value, msp_displayport) |
-| `msp_displayport.py` | MSP v1 DisplayPort protocol for HDZero VTX |
-| `detection_logger.py` | CSV/JSONL logging with background writer |
-| `event_logger.py` | Mission event timeline (actions + vehicle track at 1 Hz) |
-| `verify_log.py` | SHA-256 hash chain verification |
-| `review_export.py` | Standalone HTML map report generator |
-| `waypoint_export.py` | QGC WPL 110 waypoint export for detection-driven missions |
-| `rtsp_server.py` | GStreamer RTSP H.264 output |
-| `servo_tracker.py` | Pixel-lock servo controller (pan + strike) |
-| `model_manifest.py` | Model hash verification, manifest, class introspection |
-| `config_schema.py` | Typed config validation with error messages |
-| `system.py` | Jetson stats, power modes, model listing |
-| `tls.py` | Self-signed TLS certificate generation |
-| `profiles.py` | JSON mission profile loading |
-| `detectors/base.py` | Abstract detector interface |
-| `detectors/yolo_detector.py` | YOLOv8/v11 via ultralytics |
-| `rf/hunt.py` | RF hunt state machine |
-| `rf/kismet_client.py` | Kismet REST API client |
-| `rf/kismet_manager.py` | Kismet subprocess manager |
-| `rf/navigator.py` | Gradient ascent waypoint navigation |
-| `rf/search.py` | Lawnmower and spiral pattern generators |
-| `rf/signal.py` | RSSI filtering and gradient analysis |
-| `rf/rssi_protocol.py` | Protocol defining the RSSI client interface for RF hunt |
-| `rf/rtl_power_client.py` | RTL-SDR raw power measurement client for FHSS radios |
-| `tak/tak_output.py` | CoT multicast/unicast output thread |
-| `tak/tak_input.py` | CoT command listener (GeoChat + custom types) |
-| `tak/cot_builder.py` | Cursor-on-Target XML builder |
-| `tak/type_mapping.py` | YOLO class to MIL-STD-2525 mapping |
-| `web/server.py` | FastAPI REST API + MJPEG stream + HTML pages |
-| `web/config_api.py` | Config read/write with file locking and safety |
+- **Core pipeline:** `pipeline.py` (main loop) → `camera.py` → `detectors/` → `tracker.py` → `overlay.py`
+- **Vehicle control:** `approach.py` (follow/drop/strike/pixel-lock), `guidance.py` (visual servoing math), `autonomous.py` (geofenced strike), `dogleg_rtl.py` (tactical return)
+- **MAVLink:** `mavlink_io.py` (connection + commands), `mavlink_video.py` (thumbnails), `geo_tracking.py` (GCS map), `osd.py` + `msp_displayport.py` (FPV OSD)
+- **RF hunt:** `rf/hunt.py` (state machine), `rf/navigator.py` (gradient ascent), `rf/signal.py` (RSSI), `rf/kismet_client.py` + `rf/kismet_manager.py`, `rf/search.py` (patterns)
+- **TAK/CoT:** `tak/tak_output.py` (multicast/unicast), `tak/tak_input.py` (GeoChat commands), `tak/cot_builder.py`, `tak/type_mapping.py` (MIL-STD-2525)
+- **Web:** `web/server.py` (70+ FastAPI endpoints), `web/config_api.py` (config CRUD with file locking)
+- **Logging:** `detection_logger.py` (CSV/JSONL), `event_logger.py` (timeline), `verify_log.py` (hash chain), `review_export.py` (HTML reports)
+- **Config:** `config_schema.py` (typed validation), `profiles.py` (mission profile loading), `mission_profiles.py` (RECON/DELIVERY/STRIKE)
 
 ## SORCC Course Context
 
@@ -197,63 +165,13 @@ All tunables live in `config.ini`. Sections: `[camera]`, `[detector]`, `[tracker
 
 Full reference: `docs/configuration.md`. Schema: `hydra_detect/config_schema.py`.
 
-## API Endpoints (Summary)
+## API Endpoints
 
-70+ endpoints in `web/server.py`. Key groups:
+70+ endpoints in `web/server.py`. Full reference: `docs/api-reference.md`.
 
-- **Health**: `GET /api/health`, `GET /api/preflight`
-- **Stream**: `GET /stream.mjpeg`, `GET/POST /api/stream/quality`
-- **Stats/Tracks**: `GET /api/stats`, `GET /api/tracks`, `GET /api/detections`
-- **Target**: `GET /api/target`, `POST /api/target/lock`, `POST /api/target/unlock`, `POST /api/target/strike`
-- **Approach**: `GET /api/approach/status`, `POST /api/approach/follow/{id}`, `POST /api/approach/drop/{id}`, `POST /api/approach/strike/{id}`, `POST /api/approach/pixel_lock/{id}`, `POST /api/approach/abort`
-- **Vehicle**: `POST /api/vehicle/loiter`, `POST /api/vehicle/mode`, `POST /api/abort` (unauthenticated)
-- **Config**: `GET/POST /api/config`, `GET/POST /api/config/full`, `POST /api/config/prompts`, `POST /api/config/threshold`, `GET/POST /api/config/alert-classes`, `POST /api/config/restore-backup`, `POST /api/config/factory-reset`, `GET /api/config/export`, `POST /api/config/import`
-- **Camera/Models**: `GET /api/camera/sources`, `POST /api/camera/switch`, `GET /api/models`, `POST /api/models/switch`
-- **Profiles**: `GET /api/profiles`, `POST /api/profiles/switch`, `GET /api/mission-profiles`
-- **TAK**: `GET /api/tak/status`, `POST /api/tak/toggle`, `GET/POST/DELETE /api/tak/targets`
-- **RF**: `GET /api/rf/status`, `GET /api/rf/rssi_history`, `POST /api/rf/start`, `POST /api/rf/stop`
-- **RTSP**: `GET /api/rtsp/status`, `POST /api/rtsp/toggle`
-- **MAVLink Video**: `GET /api/mavlink-video/status`, `POST /api/mavlink-video/toggle`, `POST /api/mavlink-video/tune`
-- **Events/Mission**: `GET /api/events`, `GET /api/events/status`, `POST /api/mission/start`, `POST /api/mission/end`
-- **Review**: `GET /api/review/logs`, `GET /api/review/log/{file}`, `GET /api/review/events/{file}`, `GET /api/review/images/{file}`, `GET /api/export`
-- **System**: `GET /api/system/power-modes`, `POST /api/system/power-mode`, `GET /api/logs`, `POST /api/restart`, `POST /api/pipeline/stop`, `POST /api/pipeline/pause`
-- **Setup**: `GET /api/setup/devices`, `POST /api/setup/save`
-- **Pages**: `GET /` (dashboard), `GET /control`, `GET /instructor`, `GET /review`, `GET /setup`
-
-Full reference: `docs/api-reference.md`.
-
-## Codebase Stats (as of April 2026)
-
-| Metric | Count |
-|--------|-------|
-| App LOC (`hydra_detect/`) | ~15,800 |
-| Test LOC (`tests/`) | ~12,700 |
-| Test files | 55 |
-| App modules | 50 |
-| Merged PRs | 58 |
-
-**CODE_REVIEW_TRACKER.md** exists on the `check-branches-pr-status-Pmeg8` branch
-(not yet merged to main). It contains a risk-ordered review plan with 10 chunks
-populated, none reviewed yet.
-
-**Orphan branches:** The three known orphans (`claude/compare-config-frameworks-3FuSP`,
-`claude/implement-todo-item-KrrRT`, `feat/follow-mode-approach-controller`) have
-been identified and are queued for deletion from the remote.
-
-> **Process gap:** Zero human code reviews across 58 merged PRs. Codex
-> auto-reviews ~7% of PRs via org-level GitHub App.
-
-## Test Files
-
-55 test files in `tests/`. Key coverage areas:
-- Autonomous controller: `test_autonomous.py`, `test_drop_strike.py`
-- Guidance: `test_guidance.py`
-- Config: `test_config_schema.py`, `test_config_api.py`, `test_config_freeze.py`
-- RF: `test_rf_hunt.py`, `test_rf_navigator.py`, `test_rf_search.py`, `test_rf_signal.py`, `test_rf_geofence.py`, `test_rf_kismet.py`, `test_rf_web_api.py`
-- TAK: `test_tak.py`, `test_tak_input.py`, `test_tak_security.py`, `test_tak_unicast_manifest.py`
-- Web: `test_web_api.py`, `test_preflight_ui.py`, `test_instructor_ops.py`, `test_dashboard_resilience.py`
-- Safety: `test_safety_hardening.py`, `test_mavlink_safety.py`, `test_camera_loss.py`, `test_chain_of_custody.py`
-- Pipeline: `test_pipeline_callbacks.py`, `test_sitl_mode.py`, `test_vehicle_config.py`
+Key safety-critical endpoints: `POST /api/abort` (unauthenticated — always works),
+`POST /api/approach/{follow,drop,strike,pixel_lock,abort}`, `POST /api/vehicle/mode`.
+Pages: `/` (dashboard), `/control`, `/instructor`, `/review`, `/setup`.
 
 ## Common Commands
 
@@ -261,8 +179,14 @@ been identified and are queued for deletion from the remote.
 # Run the application
 python -m hydra_detect --config config.ini
 
-# Run tests
-python -m pytest tests/ -v     # no --timeout flag (pytest-timeout not installed)
+# Run all tests (no --timeout flag — pytest-timeout not installed)
+python -m pytest tests/ -v
+
+# Run a single test file
+python -m pytest tests/test_guidance.py -v
+
+# Run a single test by name
+python -m pytest tests/test_guidance.py -k "test_proportional_gain" -v
 
 # Lint
 flake8 hydra_detect/ tests/
@@ -275,6 +199,18 @@ docker build --no-cache -t hydra-detect .
 
 # Monitor Jetson resources
 tegrastats
+```
+
+### CI Dependency Install (for local reproduction)
+
+CI uses a special install sequence because `ultralytics` and `supervision` pull
+heavy transitive deps. To replicate CI locally:
+
+```bash
+pip install --no-deps ultralytics supervision
+grep -v "opencv-python\|ultralytics\|supervision" requirements.txt > /tmp/reqs.txt
+pip install -r /tmp/reqs.txt
+pip install opencv-python-headless httpx pytest flake8
 ```
 
 ## Web Frontend (SPA)
@@ -486,18 +422,12 @@ check `sample_count > 0` before commanding `guided_to` with the position.
 - Before spawning a subprocess, check for existing instances (`pgrep`, `fuser`)
   to avoid dual-instance problems
 
-## Companion Project
-
-**Argus** (`/home/sorcc/argus`, `github.com/rmeadomavic/Argus`) is the
-RF survey payload on Raspberry Pi — companion to Hydra. Patterns adopted from it:
-config schema validation, event logger, TAK/CoT export, config API. Patterns
-worth porting: response caching with stale fallback, waypoint export (QGC WPL 110).
-
 ## SORCC Ecosystem
 
-This project is part of the SORCC ecosystem alongside
-[Argus](https://github.com/rmeadomavic/Argus) (RF survey payload on
-Raspberry Pi).
+**Argus** ([github.com/rmeadomavic/Argus](https://github.com/rmeadomavic/Argus))
+is the companion RF survey payload on Raspberry Pi. Hydra handles
+detection/tracking/engagement; Argus handles RF survey/SIGINT. Both feed TAK
+for a common operating picture.
 
 - Use consistent terminology: **uncrewed** (not unmanned), **sortie** (not
   mission/run), **CULEX** (culminating exercise), **STX** (situational training
@@ -505,13 +435,9 @@ Raspberry Pi).
   the full system)
 - Documentation tone: technical but accessible — SOF operators are smart and
   mission-focused but may not have software backgrounds
-- Shared config pattern: INI with `.factory` defaults (`config.ini` is the user
-  interface; `config.ini.factory` ships known-good defaults for factory reset)
-- Shared code patterns: config schema validation, event logger, TAK/CoT export,
-  config API, detection/survey logging with hash-chain verification
-- Cross-references: link to sibling projects where relevant — Hydra handles
-  detection/tracking/engagement, Argus handles RF survey/SIGINT, both feed
-  TAK for a common operating picture
+- Shared patterns: INI config with `.factory` defaults, config schema validation,
+  event logger, TAK/CoT export, config API, detection/survey logging with
+  hash-chain verification
 - Shared UI standards: dark ops-center theme, data-dense layouts, defense-grade
   polish (see UI/UX Design Standards below)
 

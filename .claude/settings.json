@@ -6,8 +6,8 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-start.sh",
-            "timeout": 10,
-            "statusMessage": "Loading session context..."
+            "timeout": 300,
+            "statusMessage": "Installing dependencies and loading session context..."
           }
         ]
       }
