@@ -2519,6 +2519,7 @@ async def api_setup_save(request: Request, authorization: Optional[str] = Header
 
     return {"status": "saved", "callsign": callsign, **result}
 
+
 def _mount_domain_routers() -> None:
     """Mount package-based API routers by domain."""
     from hydra_detect.web.routes import auth as auth_routes
