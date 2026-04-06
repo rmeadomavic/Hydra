@@ -56,6 +56,14 @@ from .runtime import PipelineRuntime
 logger = logging.getLogger(__name__)
 
 
+def _get_rf_hunt_controller_cls():
+    """Return RFHuntController class, honoring package-level monkeypatches in tests."""
+    pkg = sys.modules.get("hydra_detect.pipeline")
+    if pkg is not None and hasattr(pkg, "RFHuntController"):
+        return getattr(pkg, "RFHuntController")
+    return RFHuntController
+
+
 def _build_detector(cfg: configparser.ConfigParser, models_dir: Path | None = None) -> YOLODetector:
     """Backwards-compatible wrapper for detector construction."""
     return build_detector(cfg, models_dir)
@@ -493,7 +501,7 @@ class Pipeline:
                     if self._autonomous is not None:
                         geofence_check = self._autonomous.check_geofence
                         geofence_clip = self._autonomous.clip_to_geofence
-                    self._rf_hunt = RFHuntController(
+                    self._rf_hunt = _get_rf_hunt_controller_cls()(
                         self._mavlink,
                         mode=self._cfg.get(
                             "rf_homing", "mode", fallback="wifi"
@@ -2260,7 +2268,7 @@ class Pipeline:
             logger.info("Kismet auto-started for RF hunt")
 
         # Build a new controller from the web-submitted params
-        self._rf_hunt = RFHuntController(
+        self._rf_hunt = _get_rf_hunt_controller_cls()(
             self._mavlink,
             mode=params.get("mode", "wifi"),
             target_bssid=params.get("target_bssid", "").strip() or None,
