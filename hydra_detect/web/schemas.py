@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from hydra_detect.web.server import BSSID_RE, MAX_PROMPT_LENGTH, MAX_PROMPTS
+MAX_PROMPTS = 20
+MAX_PROMPT_LENGTH = 200
+BSSID_RE = re.compile(r"^[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}$")
 
 
 class LoginRequest(BaseModel):
