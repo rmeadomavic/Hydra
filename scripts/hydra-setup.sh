@@ -134,11 +134,21 @@ else
 fi
 
 # Detect serial devices
-for dev in /dev/ttyACM* /dev/ttyUSB* /dev/ttyTHS*; do
+# ttyACM* and ttyUSB* = USB-connected flight controllers (always relevant)
+# ttyTHS* = Jetson built-in GPIO UARTs (always present, not necessarily an FC)
+for dev in /dev/ttyACM* /dev/ttyUSB*; do
     [ -e "$dev" ] && SERIAL_DEVICES+=("$dev")
 done || true
+# Show GPIO UARTs separately — they're always present on Jetson
+GPIO_UARTS=()
+for dev in /dev/ttyTHS*; do
+    [ -e "$dev" ] && GPIO_UARTS+=("$dev")
+done || true
 if [ ${#SERIAL_DEVICES[@]} -gt 0 ]; then
-    ok "Serial devices found: ${SERIAL_DEVICES[*]}"
+    ok "Flight controller detected: ${SERIAL_DEVICES[*]}"
+elif [ ${#GPIO_UARTS[@]} -gt 0 ]; then
+    info "GPIO UARTs available: ${GPIO_UARTS[*]} (no USB flight controller detected)"
+    info "If your FC is wired to a GPIO UART, you can configure it manually in config.ini"
 else
     warn "No serial devices found (/dev/ttyACM*, /dev/ttyUSB*, /dev/ttyTHS*)"
 fi
