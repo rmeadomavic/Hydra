@@ -136,6 +136,14 @@
         modal.initEscapeAndTrap();
         stream.initStreamWatcher();
         router.initRouter();
+        // Defer initial view enter until all scripts are loaded
+        setTimeout(function() {
+            var v = store.getState().currentView;
+            if (v === 'ops' && typeof HydraOps !== 'undefined') HydraOps.onEnter();
+            else if (v === 'config' && typeof HydraOperations !== 'undefined') HydraOperations.onEnter();
+            else if (v === 'settings' && typeof HydraSettings !== 'undefined') HydraSettings.onEnter();
+            stream.resumeStream();
+        }, 0);
         initBandwidthToggle();
         initLogoutButton();
         pollers.updatePollers(store.getState().currentView);

@@ -61,7 +61,7 @@ window.HydraModules.createStreamController = function createStreamController({ g
     }
 
     function syncForView(view) {
-        if (view === 'config') resumeStream();
+        if (view === 'ops' || view === 'config') resumeStream();
         else pauseStream();
     }
 
