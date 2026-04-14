@@ -68,7 +68,7 @@ sudo systemctl restart hydra-detect
 Key volume mounts:
 
 | Host Path | Container Path | Purpose |
-|-----------|---------------|---------|
+|-----------|---------------|--------|
 | `config.ini` | `/app/config.ini` | Configuration |
 | `models/` | `/models` | YOLO model files |
 | `output_data/` | `/data` | Logs, images, crops |
@@ -197,13 +197,16 @@ This script syncs the codebase to configured Jetson targets. Each Jetson must re
 
 After configuring a Jetson to a known-good state:
 
-1. Flash and configure JetPack
-2. Run `hydra-setup.sh`
-3. Build the Docker image
-4. Test all subsystems
-5. Clone the microSD card or NVMe with `dd` or Etcher
+1. Update QSPI firmware if needed (see [QSPI Update](setup/jetson-flash.md#step-0-qspi-firmware-update-new-jetsons-only))
+2. Flash and configure JetPack 6.x
+3. Run `hydra-setup.sh`
+4. Build the Docker image
+5. Test all subsystems
+6. Clone the microSD card or NVMe with `dd` or Etcher
 
 Distribute the cloned image to new Jetsons. Only `config.ini` needs per-vehicle customization (callsign, camera source, serial port).
+
+**Important:** New out-of-box Jetsons must have their QSPI firmware updated before they can boot a JetPack 6.x golden image. See the [QSPI update procedure](setup/jetson-flash.md#step-0-qspi-firmware-update-new-jetsons-only) for the one-card pipeline that handles multiple devices efficiently.
 
 ### Factory Reset
 

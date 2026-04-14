@@ -17,6 +17,54 @@ Written for students reproducing the Hydra Detect build from scratch.
 - Monitor, keyboard, mouse (for initial setup only)
 - Wi-Fi network (or Ethernet)
 
+## Step 0: QSPI Firmware Update (New Jetsons Only)
+
+New out-of-box Jetson Orin Nanos ship with old QSPI firmware that cannot boot JetPack 6.x. If your Jetson has never been updated, you must update the QSPI first. Jetsons that have already run JetPack 6.x can skip this step.
+
+**How to tell if you need this:** Insert a JetPack 6.x SD card and power on. If the Jetson fails to boot (no NVIDIA logo, no Ubuntu setup), the QSPI needs updating.
+
+### QSPI Update Procedure
+
+1. Download the **JetPack 5.1.3** SD card image from [NVIDIA Jetson Downloads](https://developer.nvidia.com/embedded/downloads). This is the last JetPack version compatible with old QSPI firmware.
+
+2. Flash JetPack 5.1.3 to a microSD card using [Balena Etcher](https://etcher.balena.io/).
+
+3. Insert the JP 5.1.3 card into the Jetson and power on. Walk through the Ubuntu first-boot wizard (language, keyboard, Wi-Fi, user account). Use `sorcc`/`sorcc` for credentials.
+
+4. Open a terminal and install the QSPI updater:
+
+```bash
+sudo apt-get update
+sudo apt-get install nvidia-l4t-jetson-orin-nano-qspi-updater
+```
+
+<Warning>
+The package name uses a lowercase L (`l4t`), not the number one (`14t`). This is a common typo that causes `Unable to locate package` errors.
+</Warning>
+
+5. Reboot:
+
+```bash
+sudo reboot
+```
+
+6. The Jetson flashes the QSPI firmware during boot. When complete, the board **halts** (screen goes blank or shows UEFI). This is expected. Disconnect power.
+
+7. Remove the JP 5.1.3 card. Insert your JetPack 6.x card (or the golden image card). Power on. JetPack 6.x boots normally.
+
+### Reusing One JP 5.1.3 Card for Multiple Jetsons
+
+You can reuse the same JP 5.1.3 SD card across multiple Jetsons. After the first Jetson completes the Ubuntu OOBE wizard, subsequent Jetsons boot directly to the desktop with the same user account. The QSPI updater package is cached in `/var/cache/apt/archives/`, so the `apt install` step is near-instant on devices 2+.
+
+Workflow for multiple devices:
+
+1. Flash one JP 5.1.3 SD card.
+2. Boot Jetson #1, complete OOBE, install QSPI updater, reboot, wait for halt.
+3. Power off. Move the same card to Jetson #2. Boot, open terminal, `apt install` the updater, reboot, halt.
+4. Repeat for remaining Jetsons.
+
+The QSPI update does not modify the SD card. Each new Jetson still has old factory QSPI, so JP 5.1.3 boots on all of them.
+
 <Steps>
 
 <Step title="Flash JetPack to the SD card">
