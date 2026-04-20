@@ -973,10 +973,11 @@ const HydraOps = (() => {
                     container.appendChild(row);
                 }
             }
-            row.children[0].textContent = '#' + t.id;
+            var tid = (t.track_id != null) ? t.track_id : t.id;
+            row.children[0].textContent = '#' + (tid != null ? tid : '?');
             row.children[1].textContent = t.label || 'unknown';
             row.children[2].textContent = ((t.confidence || 0) * 100).toFixed(0) + '%';
-            row.classList.toggle('locked', t.id === lockedId);
+            row.classList.toggle('locked', tid === lockedId);
         });
     }
 
