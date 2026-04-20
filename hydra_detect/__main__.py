@@ -87,6 +87,28 @@ def _wire_ambient_rf(cfg: configparser.ConfigParser) -> None:
         logger.warning("KismetPoller init failed: %s", exc)
 
 
+def _wire_audit_file_sink(cfg: configparser.ConfigParser) -> None:
+    """Attach a durable JSONL audit sink to ``hydra.audit`` if enabled.
+
+    Additive to the in-memory ring already used by /api/audit/summary —
+    the two sinks coexist on the same logger.
+    """
+    from .audit import attach_file_sink, get_default_file_sink
+    try:
+        sink = get_default_file_sink(cfg)
+    except Exception as exc:
+        logger.warning("audit file sink init failed: %s", exc)
+        return
+    if sink is None:
+        logger.info("[audit] enabled=false — JSONL file sink not attached")
+        return
+    try:
+        attach_file_sink(sink)
+        logger.info("[audit] JSONL sink attached at %s", sink.path)
+    except Exception as exc:
+        logger.warning("audit file sink attach failed: %s", exc)
+
+
 def _apply_camera_source_override(cfg: configparser.ConfigParser, source: str) -> None:
     """Override camera source and auto-detect source type."""
     cfg.set("camera", "source", source)
@@ -145,6 +167,9 @@ def main():
     # pipeline starts its web server so the first request to
     # /api/rf/ambient_scan already sees the live buffer.
     _wire_ambient_rf(cfg)
+
+    # Attach durable JSONL audit sink alongside the in-memory ring.
+    _wire_audit_file_sink(cfg)
 
     pipeline.start()
 
