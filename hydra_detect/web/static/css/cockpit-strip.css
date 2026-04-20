@@ -1,0 +1,366 @@
+/* ── Cockpit strip — 220px tall row beneath the video.
+ * Three cells: ServoPanDial (260px) · CockpitTakMap (200px) · CockpitSDR (1fr).
+ * Mirrors cockpit-strip.jsx + tech-day-demo.jsx SdrSnifferTab(horizontal).
+ * ───────────────────────────────────────────────────────────── */
+
+.cockpit-strip {
+    grid-column: 2 / 3;
+    grid-row: 2 / 3;
+    display: grid;
+    grid-template-columns: 260px 200px 1fr;
+    min-height: 0;
+    min-width: 0;
+    border-top: 1px solid var(--border-default);
+    border-right: 1px solid var(--border-default);
+    overflow: hidden;
+    background: #04080a;
+}
+
+.cockpit-cell {
+    border-right: 1px solid var(--border-default);
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+    box-sizing: border-box;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.cockpit-cell:last-child {
+    border-right: none;
+}
+
+.cockpit-watermark {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    pointer-events: none;
+    font-family: var(--font-cond);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #666;
+    z-index: 2;
+}
+
+.cockpit-cell-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.cockpit-cell-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--olive-muted);
+    box-shadow: 0 0 4px rgba(74, 124, 46, 0.6);
+}
+
+.cockpit-cell-title {
+    font-family: var(--font-cond);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cockpit-cell-pill {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 8px;
+    padding: 1px 5px;
+    border-radius: var(--radius);
+    border: 1px solid var(--olive-muted);
+    background: rgba(56, 87, 35, 0.15);
+    color: var(--olive-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    flex-shrink: 0;
+}
+
+.cockpit-pill-live {
+    color: var(--olive-muted);
+}
+
+/* ── Cell 1: ServoPanDial ── */
+.cockpit-cell-servo {
+    background: #070809;
+    padding: 8px 10px;
+    gap: 4px;
+}
+
+.cockpit-cell-servo .cockpit-cell-pill {
+    font-size: 8px;
+}
+
+.cockpit-servo-svg {
+    width: 100%;
+    height: auto;
+    flex-shrink: 0;
+}
+
+.cockpit-servo-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    margin-top: 2px;
+}
+
+.cockpit-servo-cell-label {
+    color: #555;
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.cockpit-servo-cell-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--olive-muted);
+}
+
+.cockpit-servo-cell:nth-child(1) .cockpit-servo-cell-value {
+    color: var(--olive-muted);
+}
+
+.cockpit-servo-cell:nth-child(3) .cockpit-servo-cell-value {
+    color: #888;
+}
+
+.cockpit-cell-servo[data-mode="STRIKE"] .cockpit-servo-cell:nth-child(1) .cockpit-servo-cell-value {
+    color: var(--danger);
+}
+
+.cockpit-cell-servo[data-mode="LOCKED"] .cockpit-servo-cell:nth-child(1) .cockpit-servo-cell-value {
+    color: var(--warning);
+}
+
+/* ── Cell 2: CockpitTakMap ── */
+.cockpit-cell-tak {
+    background: #04080a;
+    cursor: pointer;
+}
+
+.cockpit-tak-header {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-default);
+    background: rgba(56, 87, 35, 0.1);
+    height: 26px;
+    box-sizing: border-box;
+}
+
+.cockpit-tak-canvas {
+    flex: 1;
+    position: relative;
+    min-height: 0;
+}
+
+.cockpit-tak-svg {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    inset: 0;
+}
+
+.cockpit-tak-expand {
+    position: absolute;
+    bottom: 4px;
+    right: 6px;
+    font-family: var(--font-mono);
+    font-size: 8px;
+    color: rgba(166, 188, 146, 0.6);
+    background: rgba(0, 0, 0, 0.5);
+    padding: 1px 4px;
+    border-radius: var(--radius);
+    pointer-events: none;
+}
+
+@keyframes cockpit-self-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+.cockpit-tak-self-ring {
+    transform-origin: center;
+    animation: cockpit-self-spin 8s linear infinite;
+}
+
+/* ── Cell 3: CockpitSDR (horizontal) ── */
+.cockpit-cell-sdr {
+    background: #070809;
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    overflow: hidden;
+}
+
+.cockpit-sdr-left {
+    padding: 8px 12px;
+    border-right: 1px solid var(--border-default);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.cockpit-sdr-sub {
+    font-size: 9px;
+    color: #666;
+    font-family: var(--font-mono);
+}
+
+.cockpit-sdr-spectrum {
+    width: 100%;
+    height: 34px;
+    margin-top: auto;
+    display: block;
+}
+
+.cockpit-sdr-bands {
+    display: flex;
+    justify-content: space-between;
+    font-size: 8px;
+    color: #444;
+    font-family: var(--font-cond);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.cockpit-sdr-stats {
+    display: flex;
+    gap: 10px;
+    font-size: 9px;
+    color: #888;
+    font-family: var(--font-cond);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-top: 2px;
+}
+
+.cockpit-sdr-stats b {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 11px;
+    color: var(--olive-muted);
+}
+
+.cockpit-sdr-stats span:nth-child(2) b { color: #FF9F1C; }
+.cockpit-sdr-stats span:nth-child(3) b { color: var(--warning); }
+
+.cockpit-sdr-right {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+.cockpit-sdr-list-header {
+    padding: 5px 12px;
+    border-bottom: 1px solid var(--border-default);
+    display: grid;
+    grid-template-columns: 52px 1fr 140px 60px 36px;
+    gap: 8px;
+    align-items: center;
+    font-family: var(--font-cond);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #555;
+    background: #050607;
+    flex-shrink: 0;
+}
+
+.cockpit-sdr-right-align {
+    text-align: right;
+}
+
+.cockpit-sdr-list {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.cockpit-sdr-empty {
+    padding: 12px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    text-align: center;
+}
+
+.cockpit-sdr-row {
+    padding: 5px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    display: grid;
+    grid-template-columns: 52px 1fr 140px 60px 36px;
+    gap: 8px;
+    align-items: center;
+}
+
+.cockpit-sdr-row.is-new {
+    background: rgba(255, 159, 28, 0.08);
+}
+
+.cockpit-sdr-row-type {
+    font-family: var(--font-mono);
+    font-size: 8px;
+    padding: 1px 5px;
+    text-align: center;
+    border: 1px solid var(--olive-muted);
+    color: var(--olive-muted);
+    border-radius: var(--radius);
+    text-transform: uppercase;
+}
+
+.cockpit-sdr-row.is-new .cockpit-sdr-row-type {
+    border-color: var(--warning);
+    color: var(--warning);
+}
+
+.cockpit-sdr-row-name {
+    font-family: var(--font-cond);
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cockpit-sdr-row-mac {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: #666;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cockpit-sdr-row-vendor {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: #888;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cockpit-sdr-row-rssi {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--olive-muted);
+    text-align: right;
+}
+
+.cockpit-sdr-row.is-alert .cockpit-sdr-row-rssi { color: var(--warning); }
+.cockpit-sdr-row.is-you   .cockpit-sdr-row-rssi { color: #FF9F1C; }

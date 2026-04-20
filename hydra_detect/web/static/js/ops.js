@@ -17,18 +17,44 @@ const HydraOps = (() => {
     let contextMenuTrack = null;   // track object for open context menu
     let confirmAction = null;      // pending confirmation {action, trackId, label}
 
+    // ── FlightHUD / Cockpit-strip auxiliary state ──
+    // 1Hz pollers for the new zones — kept independent from updateHUD so a
+    // failure in one zone never starves the rest. SVG repaints DOM-diff via
+    // a tiny `_lastSig` cache on each rendered element.
+    let auxTimer = null;
+    let sdrTickTimer = null;
+    let sdrTickValue = 0;
+    let hudLayoutLoaded = false;
+    let zonePending = { hud: false, cockpit: false };
+
     // ── Lifecycle ──
     function onEnter() {
         wireEventHandlers();
         startVideoPolling();
         updateTimer = setInterval(updateHUD, 500);
+        // Slower 1Hz tick for FlightHUD + Cockpit polls — keeps FPS overhead
+        // negligible while still feeling alive in the demo.
+        auxTimer = setInterval(refreshAuxZones, 1000);
+        // SDR spectrum animates every 700ms (mirrors mock setInterval).
+        sdrTickTimer = setInterval(animateSdrSpectrum, 700);
+        loadHudLayoutFromConfig();
         updateHUD();
+        refreshAuxZones();
+        animateSdrSpectrum();
     }
 
     function onLeave() {
         if (updateTimer) {
             clearInterval(updateTimer);
             updateTimer = null;
+        }
+        if (auxTimer) {
+            clearInterval(auxTimer);
+            auxTimer = null;
+        }
+        if (sdrTickTimer) {
+            clearInterval(sdrTickTimer);
+            sdrTickTimer = null;
         }
         stopVideoPolling();
         hideContextMenu();
@@ -516,6 +542,9 @@ const HydraOps = (() => {
         updateSidebarMission(stats);
         updateSidebarPipeline(stats);
         updateSidebarDetLog(HydraApp.state.detections);
+        // FlightHUD (HDG/SPD/ALT/Cards) sourced from the same stats sample —
+        // keeps the rail in lock-step with the telemetry strip.
+        updateFlightHud(stats);
     }
 
     function updateSidebarTracks() {
@@ -1116,6 +1145,699 @@ const HydraOps = (() => {
 
         var pipelineStopBtn = document.getElementById('ops-btn-pipeline-stop');
         if (pipelineStopBtn) pipelineStopBtn.addEventListener('click', stopPipelineFromOps);
+
+        // FlightHUD layout picker + Cockpit TAK click-to-expand
+        wireFlightHudPicker();
+        wireCockpitMapClick();
+    }
+
+    // ── FlightHUD updates ──
+    // Renders HDG tape, SPD/ALT VTapes, ReadoutCards, Status strip from
+    // the existing /api/stats sample. Falls back to '--' in --text-dim
+    // when the underlying field is null (matches mock spec).
+    var SVG_NS = 'http://www.w3.org/2000/svg';
+
+    function _setText(el, value) {
+        if (el && el.textContent !== value) el.textContent = value;
+    }
+
+    function _setAttr(el, name, value) {
+        if (el && el.getAttribute(name) !== value) el.setAttribute(name, value);
+    }
+
+    function renderHdgTape(hdg) {
+        var svg = document.getElementById('ops-fhud-hdg-svg');
+        var readout = document.getElementById('ops-fhud-hdg-readout');
+        if (!svg) return;
+
+        var hasHdg = (typeof hdg === 'number' && isFinite(hdg));
+        var sig = hasHdg ? Math.round(hdg) : 'na';
+        if (svg._lastSig === sig) return;
+        svg._lastSig = sig;
+
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+        if (!hasHdg) {
+            if (readout) {
+                readout.textContent = '--';
+                readout.style.color = 'var(--text-dim)';
+            }
+            return;
+        }
+
+        var range = 60;
+        for (var d = -range / 2; d <= range / 2; d += 5) {
+            var real = (((hdg + d) % 360) + 360) % 360;
+            var major = (Math.round(real) % 30 === 0);
+            var x = (d + range / 2) / range * 160; // viewBox 160 wide
+            var line = document.createElementNS(SVG_NS, 'line');
+            line.setAttribute('x1', x.toFixed(1));
+            line.setAttribute('x2', x.toFixed(1));
+            line.setAttribute('y1', major ? '0' : '6');
+            line.setAttribute('y2', major ? '14' : '12');
+            line.setAttribute('stroke', 'var(--olive-muted)');
+            line.setAttribute('stroke-width', '1');
+            line.setAttribute('opacity', major ? '0.9' : '0.35');
+            svg.appendChild(line);
+            if (major) {
+                var txt = document.createElementNS(SVG_NS, 'text');
+                txt.setAttribute('x', x.toFixed(1));
+                txt.setAttribute('y', '26');
+                txt.setAttribute('fill', 'var(--text-primary)');
+                txt.setAttribute('font-size', '9');
+                txt.setAttribute('text-anchor', 'middle');
+                txt.setAttribute('font-family', 'var(--font-mono)');
+                txt.textContent = String(Math.round(real)).padStart(3, '0');
+                svg.appendChild(txt);
+            }
+        }
+        if (readout) {
+            readout.textContent = String(Math.round(hdg)).padStart(3, '0') + '\u00B0';
+            readout.style.color = '';
+        }
+    }
+
+    function renderVTape(svgId, valueId, value, step, majorEvery, decimals) {
+        var svg = document.getElementById(svgId);
+        var valueEl = document.getElementById(valueId);
+        if (!svg) return;
+
+        var hasValue = (typeof value === 'number' && isFinite(value));
+        var sig = hasValue ? value.toFixed(decimals != null ? decimals : 1) : 'na';
+        if (svg._lastSig === sig) return;
+        svg._lastSig = sig;
+
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+        if (!hasValue) {
+            if (valueEl) {
+                valueEl.textContent = '--';
+                valueEl.style.color = 'var(--text-dim)';
+            }
+            return;
+        }
+
+        var count = 11;
+        var half = Math.floor(count / 2);
+        for (var i = -half; i <= half; i++) {
+            var v = value + i * step;
+            var major = (Math.round(v / step) % majorEvery === 0);
+            var y = ((i + count / 2) / count) * 120;
+            var line = document.createElementNS(SVG_NS, 'line');
+            line.setAttribute('x1', '0');
+            line.setAttribute('x2', major ? '12' : '6');
+            line.setAttribute('y1', y.toFixed(1));
+            line.setAttribute('y2', y.toFixed(1));
+            line.setAttribute('stroke', 'var(--olive-muted)');
+            line.setAttribute('stroke-width', '1');
+            line.setAttribute('opacity', major ? '0.9' : '0.3');
+            svg.appendChild(line);
+            if (major) {
+                var txt = document.createElementNS(SVG_NS, 'text');
+                txt.setAttribute('x', '16');
+                txt.setAttribute('y', y.toFixed(1));
+                txt.setAttribute('fill', '#888');
+                txt.setAttribute('font-size', '8');
+                txt.setAttribute('dominant-baseline', 'central');
+                txt.setAttribute('font-family', 'var(--font-mono)');
+                txt.textContent = v.toFixed(0);
+                svg.appendChild(txt);
+            }
+        }
+        if (valueEl) {
+            valueEl.textContent = value.toFixed(decimals != null ? decimals : 1);
+            valueEl.style.color = '';
+        }
+    }
+
+    function _toneForBatt(pct) {
+        if (pct == null) return 'dim';
+        if (pct > 50) return 'good';
+        if (pct > 25) return 'warn';
+        return 'bad';
+    }
+
+    function _toneForLink(pct) {
+        if (pct == null) return 'dim';
+        if (pct > 80) return 'good';
+        if (pct > 50) return 'warn';
+        return 'bad';
+    }
+
+    function renderReadoutCards(stats) {
+        var s = stats || {};
+        // Battery
+        var battEl = document.getElementById('ops-fhud-card-batt');
+        var battBig = document.getElementById('ops-fhud-card-batt-big');
+        var battSub = document.getElementById('ops-fhud-card-batt-sub');
+        if (battEl) {
+            var battPct = (typeof s.battery === 'number' && isFinite(s.battery)) ? s.battery : null;
+            var battTone = _toneForBatt(battPct);
+            _setAttr(battEl, 'data-tone', battTone);
+            _setText(battBig, battPct != null ? battPct.toFixed(0) + '%' : '--');
+            _setText(battSub, battPct != null ? 'on bus' : 'no sensor');
+        }
+        // Link / RSSI from RF status (mavlink RSSI not generally surfaced in stats)
+        var linkEl = document.getElementById('ops-fhud-card-link');
+        var linkBig = document.getElementById('ops-fhud-card-link-big');
+        var linkSub = document.getElementById('ops-fhud-card-link-sub');
+        if (linkEl) {
+            var rf = HydraApp.state.rfStatus || {};
+            var rssi = (typeof rf.current_rssi === 'number') ? rf.current_rssi : null;
+            var linkPct = rssi != null ? Math.max(0, Math.min(100, rssi + 100)) : null;
+            _setAttr(linkEl, 'data-tone', _toneForLink(linkPct));
+            _setText(linkBig, linkPct != null ? linkPct.toFixed(0) + '%' : '--');
+            _setText(linkSub, rssi != null ? rssi.toFixed(0) + ' dBm' : '--');
+        }
+        // Position — reuse SIM GPS suffix helper
+        var posEl = document.getElementById('ops-fhud-card-pos');
+        var posBig = document.getElementById('ops-fhud-card-pos-big');
+        var posSub = document.getElementById('ops-fhud-card-pos-sub');
+        if (posEl) {
+            _setAttr(posEl, 'data-tone', 'info');
+            var pos = s.position || null;
+            var posStr = window.HydraSimGps && pos
+                ? window.HydraSimGps.withSimSuffix(pos)
+                : (pos || '--');
+            _setText(posBig, pos ? '\u2022' : '--');
+            _setText(posSub, posStr);
+        }
+        // GPS sats
+        var gpsEl = document.getElementById('ops-fhud-card-gps');
+        var gpsBig = document.getElementById('ops-fhud-card-gps-big');
+        var gpsSub = document.getElementById('ops-fhud-card-gps-sub');
+        if (gpsEl) {
+            var sats = (typeof s.gps_sats === 'number') ? s.gps_sats : null;
+            var fix = s.gps_fix;
+            var tone = (sats != null && sats >= 10) ? 'good'
+                     : (sats != null && sats >= 7) ? 'warn'
+                     : (sats != null) ? 'bad' : 'dim';
+            _setAttr(gpsEl, 'data-tone', tone);
+            _setText(gpsBig, sats != null ? sats + ' sat' : '--');
+            _setText(gpsSub, fix != null ? (fix >= 3 ? '3D fix' : fix >= 2 ? '2D' : 'no fix') : '--');
+        }
+    }
+
+    function renderStatusStrip(stats) {
+        var s = stats || {};
+        var rf = HydraApp.state.rfStatus || {};
+        var rssi = (typeof rf.current_rssi === 'number') ? rf.current_rssi : null;
+        var linkPct = rssi != null ? Math.max(0, Math.min(100, rssi + 100)) : null;
+        var linkText = document.getElementById('ops-fhud-status-link');
+        var battEl = document.getElementById('ops-fhud-status-batt');
+        if (linkText) linkText.textContent = 'LINK ' + (linkPct != null ? linkPct.toFixed(0) + '%' : '--');
+        if (battEl) {
+            var batt = (typeof s.battery === 'number') ? s.battery : null;
+            battEl.textContent = batt != null ? batt.toFixed(0) + '%' : '--';
+            battEl.classList.toggle('warn', batt != null && batt <= 30);
+        }
+    }
+
+    function renderTargetBlock(stats) {
+        var target = HydraApp.state.target || {};
+        var wrap = document.getElementById('ops-fhud-target');
+        var rows = document.getElementById('ops-fhud-target-rows');
+        if (!wrap || !rows) return;
+
+        var locked = !!target.locked;
+        wrap.classList.toggle('locked', locked);
+
+        if (!locked) {
+            // DOM-diff: only rebuild if not already empty
+            if (rows.children.length !== 1 || !rows.querySelector('.flight-hud-target-empty')) {
+                while (rows.firstChild) rows.removeChild(rows.firstChild);
+                var empty = document.createElement('div');
+                empty.className = 'flight-hud-target-empty';
+                empty.textContent = 'no lock';
+                rows.appendChild(empty);
+            }
+            return;
+        }
+
+        var fields = [
+            ['ID',  '#' + (target.track_id != null ? target.track_id : '--')],
+            ['CLS', String(target.label || '--').toUpperCase()],
+            ['CNF', target.confidence != null ? Math.round(target.confidence * 100) + '%' : '--'],
+            ['RNG', target.range_m != null ? Math.round(target.range_m) + ' m' : '--'],
+            ['BRG', target.bearing_deg != null ? String(Math.round(target.bearing_deg)).padStart(3, '0') + '\u00B0' : '--'],
+        ];
+
+        // Rebuild only if row count changes; otherwise diff cell text
+        if (rows.children.length !== fields.length || rows.querySelector('.flight-hud-target-empty')) {
+            while (rows.firstChild) rows.removeChild(rows.firstChild);
+            for (var i = 0; i < fields.length; i++) {
+                var row = document.createElement('div');
+                row.className = 'flight-hud-target-row';
+                var k = document.createElement('span');
+                var v = document.createElement('span');
+                row.appendChild(k);
+                row.appendChild(v);
+                rows.appendChild(row);
+            }
+        }
+        for (var j = 0; j < fields.length; j++) {
+            var r = rows.children[j];
+            if (r) {
+                _setText(r.children[0], fields[j][0]);
+                _setText(r.children[1], fields[j][1]);
+            }
+        }
+    }
+
+    function updateFlightHud(stats) {
+        var s = stats || {};
+        renderHdgTape(typeof s.heading === 'number' ? s.heading : null);
+        renderVTape('ops-fhud-spd-svg', 'ops-fhud-spd-value',
+            typeof s.speed === 'number' ? s.speed : null, 1, 2, 1);
+        renderVTape('ops-fhud-alt-svg', 'ops-fhud-alt-value',
+            typeof s.altitude === 'number' ? s.altitude : null, 2, 5, 0);
+        renderReadoutCards(s);
+        renderStatusStrip(s);
+        renderTargetBlock(s);
+    }
+
+    // ── Cockpit strip updates (1 Hz) ──
+    function refreshAuxZones() {
+        // ServoPanDial — /api/servo/status
+        if (!zonePending.hud) {
+            zonePending.hud = true;
+            HydraApp.apiGet('/api/servo/status').then(function (data) {
+                zonePending.hud = false;
+                renderServoDial(data || {});
+            }).catch(function () { zonePending.hud = false; });
+        }
+        // Cockpit map peers — /api/tak/peers
+        // SDR device list — /api/rf/ambient_scan
+        if (!zonePending.cockpit) {
+            zonePending.cockpit = true;
+            Promise.all([
+                HydraApp.apiGet('/api/tak/peers').catch(function () { return null; }),
+                HydraApp.apiGet('/api/rf/ambient_scan').catch(function () { return null; }),
+            ]).then(function (arr) {
+                zonePending.cockpit = false;
+                renderCockpitMap(arr[0] || {});
+                renderCockpitSdr(arr[1] || {});
+            }).catch(function () { zonePending.cockpit = false; });
+        }
+        updateCockpitStrip();
+    }
+
+    function renderServoDial(data) {
+        var cell = document.getElementById('ops-cockpit-servo');
+        var svg = document.getElementById('ops-cockpit-servo-svg');
+        var pillEl = document.getElementById('ops-cockpit-servo-pill');
+        var panEl = document.getElementById('ops-cockpit-servo-pan');
+        var tiltEl = document.getElementById('ops-cockpit-servo-tilt');
+        var rateEl = document.getElementById('ops-cockpit-servo-rate');
+        var rateLabel = document.getElementById('ops-cockpit-servo-rate-label');
+        if (!svg || !cell) return;
+
+        var enabled = data.enabled !== false;
+        var pan = (typeof data.pan_deg === 'number') ? data.pan_deg : 0;
+        var tilt = (typeof data.tilt_deg === 'number') ? data.tilt_deg : 0;
+        var scanning = !!data.scanning;
+        var locked = data.locked_track_id != null;
+        var target = HydraApp.state.target || {};
+        var strike = target.approach_mode === 'strike';
+        var mode = strike ? 'STRIKE' : (locked ? 'LOCKED' : 'SCAN');
+        cell.setAttribute('data-mode', mode);
+        if (pillEl) pillEl.textContent = scanning ? 'SCAN' : (locked ? 'TRACK' : (enabled ? 'IDLE' : 'OFF'));
+
+        var sig = enabled + '|' + Math.round(pan) + '|' + Math.round(tilt) + '|' + mode;
+        if (svg._lastSig !== sig) {
+            svg._lastSig = sig;
+            while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+            // Defs: dial gradient
+            var defs = document.createElementNS(SVG_NS, 'defs');
+            var grad = document.createElementNS(SVG_NS, 'radialGradient');
+            grad.setAttribute('id', 'ops-cockpit-servo-grad');
+            grad.setAttribute('cx', '50%');
+            grad.setAttribute('cy', '100%');
+            grad.setAttribute('r', '90%');
+            var stop1 = document.createElementNS(SVG_NS, 'stop');
+            stop1.setAttribute('offset', '0%');
+            stop1.setAttribute('stop-color', 'rgba(56,87,35,0.18)');
+            var stop2 = document.createElementNS(SVG_NS, 'stop');
+            stop2.setAttribute('offset', '100%');
+            stop2.setAttribute('stop-color', 'rgba(56,87,35,0)');
+            grad.appendChild(stop1);
+            grad.appendChild(stop2);
+            defs.appendChild(grad);
+            svg.appendChild(defs);
+
+            // Arc
+            var arc = document.createElementNS(SVG_NS, 'path');
+            arc.setAttribute('d', 'M 10 100 A 90 90 0 0 1 190 100');
+            arc.setAttribute('fill', 'url(#ops-cockpit-servo-grad)');
+            arc.setAttribute('stroke', 'var(--border-default)');
+            arc.setAttribute('stroke-width', '1');
+            svg.appendChild(arc);
+
+            // Ticks every 15°
+            for (var i = 0; i < 13; i++) {
+                var angle = -90 + i * 15;
+                var a = angle * Math.PI / 180;
+                var x1 = 100 + Math.sin(a) * 88;
+                var y1 = 100 - Math.cos(a) * 88;
+                var inner = (i % 2 === 0) ? 78 : 82;
+                var x2 = 100 + Math.sin(a) * inner;
+                var y2 = 100 - Math.cos(a) * inner;
+                var t = document.createElementNS(SVG_NS, 'line');
+                t.setAttribute('x1', x1.toFixed(1));
+                t.setAttribute('y1', y1.toFixed(1));
+                t.setAttribute('x2', x2.toFixed(1));
+                t.setAttribute('y2', y2.toFixed(1));
+                t.setAttribute('stroke', (i % 2 === 0) ? '#444' : '#2a2a2a');
+                t.setAttribute('stroke-width', (i % 2 === 0) ? '1' : '0.6');
+                svg.appendChild(t);
+                if (i % 2 === 0) {
+                    var lbl = document.createElementNS(SVG_NS, 'text');
+                    lbl.setAttribute('x', (100 + Math.sin(a) * 72).toFixed(1));
+                    lbl.setAttribute('y', (100 - Math.cos(a) * 72 + 3).toFixed(1));
+                    lbl.setAttribute('text-anchor', 'middle');
+                    lbl.setAttribute('font-family', 'var(--font-mono)');
+                    lbl.setAttribute('font-size', '7');
+                    lbl.setAttribute('fill', '#555');
+                    lbl.textContent = angle === 0 ? '0' : (angle > 0 ? '+' + angle : String(angle));
+                    svg.appendChild(lbl);
+                }
+            }
+
+            // FOV cone + needle (rotated by pan)
+            var FOV = 60;
+            var rad = FOV / 2 * Math.PI / 180;
+            var coneX1 = -Math.sin(rad) * 90;
+            var coneY1 = -Math.cos(rad) * 90;
+            var coneX2 = Math.sin(rad) * 90;
+            var coneY2 = -Math.cos(rad) * 90;
+            var g = document.createElementNS(SVG_NS, 'g');
+            g.setAttribute('transform', 'translate(100 100) rotate(' + pan.toFixed(1) + ')');
+            var fov = document.createElementNS(SVG_NS, 'path');
+            fov.setAttribute('d', 'M 0 0 L ' + coneX1.toFixed(1) + ' ' + coneY1.toFixed(1)
+                + ' A 90 90 0 0 1 ' + coneX2.toFixed(1) + ' ' + coneY2.toFixed(1) + ' Z');
+            fov.setAttribute('fill', mode === 'LOCKED' ? 'rgba(252,211,77,0.12)' : 'rgba(166,188,146,0.1)');
+            fov.setAttribute('stroke', mode === 'LOCKED' ? 'rgba(252,211,77,0.4)' : 'rgba(166,188,146,0.35)');
+            fov.setAttribute('stroke-width', '0.6');
+            fov.setAttribute('stroke-dasharray', '3 2');
+            g.appendChild(fov);
+            var needleColor = mode === 'STRIKE' ? 'var(--danger)'
+                : mode === 'LOCKED' ? 'var(--warning)' : 'var(--olive-muted)';
+            var needle = document.createElementNS(SVG_NS, 'line');
+            needle.setAttribute('x1', '0');
+            needle.setAttribute('y1', '0');
+            needle.setAttribute('x2', '0');
+            needle.setAttribute('y2', '-90');
+            needle.setAttribute('stroke', needleColor);
+            needle.setAttribute('stroke-width', '2');
+            g.appendChild(needle);
+            var tip = document.createElementNS(SVG_NS, 'circle');
+            tip.setAttribute('cx', '0');
+            tip.setAttribute('cy', '-90');
+            tip.setAttribute('r', '2.5');
+            tip.setAttribute('fill', needleColor);
+            g.appendChild(tip);
+            svg.appendChild(g);
+
+            var hub = document.createElementNS(SVG_NS, 'circle');
+            hub.setAttribute('cx', '100');
+            hub.setAttribute('cy', '100');
+            hub.setAttribute('r', '4');
+            hub.setAttribute('fill', '#0a0a0a');
+            hub.setAttribute('stroke', '#444');
+            hub.setAttribute('stroke-width', '1');
+            svg.appendChild(hub);
+        }
+
+        if (panEl) panEl.textContent = enabled ? (pan >= 0 ? '+' : '') + pan.toFixed(0) + '\u00B0' : '--';
+        if (tiltEl) tiltEl.textContent = enabled ? (tilt >= 0 ? '+' : '') + tilt.toFixed(0) + '\u00B0' : '--';
+        if (rateEl) {
+            rateEl.textContent = enabled ? Math.round(1500 + pan * 5.5) : '--';
+        }
+        if (rateLabel) rateLabel.textContent = 'PWM';
+    }
+
+    function renderCockpitMap(data) {
+        var svg = document.getElementById('ops-cockpit-tak-svg');
+        var titleEl = document.getElementById('ops-cockpit-tak-title');
+        if (!svg) return;
+        var peers = (data && Array.isArray(data.peers)) ? data.peers : [];
+        var stats = HydraApp.state.stats || {};
+        var callsign = stats.callsign || 'HYDRA-1';
+        if (titleEl) titleEl.textContent = 'TAK \u00B7 ' + callsign;
+
+        var sig = peers.length + '|' + callsign;
+        if (svg._lastSig === sig) return;
+        svg._lastSig = sig;
+
+        // Drop everything except the existing <defs> + grid <rect>
+        var defs = svg.querySelector('defs');
+        var rect = svg.querySelector('rect');
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        if (defs) svg.appendChild(defs);
+        if (rect) svg.appendChild(rect);
+
+        var selfX = 50, selfY = 58; // percent
+        // Range rings
+        var rings = [40, 80, 130];
+        for (var r = 0; r < rings.length; r++) {
+            var ring = document.createElementNS(SVG_NS, 'circle');
+            ring.setAttribute('cx', selfX + '%');
+            ring.setAttribute('cy', selfY + '%');
+            ring.setAttribute('r', String(rings[r] * 0.55));
+            ring.setAttribute('fill', 'none');
+            ring.setAttribute('stroke', 'rgba(166,188,146,0.15)');
+            ring.setAttribute('stroke-width', '0.5');
+            ring.setAttribute('stroke-dasharray', '2 3');
+            svg.appendChild(ring);
+        }
+
+        // Peers: lay them out radially around self, clamped to canvas
+        var maxPeers = Math.min(peers.length, 6);
+        for (var p = 0; p < maxPeers; p++) {
+            var theta = (p / Math.max(1, maxPeers)) * Math.PI * 2;
+            var px = Math.max(8, Math.min(92, selfX + Math.cos(theta) * 28));
+            var py = Math.max(8, Math.min(92, selfY + Math.sin(theta) * 22));
+            var line = document.createElementNS(SVG_NS, 'line');
+            line.setAttribute('x1', selfX + '%');
+            line.setAttribute('y1', selfY + '%');
+            line.setAttribute('x2', px + '%');
+            line.setAttribute('y2', py + '%');
+            line.setAttribute('stroke', 'rgba(147,197,253,0.25)');
+            line.setAttribute('stroke-width', '0.6');
+            line.setAttribute('stroke-dasharray', '2 3');
+            svg.appendChild(line);
+
+            var peerG = document.createElementNS(SVG_NS, 'g');
+            peerG.setAttribute('transform', 'translate(' + px + '% ' + py + '%)');
+            var pdot = document.createElementNS(SVG_NS, 'circle');
+            pdot.setAttribute('r', '3.5');
+            pdot.setAttribute('fill', 'var(--info)');
+            pdot.setAttribute('stroke', '#000');
+            pdot.setAttribute('stroke-width', '0.4');
+            peerG.appendChild(pdot);
+            var pl = document.createElementNS(SVG_NS, 'text');
+            pl.setAttribute('x', '6');
+            pl.setAttribute('y', '3');
+            pl.setAttribute('font-family', 'var(--font-mono)');
+            pl.setAttribute('font-size', '8');
+            pl.setAttribute('fill', 'var(--info)');
+            pl.textContent = String(peers[p].callsign || peers[p].cs || 'PEER');
+            peerG.appendChild(pl);
+            svg.appendChild(peerG);
+        }
+
+        // Self marker — inner dot + outer dashed ring (CSS spin)
+        var selfG = document.createElementNS(SVG_NS, 'g');
+        selfG.setAttribute('transform', 'translate(' + selfX + '% ' + selfY + '%)');
+        var ring2 = document.createElementNS(SVG_NS, 'circle');
+        ring2.setAttribute('r', '7');
+        ring2.setAttribute('fill', 'none');
+        ring2.setAttribute('stroke', 'var(--olive-muted)');
+        ring2.setAttribute('stroke-width', '0.7');
+        ring2.setAttribute('stroke-dasharray', '2 2');
+        ring2.setAttribute('class', 'cockpit-tak-self-ring');
+        selfG.appendChild(ring2);
+        var sdot = document.createElementNS(SVG_NS, 'circle');
+        sdot.setAttribute('r', '3.5');
+        sdot.setAttribute('fill', 'var(--olive-muted)');
+        selfG.appendChild(sdot);
+        var sl = document.createElementNS(SVG_NS, 'text');
+        sl.setAttribute('x', '6');
+        sl.setAttribute('y', '3');
+        sl.setAttribute('font-family', 'var(--font-mono)');
+        sl.setAttribute('font-size', '8');
+        sl.setAttribute('fill', 'var(--text-primary)');
+        sl.setAttribute('font-weight', '700');
+        sl.textContent = callsign;
+        selfG.appendChild(sl);
+        svg.appendChild(selfG);
+    }
+
+    function renderCockpitSdr(data) {
+        var listEl = document.getElementById('ops-cockpit-sdr-list');
+        var devEl = document.getElementById('ops-cockpit-sdr-dev');
+        var newEl = document.getElementById('ops-cockpit-sdr-new');
+        var droneEl = document.getElementById('ops-cockpit-sdr-drone');
+        if (!listEl) return;
+
+        var samples = (data && Array.isArray(data.samples)) ? data.samples : [];
+        // Synthesize devices from samples — not all backends populate names;
+        // we map sample.callsign/mac/vendor/rssi when present.
+        var devices = samples.slice(0, 12).map(function (s, i) {
+            return {
+                type: s.type || (i === 0 ? 'wifi' : 'ble'),
+                name: s.callsign || s.name || s.ssid || ('DEV-' + (s.mac || i)),
+                mac: s.mac || ('00:00:00:00:00:' + String(i).padStart(2, '0')),
+                vendor: s.vendor || '--',
+                rssi: (typeof s.rssi === 'number') ? s.rssi : -100,
+                age: (typeof s.age === 'number') ? s.age : 999,
+                alert: !!s.alert,
+                you: !!s.you,
+            };
+        }).sort(function (a, b) { return b.rssi - a.rssi; });
+
+        if (devEl) devEl.textContent = devices.length || '--';
+        if (newEl) newEl.textContent = devices.filter(function (d) { return d.age < 5; }).length || '--';
+        if (droneEl) droneEl.textContent = devices.filter(function (d) {
+            return /drone|rid|dji/i.test(d.type) || /dji|drone/i.test(d.name);
+        }).length || '--';
+
+        // DOM-diff list
+        if (devices.length === 0) {
+            if (!listEl.querySelector('.cockpit-sdr-empty')) {
+                while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
+                var empty = document.createElement('div');
+                empty.className = 'cockpit-sdr-empty';
+                empty.textContent = 'scanning…';
+                listEl.appendChild(empty);
+            }
+            return;
+        }
+        var emptyEl = listEl.querySelector('.cockpit-sdr-empty');
+        if (emptyEl) listEl.removeChild(emptyEl);
+
+        while (listEl.children.length > devices.length) listEl.removeChild(listEl.lastChild);
+        while (listEl.children.length < devices.length) {
+            var row = document.createElement('div');
+            row.className = 'cockpit-sdr-row';
+            for (var i = 0; i < 5; i++) row.appendChild(document.createElement('span'));
+            row.children[0].className = 'cockpit-sdr-row-type';
+            row.children[1].className = 'cockpit-sdr-row-name';
+            row.children[2].className = 'cockpit-sdr-row-mac';
+            row.children[3].className = 'cockpit-sdr-row-vendor';
+            row.children[4].className = 'cockpit-sdr-row-rssi';
+            listEl.appendChild(row);
+        }
+        for (var k = 0; k < devices.length; k++) {
+            var d = devices[k];
+            var r2 = listEl.children[k];
+            if (!r2) continue;
+            r2.classList.toggle('is-new', d.age < 3);
+            r2.classList.toggle('is-alert', d.alert);
+            r2.classList.toggle('is-you', d.you);
+            _setText(r2.children[0], String(d.type).split('-')[0].toUpperCase().slice(0, 4));
+            _setText(r2.children[1], d.name);
+            _setText(r2.children[2], d.mac);
+            _setText(r2.children[3], d.vendor);
+            _setText(r2.children[4], String(d.rssi));
+        }
+    }
+
+    function animateSdrSpectrum() {
+        var svg = document.getElementById('ops-cockpit-sdr-spectrum');
+        if (!svg) return;
+        sdrTickValue++;
+        // Mock-style: 70 bars, width 2, x stride 2.9, sin(i*0.4 + tick*0.3)
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        for (var i = 0; i < 70; i++) {
+            var h = 4 + Math.abs(Math.sin(i * 0.4 + sdrTickValue * 0.3)) * 16
+                + ((i % 11 === 0) ? 12 : 0) + Math.random() * 4;
+            var bar = document.createElementNS(SVG_NS, 'rect');
+            bar.setAttribute('x', (i * 2.9).toFixed(1));
+            bar.setAttribute('y', (34 - h).toFixed(1));
+            bar.setAttribute('width', '2');
+            bar.setAttribute('height', h.toFixed(1));
+            bar.setAttribute('fill', 'var(--olive-primary)');
+            bar.setAttribute('opacity', (0.5 + (h / 34) * 0.5).toFixed(2));
+            svg.appendChild(bar);
+        }
+    }
+
+    // No-arg variant for the public surface — consumers call this each tick
+    // and it pulls from cached HydraApp state without requiring a fresh
+    // /api/* round-trip. The poller in refreshAuxZones handles the network.
+    function updateCockpitStrip() {
+        // Title pill mirrors current callsign each tick (cheap; no fetch)
+        var titleEl = document.getElementById('ops-cockpit-tak-title');
+        var stats = HydraApp.state.stats || {};
+        if (titleEl) {
+            var cs = stats.callsign || 'HYDRA-1';
+            var want = 'TAK \u00B7 ' + cs;
+            if (titleEl.textContent !== want) titleEl.textContent = want;
+        }
+        // Servo dial: refresh just the readout numbers from cached state
+        // when a target is locked (mirror UI feedback without server poll)
+        var target = HydraApp.state.target || {};
+        var pillEl = document.getElementById('ops-cockpit-servo-pill');
+        if (pillEl && target.locked) {
+            var strike = target.approach_mode === 'strike';
+            pillEl.textContent = strike ? 'STRIKE' : 'TRACK';
+        }
+    }
+
+    // ── HUD layout picker ──
+    function applyHudLayout(layout) {
+        var validLayouts = ['classic', 'operator', 'graphs', 'hybrid'];
+        if (validLayouts.indexOf(layout) === -1) layout = 'classic';
+        var rail = document.getElementById('ops-flight-hud');
+        if (rail) rail.setAttribute('data-hud-layout', layout);
+        var picker = document.getElementById('flight-hud-layout-picker');
+        if (picker && picker.value !== layout) picker.value = layout;
+    }
+
+    function loadHudLayoutFromConfig() {
+        if (hudLayoutLoaded) return;
+        hudLayoutLoaded = true;
+        if (!HydraApp || typeof HydraApp.apiGet !== 'function') {
+            applyHudLayout('classic');
+            return;
+        }
+        HydraApp.apiGet('/api/config/full').then(function (cfg) {
+            var layout = (cfg && cfg.web && cfg.web.hud_layout) ? cfg.web.hud_layout : 'classic';
+            applyHudLayout(layout);
+        }).catch(function () { applyHudLayout('classic'); });
+    }
+
+    function onHudLayoutPickerChange(e) {
+        var layout = e && e.target ? e.target.value : 'classic';
+        applyHudLayout(layout);
+        if (HydraApp && typeof HydraApp.apiPost === 'function') {
+            HydraApp.apiPost('/api/config/full', { web: { hud_layout: layout } }).then(function (r) {
+                if (r) HydraApp.showToast('HUD layout: ' + layout, 'info');
+            });
+        }
+    }
+
+    function wireFlightHudPicker() {
+        var picker = document.getElementById('flight-hud-layout-picker');
+        if (!picker || picker._wired) return;
+        picker._wired = true;
+        picker.addEventListener('change', onHudLayoutPickerChange);
+    }
+
+    // ── Cockpit map expand click ──
+    function wireCockpitMapClick() {
+        var cell = document.getElementById('ops-cockpit-tak');
+        if (!cell || cell._wired) return;
+        cell._wired = true;
+        cell.addEventListener('click', function () {
+            // Future: open full TAK overlay. For now, switch to the TAK view
+            // since that's where the full map lives.
+            if (window.location.hash !== '#tak') {
+                window.location.hash = '#tak';
+            }
+        });
     }
 
     return {
@@ -1130,5 +1852,8 @@ const HydraOps = (() => {
         updateSidebarMission: updateSidebarMission,
         updateSidebarPipeline: updateSidebarPipeline,
         updateSidebarDetLog: updateSidebarDetLog,
+        updateFlightHud: updateFlightHud,
+        updateCockpitStrip: updateCockpitStrip,
+        applyHudLayout: applyHudLayout,
     };
 })();

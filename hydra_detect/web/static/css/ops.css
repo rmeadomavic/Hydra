@@ -1,22 +1,57 @@
-/* ── Ops HUD View — Full-Width Video with Overlay Elements ── */
+/* ── Ops HUD View — composite operator station per ops-station.jsx ── */
 @import url('./ops-sidebar.css');
+@import url('./flight-hud.css');
+@import url('./cockpit-strip.css');
 
 
-/* Ops view: 60% video left, 40% HUD panels right */
+/* Outer view fills the viewport; the grid is the layout owner. */
 #view-ops {
-    display: flex;
+    display: block;
     width: 100%;
     height: 100%;
 }
 
-/* Video container: left 60% */
+/* Outer ops grid — `auto 1fr 360px` columns × `1fr 220px` rows
+ * exactly per ops-station.jsx:221. Left column is reserved for a
+ * future mission-rail; today the slot collapses to 0px width. */
+.ops-grid {
+    display: grid;
+    grid-template-columns: auto 1fr 360px;
+    grid-template-rows: 1fr 220px;
+    height: 100%;
+    width: 100%;
+    gap: 0;
+    background: var(--bg-void);
+    min-height: 0;
+}
+
+/* Mission-rail slot (col 1, spans both rows). Empty for now. */
+.ops-mission-rail-slot {
+    grid-column: 1 / 2;
+    grid-row: 1 / 3;
+    width: 0;
+}
+
+/* Center top: video + 160px FlightHUD rail. */
+.ops-center-top {
+    grid-column: 2 / 3;
+    grid-row: 1 / 2;
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    border-right: 1px solid var(--border-default);
+    overflow: hidden;
+    background: #000;
+}
+
+/* Video container — fills the left side of center-top. */
 .ops-video-container {
     position: relative;
-    width: 60%;
+    flex: 1 1 auto;
+    min-width: 0;
     height: 100%;
     background: #000;
     overflow: hidden;
-    flex-shrink: 0;
 }
 
 /* Video frame: fill container, maintain aspect ratio */
@@ -28,9 +63,11 @@
     background: #000;
 }
 
-/* HUD sidebar: right 40% */
+/* HUD sidebar: right column (360px), spans both rows */
 .ops-hud-sidebar {
-    width: 40%;
+    grid-column: 3 / 4;
+    grid-row: 1 / 3;
+    width: 100%;
     height: 100%;
     background: var(--bg-panel);
     overflow-y: auto;
@@ -38,6 +75,8 @@
     display: flex;
     flex-direction: column;
     gap: var(--s-2);
+    border-left: 1px solid var(--border-default);
+    min-height: 0;
 }
 
 /* Canvas overlay: same size as container, layered over video */
@@ -318,12 +357,26 @@
 
 /* ── Responsive: tablet/Steam Deck ── */
 @media (max-width: 1279px) {
-    .ops-video-container {
-        width: 100%;
+    .ops-grid {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr 180px;
     }
 
-    .ops-hud-sidebar {
+    .ops-mission-rail-slot,
+    .ops-hud-sidebar,
+    .ops-flight-hud,
+    .flight-hud {
         display: none;
+    }
+
+    .ops-center-top {
+        grid-column: 1 / -1;
+        grid-row: 1 / 2;
+    }
+
+    .cockpit-strip {
+        grid-column: 1 / -1;
+        grid-row: 2 / 3;
     }
 
     .ops-telemetry-strip {
