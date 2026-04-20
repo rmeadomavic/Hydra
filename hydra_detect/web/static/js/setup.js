@@ -21,7 +21,7 @@
         if (team && veh) {
             callsignPreview.textContent = 'Will use: HYDRA-' + team + '-' + veh.toUpperCase();
         } else {
-            callsignPreview.textContent = 'Enter team + vehicle for auto-callsign';
+            callsignPreview.textContent = 'Enter team + platform for auto-callsign';
         }
     }
     teamInput.addEventListener('input', updateCallsignPreview);

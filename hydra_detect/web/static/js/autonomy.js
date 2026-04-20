@@ -327,7 +327,7 @@ const HydraAutonomy = (() => {
         appendCriteriaRow(list, 'Strike cooldown', formatFloat(c.strike_cooldown_sec, 1, 's'));
         appendCriteriaRow(list, 'GPS max stale', formatFloat(c.gps_max_stale_sec, 1, 's'));
         appendCriteriaRow(list, 'Require operator lock', c.require_operator_lock === true ? 'yes' : (c.require_operator_lock === false ? 'no' : '--'));
-        appendCriteriaRow(list, 'Allowed vehicle modes', c.allowed_vehicle_modes || '--');
+        appendCriteriaRow(list, 'Allowed platform modes', c.allowed_vehicle_modes || '--');
 
         const classesRow = document.createElement('li');
         classesRow.className = 'autonomy-criteria-row autonomy-criteria-row-classes';

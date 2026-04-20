@@ -24,7 +24,7 @@
     <div class="panel mock-panel" data-panel-id="vehicle" id="panel-vehicle">
         <div class="panel-header mock-panel-head">
             <span class="panel-drag-handle">&#10303;</span>
-            <h3 class="panel-title mock-section-label">Vehicle Telemetry</h3>
+            <h3 class="panel-title mock-section-label">Platform Telemetry</h3>
             <button class="panel-collapse-btn" aria-label="Collapse panel">&#9662;</button>
         </div>
         <div class="panel-body mock-panel-body">
@@ -196,7 +196,7 @@
                 </select>
             </div>
             <div class="panel-field">
-                <label class="panel-field-label" for="ctrl-profile-select">Mission Profile</label>
+                <label class="panel-field-label" for="ctrl-profile-select">Sortie Profile</label>
                 <select id="ctrl-profile-select">
                     <option value="">Loading...</option>
                 </select>
@@ -336,22 +336,22 @@
     <div class="panel mock-panel" data-panel-id="mission" id="panel-mission">
         <div class="panel-header mock-panel-head">
             <span class="panel-drag-handle">&#10303;</span>
-            <h3 class="panel-title mock-section-label">Mission</h3>
+            <h3 class="panel-title mock-section-label">Sortie</h3>
             <span class="badge" id="ctrl-mission-badge" style="margin-left:auto; margin-right:var(--s-2);">IDLE</span>
             <button class="panel-collapse-btn" aria-label="Collapse panel">&#9662;</button>
         </div>
         <div class="panel-body mock-panel-body">
             <div class="panel-field" id="ctrl-mission-name-field">
-                <label class="panel-field-label" for="ctrl-mission-name">Mission Name</label>
-                <input type="text" id="ctrl-mission-name" placeholder="e.g., mission-alpha" maxlength="100" style="width:100%; background:var(--bg-panel-alt); border:1px solid var(--border-default); color:var(--text-primary); padding:6px 8px; border-radius:4px; font-family:inherit; font-size:var(--font-sm);">
+                <label class="panel-field-label" for="ctrl-mission-name">Sortie Name</label>
+                <input type="text" id="ctrl-mission-name" placeholder="e.g., sortie-alpha" maxlength="100" style="width:100%; background:var(--bg-panel-alt); border:1px solid var(--border-default); color:var(--text-primary); padding:6px 8px; border-radius:4px; font-family:inherit; font-size:var(--font-sm);">
             </div>
             <div class="panel-field" id="ctrl-mission-active-info" style="display:none;">
                 <span class="panel-stat-label">Active:</span>
                 <span class="panel-stat-value mono accent" id="ctrl-mission-active-name">--</span>
             </div>
             <div style="display:flex;gap:8px;margin-top:8px;">
-                <button class="btn btn-green" id="ctrl-btn-mission-start">Start Mission</button>
-                <button class="btn btn-danger" id="ctrl-btn-mission-end" disabled>End Mission</button>
+                <button class="btn btn-green" id="ctrl-btn-mission-start">Start Sortie</button>
+                <button class="btn btn-danger" id="ctrl-btn-mission-end" disabled>End Sortie</button>
             </div>
             <div style="margin-top:8px;">
                 <button class="btn" id="ctrl-btn-export-waypoints" title="Export detection waypoints as QGC WPL 110 file">Export Waypoints</button>

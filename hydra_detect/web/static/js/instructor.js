@@ -144,7 +144,7 @@
             const statPairs = [
                 ['FPS', fps], ['Detections', detections],
                 ['Camera', cameraOk ? 'OK' : 'LOST'], ['Battery', batteryStr],
-                ['Mission', missionStr], ['Updated', staleSec + 's ago']
+                ['Sortie', missionStr], ['Updated', staleSec + 's ago']
             ];
             for (const [label, value] of statPairs) {
                 stats.appendChild(txt('span', label, 'label'));
@@ -183,7 +183,7 @@
                 addAlert(host, 'ABORT failed — HTTP ' + resp.status);
             }
         } catch (e) {
-            addAlert(host, 'ABORT FAILED — vehicle unreachable');
+            addAlert(host, 'ABORT FAILED — platform unreachable');
         }
     }
 

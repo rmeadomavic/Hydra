@@ -84,7 +84,7 @@ const HydraOperations = (() => {
         }
 
         const active = profileData.profiles.find(p => p.id === profileData.active);
-        if (descEl) descEl.textContent = active ? active.description : 'Select a mission profile or configure manually below.';
+        if (descEl) descEl.textContent = active ? active.description : 'Select a sortie profile or configure manually below.';
 
         const modelInfoEl = document.getElementById('ctrl-model-info');
         const modelNameEl = document.getElementById('ctrl-model-name');
@@ -1032,8 +1032,8 @@ const HydraOperations = (() => {
     // ── Actions ──
     async function commandMode(mode) {
         const labels = {
-            LOITER: 'Command vehicle to LOITER?',
-            AUTO: 'Resume AUTO mission?',
+            LOITER: 'Command platform to LOITER?',
+            AUTO: 'Resume AUTO sortie?',
             RTL: 'Return to Launch?'
         };
         if (!confirm(labels[mode] || ('Set mode to ' + mode + '?'))) return;
@@ -1223,7 +1223,7 @@ const HydraOperations = (() => {
         }
 
         const target = mode === 'wifi' ? bssid.trim() : freq + ' MHz';
-        if (!confirm('Start RF hunt?\n\nMode: ' + mode.toUpperCase() + '\nTarget: ' + target + '\n\nVehicle will switch to GUIDED mode.')) return;
+        if (!confirm('Start RF hunt?\n\nMode: ' + mode.toUpperCase() + '\nTarget: ' + target + '\n\nPlatform will switch to GUIDED mode.')) return;
 
         const body = {
             mode: mode,
@@ -1487,22 +1487,22 @@ const HydraOperations = (() => {
         const input = document.getElementById('ctrl-mission-name');
         const name = input ? input.value.trim() : '';
         if (!name) {
-            HydraApp.showToast('Enter a mission name before starting', 'info');
+            HydraApp.showToast('Enter a sortie name before starting', 'info');
             if (input) input.focus();
             return;
         }
         const result = await HydraApp.apiPost('/api/mission/start', { name });
         if (result && result.status === 'started') {
-            HydraApp.showToast('Mission started: ' + result.name, 'success');
+            HydraApp.showToast('Sortie started: ' + result.name, 'success');
             if (input) input.value = '';
         }
     }
 
     async function endMission() {
-        if (!confirm('End current mission?')) return;
+        if (!confirm('End current sortie?')) return;
         const result = await HydraApp.apiPost('/api/mission/end', {});
         if (result && result.status === 'ended') {
-            HydraApp.showToast('Mission ended', 'info');
+            HydraApp.showToast('Sortie ended', 'info');
         }
     }
 
