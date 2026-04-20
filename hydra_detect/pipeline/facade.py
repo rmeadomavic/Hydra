@@ -52,6 +52,7 @@ from ..web.server import (
     configure_web_password,
     run_server,
     set_tak_input,
+    set_tak_output,
     stream_state,
 )
 from .bootstrap import build_detector
@@ -623,6 +624,7 @@ class Pipeline:
                     unicast_targets=self._cfg.get("tak", "unicast_targets", fallback=""),
                     rtsp_url=rtsp_url,
                 )
+                set_tak_output(self._tak)
                 logger.info(
                     "TAK/ATAK output configured: %s:%d callsign=%s",
                     self._cfg.get("tak", "multicast_group", fallback="239.2.3.1"),
@@ -2424,12 +2426,14 @@ class Pipeline:
                 rtsp_url=rtsp_url,
             )
             if self._tak.start():
+                set_tak_output(self._tak)
                 return {"status": "ok", "running": True}
             self._tak = None
             return {"status": "error", "message": "Failed to start TAK output"}
         elif not enabled and self._tak is not None:
             self._tak.stop()
             self._tak = None
+            set_tak_output(None)
             return {"status": "ok", "running": False}
         return {"status": "ok", "running": self._tak is not None}
 
