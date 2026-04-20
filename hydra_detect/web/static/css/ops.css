@@ -30,12 +30,12 @@
 .ops-hud-sidebar {
     width: 40%;
     height: 100%;
-    background: var(--panel-bg);
+    background: var(--bg-panel);
     overflow-y: auto;
-    padding: var(--gap-sm);
+    padding: var(--s-2);
     display: flex;
     flex-direction: column;
-    gap: var(--gap-sm);
+    gap: var(--s-2);
 }
 
 /* Canvas overlay: same size as container, layered over video */
@@ -51,7 +51,7 @@
 /* ── HUD Sidebar Sections ── */
 .ops-sidebar-section {
     background: var(--card-bg-gradient);
-    border: 1px solid var(--card-border);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-md);
     overflow: hidden;
     transition: border-color var(--transition-normal);
@@ -68,10 +68,10 @@
     text-transform: uppercase;
     letter-spacing: var(--ls-condensed);
     color: var(--ogt-muted);
-    padding: var(--gap-xs) var(--gap-sm);
+    padding: var(--s-1) var(--s-2);
     background: linear-gradient(180deg, rgba(42, 65, 24, 0.1), rgba(0, 0, 0, 0.2));
     border-bottom: 1px solid var(--divider);
-    border-top: 2px solid var(--ogt-green);
+    border-top: 2px solid var(--olive-primary);
     border-radius: var(--radius-md) var(--radius-md) 0 0;
     min-height: 30px;
     display: flex;
@@ -81,21 +81,21 @@
 .ops-track-list {
     max-height: 200px;
     overflow-y: auto;
-    padding: var(--gap-xs);
+    padding: var(--s-1);
 }
 
 .ops-track-empty {
     font-size: var(--font-xs);
     color: var(--text-dim);
     text-align: center;
-    padding: var(--gap-md);
+    padding: var(--s-3);
 }
 
 .ops-track-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 2px var(--gap-xs);
+    padding: 2px var(--s-1);
     border-radius: var(--radius-sm);
     cursor: pointer;
     font-size: var(--font-xs);
@@ -108,7 +108,7 @@
 
 .ops-track-row.locked {
     background: rgba(56, 87, 35, 0.25);
-    border-left: 2px solid var(--ogt-green);
+    border-left: 2px solid var(--olive-primary);
 }
 
 .ops-track-id {
@@ -120,7 +120,7 @@
 .ops-track-label {
     flex: 1;
     color: var(--text-primary);
-    margin: 0 var(--gap-xs);
+    margin: 0 var(--s-1);
 }
 
 .ops-track-conf {
@@ -131,7 +131,7 @@
 }
 
 .ops-minimap {
-    background: var(--panel-bg);
+    background: var(--bg-panel);
     height: 200px;
     display: flex;
     align-items: center;
@@ -144,7 +144,7 @@
 }
 
 .ops-vehicle-info {
-    padding: var(--gap-xs) var(--gap-sm);
+    padding: var(--s-1) var(--s-2);
 }
 
 .ops-info-row {
@@ -168,14 +168,14 @@
 /* ── Stream Lost Badge ── */
 .ops-hud-stream-lost {
     position: absolute;
-    top: var(--gap-lg);
+    top: var(--s-4);
     left: 50%;
     transform: translateX(-50%);
     z-index: 15;
     background: var(--danger-bg);
     border: 1px solid var(--danger);
     border-radius: var(--radius-lg);
-    padding: var(--gap-xs) var(--gap-md);
+    padding: var(--s-1) var(--s-3);
     color: #fca5a5;
     font-family: 'Barlow Condensed', sans-serif;
     font-size: var(--font-sm);
@@ -188,7 +188,7 @@
 /* ── Lock Info Overlay (top center) ── */
 .ops-lock-overlay {
     position: absolute;
-    top: var(--gap-lg);
+    top: var(--s-4);
     left: 50%;
     transform: translateX(-50%);
     z-index: 10;
@@ -196,11 +196,11 @@
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     border-radius: var(--radius-lg);
-    padding: var(--gap-xs) var(--gap-md);
+    padding: var(--s-1) var(--s-3);
     display: flex;
     align-items: center;
-    gap: var(--gap-sm);
-    border: 1px solid var(--ogt-green);
+    gap: var(--s-2);
+    border: 1px solid var(--olive-primary);
     box-shadow: var(--glow-green);
 }
 
@@ -255,8 +255,8 @@
     border-top: 1px solid rgba(56, 87, 35, 0.3);
     display: flex;
     justify-content: center;
-    gap: var(--gap-lg);
-    padding: var(--gap-xs) var(--gap-md);
+    gap: var(--s-4);
+    padding: var(--s-1) var(--s-3);
 }
 
 .ops-telem-item {
@@ -288,11 +288,11 @@
 .ops-quick-actions {
     position: absolute;
     bottom: 40px;
-    left: var(--gap-md);
+    left: var(--s-3);
     z-index: 10;
     display: flex;
     flex-direction: column;
-    gap: var(--gap-xs);
+    gap: var(--s-1);
 }
 
 .ops-action-btn {
@@ -325,8 +325,8 @@
     }
 
     .ops-telemetry-strip {
-        gap: var(--gap-sm);
-        padding: var(--gap-xs) var(--gap-sm);
+        gap: var(--s-2);
+        padding: var(--s-1) var(--s-2);
     }
 
     .ops-telem-item {
@@ -336,7 +336,7 @@
     .ops-quick-actions {
         flex-direction: row;
         bottom: 40px;
-        left: var(--gap-sm);
+        left: var(--s-2);
     }
 }
 
@@ -369,7 +369,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid var(--ogt-green);
+    border: 1px solid var(--olive-primary);
     pointer-events: auto;
     box-shadow: 0 0 12px rgba(56, 87, 35, 0.4);
 }
@@ -412,7 +412,7 @@
 
 .ops-radial-item:hover {
     background: rgba(56, 87, 35, 0.5);
-    border-color: var(--ogt-green);
+    border-color: var(--olive-primary);
     transform: translate(-50%, -50%) scale(1.1);
 }
 
@@ -451,9 +451,9 @@
 
 .ops-confirm-card {
     background: var(--card-bg);
-    border: 1px solid var(--card-border);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-lg);
-    padding: var(--gap-lg);
+    padding: var(--s-4);
     max-width: 320px;
     width: 85%;
     text-align: center;
@@ -466,7 +466,7 @@
     text-transform: uppercase;
     letter-spacing: var(--ls-condensed);
     color: var(--text-primary);
-    margin-bottom: var(--gap-md);
+    margin-bottom: var(--s-3);
 }
 
 .ops-confirm-title.danger {
@@ -479,7 +479,7 @@
 
 .ops-confirm-actions {
     display: flex;
-    gap: var(--gap-sm);
+    gap: var(--s-2);
     justify-content: center;
 }
 

@@ -692,7 +692,7 @@ class TestStaticFileServing:
     def test_css_variables_served(self, client):
         resp = client.get("/static/css/variables.css")
         assert resp.status_code == 200
-        assert "ogt-green" in resp.text
+        assert "olive-primary" in resp.text
 
     def test_app_js_binds_bandwidth_click_handler(self, client):
         resp = client.get("/static/js/app.js")

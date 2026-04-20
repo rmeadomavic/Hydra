@@ -510,7 +510,7 @@ const HydraOperations = (() => {
                 const pct = (s.battery_pct != null && s.battery_pct >= 0) ? ' ' + s.battery_pct + '%' : '';
                 battEl.textContent = s.battery_v.toFixed(1) + 'V' + pct;
                 const bpct = s.battery_pct != null ? s.battery_pct : 100;
-                battEl.style.color = bpct > 40 ? 'var(--ogt-green)' : bpct > 20 ? 'var(--warning)' : 'var(--danger)';
+                battEl.style.color = bpct > 40 ? 'var(--olive-primary)' : bpct > 20 ? 'var(--warning)' : 'var(--danger)';
             } else {
                 battEl.textContent = '--';
                 battEl.style.color = 'var(--text-dim)';

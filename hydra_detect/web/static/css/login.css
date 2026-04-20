@@ -3,7 +3,7 @@
 body {
     margin: 0;
     padding: 0;
-    background: var(--panel-bg);
+    background: var(--bg-panel);
     color: var(--text-primary);
     font-family: 'Barlow', sans-serif;
     min-height: 100vh;
@@ -15,14 +15,14 @@ body {
     align-items: center;
     justify-content: center;
     min-height: 100vh;
-    padding: var(--gap-lg);
+    padding: var(--s-4);
 }
 
 .login-card {
     background: var(--card-bg);
-    border: 1px solid var(--card-border);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-lg);
-    padding: var(--gap-xl) var(--gap-xl) var(--gap-lg);
+    padding: var(--s-5) var(--s-5) var(--s-4);
     width: 100%;
     max-width: 340px;
 }
@@ -30,8 +30,8 @@ body {
 .login-header {
     display: flex;
     align-items: center;
-    gap: var(--gap-sm);
-    margin-bottom: var(--gap-xl);
+    gap: var(--s-2);
+    margin-bottom: var(--s-5);
     justify-content: center;
 }
 
@@ -59,7 +59,7 @@ body {
     letter-spacing: var(--ls-condensed);
     text-transform: uppercase;
     color: var(--text-secondary);
-    margin-bottom: var(--gap-xs);
+    margin-bottom: var(--s-1);
 }
 
 .login-input {
@@ -69,8 +69,8 @@ body {
     font-family: 'Barlow', sans-serif;
     font-size: var(--font-base);
     color: var(--text-primary);
-    background: var(--panel-bg);
-    border: 1px solid var(--card-border);
+    background: var(--bg-panel);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-md);
     outline: none;
     box-sizing: border-box;
@@ -78,7 +78,7 @@ body {
 }
 
 .login-input:focus {
-    border-color: var(--ogt-green);
+    border-color: var(--olive-primary);
     box-shadow: var(--glow-green);
 }
 
@@ -86,8 +86,8 @@ body {
     min-height: 20px;
     font-size: var(--font-sm);
     color: var(--danger);
-    margin-top: var(--gap-xs);
-    margin-bottom: var(--gap-sm);
+    margin-top: var(--s-1);
+    margin-bottom: var(--s-2);
 }
 
 .login-btn {
@@ -100,7 +100,7 @@ body {
     letter-spacing: var(--ls-condensed);
     text-transform: uppercase;
     color: var(--ogt-light);
-    background: var(--ogt-green);
+    background: var(--olive-primary);
     border: none;
     border-radius: var(--radius-md);
     cursor: pointer;
@@ -108,7 +108,7 @@ body {
 }
 
 .login-btn:hover {
-    background: var(--ogt-green-dark);
+    background: var(--olive-dark);
 }
 
 .login-btn:disabled {
@@ -117,7 +117,7 @@ body {
 }
 
 .login-footer {
-    margin-top: var(--gap-lg);
+    margin-top: var(--s-4);
     font-family: 'Barlow Condensed', sans-serif;
     font-size: var(--font-xs);
     letter-spacing: var(--ls-condensed);

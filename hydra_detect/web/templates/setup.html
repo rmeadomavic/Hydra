@@ -8,14 +8,14 @@
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --ogt-green: #385723;
-            --ogt-green-dark: #2a4118;
+            --olive-primary: #385723;
+            --olive-dark: #2a4118;
             --ogt-muted: #A6BC92;
             --ogt-warm: #D8E2D0;
             --ogt-light: #EFF5EB;
-            --panel-bg: #0c0c0c;
+            --bg-panel: #0c0c0c;
             --card-bg: #1c1c1c;
-            --card-border: #262626;
+            --border-default: #262626;
             --text-primary: #e8e8e8;
             --text-secondary: #888;
             --danger: #c53030;
@@ -25,7 +25,7 @@
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: 'Barlow', sans-serif;
-            background: var(--panel-bg);
+            background: var(--bg-panel);
             color: var(--text-primary);
             min-height: 100vh;
             display: flex;
@@ -35,7 +35,7 @@
         }
         .setup-container {
             background: var(--card-bg);
-            border: 1px solid var(--card-border);
+            border: 1px solid var(--border-default);
             border-radius: 12px;
             padding: 40px;
             max-width: 520px;
@@ -86,7 +86,7 @@
         .setup-field input {
             background: #111;
             color: var(--text-primary);
-            border: 1px solid var(--card-border);
+            border: 1px solid var(--border-default);
             border-radius: 6px;
             padding: 10px 12px;
             font-family: 'JetBrains Mono', monospace;
@@ -96,7 +96,7 @@
         .setup-field select:focus,
         .setup-field input:focus {
             outline: none;
-            border-color: var(--ogt-green);
+            border-color: var(--olive-primary);
             box-shadow: 0 0 0 2px rgba(56, 87, 35, 0.3);
         }
         .setup-row {
@@ -111,7 +111,7 @@
             gap: 12px;
         }
         .btn-save {
-            background: var(--ogt-green);
+            background: var(--olive-primary);
             color: var(--ogt-light);
             border: none;
             border-radius: 6px;
@@ -135,7 +135,7 @@
         .btn-skip {
             background: transparent;
             color: var(--text-secondary);
-            border: 1px solid var(--card-border);
+            border: 1px solid var(--border-default);
             border-radius: 6px;
             padding: 10px 24px;
             font-family: 'Barlow Condensed', sans-serif;

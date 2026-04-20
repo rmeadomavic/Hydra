@@ -460,7 +460,7 @@ const HydraOps = (() => {
         card.appendChild(title);
 
         var desc = document.createElement('div');
-        desc.style.cssText = 'font-family: var(--font-mono); font-size: var(--font-sm); color: var(--text-secondary); margin-bottom: var(--gap-md);';
+        desc.style.cssText = 'font-family: var(--font-mono); font-size: var(--font-sm); color: var(--text-secondary); margin-bottom: var(--s-3);';
         desc.textContent = 'Target #' + trackId + ' ' + trackLabel;
         card.appendChild(desc);
 

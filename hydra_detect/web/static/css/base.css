@@ -6,7 +6,7 @@
 body {
     font-family: 'Barlow', 'Segoe UI', system-ui, sans-serif;
     font-size: var(--font-base);
-    background: var(--panel-bg);
+    background: var(--bg-panel);
     color: var(--text-primary);
     line-height: 1.4;
     overflow: hidden;
@@ -39,7 +39,7 @@ h1, h2, h3, .label-heading {
     font-size: var(--font-sm);
     font-weight: 600;
     padding: 4px 10px;
-    border: 1px solid var(--card-border);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-md);
     background: linear-gradient(180deg, #252525, #1a1a1a);
     color: var(--text-primary);
@@ -53,8 +53,8 @@ h1, h2, h3, .label-heading {
 .btn:disabled, .btn[disabled] { opacity: 0.4; cursor: not-allowed; filter: none; transform: none; }
 
 .btn-green {
-    background: linear-gradient(180deg, var(--ogt-green), var(--ogt-green-dark));
-    border-color: var(--ogt-green-dark);
+    background: linear-gradient(180deg, var(--olive-primary), var(--olive-dark));
+    border-color: var(--olive-dark);
 }
 .btn-danger {
     background: linear-gradient(180deg, #8b2020, #6b1818);
@@ -76,7 +76,7 @@ h1, h2, h3, .label-heading {
     border-radius: 999px;
 }
 .pill-live {
-    background: var(--ogt-green);
+    background: var(--olive-primary);
     color: var(--ogt-light);
     animation: pulse-glow 2s ease-in-out infinite;
 }
@@ -95,7 +95,7 @@ h1, h2, h3, .label-heading {
     font-family: var(--font-mono);
     font-size: var(--font-sm);
     padding: 4px 8px;
-    border: 1px solid var(--card-border);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-md);
     background: #0e0e0e;
     color: var(--text-primary);
@@ -103,7 +103,7 @@ h1, h2, h3, .label-heading {
 }
 input:focus, select:focus {
     outline: none;
-    border-color: var(--ogt-green);
+    border-color: var(--olive-primary);
     box-shadow: var(--glow-green);
 }
 
@@ -112,7 +112,7 @@ input[type="range"] {
     -webkit-appearance: none;
     width: 100%;
     height: 4px;
-    background: var(--card-border);
+    background: var(--border-default);
     border-radius: 2px;
     outline: none;
 }
@@ -121,9 +121,9 @@ input[type="range"]::-webkit-slider-thumb {
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background: var(--ogt-green);
+    background: var(--olive-primary);
     cursor: pointer;
-    border: 2px solid var(--ogt-green-dark);
+    border: 2px solid var(--olive-dark);
 }
 
 /* ── Modal ── */
@@ -139,9 +139,9 @@ input[type="range"]::-webkit-slider-thumb {
 .modal-overlay.active { display: flex; }
 .modal {
     background: var(--card-bg);
-    border: 1px solid var(--card-border);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-xl);
-    padding: var(--gap-lg);
+    padding: var(--s-4);
     max-width: 400px;
     width: 90%;
 }
@@ -149,12 +149,12 @@ input[type="range"]::-webkit-slider-thumb {
 /* ── Toast Notifications ── */
 .toast-container {
     position: fixed;
-    top: calc(var(--topbar-height) + var(--gap-md));
-    right: var(--gap-md);
+    top: calc(var(--topbar-height) + var(--s-3));
+    right: var(--s-3);
     z-index: 900;
     display: flex;
     flex-direction: column;
-    gap: var(--gap-sm);
+    gap: var(--s-2);
     pointer-events: none;
 }
 .toast {
@@ -162,7 +162,7 @@ input[type="range"]::-webkit-slider-thumb {
     background: var(--danger-bg);
     border: 1px solid var(--danger);
     border-radius: var(--radius-md);
-    padding: var(--gap-xs) var(--gap-sm);
+    padding: var(--s-1) var(--s-2);
     color: #fca5a5;
     font-size: var(--font-sm);
     max-width: 300px;
@@ -187,7 +187,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .toast-success {
     background: rgba(20, 60, 30, 0.95);
-    border-color: var(--ogt-green);
+    border-color: var(--olive-primary);
     color: var(--ogt-light);
 }
 
@@ -204,7 +204,7 @@ input[type="range"]::-webkit-slider-thumb {
 .color-bar {
     height: 4px;
     border-radius: 2px;
-    background: var(--card-border);
+    background: var(--border-default);
     overflow: hidden;
 }
 .color-bar-fill {
@@ -380,7 +380,7 @@ input[type="range"]::-webkit-slider-thumb {
     z-index: 9999; padding: 16px;
 }
 .preflight-card {
-    background: var(--card-bg, #141b22); border-radius: 12px;
+    background: var(--card-bg, #141b22); border-radius: 2px;
     padding: 24px; max-width: 480px; width: 100%;
     border: 2px solid var(--border, #1e2830);
 }
@@ -402,7 +402,7 @@ input[type="range"]::-webkit-slider-thumb {
 .preflight-btn {
     display: block; width: 100%; margin-top: 16px; padding: 10px;
     background: var(--accent, #385723); color: white; border: none;
-    border-radius: 6px; font-size: 14px; font-weight: 600;
+    border-radius: 2px; font-size: 14px; font-weight: 600;
     cursor: pointer; text-transform: uppercase;
 }
 
