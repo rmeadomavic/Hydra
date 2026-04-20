@@ -34,7 +34,7 @@ SMOKE_PROBES := \
   /api/config/full:camera \
   /api/stream/quality:quality
 
-.PHONY: help test test-all lint build up logs shell clean smoke
+.PHONY: help test test-all lint build up logs shell clean smoke dev dev-down
 
 help:
 	@echo "Hydra Detect — make targets"
@@ -47,6 +47,8 @@ help:
 	@echo "  shell     docker exec -it $(CONTAINER) bash"
 	@echo "  clean     docker image prune -f (dangling images)"
 	@echo "  smoke     curl every public /api GET and grep expected keys"
+	@echo "  dev       docker compose up on compose.dev.yml (UI hot-reload, :8081)"
+	@echo "  dev-down  docker compose down on compose.dev.yml"
 
 test:
 	$(PYTEST) tests/ -q --tb=short $(FAST_IGNORES) $(FAST_KEXPR)
@@ -78,6 +80,12 @@ shell:
 
 clean:
 	$(DOCKER) image prune -f
+
+dev:
+	$(DOCKER) compose -f compose.dev.yml up
+
+dev-down:
+	$(DOCKER) compose -f compose.dev.yml down
 
 smoke:
 	@fail=0; total=0; pass=0; \

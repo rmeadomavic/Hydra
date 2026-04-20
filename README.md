@@ -52,6 +52,25 @@ Edit `config.ini` to set camera source, MAVLink connection, callsign,
 and TAK endpoint before the first run. First-boot operators can use
 the `/setup` wizard instead of editing the file by hand.
 
+## Dev loop (no rebuild)
+
+For UI work (templates, CSS, JS, or FastAPI route tweaks) you don't need
+to rebuild the image. `compose.dev.yml` bind-mounts `hydra_detect/` into
+a second container on port **8081** and runs uvicorn with `--reload`:
+
+```bash
+make build         # once — uses the existing Dockerfile
+make dev           # docker compose up on compose.dev.yml (:8081)
+# edit hydra_detect/web/templates/*.html or static/js/*.js
+# refresh http://<jetson-ip>:8081/ — changes are live
+make dev-down      # tear it down when finished
+```
+
+The prod systemd container keeps running on :8080 the whole time. Dev
+mode runs the FastAPI shell only — no camera, no YOLO, no MAVLink — so
+use :8080 for end-to-end testing and :8081 for fast iteration on the
+dashboard. Full workflow + caveats: [docs/dev-loop.md](docs/dev-loop.md).
+
 ## Docs
 
 | Guide | Description |
@@ -68,6 +87,7 @@ the `/setup` wizard instead of editing the file by hand.
 | [Post-mission review](docs/post-mission-review.md) | Logs, verification, map replay, export |
 | [Deployment](docs/deployment.md) | systemd, Docker, TLS, multi-Jetson fleet |
 | [Development](docs/development.md) | Project layout, testing, extending |
+| [Dev loop (no rebuild)](docs/dev-loop.md) | `compose.dev.yml` workflow for fast UI iteration on :8081 |
 | [Preservation rules](docs/preservation-rules.md) | Hidden features + brand invariants — read before deleting anything unfamiliar |
 
 ## Vehicle compatibility
