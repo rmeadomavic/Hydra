@@ -208,11 +208,69 @@
         });
     }
 
+    // Frontend error reporter — POSTs to /api/client_error. Throttled to
+    // 1 report per second so a runaway exception loop can't flood the
+    // backend (which also rate-limits to 50/min/IP, but we want to be
+    // polite on the wire too).
+    let _lastErrorReportAt = 0;
+    function reportClientError(payload) {
+        const now = Date.now();
+        if (now - _lastErrorReportAt < 1000) return;
+        _lastErrorReportAt = now;
+        const body = JSON.stringify({
+            message: String(payload.message || ''),
+            source: String(payload.source || ''),
+            lineno: Number.isFinite(payload.lineno) ? payload.lineno : null,
+            colno: Number.isFinite(payload.colno) ? payload.colno : null,
+            stack: String(payload.stack || ''),
+            url: String(payload.url || window.location.href || ''),
+            timestamp: now / 1000,
+        });
+        // fetch with keepalive so the report survives page unload.
+        try {
+            fetch('/api/client_error', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: body,
+                credentials: 'same-origin',
+                keepalive: true,
+            }).catch(function () { /* swallow — don't recurse */ });
+        } catch (e) { /* swallow */ }
+    }
+
+    function initClientErrorReporter() {
+        window.addEventListener('error', function (event) {
+            const err = event && event.error;
+            reportClientError({
+                message: (event && event.message) || (err && err.message) || 'unknown error',
+                source: (event && event.filename) || '',
+                lineno: event && event.lineno,
+                colno: event && event.colno,
+                stack: (err && err.stack) ? String(err.stack) : '',
+                url: window.location.href,
+            });
+        });
+        window.addEventListener('unhandledrejection', function (event) {
+            const reason = event && event.reason;
+            const msg = reason && (reason.message || String(reason)) || 'unhandled promise rejection';
+            const stack = (reason && reason.stack) ? String(reason.stack) : '';
+            reportClientError({
+                message: 'unhandledrejection: ' + msg,
+                source: '',
+                lineno: null,
+                colno: null,
+                stack: stack,
+                url: window.location.href,
+            });
+        });
+    }
+
     function init() {
         preflight.runPreflight();
         modal.initEscapeAndTrap();
         stream.initStreamWatcher();
         router.initRouter();
+        initClientErrorReporter();
         // Defer initial view enter until all scripts are loaded
         setTimeout(function() {
             var v = store.getState().currentView;

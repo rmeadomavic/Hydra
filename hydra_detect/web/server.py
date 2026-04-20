@@ -40,11 +40,26 @@ from hydra_detect.audit import (
     attach_to_logger as _attach_audit,
     get_default_sink as _get_audit_sink,
 )
+from hydra_detect.observability import (
+    attach_audit_counters as _attach_metrics_counters,
+    get_client_error_sink as _get_client_error_sink,
+    health_snapshot as _health_snapshot,
+    hydra_fps as _m_fps,
+    hydra_inference_ms as _m_inference_ms,
+    render_metrics as _render_metrics,
+)
 
 # Attach the audit ring handler to the `hydra.audit` logger exactly once.
 # Safe to import-time — idempotent + non-blocking.
 _attach_audit()
+_attach_metrics_counters()
 _audit_sink = _get_audit_sink()
+_client_error_sink = _get_client_error_sink()
+
+# Wire gauge providers to read live values from ``stream_state.stats`` on
+# every Prometheus scrape. Set once at import — provider closures are stable.
+_m_fps.set_provider(lambda: stream_state.get_stats().get("fps"))
+_m_inference_ms.set_provider(lambda: stream_state.get_stats().get("inference_ms"))
 
 logger = logging.getLogger(__name__)
 
@@ -322,6 +337,8 @@ _PUBLIC_PATH_PREFIXES = (
     "/api/health", "/api/preflight", "/api/abort",
     "/api/stats",      # instructor page polls peers cross-origin
     "/api/tracks",     # read-only dashboard data
+    "/api/metrics",    # Prometheus scrape
+    "/api/client_error",  # frontend error sink (same-origin, rate-limited)
     "/stream.jpg",     # snapshot polling (img.src, no cookie in some contexts)
     "/stream.mjpeg",   # MJPEG fallback
 )
@@ -788,19 +805,122 @@ async def index(request: Request):
 
 @app.get("/api/health")
 async def api_health():
-    """Lightweight health check for Docker HEALTHCHECK / load balancers.
+    """Structured subsystem health.
 
-    Returns 200 if the pipeline is processing frames, 503 if stalled.
+    Returns::
+
+        {
+          "status": "ok"|"warn"|"fail",
+          "ts": <unix>,
+          "subsystems": { camera, mavlink, gps, detector, rtsp, tak, audit, disk:
+                          {"status": "ok"|"warn"|"fail", "detail": str} },
+
+          # Back-compat fields for Docker HEALTHCHECK + load balancers + older
+          # clients that checked ``healthy`` / ``fps`` / ``camera_ok``:
+          "healthy": bool, "camera_ok": bool, "fps": float,
+        }
+
+    HTTP 200 when overall ``status`` is ok or warn, 503 when ``fail``. (warn
+    is deliberately not a 5xx — it should not take a Jetson out of rotation.)
     """
     stats = stream_state.get_stats()
-    camera_ok = stats.get("camera_ok", True)
-    fps = stats.get("fps", 0.0)
-    healthy = camera_ok and fps > 0
-    status_code = 200 if healthy else 503
-    return JSONResponse(
-        {"healthy": healthy, "camera_ok": camera_ok, "fps": fps},
-        status_code=status_code,
+    snapshot = _health_snapshot(
+        stats=stats,
+        mavlink_ref=_mavlink_ref,
+        tak_output_ref=_tak_output_ref,
+        audit_sink=_audit_sink,
     )
+    status = snapshot.get("status", "ok")
+    camera_ok = bool(stats.get("camera_ok", True))
+    fps = float(stats.get("fps", 0.0))
+    legacy_healthy = camera_ok and fps > 0
+    body = dict(snapshot)
+    body["healthy"] = legacy_healthy
+    body["camera_ok"] = camera_ok
+    body["fps"] = fps
+    status_code = 503 if status == "fail" else (200 if legacy_healthy else 503)
+    return JSONResponse(body, status_code=status_code)
+
+
+@app.get("/api/metrics")
+async def api_metrics():
+    """Prometheus exposition — counters + gauges in 0.0.4 text format.
+
+    Auth-free by design — Prometheus scrapers are expected to fetch this
+    from the same subnet on a 15–60s interval. No sensitive data is
+    exposed; values are aggregates already surfaced elsewhere.
+    """
+    body = _render_metrics()
+    return Response(
+        content=body,
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
+
+
+# Rate limit for /api/client_error — per-remote-IP sliding window so a
+# runaway JS handler on one tablet can't drown the Jetson.
+_CLIENT_ERROR_WINDOW_SEC = 60.0
+_CLIENT_ERROR_MAX_PER_WINDOW = 50
+_client_error_hits: Dict[str, list[float]] = collections.defaultdict(list)
+_client_error_lock = threading.Lock()
+
+
+def _client_error_rate_limited(client_ip: str, now: float) -> bool:
+    """Return True when ``client_ip`` has exceeded the per-window cap."""
+    with _client_error_lock:
+        hits = [t for t in _client_error_hits.get(client_ip, [])
+                if now - t < _CLIENT_ERROR_WINDOW_SEC]
+        if len(hits) >= _CLIENT_ERROR_MAX_PER_WINDOW:
+            _client_error_hits[client_ip] = hits
+            return True
+        hits.append(now)
+        _client_error_hits[client_ip] = hits
+        return False
+
+
+@app.post("/api/client_error")
+async def api_client_error(request: Request):
+    """Frontend error sink.
+
+    Expected body (all fields optional, all coerced + clipped defensively)::
+
+        {"message": str, "source": str, "lineno": int, "colno": int,
+         "stack": str, "url": str, "timestamp": number}
+
+    Auth-free, same-origin only. Rate-limited to 50 reports / 60 s / IP.
+    """
+    body = await _parse_json(request)
+    if body is None or not isinstance(body, dict):
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
+
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    if _client_error_rate_limited(client_ip, now):
+        return JSONResponse({"error": "rate limited"}, status_code=429)
+
+    user_agent = request.headers.get("user-agent", "")[:512]
+    _client_error_sink.push(
+        message=body.get("message", ""),
+        source=body.get("source", ""),
+        lineno=body.get("lineno"),
+        colno=body.get("colno"),
+        stack=body.get("stack", ""),
+        url=body.get("url", ""),
+        client_ts=body.get("timestamp"),
+        remote_addr=client_ip,
+        user_agent=user_agent,
+    )
+    return {"status": "ok", "total": len(_client_error_sink)}
+
+
+@app.get("/api/client_error/recent")
+async def api_client_error_recent(limit: int = 50):
+    """Read back recent client errors (dashboard diagnostic use)."""
+    try:
+        n = int(limit)
+    except (TypeError, ValueError):
+        n = 50
+    return _client_error_sink.snapshot(limit=max(1, min(200, n)))
 
 
 @app.get("/api/preflight")

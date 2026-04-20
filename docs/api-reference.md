@@ -63,13 +63,56 @@ bool}`.
 ## Health / stats
 
 ### `GET /api/health`
-**Auth:** none · Lightweight liveness check for Docker HEALTHCHECK.
-200 if `camera_ok && fps > 0`, else 503. Returns `{"healthy": bool,
-"camera_ok": bool, "fps": float}`.
+**Auth:** none · Structured subsystem health for Docker HEALTHCHECK,
+load balancers, and dashboards. 200 when overall `status ∈ {ok, warn}`,
+503 when `status == fail`.
+
+Returns:
+
+```json
+{
+  "status": "ok|warn|fail",
+  "ts": 1712345678.1,
+  "subsystems": {
+    "camera":   {"status": "ok|warn|fail", "detail": "..."},
+    "mavlink":  {"status": "...", "detail": "..."},
+    "gps":      {"status": "...", "detail": "..."},
+    "detector": {"status": "...", "detail": "..."},
+    "rtsp":     {"status": "...", "detail": "..."},
+    "tak":      {"status": "...", "detail": "..."},
+    "audit":    {"status": "...", "detail": "..."},
+    "disk":     {"status": "...", "detail": "..."}
+  },
+  "healthy": true, "camera_ok": true, "fps": 10.2
+}
+```
 
 ```sh
 curl -s <HOST>/api/health
 ```
+
+### `GET /api/metrics`
+**Auth:** none · Prometheus exposition (text format 0.0.4). Counters:
+`hydra_tak_accepted_total`, `hydra_tak_rejected_total`,
+`hydra_strike_events_total`, `hydra_drop_events_total`,
+`hydra_hmac_invalid_total`. Gauges: `hydra_fps`, `hydra_inference_ms`,
+`hydra_cpu_temp_c`, `hydra_gpu_temp_c`, `hydra_ram_pct`. Content-Type:
+`text/plain; version=0.0.4; charset=utf-8`.
+
+```sh
+curl -s <HOST>/api/metrics
+```
+
+### `POST /api/client_error`
+**Auth:** none (same-origin) · Frontend error sink. Rate-limited to
+50 reports / 60 s / IP. Body (all fields optional): `{message, source,
+lineno, colno, stack, url, timestamp}`. Returns `{"status": "ok",
+"total": <ring size>}`.
+
+### `GET /api/client_error/recent?limit=N`
+**Auth:** none · Read-back of the client-error ring (max 200 entries).
+Returns `{"total": int, "recent": [{ts, message, source, lineno, colno,
+stack, url, remote_addr, user_agent}, ...]}`.
 
 ### `GET /api/preflight`
 **Auth:** none · Structured pre-flight check results. Returns
