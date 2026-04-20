@@ -1,0 +1,663 @@
+/* ── Autonomy View — dashboard reader for the autonomous strike controller ── */
+
+/* View visibility — matches tak.css / ops.css pattern. */
+body.view-autonomy .view.view-autonomy {
+    display: flex;
+    flex-direction: column;
+}
+.view.view-autonomy {
+    position: fixed;
+    top: var(--topbar-height);
+    left: 0;
+    right: 0;
+    bottom: var(--footer-height);
+    z-index: 2;
+}
+body.view-autonomy #mjpeg-stream {
+    opacity: 0;
+    pointer-events: none;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+}
+
+/* ── Layout: left config column + right explainability log ── */
+.autonomy-grid {
+    display: grid;
+    grid-template-columns: minmax(520px, 1fr) minmax(360px, 420px);
+    gap: var(--s-2);
+    padding: var(--s-3);
+    flex: 1 1 auto;
+    min-height: 0;
+    background: var(--bg-void);
+    overflow: hidden;
+}
+
+.autonomy-left {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-3);
+    overflow: auto;
+    padding-right: var(--s-1);
+}
+
+.autonomy-right {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    overflow: hidden;
+    min-height: 0;
+}
+
+/* ── Disabled banner ── */
+.autonomy-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--s-3);
+    padding: var(--s-3) var(--s-4);
+    background: rgba(234, 179, 8, 0.08);
+    border: 1px solid var(--warning);
+    border-radius: var(--radius);
+}
+.autonomy-banner-glyph {
+    font-size: var(--font-xl);
+    line-height: 1;
+    color: var(--warning);
+}
+.autonomy-banner-title {
+    font-family: var(--font-cond);
+    font-size: var(--font-lg);
+    font-weight: 600;
+    letter-spacing: var(--ls-condensed);
+    color: var(--warning);
+    text-transform: uppercase;
+}
+.autonomy-banner-sub {
+    margin-top: var(--s-1);
+    font-size: var(--font-sm);
+    color: var(--text-data);
+    line-height: 1.4;
+}
+
+/* ── View header ── */
+.autonomy-header {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+}
+.autonomy-header > div:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.autonomy-title {
+    font-family: var(--font-cond);
+    font-size: var(--font-xl);
+    font-weight: 600;
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-primary);
+    text-transform: uppercase;
+}
+.autonomy-sub {
+    margin-top: var(--s-1);
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    color: var(--text-dim);
+}
+
+.autonomy-enabled-chip {
+    font-family: var(--font-cond);
+    font-size: var(--font-sm);
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    padding: var(--s-1) var(--s-3);
+    border-radius: var(--radius);
+    border: 1px solid;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+.autonomy-enabled-off {
+    color: var(--text-dim);
+    border-color: var(--border-default);
+    background: transparent;
+}
+.autonomy-enabled-on {
+    color: var(--text-primary);
+    border-color: var(--danger);
+    background: rgba(197, 48, 48, 0.15);
+    box-shadow: var(--glow-danger);
+}
+
+/* ── Cards ── */
+.autonomy-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+.autonomy-card-header {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-2) var(--s-3);
+    border-bottom: 1px solid var(--border-default);
+    border-top: 2px solid var(--olive-primary);
+    background: var(--bg-panel-alt);
+    min-height: 32px;
+}
+.autonomy-card-label {
+    font-family: var(--font-cond);
+    font-weight: 600;
+    font-size: var(--font-sm);
+    letter-spacing: var(--ls-condensed);
+    color: var(--ogt-muted);
+    text-transform: uppercase;
+}
+.autonomy-card-meta {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+}
+.autonomy-card-body {
+    padding: var(--s-3);
+}
+
+/* ── Mode picker ── */
+.autonomy-mode-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--s-2);
+}
+.autonomy-mode-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s-1);
+    padding: var(--s-3);
+    background: transparent;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    color: var(--text-dim);
+    cursor: pointer;
+    text-align: left;
+    transition: filter var(--transition-fast), border-color var(--transition-fast);
+    font-family: var(--font-body);
+}
+.autonomy-mode-btn:hover {
+    filter: brightness(1.2);
+    border-color: var(--border-hover);
+}
+.autonomy-mode-btn:focus-visible {
+    outline: 2px solid var(--olive-muted);
+    outline-offset: 2px;
+}
+.autonomy-mode-title {
+    font-family: var(--font-cond);
+    font-weight: 700;
+    font-size: var(--font-md);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+}
+.autonomy-mode-desc {
+    font-size: var(--font-sm);
+    color: var(--text-dim);
+    line-height: 1.35;
+}
+.autonomy-mode-active-dot {
+    display: none;
+    color: var(--olive-muted);
+    margin-left: var(--s-1);
+}
+.autonomy-mode-btn.is-active {
+    background: rgba(56, 87, 35, 0.18);
+    border-color: var(--olive-primary);
+}
+.autonomy-mode-btn.is-active .autonomy-mode-title {
+    color: var(--text-primary);
+}
+.autonomy-mode-btn.is-active .autonomy-mode-active-dot {
+    display: inline;
+}
+.autonomy-mode-btn.autonomy-mode-live {
+    border-color: var(--danger);
+}
+.autonomy-mode-btn.autonomy-mode-live.is-active {
+    background: rgba(197, 48, 48, 0.18);
+    box-shadow: var(--glow-danger);
+}
+.autonomy-mode-btn.autonomy-mode-live.is-active .autonomy-mode-title {
+    color: var(--danger);
+}
+
+/* ── Geofence card ── */
+.autonomy-geofence-body {
+    display: grid;
+    grid-template-columns: 1fr 220px;
+    gap: var(--s-4);
+    align-items: start;
+}
+.autonomy-geofence-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--s-2) var(--s-3);
+}
+.autonomy-geofence-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.autonomy-stat-label {
+    font-family: var(--font-cond);
+    font-size: var(--font-xs);
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-dim);
+    text-transform: uppercase;
+}
+.autonomy-stat-value {
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    color: var(--ogt-muted);
+    overflow-wrap: anywhere;
+}
+.autonomy-stat-value.autonomy-placeholder {
+    color: var(--text-dim);
+    font-style: italic;
+}
+.autonomy-geofence-preview {
+    position: relative;
+    aspect-ratio: 1;
+    background: var(--bg-void);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+.autonomy-preview-caption {
+    position: absolute;
+    top: var(--s-1);
+    left: var(--s-2);
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    letter-spacing: var(--ls-mono);
+    pointer-events: none;
+}
+.autonomy-geofence-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+.autonomy-fence-circle {
+    fill: rgba(147, 197, 253, 0.08);
+    stroke: var(--info);
+    stroke-width: 1;
+    stroke-dasharray: 4 4;
+}
+.autonomy-fence-poly {
+    fill: rgba(147, 197, 253, 0.08);
+    stroke: var(--info);
+    stroke-width: 1;
+    stroke-dasharray: 4 4;
+    stroke-linejoin: round;
+}
+.autonomy-self-marker {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    fill: var(--ogt-muted);
+}
+.autonomy-self-callsign {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    fill: var(--ogt-muted);
+}
+
+/* ── Qualification criteria list ── */
+.autonomy-criteria-list {
+    list-style: none;
+    padding: var(--s-3);
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+}
+.autonomy-criteria-empty {
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+}
+.autonomy-criteria-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-3);
+    padding: var(--s-1) 0;
+    border-bottom: 1px solid var(--divider);
+}
+.autonomy-criteria-row:last-child {
+    border-bottom: none;
+}
+.autonomy-criteria-row-classes {
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+.autonomy-criteria-label {
+    font-family: var(--font-cond);
+    font-size: var(--font-sm);
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-dim);
+    text-transform: uppercase;
+}
+.autonomy-criteria-value {
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    color: var(--text-data);
+}
+.autonomy-criteria-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-1);
+}
+.autonomy-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px var(--s-2);
+    border-radius: var(--radius);
+    font-family: var(--font-cond);
+    font-size: var(--font-sm);
+    letter-spacing: 0.06em;
+    border: 1px solid var(--border-default);
+    text-transform: none;
+}
+.autonomy-chip-live {
+    background: rgba(56, 87, 35, 0.18);
+    border-color: var(--olive-primary);
+    color: var(--text-primary);
+}
+.autonomy-chip-dim {
+    color: var(--text-dim);
+    background: transparent;
+}
+
+/* ── 5-gate panel ── */
+.autonomy-gates-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.autonomy-gate {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    gap: var(--s-2);
+    align-items: center;
+    padding: var(--s-2) var(--s-3);
+    border-bottom: 1px solid var(--divider);
+}
+.autonomy-gate:last-child {
+    border-bottom: none;
+}
+.autonomy-gate-glyph {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    text-align: center;
+    color: var(--text-dim);
+}
+.autonomy-gate-label {
+    color: var(--text-data);
+    font-size: var(--font-sm);
+}
+.autonomy-gate-sub {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    margin-top: 1px;
+}
+.autonomy-gate.autonomy-gate-pass .autonomy-gate-glyph { color: var(--olive-muted); }
+.autonomy-gate.autonomy-gate-fail .autonomy-gate-glyph { color: #fca5a5; }
+.autonomy-gate-pill {
+    font-family: var(--font-cond);
+    font-size: var(--font-xs);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 2px var(--s-2);
+    border-radius: var(--radius);
+    border: 1px solid transparent;
+}
+.autonomy-gate-pill-pass {
+    background: var(--olive-muted);
+    color: #ffffff;
+    border-color: var(--olive-primary);
+}
+.autonomy-gate-pill-fail {
+    background: var(--danger);
+    color: #ffffff;
+    border-color: var(--danger);
+}
+.autonomy-gate-pill-na {
+    background: transparent;
+    color: var(--text-dim);
+    border-color: var(--border-default);
+}
+
+/* ── Explainability log ── */
+.autonomy-log-header {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-2) var(--s-3);
+    border-bottom: 1px solid var(--border-default);
+    background: var(--bg-panel-alt);
+}
+.autonomy-log-label {
+    font-family: var(--font-cond);
+    font-weight: 600;
+    font-size: var(--font-sm);
+    letter-spacing: var(--ls-condensed);
+    color: var(--ogt-muted);
+    text-transform: uppercase;
+}
+.autonomy-log-sub {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    margin-top: 2px;
+}
+.autonomy-log-count {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    color: var(--text-data);
+}
+.autonomy-log-body {
+    flex: 1 1 auto;
+    overflow: auto;
+    padding: var(--s-2);
+    min-height: 0;
+}
+.autonomy-log-empty {
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    padding: var(--s-2);
+}
+.autonomy-log-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-1);
+}
+.autonomy-log-row {
+    padding: var(--s-1) var(--s-2);
+    border-left: 2px solid var(--border-default);
+    background: rgba(10, 13, 16, 0.5);
+    border-radius: var(--radius);
+}
+.autonomy-log-row-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--s-2);
+}
+.autonomy-log-ts {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+}
+.autonomy-log-pill {
+    font-family: var(--font-cond);
+    font-size: var(--font-xs);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    padding: 1px var(--s-2);
+    border-radius: var(--radius);
+    text-transform: uppercase;
+}
+.autonomy-log-pill-engage {
+    background: var(--olive-muted);
+    color: #ffffff;
+}
+.autonomy-log-pill-reject {
+    background: var(--danger);
+    color: #ffffff;
+}
+.autonomy-log-pill-defer {
+    background: var(--warning);
+    color: #1a1a1a;
+}
+.autonomy-log-pill-passthrough {
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border-default);
+}
+.autonomy-log-row.autonomy-log-engage { border-left-color: var(--olive-muted); }
+.autonomy-log-row.autonomy-log-reject { border-left-color: var(--danger); }
+.autonomy-log-row.autonomy-log-defer { border-left-color: var(--warning); }
+.autonomy-log-row.autonomy-log-passthrough { border-left-color: var(--border-default); }
+.autonomy-log-track {
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    margin-top: 2px;
+}
+.autonomy-log-reason {
+    color: var(--text-data);
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    margin-top: 2px;
+    line-height: 1.35;
+}
+.autonomy-log-sha {
+    margin-top: var(--s-1);
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+}
+
+/* ── Mode confirm modal (reuses .modal-overlay/.modal shell) ── */
+.modal-overlay#autonomy-mode-modal {
+    display: none;
+}
+.modal-overlay#autonomy-mode-modal.is-active {
+    display: flex;
+}
+.autonomy-mode-modal {
+    max-width: 520px;
+    min-width: 320px;
+}
+.autonomy-mode-modal-title {
+    color: var(--warning);
+    margin-bottom: var(--s-3);
+    font-family: var(--font-cond);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.autonomy-mode-modal-prompt {
+    margin-bottom: var(--s-2);
+    font-size: var(--font-sm);
+    color: var(--text-data);
+}
+.autonomy-mode-modal-prompt strong {
+    color: var(--danger);
+    letter-spacing: 0.08em;
+}
+.autonomy-mode-modal-warning {
+    margin-bottom: var(--s-4);
+    font-size: var(--font-sm);
+    color: var(--text-dim);
+    line-height: 1.4;
+}
+.autonomy-mode-modal-label {
+    display: block;
+    margin-bottom: var(--s-4);
+    font-family: var(--font-cond);
+    font-size: var(--font-sm);
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-dim);
+    text-transform: uppercase;
+}
+.autonomy-mode-modal-label strong {
+    color: var(--ogt-muted);
+    font-family: var(--font-mono);
+    letter-spacing: var(--ls-mono);
+    text-transform: none;
+}
+.autonomy-mode-modal-input {
+    display: block;
+    width: 100%;
+    margin-top: var(--s-1);
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    padding: var(--s-1) var(--s-2);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    background: var(--bg-void);
+    color: var(--text-primary);
+}
+.autonomy-mode-modal-cs-error {
+    display: block;
+    margin-top: 4px;
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--danger);
+    text-transform: none;
+    letter-spacing: 0;
+    min-height: 14px;
+}
+.autonomy-mode-modal-actions {
+    display: flex;
+    gap: var(--s-2);
+    justify-content: flex-end;
+}
+
+/* ── Responsive: stack when narrow ── */
+@media (max-width: 1100px) {
+    .autonomy-grid {
+        grid-template-columns: 1fr;
+    }
+    .autonomy-right {
+        max-height: 40vh;
+    }
+    .autonomy-geofence-body {
+        grid-template-columns: 1fr;
+    }
+    .autonomy-geofence-preview {
+        max-width: 280px;
+    }
+}
+
+@media (max-width: 720px) {
+    .autonomy-mode-grid {
+        grid-template-columns: 1fr;
+    }
+    .autonomy-geofence-stats {
+        grid-template-columns: 1fr;
+    }
+}

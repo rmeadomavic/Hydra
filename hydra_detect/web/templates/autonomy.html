@@ -1,0 +1,188 @@
+<!-- Autonomy View — dashboard reader for the autonomous strike controller.
+     Config edits stay in #settings; this view is read-only telemetry plus the
+     safety-critical mode picker. Polls /api/autonomy/status; falls back to
+     /api/config/full + /api/stats when the endpoint is absent. -->
+
+<div class="autonomy-grid" id="autonomy-grid">
+    <!-- ── LEFT column: header + 4 cards ── -->
+    <div class="autonomy-left" id="autonomy-left">
+        <div class="autonomy-banner" id="autonomy-banner" role="status" aria-live="polite">
+            <span class="autonomy-banner-glyph" aria-hidden="true">⚠</span>
+            <div class="autonomy-banner-body">
+                <div class="autonomy-banner-title" id="autonomy-banner-title">Autonomous strike is disabled</div>
+                <div class="autonomy-banner-sub" id="autonomy-banner-sub">Manual engagement only. Enable, set geofence, and explicitly arm to activate autonomous mode.</div>
+            </div>
+        </div>
+
+        <header class="autonomy-header">
+            <div>
+                <h2 class="autonomy-title">Autonomous Strike Controller</h2>
+                <p class="autonomy-sub">hydra_detect.autonomous · workstream 5 · safety-critical</p>
+            </div>
+            <span class="autonomy-enabled-chip autonomy-enabled-off" id="autonomy-enabled-chip" title="Autonomous engagement master switch (read-only — edit in #settings)">DISABLED</span>
+        </header>
+
+        <!-- Mode picker (a) -->
+        <section class="autonomy-card" id="autonomy-mode-card" aria-labelledby="autonomy-mode-label">
+            <header class="autonomy-card-header">
+                <span class="autonomy-card-label" id="autonomy-mode-label">Mode</span>
+                <span class="autonomy-card-meta" id="autonomy-mode-meta">Dry-run logs candidates without engaging</span>
+            </header>
+            <div class="autonomy-card-body autonomy-mode-grid" role="radiogroup" aria-label="Autonomy mode">
+                <button type="button" class="autonomy-mode-btn autonomy-mode-dryrun is-active" id="autonomy-mode-dryrun" data-mode="dryrun" role="radio" aria-checked="true">
+                    <span class="autonomy-mode-title">Dry Run <span class="autonomy-mode-active-dot" aria-hidden="true">●</span></span>
+                    <span class="autonomy-mode-desc">Evaluate only · no servo · no MAVLink commit</span>
+                </button>
+                <button type="button" class="autonomy-mode-btn autonomy-mode-shadow" id="autonomy-mode-shadow" data-mode="shadow" role="radio" aria-checked="false">
+                    <span class="autonomy-mode-title">Shadow <span class="autonomy-mode-active-dot" aria-hidden="true">●</span></span>
+                    <span class="autonomy-mode-desc">Evaluate + emit STATUSTEXT · no servo</span>
+                </button>
+                <button type="button" class="autonomy-mode-btn autonomy-mode-live" id="autonomy-mode-live" data-mode="live" role="radio" aria-checked="false">
+                    <span class="autonomy-mode-title">Live <span class="autonomy-mode-active-dot" aria-hidden="true">●</span></span>
+                    <span class="autonomy-mode-desc">Full engagement · servo trigger · audit chained</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- Geofence (b) -->
+        <section class="autonomy-card autonomy-geofence-card" aria-labelledby="autonomy-geofence-label">
+            <header class="autonomy-card-header">
+                <span class="autonomy-card-label" id="autonomy-geofence-label">Geofence</span>
+                <span class="autonomy-card-meta" id="autonomy-geofence-meta">--</span>
+            </header>
+            <div class="autonomy-card-body autonomy-geofence-body">
+                <dl class="autonomy-geofence-stats" id="autonomy-geofence-stats">
+                    <div class="autonomy-geofence-stat">
+                        <dt class="autonomy-stat-label">Shape</dt>
+                        <dd class="autonomy-stat-value" id="autonomy-geofence-shape">--</dd>
+                    </div>
+                    <div class="autonomy-geofence-stat">
+                        <dt class="autonomy-stat-label">Radius (m)</dt>
+                        <dd class="autonomy-stat-value" id="autonomy-geofence-radius">--</dd>
+                    </div>
+                    <div class="autonomy-geofence-stat">
+                        <dt class="autonomy-stat-label">Center lat</dt>
+                        <dd class="autonomy-stat-value" id="autonomy-geofence-lat">--</dd>
+                    </div>
+                    <div class="autonomy-geofence-stat">
+                        <dt class="autonomy-stat-label">Center lon</dt>
+                        <dd class="autonomy-stat-value" id="autonomy-geofence-lon">--</dd>
+                    </div>
+                    <div class="autonomy-geofence-stat">
+                        <dt class="autonomy-stat-label">Self distance (m)</dt>
+                        <dd class="autonomy-stat-value" id="autonomy-geofence-self-dist">[awaiting /api/autonomy/status]</dd>
+                    </div>
+                </dl>
+                <div class="autonomy-geofence-preview">
+                    <div class="autonomy-preview-caption">GEOFENCE PREVIEW</div>
+                    <svg id="autonomy-geofence-svg" class="autonomy-geofence-svg" viewBox="0 0 200 200" role="img" aria-label="Geofence preview">
+                        <defs>
+                            <pattern id="autonomy-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="var(--border-default)" stroke-width="0.5"/>
+                            </pattern>
+                        </defs>
+                        <rect width="200" height="200" fill="url(#autonomy-grid)"/>
+                        <g id="autonomy-geofence-shape-group"></g>
+                        <text id="autonomy-geofence-self" class="autonomy-self-marker" x="100" y="104" text-anchor="middle">⊕</text>
+                        <text id="autonomy-geofence-callsign" class="autonomy-self-callsign" x="100" y="120" text-anchor="middle">HYDRA-1</text>
+                    </svg>
+                </div>
+            </div>
+        </section>
+
+        <!-- Qualification criteria (c) -->
+        <section class="autonomy-card" aria-labelledby="autonomy-criteria-label">
+            <header class="autonomy-card-header">
+                <span class="autonomy-card-label" id="autonomy-criteria-label">Qualification Criteria</span>
+                <span class="autonomy-card-meta" id="autonomy-criteria-summary">--</span>
+            </header>
+            <ul class="autonomy-criteria-list" id="autonomy-criteria-list" aria-live="polite">
+                <li class="autonomy-criteria-empty">[awaiting data]</li>
+            </ul>
+        </section>
+
+        <!-- 5-gate safety panel (d) -->
+        <section class="autonomy-card" aria-labelledby="autonomy-gates-label">
+            <header class="autonomy-card-header">
+                <span class="autonomy-card-label" id="autonomy-gates-label">Safety Gates</span>
+                <span class="autonomy-card-meta" id="autonomy-gates-summary">[awaiting /api/autonomy/status]</span>
+            </header>
+            <ul class="autonomy-gates-list" id="autonomy-gates-list" aria-live="polite">
+                <li class="autonomy-gate autonomy-gate-na" data-gate="geofence">
+                    <span class="autonomy-gate-glyph" aria-hidden="true">·</span>
+                    <div class="autonomy-gate-body">
+                        <div class="autonomy-gate-label">Inside geofence</div>
+                        <div class="autonomy-gate-sub">Haversine to center &lt; radius</div>
+                    </div>
+                    <span class="autonomy-gate-pill autonomy-gate-pill-na">N/A</span>
+                </li>
+                <li class="autonomy-gate autonomy-gate-na" data-gate="vehicle_mode">
+                    <span class="autonomy-gate-glyph" aria-hidden="true">·</span>
+                    <div class="autonomy-gate-body">
+                        <div class="autonomy-gate-label">Platform in allowed mode</div>
+                        <div class="autonomy-gate-sub">Parsed from HEARTBEAT custom_mode</div>
+                    </div>
+                    <span class="autonomy-gate-pill autonomy-gate-pill-na">N/A</span>
+                </li>
+                <li class="autonomy-gate autonomy-gate-na" data-gate="operator_lock">
+                    <span class="autonomy-gate-glyph" aria-hidden="true">·</span>
+                    <div class="autonomy-gate-body">
+                        <div class="autonomy-gate-label">Operator soft-lock</div>
+                        <div class="autonomy-gate-sub">Manual lock must precede auto-strike</div>
+                    </div>
+                    <span class="autonomy-gate-pill autonomy-gate-pill-na">N/A</span>
+                </li>
+                <li class="autonomy-gate autonomy-gate-na" data-gate="gps_fresh">
+                    <span class="autonomy-gate-glyph" aria-hidden="true">·</span>
+                    <div class="autonomy-gate-body">
+                        <div class="autonomy-gate-label">GPS fresh</div>
+                        <div class="autonomy-gate-sub">Last 3D-fix age within threshold</div>
+                    </div>
+                    <span class="autonomy-gate-pill autonomy-gate-pill-na">N/A</span>
+                </li>
+                <li class="autonomy-gate autonomy-gate-na" data-gate="cooldown">
+                    <span class="autonomy-gate-glyph" aria-hidden="true">·</span>
+                    <div class="autonomy-gate-body">
+                        <div class="autonomy-gate-label">Cooldown expired</div>
+                        <div class="autonomy-gate-sub">Seconds since last strike</div>
+                    </div>
+                    <span class="autonomy-gate-pill autonomy-gate-pill-na">N/A</span>
+                </li>
+            </ul>
+        </section>
+    </div>
+
+    <!-- ── RIGHT column: explainability log (e) ── -->
+    <aside class="autonomy-right" aria-labelledby="autonomy-log-label">
+        <header class="autonomy-log-header">
+            <div>
+                <div class="autonomy-log-label" id="autonomy-log-label">Explainability Log</div>
+                <div class="autonomy-log-sub">every candidate + gate decision, chained SHA-256</div>
+            </div>
+            <span class="autonomy-log-count" id="autonomy-log-count">0</span>
+        </header>
+        <div class="autonomy-log-body" id="autonomy-log-body">
+            <div class="autonomy-log-empty" id="autonomy-log-empty">[awaiting /api/autonomy/status]</div>
+            <ol class="autonomy-log-list" id="autonomy-log-list" role="log" aria-live="polite"></ol>
+        </div>
+    </aside>
+</div>
+
+<!-- Mode-change confirm modal (two-step for LIVE). Reuses .modal-overlay/.modal
+     from base.html styling. -->
+<div class="modal-overlay" id="autonomy-mode-modal" role="dialog" aria-modal="true" aria-labelledby="autonomy-mode-modal-title">
+    <div class="modal autonomy-mode-modal" tabindex="-1">
+        <h3 class="autonomy-mode-modal-title" id="autonomy-mode-modal-title">Confirm mode change</h3>
+        <p class="autonomy-mode-modal-prompt" id="autonomy-mode-modal-prompt">Switch to <strong id="autonomy-mode-modal-target">SHADOW</strong>?</p>
+        <p class="autonomy-mode-modal-warning" id="autonomy-mode-modal-warning"></p>
+        <label class="autonomy-mode-modal-label" id="autonomy-mode-modal-cs-label" style="display:none;">
+            Type operator callsign <strong id="autonomy-mode-modal-cs-target">HYDRA-1</strong> to continue:
+            <input type="text" class="autonomy-mode-modal-input" id="autonomy-mode-modal-cs-input" autocomplete="off" spellcheck="false">
+            <span class="autonomy-mode-modal-cs-error" id="autonomy-mode-modal-cs-error"></span>
+        </label>
+        <div class="autonomy-mode-modal-actions">
+            <button type="button" class="btn" id="autonomy-mode-modal-cancel">Cancel</button>
+            <button type="button" class="btn btn-danger" id="autonomy-mode-modal-confirm" disabled>Confirm</button>
+        </div>
+    </div>
+</div>
