@@ -3,7 +3,7 @@
 window.HydraModules = window.HydraModules || {};
 
 window.HydraModules.createViewRouter = function createViewRouter({ store, onViewLifecycle, onViewChanged }) {
-    const VALID_VIEWS = ['ops', 'config', 'settings', 'tak'];
+    const VALID_VIEWS = ['ops', 'config', 'settings', 'tak', 'systems', 'autonomy'];
     const VIEW_ALIASES = { operations: 'config' };
 
     function normalizeView(raw) {

@@ -94,6 +94,14 @@
             if (view === 'tak') HydraTak.onEnter();
             if (prev === 'tak') HydraTak.onLeave();
         }
+        if (typeof HydraSystems !== 'undefined' && prev !== view) {
+            if (view === 'systems') HydraSystems.onEnter();
+            if (prev === 'systems') HydraSystems.onLeave();
+        }
+        if (typeof HydraAutonomy !== 'undefined' && prev !== view) {
+            if (view === 'autonomy') HydraAutonomy.onEnter();
+            if (prev === 'autonomy') HydraAutonomy.onLeave();
+        }
     }
 
     const router = modules.createViewRouter({
@@ -149,6 +157,8 @@
             else if (v === 'config' && typeof HydraOperations !== 'undefined') HydraOperations.onEnter();
             else if (v === 'settings' && typeof HydraSettings !== 'undefined') HydraSettings.onEnter();
             else if (v === 'tak' && typeof HydraTak !== 'undefined') HydraTak.onEnter();
+            else if (v === 'systems' && typeof HydraSystems !== 'undefined') HydraSystems.onEnter();
+            else if (v === 'autonomy' && typeof HydraAutonomy !== 'undefined') HydraAutonomy.onEnter();
             stream.resumeStream();
         }, 0);
         initBandwidthToggle();
