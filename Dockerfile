@@ -26,7 +26,9 @@ RUN pip3 install --no-cache-dir --no-deps ultralytics supervision && \
     pip3 install --no-cache-dir scipy polars ultralytics-thop defusedxml pyDeprecate matplotlib tqdm && \
     rm /tmp/reqs-filtered.txt
 
-# GStreamer RTSP server for annotated video output
+# GStreamer RTSP server + RTL-SDR debug tools. Kismet runs on the host;
+# rtl_test / rtl_fm / rtl_power let you debug the dongle from inside the
+# container via `docker exec` without a host-side install.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gstreamer1.0-rtsp \
     gstreamer1.0-plugins-good \
@@ -35,6 +37,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gir1.2-gst-plugins-base-1.0 \
     gir1.2-gstreamer-1.0 \
     python3-gi \
+    librtlsdr0 \
+    rtl-sdr \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy application
