@@ -3,7 +3,7 @@
 # Usage: ./scripts/deploy.sh [branch]
 set -e
 
-BRANCH="${1:-claude/fix-hydra-video-stream-7CDH6}"
+BRANCH="${1:-main}"
 
 cd ~/Hydra
 echo "=== Stashing local changes ==="
