@@ -92,3 +92,151 @@
     --overlay-bg: rgba(0, 0, 0, 0.75);
     --overlay-blur: blur(8px);
 }
+
+/* ── Theme: NVG (Night Mono — monochrome green) ─────────────────────────
+   Overrides derived from THEMES.nvg in design_reference/src/tokens.js
+   and the mock Hydra Dashboard body[data-theme="nvg"] block. */
+:root[data-theme="nvg"] {
+    --olive-primary: #00ff41;
+    --olive-muted: #5fd05f;
+    --olive-dark: #063a0f;
+    --ogt-muted: #9afa9a;
+    --ogt-warm: #b8ffb8;
+    --ogt-light: #e0ffe0;
+    --bg-void: #000000;
+    --bg-panel: #000000;
+    --bg-panel-alt: #051005;
+    --sidebar-bg: #020802;
+    --card-bg: #051005;
+    --card-bg-hover: #0a2a0a;
+    --card-bg-gradient: linear-gradient(145deg, #051005, #020802);
+    --border-default: #0a2a0a;
+    --border-hover: #0f3f0f;
+    --divider: rgba(154, 250, 154, 0.08);
+    --text-primary: #8fff8f;
+    --text-dim: #4a8a4a;
+    --text-data: #a0ffa0;
+    --info: #5fd05f;
+    --warning: #7fff7f;
+    --danger: #a0ffa0;
+    --danger-bg: #0a2a0a;
+    --success: #00ff41;
+    --pixel-lock: #7fff7f;
+    --gold: #c0ffc0;
+    --glow-green: 0 0 8px rgba(0, 255, 65, 0.35);
+    --glow-green-strong: 0 0 12px rgba(0, 255, 65, 0.55);
+    --glow-danger: 0 0 8px rgba(160, 255, 160, 0.3);
+    --glow-danger-strong: 0 0 12px rgba(160, 255, 160, 0.5);
+    --glow-subtle: 0 0 4px rgba(0, 255, 65, 0.2);
+    --overlay-bg: rgba(0, 0, 0, 0.85);
+}
+
+/* ── Theme: Lattice (Light-dark — bright-daylight readable) ──────────────
+   Overrides derived from THEMES.lattice in design_reference/src/tokens.js
+   and the mock body[data-theme="lattice"] block. */
+:root[data-theme="lattice"] {
+    --olive-primary: #A6BC92;
+    --olive-muted: #8ba67a;
+    --ogt-muted: #b6c9a6;
+    --ogt-warm: #D8E2D0;
+    --text-primary: #dfe3eb;
+    --text-data: #c8cdd8;
+    --bg-void: #0d0f12;
+    --bg-panel: #14161a;
+    --bg-panel-alt: #1d2026;
+    --sidebar-bg: #14161a;
+    --card-bg: #1d2026;
+    --card-bg-hover: #242832;
+    --card-bg-gradient: linear-gradient(145deg, #1d2026, #181b20);
+    --border-default: #2a2e36;
+    --border-hover: #3a3f49;
+}
+
+/* ── Theme picker UI (rendered at top of #settings) ────────────────────── */
+.settings-theme-picker {
+    margin: 0 0 var(--s-4) 0;
+    padding: var(--s-3);
+    background: var(--bg-panel-alt);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+}
+
+.settings-theme-title {
+    font-family: var(--font-cond);
+    font-size: var(--font-sm);
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--ogt-muted);
+    margin: 0 0 var(--s-2) 0;
+}
+
+.settings-theme-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--s-2);
+}
+
+.theme-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-1);
+    padding: var(--s-2);
+    background: var(--card-bg);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: border-color var(--transition-fast),
+                box-shadow var(--transition-fast);
+}
+
+.theme-card:hover {
+    border-color: var(--border-hover);
+}
+
+.theme-card input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.theme-card.theme-card-active {
+    border-color: var(--olive-primary);
+    box-shadow: var(--glow-green);
+}
+
+.theme-swatch {
+    display: flex;
+    height: 28px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.theme-swatch-panel {
+    flex: 2;
+}
+
+.theme-swatch-accent {
+    flex: 1;
+}
+
+.theme-swatch-ops .theme-swatch-panel { background: #0a0d10; }
+.theme-swatch-ops .theme-swatch-accent { background: #385723; }
+.theme-swatch-nvg .theme-swatch-panel { background: #000000; }
+.theme-swatch-nvg .theme-swatch-accent { background: #00ff41; }
+.theme-swatch-lattice .theme-swatch-panel { background: #14161a; }
+.theme-swatch-lattice .theme-swatch-accent { background: #A6BC92; }
+
+.theme-name {
+    font-family: var(--font-cond);
+    font-size: var(--font-base);
+    font-weight: 600;
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--text-primary);
+}
+
+.theme-desc {
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+}

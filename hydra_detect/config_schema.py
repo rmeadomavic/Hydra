@@ -330,6 +330,12 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             default="classic",
             description="Dashboard HUD layout preset",
         ),
+        "theme": FieldSpec(
+            FieldType.ENUM,
+            choices=["ops", "nvg", "lattice"],
+            default="ops",
+            description="Dashboard color theme (ops/nvg/lattice)",
+        ),
     },
     "autonomous": {
         "enabled": FieldSpec(

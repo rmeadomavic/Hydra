@@ -117,12 +117,54 @@ const HydraSettings = (() => {
         },
     };
 
+    // Valid theme ids — keep in sync with config_schema [web].theme choices
+    const THEME_CHOICES = ['ops', 'nvg', 'lattice'];
+
+    function applyTheme(theme) {
+        const id = THEME_CHOICES.includes(theme) ? theme : 'ops';
+        const root = document.documentElement;
+        if (id === 'ops') {
+            root.removeAttribute('data-theme');
+        } else {
+            root.setAttribute('data-theme', id);
+        }
+        document.querySelectorAll('.theme-card').forEach(card => {
+            card.classList.toggle('theme-card-active',
+                card.dataset.themeOption === id);
+            const radio = card.querySelector('input[type="radio"]');
+            if (radio) radio.checked = card.dataset.themeOption === id;
+        });
+    }
+
+    async function saveTheme(theme) {
+        if (!THEME_CHOICES.includes(theme)) return;
+        const result = await HydraApp.apiPost('/api/config/full',
+            { web: { theme: theme } });
+        if (result) {
+            if (configData && configData.web) configData.web.theme = theme;
+            HydraApp.showToast('Theme: ' + theme, 'success');
+        }
+    }
+
+    function initThemePicker() {
+        const grid = document.getElementById('settings-theme-grid');
+        if (!grid) return;
+        grid.addEventListener('change', (e) => {
+            const t = e.target;
+            if (t && t.name === 'settings-theme' && t.value) {
+                applyTheme(t.value);
+                saveTheme(t.value);
+            }
+        });
+    }
+
     function onEnter() {
         loadConfig();
         if (!initialized) {
             initNavHandlers();
             initActionHandlers();
             initLogViewer();
+            initThemePicker();
             initialized = true;
         }
         // Resume auto-refresh if returning to logs section
@@ -150,6 +192,8 @@ const HydraSettings = (() => {
             showError('Failed to load configuration');
             return;
         }
+        const theme = configData.web && configData.web.theme;
+        applyTheme(theme || 'ops');
         // Defer render to next frame so the view's display:flex has applied
         // (prevents empty Camera tab on initial load when CSS transition
         // from display:none hasn't completed yet).
@@ -719,5 +763,23 @@ const HydraSettings = (() => {
         if (indicator) indicator.classList.remove('active');
     }
 
-    return { onEnter, onLeave };
+    // Eager theme apply — runs once at module load so the saved theme is in
+    // effect across every view, not just when the user opens Settings.
+    async function bootstrapTheme() {
+        try {
+            const cfg = await HydraApp.apiGet('/api/config/full');
+            if (cfg && cfg.web && cfg.web.theme) {
+                applyTheme(cfg.web.theme);
+            }
+        } catch (err) {
+            // Silent — theme is cosmetic; missing config must not break boot
+        }
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bootstrapTheme);
+    } else {
+        bootstrapTheme();
+    }
+
+    return { onEnter, onLeave, applyTheme, THEME_CHOICES };
 })();
