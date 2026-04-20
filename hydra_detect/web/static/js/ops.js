@@ -27,6 +27,13 @@ const HydraOps = (() => {
     let hudLayoutLoaded = false;
     let zonePending = { hud: false, cockpit: false };
 
+    // ── Detection-log filter state ──
+    // Purely client-side filter over HydraApp.state.detections; persisted per
+    // callsign so each team's preferences survive across reloads.
+    let detlogFilter = { cls: '', minConf: 0 };
+    let detlogFilterWired = false;
+    let detlogKnownClasses = [];
+
     // ── Lifecycle ──
     function onEnter() {
         wireEventHandlers();
@@ -38,6 +45,8 @@ const HydraOps = (() => {
         // SDR spectrum animates every 700ms (mirrors mock setInterval).
         sdrTickTimer = setInterval(animateSdrSpectrum, 700);
         loadHudLayoutFromConfig();
+        loadDetlogFilter();
+        wireDetlogFilter();
         updateHUD();
         refreshAuxZones();
         animateSdrSpectrum();
@@ -962,24 +971,171 @@ const HydraOps = (() => {
         if (pauseBtn) pauseBtn.textContent = paused ? 'Resume' : 'Pause';
     }
 
+    function detlogCallsign() {
+        try {
+            var app = window.HydraApp;
+            if (!app || !app.state) return 'default';
+            if (app.state.callsign) return app.state.callsign;
+            if (app.state.stats && app.state.stats.callsign) return app.state.stats.callsign;
+        } catch (_) { /* noop */ }
+        return 'default';
+    }
+
+    function detlogStorageKey() {
+        return 'hydra-detlog-filter-' + detlogCallsign();
+    }
+
+    function loadDetlogFilter() {
+        detlogFilter = { cls: '', minConf: 0 };
+        try {
+            var raw = localStorage.getItem(detlogStorageKey());
+            if (!raw) return;
+            var parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') {
+                if (typeof parsed.cls === 'string') detlogFilter.cls = parsed.cls;
+                if (typeof parsed.minConf === 'number' && isFinite(parsed.minConf)) {
+                    detlogFilter.minConf = Math.max(0, Math.min(1, parsed.minConf));
+                }
+            }
+        } catch (_) { /* ignore malformed storage */ }
+    }
+
+    function saveDetlogFilter() {
+        try {
+            localStorage.setItem(detlogStorageKey(), JSON.stringify(detlogFilter));
+        } catch (_) { /* quota / disabled storage — non-fatal */ }
+    }
+
+    function clearDetlogFilter() {
+        detlogFilter = { cls: '', minConf: 0 };
+        try { localStorage.removeItem(detlogStorageKey()); } catch (_) { /* noop */ }
+        syncDetlogFilterControls();
+        updateSidebarDetLog(HydraApp.state.detections);
+    }
+
+    function syncDetlogFilterControls() {
+        var sel = document.getElementById('ops-detlog-class');
+        var rng = document.getElementById('ops-detlog-conf');
+        var lbl = document.getElementById('ops-detlog-conf-value');
+        if (sel) sel.value = detlogFilter.cls || '';
+        if (rng) rng.value = String(detlogFilter.minConf || 0);
+        if (lbl) lbl.textContent = Math.round((detlogFilter.minConf || 0) * 100) + '%';
+    }
+
+    function wireDetlogFilter() {
+        if (detlogFilterWired) {
+            syncDetlogFilterControls();
+            return;
+        }
+        var sel = document.getElementById('ops-detlog-class');
+        var rng = document.getElementById('ops-detlog-conf');
+        var btn = document.getElementById('ops-detlog-clear');
+        if (sel) {
+            sel.addEventListener('change', function () {
+                detlogFilter.cls = sel.value || '';
+                saveDetlogFilter();
+                updateSidebarDetLog(HydraApp.state.detections);
+            });
+        }
+        if (rng) {
+            rng.addEventListener('input', function () {
+                var v = parseFloat(rng.value);
+                detlogFilter.minConf = isFinite(v) ? v : 0;
+                var lbl = document.getElementById('ops-detlog-conf-value');
+                if (lbl) lbl.textContent = Math.round(detlogFilter.minConf * 100) + '%';
+                saveDetlogFilter();
+                updateSidebarDetLog(HydraApp.state.detections);
+            });
+        }
+        if (btn) {
+            btn.addEventListener('click', clearDetlogFilter);
+        }
+        syncDetlogFilterControls();
+        detlogFilterWired = true;
+    }
+
+    function refreshDetlogClassOptions(detections) {
+        var sel = document.getElementById('ops-detlog-class');
+        if (!sel) return;
+        var seen = {};
+        var classes = [];
+        for (var i = 0; i < detections.length; i++) {
+            var lbl = detections[i] && detections[i].label;
+            if (typeof lbl === 'string' && lbl && !seen[lbl]) {
+                seen[lbl] = true;
+                classes.push(lbl);
+            }
+        }
+        classes.sort();
+        if (classes.length === detlogKnownClasses.length) {
+            var same = true;
+            for (var j = 0; j < classes.length; j++) {
+                if (classes[j] !== detlogKnownClasses[j]) { same = false; break; }
+            }
+            if (same) return;
+        }
+        detlogKnownClasses = classes;
+        var current = detlogFilter.cls || '';
+        while (sel.firstChild) sel.removeChild(sel.firstChild);
+        var allOpt = document.createElement('option');
+        allOpt.value = '';
+        allOpt.textContent = 'All';
+        sel.appendChild(allOpt);
+        for (var k = 0; k < classes.length; k++) {
+            var opt = document.createElement('option');
+            opt.value = classes[k];
+            opt.textContent = classes[k];
+            sel.appendChild(opt);
+        }
+        // Preserve selection even when the class has not yet appeared in the
+        // current poll — operators should see "no matches" rather than silent
+        // reset to All.
+        if (current && !seen[current]) {
+            var ghost = document.createElement('option');
+            ghost.value = current;
+            ghost.textContent = current;
+            sel.appendChild(ghost);
+        }
+        sel.value = current;
+    }
+
     function updateSidebarDetLog(detections) {
         var log = document.getElementById('ops-detlog');
         if (!log) return;
 
         var dets = Array.isArray(detections) ? detections : [];
-        if (dets.length === 0) {
+        refreshDetlogClassOptions(dets);
+
+        var cls = detlogFilter.cls || '';
+        var minConf = detlogFilter.minConf || 0;
+        var filtered = dets;
+        if (cls || minConf > 0) {
+            filtered = [];
+            for (var fi = 0; fi < dets.length; fi++) {
+                var d0 = dets[fi] || {};
+                if (cls && d0.label !== cls) continue;
+                var c0 = typeof d0.confidence === 'number' ? d0.confidence : 0;
+                if (c0 < minConf) continue;
+                filtered.push(d0);
+            }
+        }
+
+        if (filtered.length === 0) {
             if (!log.querySelector('.ops-detlog-empty')) {
                 while (log.firstChild) log.removeChild(log.firstChild);
                 var empty = document.createElement('div');
                 empty.className = 'ops-detlog-empty';
-                empty.textContent = 'No detections yet';
+                empty.textContent = (cls || minConf > 0) ? 'No detections match filter' : 'No detections yet';
                 log.appendChild(empty);
+            } else {
+                var existing = log.querySelector('.ops-detlog-empty');
+                existing.textContent = (cls || minConf > 0) ? 'No detections match filter' : 'No detections yet';
             }
             return;
         }
 
         // Render newest-first, cap to 20 rows; DOM-diff by count.
-        var rows = Math.min(dets.length, 20);
+        var rows = Math.min(filtered.length, 20);
         var emptyEl = log.querySelector('.ops-detlog-empty');
         if (emptyEl) log.removeChild(emptyEl);
         while (log.children.length > rows) log.removeChild(log.lastChild);
@@ -996,7 +1152,7 @@ const HydraOps = (() => {
         }
 
         for (var i = 0; i < rows; i++) {
-            var d = dets[dets.length - 1 - i] || {};
+            var d = filtered[filtered.length - 1 - i] || {};
             var row2 = log.children[i];
             if (!row2) continue;
             var t = '';
@@ -1852,6 +2008,8 @@ const HydraOps = (() => {
         updateSidebarMission: updateSidebarMission,
         updateSidebarPipeline: updateSidebarPipeline,
         updateSidebarDetLog: updateSidebarDetLog,
+        loadDetlogFilter: loadDetlogFilter,
+        clearDetlogFilter: clearDetlogFilter,
         updateFlightHud: updateFlightHud,
         updateCockpitStrip: updateCockpitStrip,
         applyHudLayout: applyHudLayout,

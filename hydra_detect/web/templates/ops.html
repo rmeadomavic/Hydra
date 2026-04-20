@@ -406,6 +406,22 @@
         <!-- 8. Detection Log (event-feed mirror) -->
         <div class="ops-sidebar-section" id="ops-detlog-section">
             <div class="ops-sidebar-header">DETECTION LOG</div>
+            <div class="ops-detlog-filter" id="ops-detlog-filter">
+                <label class="ops-detlog-filter-row" for="ops-detlog-class">
+                    <span class="ops-detlog-filter-label">Class</span>
+                    <select id="ops-detlog-class" class="ops-detlog-filter-select" aria-label="Filter detections by class">
+                        <option value="">All</option>
+                    </select>
+                </label>
+                <label class="ops-detlog-filter-row" for="ops-detlog-conf">
+                    <span class="ops-detlog-filter-label">Min conf</span>
+                    <input type="range" id="ops-detlog-conf" class="ops-detlog-filter-range"
+                           min="0" max="1" step="0.05" value="0"
+                           aria-label="Minimum detection confidence">
+                    <span class="ops-detlog-filter-value" id="ops-detlog-conf-value">0%</span>
+                </label>
+                <button type="button" id="ops-detlog-clear" class="ops-detlog-filter-clear">clear</button>
+            </div>
             <div class="ops-detlog" id="ops-detlog">
                 <div class="ops-detlog-empty">No detections yet</div>
             </div>

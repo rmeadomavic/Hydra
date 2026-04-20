@@ -156,3 +156,68 @@
     color: var(--text-data);
     text-align: right;
 }
+
+/* Detection log filter row */
+.ops-detlog-filter {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-1);
+    padding: var(--s-2);
+    border-bottom: 1px solid var(--border-dim, rgba(255, 255, 255, 0.06));
+}
+
+.ops-detlog-filter-row {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    font-size: var(--font-xs);
+}
+
+.ops-detlog-filter-label {
+    font-family: var(--font-cond);
+    text-transform: uppercase;
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-dim);
+    min-width: 52px;
+}
+
+.ops-detlog-filter-select {
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-primary);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius);
+    padding: 2px var(--s-1);
+}
+
+.ops-detlog-filter-range {
+    flex: 1;
+    accent-color: var(--olive-primary);
+}
+
+.ops-detlog-filter-value {
+    font-family: var(--font-mono);
+    color: var(--text-data);
+    min-width: 34px;
+    text-align: right;
+}
+
+.ops-detlog-filter-clear {
+    align-self: flex-end;
+    font-family: var(--font-cond);
+    text-transform: uppercase;
+    letter-spacing: var(--ls-condensed);
+    font-size: var(--font-xs);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-dim);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius);
+    padding: 2px var(--s-2);
+    cursor: pointer;
+}
+.ops-detlog-filter-clear:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+}
