@@ -645,6 +645,11 @@ _rf_ambient_ref: Any = None
 # endpoint returns the idle/default shape so the dashboard renders.
 _autonomous_ref: Any = None
 
+# MAVLink I/O handle — powers flight-instrument fields (heading, airspeed,
+# altitude, vertical_speed) on /api/stats. Set via set_mavlink(). None =>
+# those fields default to None so the dashboard renders a dash.
+_mavlink_ref: Any = None
+
 
 def set_tak_input(tak_input: Any) -> None:
     """Register the TAKInput instance for the /api/tak/commands feed.
@@ -660,6 +665,13 @@ def set_tak_output(tak_output: Any) -> None:
     """Register the TAKOutput instance for peer/unicast roll-ups."""
     global _tak_output_ref
     _tak_output_ref = tak_output
+
+
+def set_mavlink(mav: Any) -> None:
+    """Register the MAVLinkIO instance that powers flight-instrument
+    fields on /api/stats. Pass None to detach."""
+    global _mavlink_ref
+    _mavlink_ref = mav
 
 
 def set_servo_tracker(servo: Any) -> None:
@@ -809,9 +821,34 @@ async def api_preflight():
 async def api_stats():
     """Return current pipeline statistics as JSON."""
     result = _cached_callback("stats", stream_state.get_stats)
-    if result is not None:
-        return result
-    return stream_state.stats.copy()  # fallback: return raw defaults
+    if result is None:
+        result = stream_state.stats.copy()  # fallback: return raw defaults
+    # Always project flight-instrument fields onto the response so the
+    # FlightHUD tapes render even before the pipeline plumbs them through.
+    return dict(result, **_flight_fields())
+
+
+def _flight_fields() -> Dict[str, Any]:
+    """Read heading/airspeed/altitude/vertical_speed from the MAVLink
+    handle, falling back to None when MAVLink is not registered."""
+    defaults: Dict[str, Any] = {
+        "heading": None,
+        "airspeed": None,
+        "altitude": None,
+        "vertical_speed": None,
+    }
+    mav = _mavlink_ref
+    if mav is None:
+        return defaults
+    try:
+        data = mav.get_flight_data()
+    except Exception:
+        return defaults
+    if not isinstance(data, dict):
+        return defaults
+    for key in defaults:
+        defaults[key] = data.get(key)
+    return defaults
 
 
 @app.get("/api/config")

@@ -79,8 +79,10 @@ class MAVLinkIO:
             "battery_v": None,
             "battery_pct": None,
             "groundspeed": None,
+            "airspeed": None,
             "altitude": None,
             "heading": None,
+            "climb": None,
         }
 
         # RC channel values (updated by _message_reader from RC_CHANNELS)
@@ -123,6 +125,14 @@ class MAVLinkIO:
             self._mgrs = mgrs.MGRS()
         except ImportError:
             logger.info("mgrs library not installed; using lat/lon format.")
+
+        # Register with web server so /api/stats can surface flight data
+        # without the pipeline hot loop needing to plumb each field through.
+        try:
+            from hydra_detect.web.server import set_mavlink
+            set_mavlink(self)
+        except Exception as exc:  # pragma: no cover - import-time defensive
+            logger.debug("MAVLinkIO not registered with web server: %s", exc)
 
     # ------------------------------------------------------------------
     def connect(self) -> bool:
@@ -232,10 +242,7 @@ class MAVLinkIO:
                         if msg.battery_remaining != -1:
                             self._telemetry["battery_pct"] = msg.battery_remaining
                 elif msg_type == "VFR_HUD":
-                    with self._gps_lock:
-                        self._telemetry["groundspeed"] = round(msg.groundspeed, 1)
-                        self._telemetry["altitude"] = round(msg.alt, 1)
-                        self._telemetry["heading"] = round(msg.heading, 0)
+                    self._handle_vfr_hud(msg)
                 elif msg_type == "RC_CHANNELS":
                     with self._rc_channels_lock:
                         self._rc_channels = [
@@ -269,6 +276,15 @@ class MAVLinkIO:
                     break
                 logger.warning("MAVLink reader error: %s", exc)
                 time.sleep(0.5)
+
+    def _handle_vfr_hud(self, msg) -> None:
+        """Cache airspeed, groundspeed, altitude, heading, climb from VFR_HUD."""
+        with self._gps_lock:
+            self._telemetry["groundspeed"] = round(msg.groundspeed, 1)
+            self._telemetry["airspeed"] = round(msg.airspeed, 1)
+            self._telemetry["altitude"] = round(msg.alt, 1)
+            self._telemetry["heading"] = round(msg.heading, 0)
+            self._telemetry["climb"] = round(msg.climb, 2)
 
     def _update_armed_state(self, heartbeat_msg) -> None:
         """Extract armed state from HEARTBEAT base_mode."""
@@ -415,6 +431,36 @@ class MAVLinkIO:
         with self._vehicle_mode_lock:
             result["vehicle_mode"] = self._vehicle_mode
         return result
+
+    def get_flight_data(self) -> Dict[str, Any]:
+        """Return flight-instrument values as a dict.
+
+        Keys:
+          - ``heading`` — degrees 0-360, from VFR_HUD.heading if available,
+            else GLOBAL_POSITION_INT.hdg (centidegrees / 100).
+          - ``airspeed`` — m/s from VFR_HUD.airspeed.
+          - ``altitude`` — metres, from VFR_HUD.alt if available, else
+            GLOBAL_POSITION_INT.alt (mm / 1000, relative to home).
+          - ``vertical_speed`` — m/s, from VFR_HUD.climb.
+
+        Any value that has not been populated by a MAVLink message yet
+        is returned as ``None``.
+        """
+        with self._gps_lock:
+            heading = self._telemetry.get("heading")
+            if heading is not None:
+                heading = round(float(heading) % 360.0, 1)
+            elif self._gps.get("hdg") is not None:
+                heading = round((self._gps["hdg"] / 100.0) % 360.0, 1)
+            altitude = self._telemetry.get("altitude")
+            if altitude is None and self._gps.get("alt") is not None:
+                altitude = round(self._gps["alt"] / 1000.0, 1)
+            return {
+                "heading": heading,
+                "airspeed": self._telemetry.get("airspeed"),
+                "altitude": altitude,
+                "vertical_speed": self._telemetry.get("climb"),
+            }
 
     @property
     def gps_fix_ok(self) -> bool:
