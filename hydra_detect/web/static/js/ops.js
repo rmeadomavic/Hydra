@@ -34,8 +34,20 @@ const HydraOps = (() => {
     let detlogFilterWired = false;
     let detlogKnownClasses = [];
 
+    // ── OpsSidebar tab state (5 tabs: tracks/rf/mavlink/tak/events) ──
+    // Default 'tracks'. HydraApp.state.opsActiveTab is the source of truth;
+    // we never update panels that are hidden to keep overhead negligible.
+    let tabTimer = null;
+    let takTimer = null;
+    let mavLog = [];            // local TX/RX ring, last 30, mirrors mock pattern
+    let mavLogSeq = 0;
+    let mavLogLastMode = null;
+    let mavLogLastLock = null;
+    const MAV_LOG_MAX = 30;
+
     // ── Lifecycle ──
     function onEnter() {
+        initTabState();
         wireEventHandlers();
         startVideoPolling();
         updateTimer = setInterval(updateHUD, 500);
@@ -44,12 +56,16 @@ const HydraOps = (() => {
         auxTimer = setInterval(refreshAuxZones, 1000);
         // SDR spectrum animates every 700ms (mirrors mock setInterval).
         sdrTickTimer = setInterval(animateSdrSpectrum, 700);
+        // TAK tab poller — 2s cadence, only fetches when TAK tab is active.
+        takTimer = setInterval(refreshTakTab, 2000);
         loadHudLayoutFromConfig();
         loadDetlogFilter();
         wireDetlogFilter();
+        wireOpsTabs();
         updateHUD();
         refreshAuxZones();
         animateSdrSpectrum();
+        refreshTakTab();
     }
 
     function onLeave() {
@@ -64,6 +80,10 @@ const HydraOps = (() => {
         if (sdrTickTimer) {
             clearInterval(sdrTickTimer);
             sdrTickTimer = null;
+        }
+        if (takTimer) {
+            clearInterval(takTimer);
+            takTimer = null;
         }
         stopVideoPolling();
         hideContextMenu();
@@ -538,22 +558,373 @@ const HydraOps = (() => {
     }
 
     // ── HUD Updates ──
+    // Always-on: telemetry strip, lock overlay, approach panel, bbox overlay,
+    // mission rail (mission/pipeline/vehicle — visible as left column).
+    // Per-tab: only the active tab's DOM is touched each tick.
     function updateHUD() {
         var stats = HydraApp.state.stats;
         if (!stats) return;
         updateTelemetry(stats);
         updateLockInfo(HydraApp.state.target);
-        updateSidebarTracks();
         updateSidebarVehicle(stats);
         updateApproachPanel(stats);
         drawBoundingBoxes();
-        updateSidebarRF(HydraApp.state.rfStatus);
+        // Mission rail (always visible, always updated)
         updateSidebarMission(stats);
         updateSidebarPipeline(stats);
-        updateSidebarDetLog(HydraApp.state.detections);
+        // Tab count badges — cheap, always update
+        updateTabCounts();
+        // Per-tab updaters
+        var activeTab = getActiveTab();
+        if (activeTab === 'tracks') {
+            updateSidebarTracks();
+        } else if (activeTab === 'rf') {
+            updateSidebarRF(HydraApp.state.rfStatus);
+        } else if (activeTab === 'mavlink') {
+            updateTabMavlink(stats);
+        } else if (activeTab === 'events') {
+            updateSidebarDetLog(HydraApp.state.detections);
+        }
+        // Synthesize a MAV log event from mode/lock changes regardless of tab
+        // visibility — otherwise opening the MAVLink tab shows an empty log.
+        recordMavLogFromState(stats);
         // FlightHUD (HDG/SPD/ALT/Cards) sourced from the same stats sample —
         // keeps the rail in lock-step with the telemetry strip.
         updateFlightHud(stats);
+    }
+
+    // ── Tab state + wiring ──
+    function initTabState() {
+        if (!window.HydraApp) return;
+        if (!window.HydraApp.state) window.HydraApp.state = {};
+        if (!window.HydraApp.state.opsActiveTab) {
+            window.HydraApp.state.opsActiveTab = 'tracks';
+        }
+    }
+
+    function getActiveTab() {
+        if (window.HydraApp && window.HydraApp.state && window.HydraApp.state.opsActiveTab) {
+            return window.HydraApp.state.opsActiveTab;
+        }
+        return 'tracks';
+    }
+
+    function wireOpsTabs() {
+        var tabs = document.querySelectorAll('.ops-tab');
+        if (!tabs || tabs.length === 0) return;
+        for (var i = 0; i < tabs.length; i++) {
+            var btn = tabs[i];
+            if (btn._wired) continue;
+            btn._wired = true;
+            btn.addEventListener('click', function (e) {
+                var id = e.currentTarget.dataset.tab;
+                if (id) setActiveTab(id);
+            });
+        }
+        setActiveTab(getActiveTab());
+    }
+
+    function setActiveTab(tabId) {
+        var valid = ['tracks', 'rf', 'mavlink', 'tak', 'events'];
+        if (valid.indexOf(tabId) === -1) tabId = 'tracks';
+        if (window.HydraApp && window.HydraApp.state) {
+            window.HydraApp.state.opsActiveTab = tabId;
+        }
+        var tabs = document.querySelectorAll('.ops-tab');
+        for (var i = 0; i < tabs.length; i++) {
+            var t = tabs[i];
+            var is = t.dataset.tab === tabId;
+            t.classList.toggle('active', is);
+            t.setAttribute('aria-selected', is ? 'true' : 'false');
+        }
+        var panels = document.querySelectorAll('.ops-tab-panel');
+        for (var j = 0; j < panels.length; j++) {
+            var p = panels[j];
+            var show = p.dataset.tab === tabId;
+            p.classList.toggle('active', show);
+            if (show) {
+                p.removeAttribute('hidden');
+            } else {
+                p.setAttribute('hidden', 'hidden');
+            }
+        }
+        // Fire the newly-active tab's updater immediately so the panel
+        // paints without waiting for the next 500ms tick.
+        var stats = (HydraApp.state && HydraApp.state.stats) || {};
+        if (tabId === 'tracks') updateSidebarTracks();
+        else if (tabId === 'rf') updateSidebarRF(HydraApp.state.rfStatus);
+        else if (tabId === 'mavlink') updateTabMavlink(stats);
+        else if (tabId === 'tak') refreshTakTab();
+        else if (tabId === 'events') {
+            updateSidebarDetLog(HydraApp.state.detections);
+            refreshAuditLog();
+        }
+    }
+
+    function updateTabCounts() {
+        var tracks = HydraApp.state.tracks || [];
+        var dets = HydraApp.state.detections || [];
+        var rf = HydraApp.state.rfStatus || {};
+
+        var tCount = document.getElementById('ops-tab-count-tracks');
+        if (tCount) tCount.textContent = String(tracks.length);
+
+        var eCount = document.getElementById('ops-tab-count-events');
+        if (eCount) eCount.textContent = String(Array.isArray(dets) ? dets.length : 0);
+
+        var rCount = document.getElementById('ops-tab-count-rf');
+        if (rCount) {
+            if (rf && typeof rf.samples === 'number') {
+                rCount.textContent = String(rf.samples);
+            } else {
+                rCount.textContent = '';
+            }
+        }
+        // MAVLink count mirrors local log length (approx. recent traffic).
+        var mCount = document.getElementById('ops-tab-count-mavlink');
+        if (mCount) mCount.textContent = mavLog.length ? String(mavLog.length) : '';
+        // TAK count is set by refreshTakTab once peers arrive.
+    }
+
+    // ── MAVLink tab ──
+    function nowHHMMSS() {
+        var d = new Date();
+        function pad(v) { return v < 10 ? '0' + v : String(v); }
+        return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    }
+
+    function recordMavLogFromState(stats) {
+        var s = stats || {};
+        var target = HydraApp.state.target || {};
+        var mode = s.mode || s.vehicle_mode || null;
+        var lock = target.locked ? target.track_id : null;
+
+        if (mode && mode !== mavLogLastMode) {
+            mavLogLastMode = mode;
+            mavLog.push({
+                t: nowHHMMSS(), dir: 'TX', msg: 'SET_MODE',
+                detail: 'mode=' + mode,
+            });
+        }
+        if (lock !== mavLogLastLock) {
+            mavLogLastLock = lock;
+            if (lock != null) {
+                mavLog.push({
+                    t: nowHHMMSS(), dir: 'TX', msg: 'STATUSTEXT',
+                    detail: 'HYDRA: LOCK track #' + lock,
+                });
+            }
+        }
+        if (mavLog.length > MAV_LOG_MAX) {
+            mavLog = mavLog.slice(-MAV_LOG_MAX);
+        }
+    }
+
+    function updateTabMavlink(stats) {
+        var s = stats || {};
+        var fpsEl = document.getElementById('ops-tab-mav-fps');
+        var latEl = document.getElementById('ops-tab-mav-latency');
+        if (fpsEl) {
+            if (typeof s.fps === 'number') {
+                fpsEl.textContent = s.fps.toFixed(1);
+                fpsEl.style.color = '';
+            } else {
+                fpsEl.textContent = '--';
+                fpsEl.style.color = 'var(--text-dim)';
+            }
+        }
+        if (latEl) {
+            var lat = (typeof s.mavlink_latency_ms === 'number') ? s.mavlink_latency_ms
+                : (typeof s.mavlinkMs === 'number') ? s.mavlinkMs : null;
+            if (lat != null) {
+                latEl.textContent = Math.round(lat);
+                latEl.style.color = '';
+            } else {
+                latEl.textContent = '--';
+                latEl.style.color = 'var(--text-dim)';
+            }
+        }
+        var log = document.getElementById('ops-tab-mav-log');
+        if (!log) return;
+        if (mavLog.length === 0) {
+            if (!log.querySelector('.ops-tab-empty')) {
+                while (log.firstChild) log.removeChild(log.firstChild);
+                var empty = document.createElement('div');
+                empty.className = 'ops-tab-empty';
+                empty.textContent = 'No MAVLink traffic';
+                log.appendChild(empty);
+            }
+            return;
+        }
+        var emptyEl = log.querySelector('.ops-tab-empty');
+        if (emptyEl) log.removeChild(emptyEl);
+
+        var reversed = mavLog.slice().reverse();
+        while (log.children.length > reversed.length) log.removeChild(log.lastChild);
+        while (log.children.length < reversed.length) {
+            var row = document.createElement('div');
+            row.className = 'ops-mavlink-log-row';
+            var head = document.createElement('div');
+            head.className = 'ops-mavlink-log-head';
+            var tSpan = document.createElement('span');
+            tSpan.className = 'ops-mavlink-log-time';
+            var dSpan = document.createElement('span');
+            dSpan.className = 'ops-mavlink-log-dir';
+            var mSpan = document.createElement('span');
+            mSpan.className = 'ops-mavlink-log-msg';
+            head.appendChild(tSpan);
+            head.appendChild(dSpan);
+            head.appendChild(mSpan);
+            row.appendChild(head);
+            var detail = document.createElement('div');
+            detail.className = 'ops-mavlink-log-detail';
+            row.appendChild(detail);
+            log.appendChild(row);
+        }
+        for (var i = 0; i < reversed.length; i++) {
+            var m = reversed[i];
+            var r = log.children[i];
+            if (!r) continue;
+            var isTx = m.dir === 'TX';
+            var isCmd = /SET_MODE|SERVO|POSITION_TARGET|YAW/.test(m.msg || '');
+            var isStatus = m.msg === 'STATUSTEXT';
+            r.classList.toggle('is-cmd', isCmd);
+            r.classList.toggle('is-status', !isCmd && isStatus);
+            var head2 = r.children[0];
+            var det = r.children[1];
+            _setText(head2.children[0], m.t || '--');
+            var dirEl = head2.children[1];
+            _setText(dirEl, m.dir || '--');
+            dirEl.classList.toggle('is-tx', isTx);
+            dirEl.classList.toggle('is-rx', !isTx);
+            var msgEl = head2.children[2];
+            _setText(msgEl, m.msg || '');
+            msgEl.classList.toggle('is-cmd', isCmd);
+            msgEl.classList.toggle('is-status', !isCmd && isStatus);
+            _setText(det, m.detail || '');
+        }
+    }
+
+    // ── TAK tab ──
+    function refreshTakTab() {
+        if (getActiveTab() !== 'tak') return;
+        if (!HydraApp || typeof HydraApp.apiGet !== 'function') return;
+        Promise.all([
+            HydraApp.apiGet('/api/tak/peers').catch(function () { return null; }),
+            HydraApp.apiGet('/api/tak/commands?limit=50').catch(function () { return null; }),
+        ]).then(function (arr) {
+            renderTakTab(arr[0] || {}, arr[1] || {});
+        });
+    }
+
+    function renderTakTab(peersData, cmdsData) {
+        var stats = HydraApp.state.stats || {};
+        var cs = stats.callsign || 'HYDRA-1';
+        var csEl = document.getElementById('ops-tab-tak-callsign');
+        if (csEl) csEl.textContent = cs;
+
+        var peers = (peersData && Array.isArray(peersData.peers)) ? peersData.peers : [];
+        var peersEl = document.getElementById('ops-tab-tak-peers');
+        if (peersEl) {
+            peersEl.textContent = peers.length ? (peers.length + ' connected') : '--';
+            peersEl.style.color = peers.length ? '' : 'var(--text-dim)';
+        }
+
+        var cmds = (cmdsData && Array.isArray(cmdsData.commands)) ? cmdsData.commands : [];
+        var inEl = document.getElementById('ops-tab-tak-inbound');
+        if (inEl) {
+            inEl.textContent = cmds.length ? (cmds.length + ' recent') : '--';
+            inEl.style.color = cmds.length ? '' : 'var(--text-dim)';
+        }
+
+        var takCount = document.getElementById('ops-tab-count-tak');
+        if (takCount) takCount.textContent = peers.length ? String(peers.length) : '';
+
+        var list = document.getElementById('ops-tab-tak-commands');
+        if (!list) return;
+
+        if (cmds.length === 0) {
+            if (!list.querySelector('.ops-tab-empty')) {
+                while (list.firstChild) list.removeChild(list.firstChild);
+                var empty = document.createElement('div');
+                empty.className = 'ops-tab-empty';
+                empty.textContent = 'No inbound commands';
+                list.appendChild(empty);
+            }
+            return;
+        }
+        var emptyEl = list.querySelector('.ops-tab-empty');
+        if (emptyEl) list.removeChild(emptyEl);
+
+        var shown = cmds.slice(-30).reverse();
+        while (list.children.length > shown.length) list.removeChild(list.lastChild);
+        while (list.children.length < shown.length) {
+            var row = document.createElement('div');
+            row.className = 'ops-tak-command-row';
+            for (var k = 0; k < 3; k++) row.appendChild(document.createElement('span'));
+            row.children[0].className = 'ops-tak-command-time';
+            row.children[1].className = 'ops-tak-command-callsign';
+            row.children[2].className = 'ops-tak-command-type';
+            list.appendChild(row);
+        }
+        for (var i = 0; i < shown.length; i++) {
+            var c = shown[i] || {};
+            var r = list.children[i];
+            if (!r) continue;
+            var ts = String(c.timestamp || c.time || '--');
+            if (ts.length > 8) ts = ts.slice(-8);
+            _setText(r.children[0], ts);
+            _setText(r.children[1], c.callsign || c.uid || '--');
+            _setText(r.children[2], c.cot_type || c.type || c.command || '--');
+        }
+    }
+
+    // ── Audit log (Events tab — below detection log) ──
+    function refreshAuditLog() {
+        if (getActiveTab() !== 'events') return;
+        if (!HydraApp || typeof HydraApp.apiGet !== 'function') return;
+        HydraApp.apiGet('/api/audit/summary?recent=20').then(function (data) {
+            renderAuditLog(data || {});
+        }).catch(function () { /* non-fatal */ });
+    }
+
+    function renderAuditLog(data) {
+        var list = document.getElementById('ops-tab-events-audit');
+        if (!list) return;
+        var events = (data && Array.isArray(data.recent_events)) ? data.recent_events : [];
+        if (events.length === 0) {
+            if (!list.querySelector('.ops-tab-empty')) {
+                while (list.firstChild) list.removeChild(list.firstChild);
+                var empty = document.createElement('div');
+                empty.className = 'ops-tab-empty';
+                empty.textContent = 'No audit events';
+                list.appendChild(empty);
+            }
+            return;
+        }
+        var emptyEl = list.querySelector('.ops-tab-empty');
+        if (emptyEl) list.removeChild(emptyEl);
+
+        var shown = events.slice(-20).reverse();
+        while (list.children.length > shown.length) list.removeChild(list.lastChild);
+        while (list.children.length < shown.length) {
+            var row = document.createElement('div');
+            row.className = 'ops-audit-row';
+            for (var k = 0; k < 2; k++) row.appendChild(document.createElement('span'));
+            row.children[0].className = 'ops-audit-time';
+            row.children[1].className = 'ops-audit-text';
+            list.appendChild(row);
+        }
+        for (var i = 0; i < shown.length; i++) {
+            var ev = shown[i] || {};
+            var r = list.children[i];
+            if (!r) continue;
+            var ts = String(ev.timestamp || ev.time || '--');
+            if (ts.length > 8) ts = ts.slice(-8);
+            _setText(r.children[0], ts);
+            var text = ev.event || ev.action || ev.message || ev.kind || '--';
+            _setText(r.children[1], String(text));
+        }
     }
 
     function updateSidebarTracks() {
@@ -1170,7 +1541,7 @@ const HydraOps = (() => {
     async function endMissionFromOps() {
         var resp = await HydraApp.apiPost('/api/mission/end', {});
         if (resp && resp.status === 'ended') {
-            HydraApp.showToast('Mission ended', 'info');
+            HydraApp.showToast('Sortie ended', 'info');
         }
     }
 
@@ -1290,7 +1661,7 @@ const HydraOps = (() => {
         // Sidebar card buttons (mission / pipeline mirrors)
         var missionEndBtn = document.getElementById('ops-btn-mission-end');
         if (missionEndBtn) missionEndBtn.addEventListener('click', function () {
-            if (!confirm('End current mission?')) return;
+            if (!confirm('End current sortie?')) return;
             endMissionFromOps();
         });
         var missionExportBtn = document.getElementById('ops-btn-mission-export');
@@ -2013,5 +2384,11 @@ const HydraOps = (() => {
         updateFlightHud: updateFlightHud,
         updateCockpitStrip: updateCockpitStrip,
         applyHudLayout: applyHudLayout,
+        setActiveTab: setActiveTab,
+        getActiveTab: getActiveTab,
+        updateTabCounts: updateTabCounts,
+        updateTabMavlink: updateTabMavlink,
+        refreshTakTab: refreshTakTab,
+        refreshAuditLog: refreshAuditLog,
     };
 })();
