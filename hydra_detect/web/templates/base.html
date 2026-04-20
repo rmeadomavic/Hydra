@@ -60,16 +60,17 @@
 
         <span class="tb-divider" aria-hidden="true"></span>
 
-        <!-- Health blips -->
+        <!-- Health blips — spec order: CAM · MAV · GPS · KIS · TAK.
+             SIM pill sits beside the blips (only visible when simulated GPS). -->
         <div class="tb-blips" aria-label="Subsystem health">
+            <span class="tb-blip" data-blip="cam" title="Camera">
+                <span class="tb-dot dim" id="dot-camera"></span>CAM
+            </span>
             <span class="tb-blip" data-blip="mav" title="MAVLink">
                 <span class="tb-dot dim" id="dot-mavlink"></span>MAV
             </span>
             <span class="tb-blip" data-blip="gps" title="GPS Fix">
                 <span class="tb-dot dim" id="dot-gps"></span><span id="tb-gps-label">GPS --</span>
-            </span>
-            <span class="tb-blip" data-blip="sim" title="SIM GPS">
-                <span class="tb-dot dim" id="dot-sim"></span>SIM
             </span>
             <span class="tb-blip" data-blip="kis" title="Kismet">
                 <span class="tb-dot dim" id="dot-kismet"></span>KIS
@@ -77,8 +78,8 @@
             <span class="tb-blip" data-blip="tak" title="TAK">
                 <span class="tb-dot dim" id="dot-tak"></span>TAK
             </span>
-            <span class="tb-blip" data-blip="cam" title="Camera">
-                <span class="tb-dot dim" id="dot-camera"></span>CAM
+            <span class="tb-blip" data-blip="sim" title="SIM GPS">
+                <span class="tb-dot dim" id="dot-sim"></span>SIM
             </span>
             <span class="tb-sim-pill sim-gps-pill" id="sim-gps-pill" hidden>SIM</span>
         </div>
