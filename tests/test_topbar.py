@@ -47,7 +47,7 @@ class TestTopbarMarkup:
         assert 'class="tb-subtitle"' in html
         # OGT image
         assert 'id="tb-ogt"' in html
-        assert "OGT_Horizontal_White.png" in html
+        assert "ogt_horizontal_white.png" in html
 
     def test_six_health_blips_present(self):
         html = BASE_HTML.read_text()
