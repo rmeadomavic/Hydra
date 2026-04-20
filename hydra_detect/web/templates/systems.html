@@ -1,0 +1,262 @@
+<!--
+    Systems View — port of design_reference SystemsView (other-views.jsx:667-794).
+    Top metric grid (FPS, CPU, GPU, RAM) with big-number + sparkline + threshold pill,
+    plus a subsystems matrix (MAVLink, RTSP, detection pipeline, etc.) and a
+    pre-flight checklist. Sparklines + values are filled live by HydraSystems
+    polling /api/stats at 1 Hz.
+-->
+
+<div class="systems-scroll" id="systems-scroll">
+
+    <!-- ── Top metric grid: 4 sparkline cards ── -->
+    <div class="systems-metric-grid" id="systems-metric-grid">
+
+        <!-- FPS -->
+        <article class="systems-card systems-metric" id="systems-card-fps"
+                 data-metric="fps" aria-label="Pipeline FPS metric">
+            <header class="systems-card-header">
+                <span class="systems-card-label">Pipeline FPS</span>
+                <span class="systems-card-target">&gt;25 green · 15-25 amber · &lt;15 red</span>
+            </header>
+            <div class="systems-card-body">
+                <div class="systems-metric-row">
+                    <span class="systems-metric-value" id="systems-fps-value">--</span>
+                    <span class="systems-metric-unit">fps</span>
+                    <span class="systems-spacer"></span>
+                    <span class="systems-pill systems-pill-dim" id="systems-fps-pill">--</span>
+                </div>
+                <svg class="systems-spark" id="systems-fps-spark"
+                     width="280" height="44" viewBox="0 0 280 44"
+                     preserveAspectRatio="none"
+                     role="img"
+                     aria-label="Pipeline FPS trend over the last 60 samples">
+                    <defs>
+                        <linearGradient id="systems-fps-grad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="currentColor" stop-opacity="0.30"/>
+                            <stop offset="100%" stop-color="currentColor" stop-opacity="0"/>
+                        </linearGradient>
+                    </defs>
+                    <g class="systems-spark-bands" aria-hidden="true"></g>
+                    <path class="systems-spark-fill" d="" fill="url(#systems-fps-grad)"/>
+                    <path class="systems-spark-line" d="" fill="none" stroke="currentColor" stroke-width="1.4"/>
+                </svg>
+            </div>
+        </article>
+
+        <!-- CPU temp -->
+        <article class="systems-card systems-metric" id="systems-card-cpu"
+                 data-metric="cpu" aria-label="CPU temperature metric">
+            <header class="systems-card-header">
+                <span class="systems-card-label">CPU temp</span>
+                <span class="systems-card-target">&lt;60 green · 60-75 amber · &gt;75 red</span>
+            </header>
+            <div class="systems-card-body">
+                <div class="systems-metric-row">
+                    <span class="systems-metric-value" id="systems-cpu-value">--</span>
+                    <span class="systems-metric-unit">&deg;C</span>
+                    <span class="systems-spacer"></span>
+                    <span class="systems-pill systems-pill-dim" id="systems-cpu-pill">--</span>
+                </div>
+                <svg class="systems-spark" id="systems-cpu-spark"
+                     width="280" height="44" viewBox="0 0 280 44"
+                     preserveAspectRatio="none"
+                     role="img"
+                     aria-label="CPU temperature trend over the last 60 samples">
+                    <defs>
+                        <linearGradient id="systems-cpu-grad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="currentColor" stop-opacity="0.30"/>
+                            <stop offset="100%" stop-color="currentColor" stop-opacity="0"/>
+                        </linearGradient>
+                    </defs>
+                    <g class="systems-spark-bands" aria-hidden="true"></g>
+                    <path class="systems-spark-fill" d="" fill="url(#systems-cpu-grad)"/>
+                    <path class="systems-spark-line" d="" fill="none" stroke="currentColor" stroke-width="1.4"/>
+                </svg>
+            </div>
+        </article>
+
+        <!-- GPU temp -->
+        <article class="systems-card systems-metric" id="systems-card-gpu"
+                 data-metric="gpu" aria-label="GPU temperature metric">
+            <header class="systems-card-header">
+                <span class="systems-card-label">GPU temp</span>
+                <span class="systems-card-target">&lt;70 green · 70-80 amber · &gt;80 red</span>
+            </header>
+            <div class="systems-card-body">
+                <div class="systems-metric-row">
+                    <span class="systems-metric-value" id="systems-gpu-value">--</span>
+                    <span class="systems-metric-unit">&deg;C</span>
+                    <span class="systems-spacer"></span>
+                    <span class="systems-pill systems-pill-dim" id="systems-gpu-pill">--</span>
+                </div>
+                <svg class="systems-spark" id="systems-gpu-spark"
+                     width="280" height="44" viewBox="0 0 280 44"
+                     preserveAspectRatio="none"
+                     role="img"
+                     aria-label="GPU temperature trend over the last 60 samples">
+                    <defs>
+                        <linearGradient id="systems-gpu-grad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="currentColor" stop-opacity="0.30"/>
+                            <stop offset="100%" stop-color="currentColor" stop-opacity="0"/>
+                        </linearGradient>
+                    </defs>
+                    <g class="systems-spark-bands" aria-hidden="true"></g>
+                    <path class="systems-spark-fill" d="" fill="url(#systems-gpu-grad)"/>
+                    <path class="systems-spark-line" d="" fill="none" stroke="currentColor" stroke-width="1.4"/>
+                </svg>
+            </div>
+        </article>
+
+        <!-- RAM -->
+        <article class="systems-card systems-metric" id="systems-card-ram"
+                 data-metric="ram" aria-label="RAM utilization metric">
+            <header class="systems-card-header">
+                <span class="systems-card-label">RAM used</span>
+                <span class="systems-card-target">&lt;70 green · 70-85 amber · &gt;85 red</span>
+            </header>
+            <div class="systems-card-body">
+                <div class="systems-metric-row">
+                    <span class="systems-metric-value" id="systems-ram-value">--</span>
+                    <span class="systems-metric-unit">%</span>
+                    <span class="systems-spacer"></span>
+                    <span class="systems-pill systems-pill-dim" id="systems-ram-pill">--</span>
+                </div>
+                <div class="systems-metric-sub" id="systems-ram-sub">-- / -- GB shared</div>
+                <svg class="systems-spark" id="systems-ram-spark"
+                     width="280" height="44" viewBox="0 0 280 44"
+                     preserveAspectRatio="none"
+                     role="img"
+                     aria-label="RAM percentage trend over the last 60 samples">
+                    <defs>
+                        <linearGradient id="systems-ram-grad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="currentColor" stop-opacity="0.30"/>
+                            <stop offset="100%" stop-color="currentColor" stop-opacity="0"/>
+                        </linearGradient>
+                    </defs>
+                    <g class="systems-spark-bands" aria-hidden="true"></g>
+                    <path class="systems-spark-fill" d="" fill="url(#systems-ram-grad)"/>
+                    <path class="systems-spark-line" d="" fill="none" stroke="currentColor" stroke-width="1.4"/>
+                </svg>
+            </div>
+        </article>
+    </div>
+
+    <!-- ── Mid grid: subsystems matrix + pre-flight checklist ── -->
+    <div class="systems-mid-grid">
+
+        <!-- Subsystems -->
+        <article class="systems-card" aria-label="Subsystem status matrix">
+            <header class="systems-card-header">
+                <span class="systems-card-label">Subsystems</span>
+                <span class="systems-card-target" id="systems-subsystems-meta">--</span>
+            </header>
+            <div class="systems-card-body systems-card-body-flush">
+                <div class="systems-row" data-key="pipeline">
+                    <span class="systems-dot systems-dot-dim" id="systems-row-pipeline-dot"></span>
+                    <span class="systems-row-name">Detection pipeline</span>
+                    <span class="systems-row-detail" id="systems-row-pipeline-detail">--</span>
+                    <span class="systems-pill systems-pill-dim" id="systems-row-pipeline-pill">--</span>
+                </div>
+                <div class="systems-row" data-key="mavlink">
+                    <span class="systems-dot systems-dot-dim" id="systems-row-mavlink-dot"></span>
+                    <span class="systems-row-name">MAVLink link</span>
+                    <span class="systems-row-detail" id="systems-row-mavlink-detail">--</span>
+                    <span class="systems-pill systems-pill-dim" id="systems-row-mavlink-pill">--</span>
+                </div>
+                <div class="systems-row" data-key="gps">
+                    <span class="systems-dot systems-dot-dim" id="systems-row-gps-dot"></span>
+                    <span class="systems-row-name">GPS</span>
+                    <span class="systems-row-detail" id="systems-row-gps-detail">--</span>
+                    <span class="systems-pill systems-pill-dim" id="systems-row-gps-pill">--</span>
+                </div>
+                <div class="systems-row" data-key="rtsp">
+                    <span class="systems-dot systems-dot-dim" id="systems-row-rtsp-dot"></span>
+                    <span class="systems-row-name">RTSP server</span>
+                    <span class="systems-row-detail" id="systems-row-rtsp-detail">--</span>
+                    <span class="systems-pill systems-pill-dim" id="systems-row-rtsp-pill">--</span>
+                </div>
+                <div class="systems-row" data-key="mavvideo">
+                    <span class="systems-dot systems-dot-dim" id="systems-row-mavvideo-dot"></span>
+                    <span class="systems-row-name">MAVLink video</span>
+                    <span class="systems-row-detail" id="systems-row-mavvideo-detail">--</span>
+                    <span class="systems-pill systems-pill-dim" id="systems-row-mavvideo-pill">--</span>
+                </div>
+                <div class="systems-row" data-key="detector">
+                    <span class="systems-dot systems-dot-dim" id="systems-row-detector-dot"></span>
+                    <span class="systems-row-name">Detector model</span>
+                    <span class="systems-row-detail" id="systems-row-detector-detail">--</span>
+                    <span class="systems-pill systems-pill-dim" id="systems-row-detector-pill">--</span>
+                </div>
+                <div class="systems-row" data-key="approach">
+                    <span class="systems-dot systems-dot-dim" id="systems-row-approach-dot"></span>
+                    <span class="systems-row-name">Approach controller</span>
+                    <span class="systems-row-detail" id="systems-row-approach-detail">--</span>
+                    <span class="systems-pill systems-pill-dim" id="systems-row-approach-pill">--</span>
+                </div>
+                <div class="systems-row" data-key="rfhunt">
+                    <span class="systems-dot systems-dot-dim" id="systems-row-rfhunt-dot"></span>
+                    <span class="systems-row-name">RF hunt</span>
+                    <span class="systems-row-detail" id="systems-row-rfhunt-detail">--</span>
+                    <span class="systems-pill systems-pill-dim" id="systems-row-rfhunt-pill">--</span>
+                </div>
+            </div>
+        </article>
+
+        <!-- Pre-flight checklist (B-stub: derived from /api/stats only at this stage) -->
+        <article class="systems-card" aria-label="Pre-flight checklist">
+            <header class="systems-card-header">
+                <span class="systems-card-label">Pre-flight Checklist</span>
+                <span class="systems-pill systems-pill-warn" id="systems-preflight-summary"
+                      title="Pre-flight rollup is partial until backend lands"
+                      aria-live="polite">PARTIAL</span>
+            </header>
+            <div class="systems-card-body systems-card-body-flush">
+                <div class="systems-check-row" data-check="camera">
+                    <span class="systems-check-glyph" id="systems-check-camera-glyph">·</span>
+                    <span class="systems-check-label">Camera source</span>
+                    <span class="systems-check-sub" id="systems-check-camera-sub">--</span>
+                </div>
+                <div class="systems-check-row" data-check="model">
+                    <span class="systems-check-glyph" id="systems-check-model-glyph">·</span>
+                    <span class="systems-check-label">Detector loaded</span>
+                    <span class="systems-check-sub" id="systems-check-model-sub">--</span>
+                </div>
+                <div class="systems-check-row" data-check="mavlink">
+                    <span class="systems-check-glyph" id="systems-check-mavlink-glyph">·</span>
+                    <span class="systems-check-label">MAVLink heartbeat</span>
+                    <span class="systems-check-sub" id="systems-check-mavlink-sub">--</span>
+                </div>
+                <div class="systems-check-row" data-check="gps">
+                    <span class="systems-check-glyph" id="systems-check-gps-glyph">·</span>
+                    <span class="systems-check-label">GPS fix</span>
+                    <span class="systems-check-sub" id="systems-check-gps-sub">--</span>
+                </div>
+                <div class="systems-check-row" data-check="ram">
+                    <span class="systems-check-glyph" id="systems-check-ram-glyph">·</span>
+                    <span class="systems-check-label">RAM headroom</span>
+                    <span class="systems-check-sub" id="systems-check-ram-sub">--</span>
+                </div>
+                <div class="systems-check-row" data-check="thermal">
+                    <span class="systems-check-glyph" id="systems-check-thermal-glyph">·</span>
+                    <span class="systems-check-label">Thermal envelope</span>
+                    <span class="systems-check-sub" id="systems-check-thermal-sub">--</span>
+                </div>
+                <div class="systems-check-row" data-check="pipeline">
+                    <span class="systems-check-glyph" id="systems-check-pipeline-glyph">·</span>
+                    <span class="systems-check-label">Pipeline FPS &gt; 5</span>
+                    <span class="systems-check-sub" id="systems-check-pipeline-sub">--</span>
+                </div>
+            </div>
+        </article>
+    </div>
+
+    <!-- ── Pipeline status footer strip ── -->
+    <footer class="systems-status-strip" aria-label="Pipeline status summary">
+        <span class="systems-status-title">Detection Pipeline</span>
+        <span class="systems-status-chip" id="systems-status-chip">--</span>
+        <span class="systems-status-text" id="systems-status-text">Awaiting first poll&hellip;</span>
+        <span class="systems-status-spacer"></span>
+        <span class="systems-status-meta" id="systems-status-meta">tick --</span>
+    </footer>
+
+</div>
