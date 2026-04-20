@@ -591,8 +591,10 @@ const HydraOps = (() => {
             var batt = stats.battery;
             if (batt !== undefined && batt !== null) {
                 battery.textContent = batt.toFixed(0) + '%';
+                battery.style.color = '';
             } else {
                 battery.textContent = '--';
+                battery.style.color = 'var(--text-dim)';
             }
         }
         if (speed) {
@@ -622,9 +624,19 @@ const HydraOps = (() => {
         if (gps) {
             var fix = stats.gps_fix;
             if (fix !== undefined && fix !== null) {
-                gps.textContent = fix >= 3 ? '3D FIX' : fix >= 2 ? '2D' : 'NO FIX';
+                if (fix >= 3) {
+                    gps.textContent = '3D FIX';
+                    gps.style.color = 'var(--success)';
+                } else if (fix >= 2) {
+                    gps.textContent = '2D';
+                    gps.style.color = 'var(--warning)';
+                } else {
+                    gps.textContent = 'NO FIX';
+                    gps.style.color = 'var(--danger)';
+                }
             } else {
                 gps.textContent = '--';
+                gps.style.color = 'var(--text-dim)';
             }
         }
     }
