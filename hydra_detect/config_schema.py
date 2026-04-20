@@ -324,6 +324,12 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
         "require_auth_for_control": FieldSpec(
             FieldType.BOOL, default=False,
             description="Require api_token for control POST endpoints"),
+        "hud_layout": FieldSpec(
+            FieldType.ENUM,
+            choices=["classic", "operator", "graphs", "hybrid"],
+            default="classic",
+            description="Dashboard HUD layout preset",
+        ),
     },
     "autonomous": {
         "enabled": FieldSpec(
