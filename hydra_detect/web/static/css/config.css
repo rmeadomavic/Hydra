@@ -68,7 +68,7 @@
 }
 
 /* ── Mock shell: right-column card stack ── */
-#view-config {
+body.view-config #view-config {
     display: flex;
     justify-content: flex-end;
 }
