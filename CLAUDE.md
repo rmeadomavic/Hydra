@@ -453,3 +453,26 @@ must be functional, not decorative:
 - **Useful graphics** — signal charts, FPS trends, detection heatmaps that aid decisions
 - **Ops-center aesthetic** — typography and spacing optimized for stress and low light
 - **Mobile-first** — large touch targets for gloved hands, works on tablets in the field
+
+## Partnership with the laptop orchestrator
+
+This Jetson's Claude Code is executing tasks dispatched by a laptop-side Claude Code orchestrator over SSH (the `remote-jetson` skill on the laptop wraps `ssh hydra-team-1 "bash -lc 'cd ~/Hydra && claude --dangerously-skip-permissions -p ...'"`). You are the executor; the orchestrator is the planner. Coordinate — don't re-plan from scratch.
+
+**Coordination substrate** (per the remote-jetson skill):
+- `/tmp/reports/` — drop structured progress reports here; the orchestrator tails this.
+- `/tmp/status.log` — append-only one-line status updates (`[timestamp] component: state`).
+- `/tmp/claims.tsv` — file/path claims to avoid concurrent edits. Check before touching a file; append your claim before editing.
+- `/tmp/messages/` — outbound requests to the orchestrator. If you need a capability this box doesn't have (see below), write a message here and exit cleanly.
+
+**Phase 2 handoff** is the active spec bundle at `~/Downloads/Hydra/design_handoff_hydra_alignment/`. The orchestrator prompt at the bottom of `PHASE2_KICKOFF.md` in that dir is authoritative. Treat `04_DESIGN_TOKENS.md` and the other numbered docs as real specs to implement, not aspirational wishlists. If a spec looks over-scoped or contradicts existing code, write a question to `/tmp/messages/question_<topic>.md` — don't silently downscale.
+
+**GitHub + Todoist:** Kyle uses Bindify MCP proxies for both. The laptop has `mcp__claude_ai_Github_via_Bindify__*` and `mcp__claude_ai_ToDoist_via_Bindify__*` tools. **This Jetson does not have those MCPs configured and cannot reach them directly.** If you need to create an issue, comment on a PR, add a Todoist task, etc., write a request to `/tmp/messages/need_github.md` or `/tmp/messages/need_todoist.md` with the exact payload (repo, title, body, labels; or task content, project, due string). Do not try to authenticate `gh` CLI or hit Todoist REST directly — Kyle routes through Bindify deliberately.
+
+**Communication style** (from Kyle's top-level CLAUDE.md):
+- Plain operator voice. No marketing copy in docs, READMEs, commit messages, or user-facing text.
+- When summarizing work, report concrete results: files changed with line ranges, commit SHAs, test counts (pass/fail), diff stats. Skip "here's what's exciting about this" framing.
+- Answer "how are we looking?" in one compact paragraph, not a table dump.
+
+**Background-by-default for long ops:** Docker builds, model loads, long test runs, systemctl restarts — launch in background, write PID + log path to `/tmp/status.log`, return control, poll later. The Jetson also sleeps/loses SSH occasionally; don't hold the orchestrator's SSH session open for 10-minute operations.
+
+**Don't** update `~/.claude/settings.json` to add MCP URLs — MemPalace and Bindify endpoints configured on the laptop are not reachable from here without a Tailscale Funnel. Ask Kyle via `/tmp/messages/` before adding any MCP server.

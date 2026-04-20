@@ -58,7 +58,7 @@ body {
     font-size: var(--font-sm);
     letter-spacing: var(--ls-condensed);
     text-transform: uppercase;
-    color: var(--text-secondary);
+    color: var(--text-dim);
     margin-bottom: var(--s-1);
 }
 

@@ -94,7 +94,7 @@
 .settings-field-label {
     font-family: var(--font-mono);
     font-size: var(--font-sm);
-    color: var(--text-secondary);
+    color: var(--text-dim);
 }
 
 .settings-field-label .restart-icon {
@@ -267,7 +267,7 @@ a.btn-recovery:hover {
 .log-viewer-label {
     font-family: var(--font-mono);
     font-size: var(--font-sm);
-    color: var(--text-secondary);
+    color: var(--text-dim);
 }
 
 .log-viewer-controls select {
@@ -314,7 +314,7 @@ a.btn-recovery:hover {
 
 .log-entry {
     padding: 2px 8px;
-    color: var(--text-secondary);
+    color: var(--text-dim);
     white-space: pre-wrap;
     word-break: break-all;
 }

@@ -380,7 +380,7 @@ const HydraOperations = (() => {
                 if (hwArm) {
                     if (approach.hardware_arm_status === null || approach.hardware_arm_status === undefined) {
                         hwArm.textContent = 'N/A';
-                        hwArm.style.color = 'var(--text-secondary)';
+                        hwArm.style.color = 'var(--text-dim)';
                     } else {
                         hwArm.textContent = approach.hardware_arm_status ? 'ARMED' : 'SAFE';
                         hwArm.style.color = approach.hardware_arm_status ? 'var(--danger)' : 'var(--success)';

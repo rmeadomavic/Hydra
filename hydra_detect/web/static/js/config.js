@@ -1412,7 +1412,7 @@ const HydraOperations = (() => {
             row.style.cssText = 'display:flex;align-items:center;gap:4px;padding:2px 0;';
             const label = document.createElement('span');
             label.className = 'mono';
-            label.style.cssText = 'font-size:var(--font-xs);color:var(--text-secondary);flex:1;';
+            label.style.cssText = 'font-size:var(--font-xs);color:var(--text-dim);flex:1;';
             label.textContent = addr;
             const delBtn = document.createElement('button');
             delBtn.className = 'btn btn-sm';

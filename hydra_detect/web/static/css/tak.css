@@ -183,7 +183,7 @@ body.view-tak #mjpeg-stream {
     font-size: var(--font-xs);
     text-transform: uppercase;
     letter-spacing: var(--ls-condensed);
-    color: var(--text-secondary);
+    color: var(--text-dim);
     padding: 1px var(--s-2);
     border: 1px solid var(--border-default);
     border-radius: var(--radius-sm);

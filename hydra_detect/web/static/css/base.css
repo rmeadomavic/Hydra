@@ -73,7 +73,7 @@ h1, h2, h3, .label-heading {
     text-transform: uppercase;
     letter-spacing: var(--ls-condensed);
     padding: 1px 6px;
-    border-radius: 999px;
+    border-radius: var(--radius);
 }
 .pill-live {
     background: var(--olive-primary);
@@ -337,7 +337,7 @@ input[type="range"]::-webkit-slider-thumb {
     font-size: var(--font-xs);
     font-weight: 700;
     padding: 2px 8px;
-    border-radius: 999px;
+    border-radius: var(--radius);
     background: rgba(255, 159, 28, 0.85);
     color: #000;
     text-transform: uppercase;
@@ -355,7 +355,7 @@ input[type="range"]::-webkit-slider-thumb {
     text-transform: uppercase;
     letter-spacing: var(--ls-condensed);
     padding: 2px 8px;
-    border-radius: 999px;
+    border-radius: var(--radius);
     border: 1px solid rgba(255, 255, 255, 0.15);
     background: transparent;
     color: rgba(255, 255, 255, 0.7);
