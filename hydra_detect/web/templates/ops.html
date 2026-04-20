@@ -64,6 +64,42 @@
         </div>
     </div>
 
+    <!-- Approach Status (hidden when approach.mode === idle) -->
+    <div class="ops-sidebar-section" id="ops-approach-section" style="display:none;">
+        <div class="ops-sidebar-header">APPROACH</div>
+        <div class="ops-approach-body">
+            <div class="panel-stat-grid panel-stat-grid-3">
+                <div class="panel-stat">
+                    <span class="panel-stat-label">Mode</span>
+                    <span class="panel-stat-value mono accent" id="ops-approach-mode">--</span>
+                </div>
+                <div class="panel-stat">
+                    <span class="panel-stat-label">Elapsed</span>
+                    <span class="panel-stat-value mono" id="ops-approach-elapsed">--</span>
+                </div>
+                <div class="panel-stat">
+                    <span class="panel-stat-label">Waypoints</span>
+                    <span class="panel-stat-value mono" id="ops-approach-wp">--</span>
+                </div>
+            </div>
+            <div id="ops-approach-arm-status" style="display:none; margin-top:var(--gap-sm);">
+                <div class="panel-stat-grid">
+                    <div class="panel-stat">
+                        <span class="panel-stat-label">SW ARM</span>
+                        <span class="panel-stat-value mono" id="ops-approach-sw-arm">SAFE</span>
+                    </div>
+                    <div class="panel-stat">
+                        <span class="panel-stat-label">HW ARM</span>
+                        <span class="panel-stat-value mono" id="ops-approach-hw-arm">N/A</span>
+                    </div>
+                </div>
+            </div>
+            <div style="margin-top:var(--gap-sm);">
+                <button class="btn btn-danger" id="ops-btn-approach-abort" style="width:100%;">Abort Approach</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Minimap Placeholder -->
     <div class="ops-sidebar-section">
         <div class="ops-sidebar-header">MAP</div>

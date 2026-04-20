@@ -510,6 +510,7 @@ const HydraOps = (() => {
         updateLockInfo(HydraApp.state.target);
         updateSidebarTracks();
         updateSidebarVehicle(stats);
+        updateApproachPanel(stats);
         drawBoundingBoxes();
     }
 
@@ -575,7 +576,7 @@ const HydraOps = (() => {
         if (mode) mode.textContent = stats.vehicle_mode || '--';
         if (armed) armed.textContent = stats.armed ? 'ARMED' : 'DISARMED';
         if (battery) battery.textContent = (stats.battery_pct || '--') + '%';
-        if (position) position.textContent = stats.position || '--';
+        if (position) position.textContent = (window.HydraSimGps ? window.HydraSimGps.withSimSuffix(stats.position || '--') : (stats.position || '--'));
     }
 
     function updateTelemetry(stats) {
@@ -667,6 +668,59 @@ const HydraOps = (() => {
         }
     }
 
+    // ── Approach Status Panel ──
+    function updateApproachPanel(stats) {
+        var approach = stats && stats.approach;
+        var section = document.getElementById('ops-approach-section');
+        if (!section) return;
+        if (!approach || typeof approach.mode !== 'string' || approach.mode === 'idle') {
+            section.style.display = 'none';
+            return;
+        }
+
+        section.style.display = '';
+
+        var modeEl = document.getElementById('ops-approach-mode');
+        var elapsedEl = document.getElementById('ops-approach-elapsed');
+        var wpEl = document.getElementById('ops-approach-wp');
+        if (modeEl) modeEl.textContent = approach.mode.toUpperCase();
+        if (elapsedEl) elapsedEl.textContent = (approach.elapsed_sec || 0) + 's';
+        if (wpEl) wpEl.textContent = approach.waypoints_sent || 0;
+
+        var armPanel = document.getElementById('ops-approach-arm-status');
+        if (armPanel) {
+            if (approach.mode === 'strike') {
+                armPanel.style.display = 'block';
+                var swArm = document.getElementById('ops-approach-sw-arm');
+                var hwArm = document.getElementById('ops-approach-hw-arm');
+                if (swArm) {
+                    swArm.textContent = approach.software_arm ? 'ARMED' : 'SAFE';
+                    swArm.style.color = approach.software_arm ? 'var(--olive-muted)' : 'var(--text-dim)';
+                }
+                if (hwArm) {
+                    if (approach.hardware_arm_status === null || approach.hardware_arm_status === undefined) {
+                        hwArm.textContent = 'N/A';
+                        hwArm.style.color = 'var(--text-dim)';
+                    } else {
+                        hwArm.textContent = approach.hardware_arm_status ? 'ARMED' : 'SAFE';
+                        hwArm.style.color = approach.hardware_arm_status ? 'var(--olive-muted)' : 'var(--text-dim)';
+                    }
+                }
+            } else {
+                armPanel.style.display = 'none';
+            }
+        }
+    }
+
+    async function abortApproach() {
+        var resp = await HydraApp.apiPost('/api/approach/abort', {});
+        if (resp) {
+            HydraApp.showToast('Approach abort sent', 'info');
+        } else {
+            HydraApp.showToast('Approach abort failed — verify with MAV GCS', 'error');
+        }
+    }
+
     // ── Event Handlers ──
     function wireEventHandlers() {
         if (handlersWired) return;
@@ -707,6 +761,14 @@ const HydraOps = (() => {
             });
         }
 
+        // Approach: Abort
+        var approachAbortBtn = document.getElementById('ops-btn-approach-abort');
+        if (approachAbortBtn) {
+            approachAbortBtn.addEventListener('click', function () {
+                abortApproach();
+            });
+        }
+
         // Window resize: keep canvas in sync and redraw
         window.addEventListener('resize', function () {
             resizeCanvas();
@@ -739,6 +801,8 @@ const HydraOps = (() => {
         onLeave: onLeave,
         updateTelemetry: updateTelemetry,
         updateLockInfo: updateLockInfo,
+        updateApproachPanel: updateApproachPanel,
+        abortApproach: abortApproach,
         drawBoundingBoxes: drawBoundingBoxes,
     };
 })();

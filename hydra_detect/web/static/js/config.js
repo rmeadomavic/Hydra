@@ -261,7 +261,6 @@ const HydraOperations = (() => {
         addClick('ctrl-btn-lock', () => lockTarget());
         addClick('ctrl-btn-strike', () => showStrikeConfirm());
         addClick('ctrl-btn-release', () => unlockTarget());
-        addClick('ctrl-btn-approach-abort', () => abortApproach());
 
         // Pipeline buttons
         addClick('ctrl-btn-pause', () => togglePause());
@@ -398,7 +397,6 @@ const HydraOperations = (() => {
             updateMissionPanel(s);
         }
         updateTargetPanel();
-        updateApproachPanel(s);
         updateDetectionLog();
         updateRFPanel();
         updateLockOverlay();
@@ -418,55 +416,6 @@ const HydraOperations = (() => {
             el.classList.toggle('strike', t.mode === 'strike' || t.mode === 'drop');
         } else {
             el.style.display = 'none';
-        }
-    }
-
-    // ── Approach Status Panel ──
-    function updateApproachPanel(s) {
-        const approach = s.approach;
-        const panel = document.getElementById('ctrl-approach-status');
-        const abortBtn = document.getElementById('ctrl-btn-approach-abort');
-        if (!panel) return;
-
-        if (!approach || approach.mode === 'idle') {
-            panel.style.display = 'none';
-            if (abortBtn) abortBtn.style.display = 'none';
-            return;
-        }
-
-        panel.style.display = 'block';
-        if (abortBtn) abortBtn.style.display = '';
-
-        const modeEl = document.getElementById('ctrl-approach-mode');
-        const elapsedEl = document.getElementById('ctrl-approach-elapsed');
-        const wpEl = document.getElementById('ctrl-approach-wp');
-        if (modeEl) modeEl.textContent = approach.mode.toUpperCase();
-        if (elapsedEl) elapsedEl.textContent = (approach.elapsed_sec || 0) + 's';
-        if (wpEl) wpEl.textContent = approach.waypoints_sent || 0;
-
-        // Arm status (strike mode only)
-        const armPanel = document.getElementById('ctrl-approach-arm-status');
-        if (armPanel) {
-            if (approach.mode === 'strike') {
-                armPanel.style.display = 'block';
-                const swArm = document.getElementById('ctrl-approach-sw-arm');
-                const hwArm = document.getElementById('ctrl-approach-hw-arm');
-                if (swArm) {
-                    swArm.textContent = approach.software_arm ? 'ARMED' : 'SAFE';
-                    swArm.style.color = approach.software_arm ? 'var(--danger)' : 'var(--success)';
-                }
-                if (hwArm) {
-                    if (approach.hardware_arm_status === null || approach.hardware_arm_status === undefined) {
-                        hwArm.textContent = 'N/A';
-                        hwArm.style.color = 'var(--text-secondary)';
-                    } else {
-                        hwArm.textContent = approach.hardware_arm_status ? 'ARMED' : 'SAFE';
-                        hwArm.style.color = approach.hardware_arm_status ? 'var(--danger)' : 'var(--success)';
-                    }
-                }
-            } else {
-                armPanel.style.display = 'none';
-            }
         }
     }
 
@@ -525,9 +474,7 @@ const HydraOperations = (() => {
         // GPS
         setText('ctrl-gps-fix', (!s.mavlink || s.gps_fix === undefined) ? '--' : (s.gps_fix === 0 ? 'No Fix' : s.gps_fix + 'D'));
         var posText = s.position || '--';
-        if (s.is_sim_gps) {
-            posText += ' (SIM)';
-        }
+        if (window.HydraSimGps) posText = window.HydraSimGps.withSimSuffix(posText);
         setText('ctrl-gps-pos', posText);
     }
 
@@ -1561,13 +1508,6 @@ const HydraOperations = (() => {
             bar.style.width = Math.min(pct, 100) + '%';
             bar.style.backgroundColor = color;
         }
-    }
-
-    // ── Approach: Abort ──
-    async function abortApproach() {
-        await HydraApp.apiPost('/api/approach/abort', {});
-        const abortBtn = document.getElementById('ctrl-btn-approach-abort');
-        if (abortBtn) abortBtn.style.display = 'none';
     }
 
     // ── Approach: Drop Confirm Modal ──

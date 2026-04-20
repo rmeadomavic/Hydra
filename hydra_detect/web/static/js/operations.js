@@ -447,9 +447,7 @@ const HydraOperations = (() => {
         // GPS
         setText('ctrl-gps-fix', (!s.mavlink || s.gps_fix === undefined) ? '--' : (s.gps_fix === 0 ? 'No Fix' : s.gps_fix + 'D'));
         var posText = s.position || '--';
-        if (s.is_sim_gps) {
-            posText += ' (SIM)';
-        }
+        if (window.HydraSimGps) posText = window.HydraSimGps.withSimSuffix(posText);
         setText('ctrl-gps-pos', posText);
     }
 

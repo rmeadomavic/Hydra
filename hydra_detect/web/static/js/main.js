@@ -3,6 +3,7 @@
 (function bootstrapHydraApp() {
     const modules = window.HydraModules || {};
     const store = modules.createStore();
+    if (window.HydraSimGps) window.HydraSimGps.init(store);
     const toast = modules.createToastService();
     const modal = modules.createModalController();
     const api = modules.createApiClient({ store, toast });
@@ -65,7 +66,8 @@
         const footerLeft = document.getElementById('footer-left');
         if (footerLeft && data.callsign) {
             const uptime = data.uptime_sec ? formatUptime(data.uptime_sec) : '--';
-            footerLeft.textContent = `${data.callsign} | TS: ${data.position || '--'} | Up: ${uptime}`;
+            const pos = window.HydraSimGps ? window.HydraSimGps.withSimSuffix(data.position || '--') : (data.position || '--');
+            footerLeft.textContent = `${data.callsign} | TS: ${pos} | Up: ${uptime}`;
         }
     }
 

@@ -150,7 +150,7 @@
             // Status bar
             if (stats) {
                 document.getElementById('s-fps').textContent = (stats.fps || 0).toFixed(1);
-                document.getElementById('s-gps').textContent = stats.position || 'No fix';
+                document.getElementById('s-gps').textContent = window.HydraSimGps ? window.HydraSimGps.withSimSuffix(stats.position || 'No fix') : (stats.position || 'No fix');
                 document.getElementById('s-tracks').textContent = stats.active_tracks || 0;
                 var batt = stats.battery_pct;
                 document.getElementById('s-batt').textContent = batt != null ? batt + '%' : '--';

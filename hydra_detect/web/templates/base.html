@@ -50,6 +50,7 @@
             <span class="status-dot green" id="dot-camera" title="Camera">CAM</span>
             <span class="status-dot" id="dot-mavlink" title="MAVLink">MAV</span>
             <span class="status-dot" id="dot-gps" title="GPS Fix">GPS</span>
+            <span class="sim-gps-pill" id="sim-gps-pill" title="Simulated GPS — not live" hidden>SIM GPS</span>
             <span class="topbar-tracks" id="track-count-badge" title="Active tracks">0 TRACKS</span>
             <span class="low-light-badge" id="low-light-badge" aria-label="Low light warning" title="Low light detected — image brightness below threshold">LOW LIGHT</span>
             <button class="bandwidth-toggle" id="bandwidth-toggle" aria-label="Toggle low bandwidth mode" title="Toggle low bandwidth mode — reduces JPEG quality to save bandwidth">LOW BW</button>
@@ -161,6 +162,7 @@
     <script src="/static/js/stream/stream-controller.js"></script>
     <script src="/static/js/ui/toast.js"></script>
     <script src="/static/js/ui/modal.js"></script>
+    <script src="/static/js/ui/sim-gps.js"></script>
     <script src="/static/js/api/client.js"></script>
     <script src="/static/js/preflight/preflight.js"></script>
     <script src="/static/js/main.js"></script>
