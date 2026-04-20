@@ -615,6 +615,21 @@ class StreamState:
 stream_state = StreamState()
 
 
+# TAK command listener handle — set by the pipeline via set_tak_input().
+# Powers GET /api/tak/commands (inbound GeoChat feed for dashboard).
+_tak_input_ref: Any = None
+
+
+def set_tak_input(tak_input: Any) -> None:
+    """Register the TAKInput instance for the /api/tak/commands feed.
+
+    Called from the pipeline facade after the listener is constructed.
+    Pass None to detach.
+    """
+    global _tak_input_ref
+    _tak_input_ref = tak_input
+
+
 # ── Routes ────────────────────────────────────────────────────────────
 
 
@@ -910,6 +925,50 @@ async def api_active_tracks():
     if result is not None:
         return result
     return []
+
+
+@app.get("/api/tak/commands")
+async def api_tak_commands(request: Request):
+    """Return the most recent inbound TAK command events.
+
+    Auth-free read (same-origin bypass list alongside /api/stats,
+    /api/tracks, /api/config/full, /api/stream/quality). Powers the
+    GeoChat inbound panel on the dashboard.
+
+    Query params:
+        limit (int, default 100): max events to return, capped at the
+            TAKInput ring buffer size (500).
+    """
+    tak_in = _tak_input_ref
+
+    # Parse and clamp limit
+    try:
+        limit = int(request.query_params.get("limit", "100"))
+    except (TypeError, ValueError):
+        limit = 100
+    if limit < 1:
+        limit = 1
+    if limit > 500:
+        limit = 500
+
+    if tak_in is None:
+        return JSONResponse({
+            "enabled": False,
+            "commands": [],
+            "allowed_callsigns": [],
+            "hmac_enforced": False,
+            "duplicate_callsign_alarm": False,
+            "limit": limit,
+        })
+
+    return JSONResponse({
+        "enabled": True,
+        "commands": tak_in.get_recent_commands(limit),
+        "allowed_callsigns": sorted(tak_in._allowed_callsigns),
+        "hmac_enforced": tak_in._hmac_secret is not None,
+        "duplicate_callsign_alarm": bool(tak_in._duplicate_callsign),
+        "limit": limit,
+    })
 
 
 @app.get("/api/target")

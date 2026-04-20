@@ -11,6 +11,7 @@ import struct
 import threading
 import time
 import xml.etree.ElementTree as ET
+from collections import deque
 from typing import Callable
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,24 @@ _CMD_RE = re.compile(
     r"^\s*([\w-]+)\s+(LOCK|STRIKE|UNLOCK)(?:\s+(\d+))?\s*$",
     re.IGNORECASE,
 )
+
+# Command event log bound and raw_text truncation width
+_COMMAND_LOG_MAXLEN = 500
+_RAW_TEXT_TRUNC = 200
+
+
+def _classify_routing(command_prefix: str) -> str:
+    """Classify how a GeoChat command prefix addresses vehicles.
+
+    Returns one of: "direct" (exact callsign), "fleet" (HYDRA/HYDRA-ALL
+    broadcast), or "segment_wildcard" (contains ALL in a segment).
+    """
+    upper = command_prefix.upper()
+    if upper in ("HYDRA", "HYDRA-ALL"):
+        return "fleet"
+    if "ALL" in upper.split("-"):
+        return "segment_wildcard"
+    return "direct"
 
 
 def _callsign_matches(command_prefix: str, my_callsign: str) -> bool:
@@ -116,6 +135,12 @@ class TAKInput:
         self._duplicate_callsign = False
         self._duplicate_callsign_time: float = 0.0
 
+        # Bounded ring of recent accepted/rejected commands — powers the
+        # /api/tak/commands feed. Lock-protected; safe across listener
+        # thread and request handlers.
+        self._command_log: deque[dict] = deque(maxlen=_COMMAND_LOG_MAXLEN)
+        self._command_log_lock = threading.Lock()
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -199,8 +224,14 @@ class TAKInput:
     # ------------------------------------------------------------------
     # Security checks
     # ------------------------------------------------------------------
-    def _check_sender_allowed(self, sender_callsign: str) -> bool:
-        """Check if a sender callsign is in the allowlist (fail-closed)."""
+    def _check_sender_allowed(
+        self, sender_callsign: str,
+    ) -> tuple[bool, str | None]:
+        """Check if a sender callsign is in the allowlist (fail-closed).
+
+        Returns (allowed, reject_reason). reject_reason is None on accept
+        or one of: "no_allowlist", "unauthorized_sender".
+        """
         if not self._allowed_callsigns:
             logger.warning(
                 "TAK commands disabled — no allowed callsigns configured"
@@ -210,7 +241,7 @@ class TAKInput:
                 sender_callsign,
             )
             self._commands_rejected += 1
-            return False
+            return False, "no_allowlist"
 
         if sender_callsign.upper() not in self._allowed_callsigns:
             logger.warning(
@@ -222,18 +253,21 @@ class TAKInput:
                 sender_callsign,
             )
             self._commands_rejected += 1
-            return False
+            return False, "unauthorized_sender"
 
-        return True
+        return True, None
 
-    def _verify_hmac(self, text: str) -> str | None:
-        """Verify HMAC on command text. Returns the command text (sans HMAC suffix).
+    def _verify_hmac(self, text: str) -> tuple[str | None, str, str | None]:
+        """Verify HMAC on command text.
 
-        If no HMAC secret is configured, returns text unchanged.
-        If HMAC is required but missing/invalid, returns None.
+        Returns (msg_text, hmac_state, reject_reason):
+        - msg_text: command text sans HMAC suffix, or None on reject
+        - hmac_state: one of "disabled" (no secret), "verified", "missing",
+          or "invalid"
+        - reject_reason: None on accept, or "hmac_missing" / "hmac_invalid"
         """
         if not self._hmac_secret:
-            return text
+            return text, "disabled", None
 
         # Expect format: "HYDRA LOCK 5|HMAC:xxxx"
         if "|HMAC:" not in text:
@@ -242,12 +276,12 @@ class TAKInput:
                 "TAK_CMD_REJECTED reason=hmac_missing text=%s", text[:80],
             )
             self._commands_rejected += 1
-            return None
+            return None, "missing", "hmac_missing"
 
         parts = text.rsplit("|HMAC:", 1)
         if len(parts) != 2:
             self._commands_rejected += 1
-            return None
+            return None, "invalid", "hmac_invalid"
 
         msg_text = parts[0]
         received_hmac = parts[1].strip()
@@ -264,13 +298,53 @@ class TAKInput:
                 "TAK_CMD_REJECTED reason=hmac_invalid text=%s", msg_text[:80],
             )
             self._commands_rejected += 1
-            return None
+            return None, "invalid", "hmac_invalid"
 
-        return msg_text
+        return msg_text, "verified", None
 
     def _check_routing(self, command_prefix: str) -> bool:
         """Check if command is addressed to this vehicle."""
         return _callsign_matches(command_prefix, self._my_callsign)
+
+    # ------------------------------------------------------------------
+    # Command event log (feeds /api/tak/commands)
+    # ------------------------------------------------------------------
+    def _log_command_event(
+        self,
+        *,
+        accepted: bool,
+        sender: str,
+        addressee: str,
+        action: str,
+        track_id: int | None,
+        hmac_state: str,
+        routing: str,
+        reject_reason: str | None,
+        raw_text: str,
+    ) -> None:
+        """Push one accepted or rejected command into the bounded ring."""
+        entry = {
+            "ts": time.time(),
+            "accepted": bool(accepted),
+            "sender": sender or "",
+            "addressee": addressee or "",
+            "action": action or "",
+            "track_id": track_id,
+            "hmac_state": hmac_state,
+            "routing": routing,
+            "reject_reason": reject_reason,
+            "raw_text": (raw_text or "")[:_RAW_TEXT_TRUNC],
+        }
+        with self._command_log_lock:
+            self._command_log.append(entry)
+
+    def get_recent_commands(self, limit: int = 100) -> list[dict]:
+        """Return up to `limit` most recent command events (newest last)."""
+        if limit <= 0:
+            return []
+        with self._command_log_lock:
+            items = list(self._command_log)
+        return items[-limit:]
 
     def _check_duplicate_callsign(self, root: ET.Element) -> None:
         """Check SA events for duplicate callsign on the network."""
@@ -358,12 +432,39 @@ class TAKInput:
         # Check if this looks like a HYDRA command BEFORE HMAC verification
         # so non-command chat messages don't trigger HMAC rejection noise
         check_text = raw_text.split("|HMAC:")[0].strip() if "|HMAC:" in raw_text else raw_text
-        if not _CMD_RE.match(check_text):
+        pre_match = _CMD_RE.match(check_text)
+        if not pre_match:
             return  # Not a command — ignore silently
 
+        # Pre-extract addressee/action/track_id so reject events carry them
+        command_prefix = pre_match.group(1)
+        action = pre_match.group(2).upper()
+        track_id_str = pre_match.group(3)
+        try:
+            pre_track_id = int(track_id_str) if track_id_str is not None else None
+        except ValueError:
+            pre_track_id = None
+        routing = _classify_routing(command_prefix)
+
+        # Extract sender callsign for logging and auth
+        chat_el = root.find("detail/__chat")
+        sender = chat_el.get("senderCallsign", "?") if chat_el is not None else "?"
+        source = f"GeoChat/{sender}"
+
         # Verify HMAC if configured (strips |HMAC: suffix)
-        text = self._verify_hmac(raw_text)
+        text, hmac_state, hmac_reject = self._verify_hmac(raw_text)
         if text is None:
+            self._log_command_event(
+                accepted=False,
+                sender=sender,
+                addressee=command_prefix,
+                action=action,
+                track_id=pre_track_id,
+                hmac_state=hmac_state,
+                routing=routing,
+                reject_reason=hmac_reject,
+                raw_text=raw_text,
+            )
             return
 
         match = _CMD_RE.match(text)
@@ -373,17 +474,30 @@ class TAKInput:
         command_prefix = match.group(1)
         action = match.group(2).upper()
         track_id_str = match.group(3)
-
-        # Extract sender callsign for logging and auth
-        chat_el = root.find("detail/__chat")
-        sender = chat_el.get("senderCallsign", "?") if chat_el is not None else "?"
-        source = f"GeoChat/{sender}"
+        routing = _classify_routing(command_prefix)
+        try:
+            track_id = int(track_id_str) if track_id_str is not None else None
+        except ValueError:
+            track_id = None
 
         # Callsign allowlist check (fail-closed)
-        if not self._check_sender_allowed(sender):
+        allowed, allow_reject = self._check_sender_allowed(sender)
+        if not allowed:
+            self._log_command_event(
+                accepted=False,
+                sender=sender,
+                addressee=command_prefix,
+                action=action,
+                track_id=track_id,
+                hmac_state=hmac_state,
+                routing=routing,
+                reject_reason=allow_reject,
+                raw_text=raw_text,
+            )
             return
 
-        # Callsign routing check
+        # Callsign routing check — commands addressed to other vehicles are
+        # not rejections, just not for us. Do not log an event.
         if not self._check_routing(command_prefix):
             logger.debug(
                 "TAK input: command prefix %s not addressed to %s — ignoring",
@@ -392,16 +506,31 @@ class TAKInput:
             return
 
         if action == "LOCK":
-            if track_id_str is None:
+            if track_id is None:
                 logger.warning("TAK input: LOCK command missing track_id from %s", source)
                 return
-            self._dispatch_lock(int(track_id_str), source)
+            self._log_command_event(
+                accepted=True, sender=sender, addressee=command_prefix,
+                action=action, track_id=track_id, hmac_state=hmac_state,
+                routing=routing, reject_reason=None, raw_text=raw_text,
+            )
+            self._dispatch_lock(track_id, source)
         elif action == "STRIKE":
-            if track_id_str is None:
+            if track_id is None:
                 logger.warning("TAK input: STRIKE command missing track_id from %s", source)
                 return
-            self._dispatch_strike(int(track_id_str), source)
+            self._log_command_event(
+                accepted=True, sender=sender, addressee=command_prefix,
+                action=action, track_id=track_id, hmac_state=hmac_state,
+                routing=routing, reject_reason=None, raw_text=raw_text,
+            )
+            self._dispatch_strike(track_id, source)
         elif action == "UNLOCK":
+            self._log_command_event(
+                accepted=True, sender=sender, addressee=command_prefix,
+                action=action, track_id=None, hmac_state=hmac_state,
+                routing=routing, reject_reason=None, raw_text=raw_text,
+            )
             self._dispatch_unlock(source)
 
     # ------------------------------------------------------------------
@@ -411,6 +540,17 @@ class TAKInput:
         self, root: ET.Element, cot_type: str, addr: tuple | None,
     ) -> None:
         """Parse a custom ``a-x-hydra-*`` CoT event."""
+        # Unknown suffix — silently ignore before any logging
+        suffix = cot_type[len("a-x-hydra-"):]
+        if suffix.startswith("l"):
+            action = "LOCK"
+        elif suffix.startswith("s"):
+            action = "STRIKE"
+        elif suffix.startswith("u"):
+            action = "UNLOCK"
+        else:
+            return
+
         # Extract sender callsign from contact element or UID
         contact = root.find("detail/contact")
         sender = contact.get("callsign", "?") if contact is not None else "?"
@@ -418,50 +558,82 @@ class TAKInput:
             sender = root.get("uid", "?")
         source = f"CoT/{sender}"
 
+        remarks_el = root.find("detail/remarks")
+        has_text = remarks_el is not None and remarks_el.text
+        raw_text = remarks_el.text.strip() if has_text else ""
+
+        addressee = cot_type
+        routing = "direct"
+
         # HMAC verification on custom CoT (same security as GeoChat path)
         if self._hmac_secret:
-            remarks_el = root.find("detail/remarks")
-            has_text = remarks_el is not None and remarks_el.text
-            remarks_text = remarks_el.text.strip() if has_text else ""
-            if self._verify_hmac(remarks_text) is None:
+            _text, hmac_state, hmac_reject = self._verify_hmac(raw_text)
+            if _text is None:
                 audit_logger.warning(
                     "TAK_CMD_REJECTED reason=hmac_custom_cot sender=%s type=%s",
                     sender, cot_type,
                 )
+                self._log_command_event(
+                    accepted=False, sender=sender, addressee=addressee,
+                    action=action, track_id=None, hmac_state=hmac_state,
+                    routing=routing, reject_reason=hmac_reject,
+                    raw_text=raw_text,
+                )
                 return
+        else:
+            hmac_state = "disabled"
 
         # Callsign allowlist check (fail-closed)
-        if not self._check_sender_allowed(sender):
+        allowed, allow_reject = self._check_sender_allowed(sender)
+        if not allowed:
+            self._log_command_event(
+                accepted=False, sender=sender, addressee=addressee,
+                action=action, track_id=None, hmac_state=hmac_state,
+                routing=routing, reject_reason=allow_reject,
+                raw_text=raw_text,
+            )
             return
 
         # Extract track_id from detail/hydra/@trackId or detail/remarks
-        track_id = None
+        track_id: int | None = None
         hydra_el = root.find("detail/hydra")
         if hydra_el is not None and hydra_el.get("trackId"):
             try:
                 track_id = int(hydra_el.get("trackId"))
             except (ValueError, TypeError):
                 pass
-        if track_id is None:
-            remarks_el = root.find("detail/remarks")
-            if remarks_el is not None and remarks_el.text:
-                try:
-                    track_id = int(remarks_el.text.strip())
-                except (ValueError, TypeError):
-                    pass
+        if track_id is None and raw_text:
+            try:
+                track_id = int(raw_text)
+            except (ValueError, TypeError):
+                pass
 
-        suffix = cot_type[len("a-x-hydra-"):]
-        if suffix.startswith("l"):
+        if action == "LOCK":
             if track_id is None:
                 logger.warning("TAK input: custom LOCK missing trackId from %s", source)
                 return
+            self._log_command_event(
+                accepted=True, sender=sender, addressee=addressee,
+                action=action, track_id=track_id, hmac_state=hmac_state,
+                routing=routing, reject_reason=None, raw_text=raw_text,
+            )
             self._dispatch_lock(track_id, source)
-        elif suffix.startswith("s"):
+        elif action == "STRIKE":
             if track_id is None:
                 logger.warning("TAK input: custom STRIKE missing trackId from %s", source)
                 return
+            self._log_command_event(
+                accepted=True, sender=sender, addressee=addressee,
+                action=action, track_id=track_id, hmac_state=hmac_state,
+                routing=routing, reject_reason=None, raw_text=raw_text,
+            )
             self._dispatch_strike(track_id, source)
-        elif suffix.startswith("u"):
+        else:  # UNLOCK
+            self._log_command_event(
+                accepted=True, sender=sender, addressee=addressee,
+                action=action, track_id=None, hmac_state=hmac_state,
+                routing=routing, reject_reason=None, raw_text=raw_text,
+            )
             self._dispatch_unlock(source)
 
     # ------------------------------------------------------------------

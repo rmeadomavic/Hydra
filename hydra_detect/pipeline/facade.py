@@ -47,7 +47,13 @@ from ..tak.tak_output import TAKOutput
 from ..tracker import ByteTracker
 from ..profiles import get_profile, load_profiles
 from ..web.config_api import set_config_path, set_engagement_check
-from ..web.server import configure_auth, configure_web_password, run_server, stream_state
+from ..web.server import (
+    configure_auth,
+    configure_web_password,
+    run_server,
+    set_tak_input,
+    stream_state,
+)
 from .bootstrap import build_detector
 from .control import PipelineControlAdapter
 from .integrations import PipelineIntegrations
@@ -1052,9 +1058,11 @@ class Pipeline:
         if self._tak_input is not None:
             if self._tak_input.start():
                 logger.info("TAK command listener started")
+                set_tak_input(self._tak_input)
             else:
                 logger.warning("TAK command listener failed to start — continuing without")
                 self._tak_input = None
+                set_tak_input(None)
 
         # Register signal handlers after init is complete
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -2523,6 +2531,7 @@ class Pipeline:
             self._tak.stop()
         if self._tak_input is not None:
             self._tak_input.stop()
+            set_tak_input(None)
         if self._servo_tracker is not None:
             self._servo_tracker.safe()
         self._camera.close()

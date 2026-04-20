@@ -95,6 +95,150 @@ class TestReadOnlyEndpoints:
 
 
 # ---------------------------------------------------------------------------
+# /api/tak/commands — B1 inbound command feed
+# ---------------------------------------------------------------------------
+
+class TestTakCommandsEndpoint:
+    """Covers GET /api/tak/commands — disabled path, accept/reject content,
+    limit query-param clamping, same-origin auth-bypass behavior."""
+
+    def _install_tak_input(self):
+        """Install a minimal TAKInput with known state for endpoint tests."""
+        from unittest.mock import MagicMock
+
+        from hydra_detect.tak.tak_input import TAKInput
+        from hydra_detect.web import server as srv
+
+        ti = TAKInput(
+            listen_port=16999, multicast_group="",
+            on_lock=MagicMock(return_value=True),
+            on_strike=MagicMock(return_value=True),
+            on_unlock=MagicMock(),
+            allowed_callsigns=["ALPHA-1"], my_callsign="HYDRA-1",
+        )
+        srv.set_tak_input(ti)
+        return ti
+
+    def _teardown(self):
+        from hydra_detect.web import server as srv
+        srv.set_tak_input(None)
+
+    def test_disabled_when_no_tak_input(self, client):
+        from hydra_detect.web import server as srv
+        srv.set_tak_input(None)
+        resp = client.get("/api/tak/commands")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["enabled"] is False
+        assert body["commands"] == []
+        assert body["allowed_callsigns"] == []
+        assert body["hmac_enforced"] is False
+        assert body["duplicate_callsign_alarm"] is False
+
+    def test_enabled_returns_events(self, client):
+        ti = self._install_tak_input()
+        try:
+            ti._log_command_event(
+                accepted=True, sender="ALPHA-1", addressee="HYDRA",
+                action="LOCK", track_id=5, hmac_state="disabled",
+                routing="fleet", reject_reason=None,
+                raw_text="HYDRA LOCK 5",
+            )
+            ti._log_command_event(
+                accepted=False, sender="HACKER", addressee="HYDRA",
+                action="LOCK", track_id=7, hmac_state="disabled",
+                routing="fleet", reject_reason="unauthorized_sender",
+                raw_text="HYDRA LOCK 7",
+            )
+            resp = client.get("/api/tak/commands")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["enabled"] is True
+            assert body["hmac_enforced"] is False
+            assert body["allowed_callsigns"] == ["ALPHA-1"]
+            assert len(body["commands"]) == 2
+            first, second = body["commands"]
+            assert first["action"] == "LOCK" and first["accepted"] is True
+            assert second["reject_reason"] == "unauthorized_sender"
+            # Every entry contains the documented fields
+            for ev in body["commands"]:
+                for field in (
+                    "ts", "accepted", "sender", "addressee", "action",
+                    "track_id", "hmac_state", "routing", "reject_reason",
+                    "raw_text",
+                ):
+                    assert field in ev, f"missing {field}"
+        finally:
+            self._teardown()
+
+    def test_limit_query_param_clamps(self, client):
+        ti = self._install_tak_input()
+        try:
+            for i in range(25):
+                ti._log_command_event(
+                    accepted=True, sender="ALPHA-1", addressee="HYDRA",
+                    action="LOCK", track_id=i, hmac_state="disabled",
+                    routing="fleet", reject_reason=None, raw_text="",
+                )
+            # Default = 100 (all 25 fit)
+            resp = client.get("/api/tak/commands")
+            assert len(resp.json()["commands"]) == 25
+
+            # Explicit limit = 5 returns newest 5
+            resp = client.get("/api/tak/commands?limit=5")
+            body = resp.json()
+            assert body["limit"] == 5
+            assert len(body["commands"]) == 5
+            assert [e["track_id"] for e in body["commands"]] == [20, 21, 22, 23, 24]
+
+            # Over-cap limit clamped to 500
+            resp = client.get("/api/tak/commands?limit=9999")
+            assert resp.json()["limit"] == 500
+
+            # Bad value → default 100
+            resp = client.get("/api/tak/commands?limit=not-a-number")
+            assert resp.json()["limit"] == 100
+
+            # Sub-1 limit clamped to 1
+            resp = client.get("/api/tak/commands?limit=0")
+            assert resp.json()["limit"] == 1
+        finally:
+            self._teardown()
+
+    def test_auth_free_read_when_token_enabled(self, client):
+        """Endpoint skips Bearer auth — like /api/stats and /api/tracks."""
+        configure_auth("secret-token-xyz")
+        self._install_tak_input()
+        try:
+            resp = client.get("/api/tak/commands")
+            # No Authorization header — should still be 200, not 401/403
+            assert resp.status_code == 200
+            assert resp.json()["enabled"] is True
+        finally:
+            self._teardown()
+            configure_auth(None)
+
+    def test_hmac_enforced_flag_reflects_config(self, client):
+        from unittest.mock import MagicMock
+
+        from hydra_detect.tak.tak_input import TAKInput
+        from hydra_detect.web import server as srv
+
+        ti = TAKInput(
+            listen_port=16999, multicast_group="",
+            on_lock=MagicMock(), on_strike=MagicMock(), on_unlock=MagicMock(),
+            allowed_callsigns=["ALPHA-1"], hmac_secret="shhh",
+            my_callsign="HYDRA-1",
+        )
+        srv.set_tak_input(ti)
+        try:
+            resp = client.get("/api/tak/commands")
+            assert resp.json()["hmac_enforced"] is True
+        finally:
+            srv.set_tak_input(None)
+
+
+# ---------------------------------------------------------------------------
 # Auth enforcement on control endpoints
 # ---------------------------------------------------------------------------
 

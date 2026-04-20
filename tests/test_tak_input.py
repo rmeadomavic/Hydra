@@ -1,10 +1,12 @@
 """Tests for TAK/ATAK CoT command listener."""
 from __future__ import annotations
 
+import hashlib
+import hmac as hmac_mod
 import xml.etree.ElementTree as ET
 from unittest.mock import MagicMock
 
-from hydra_detect.tak.tak_input import TAKInput
+from hydra_detect.tak.tak_input import TAKInput, _COMMAND_LOG_MAXLEN
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -237,3 +239,212 @@ class TestEventsCounter:
         # but commands_dispatched IS tracked in _handle_datagram
         ti._handle_datagram(_build_geochat("HYDRA LOCK 1"))
         assert ti._commands_dispatched == 1
+
+
+# =====================================================================
+# Group E: Command event log (B1 — /api/tak/commands feed)
+# =====================================================================
+
+def _sign_hmac(text: str, secret: str) -> str:
+    sig = hmac_mod.new(
+        secret.encode("utf-8"), text.encode("utf-8"), hashlib.sha256,
+    ).hexdigest()
+    return f"{text}|HMAC:{sig}"
+
+
+class TestCommandEventLog:
+    """B1 handoff spec: bounded deque of accepted+rejected commands."""
+
+    def test_accept_path_lock_logged(self):
+        ti = _make_input()
+        ti._handle_datagram(_build_geochat("HYDRA LOCK 5", sender="ALPHA-1"))
+        events = ti.get_recent_commands(10)
+        assert len(events) == 1
+        ev = events[0]
+        assert ev["accepted"] is True
+        assert ev["reject_reason"] is None
+        assert ev["sender"] == "ALPHA-1"
+        assert ev["action"] == "LOCK"
+        assert ev["track_id"] == 5
+        assert ev["hmac_state"] == "disabled"
+        assert ev["routing"] == "fleet"  # bare HYDRA prefix
+        assert ev["addressee"].upper() == "HYDRA"
+        assert isinstance(ev["ts"], float) and ev["ts"] > 0
+        assert "HYDRA LOCK 5" in ev["raw_text"]
+
+    def test_accept_path_unlock_track_id_none(self):
+        ti = _make_input()
+        ti._handle_datagram(_build_geochat("HYDRA UNLOCK", sender="ALPHA-1"))
+        ev = ti.get_recent_commands(10)[-1]
+        assert ev["accepted"] is True
+        assert ev["action"] == "UNLOCK"
+        assert ev["track_id"] is None
+
+    def test_accept_routing_direct(self):
+        ti = _make_input(
+            allowed_callsigns=["ALPHA-1"], my_callsign="HYDRA-2-USV",
+        )
+        ti._handle_datagram(
+            _build_geochat("HYDRA-2-USV LOCK 5", sender="ALPHA-1")
+        )
+        ev = ti.get_recent_commands(10)[-1]
+        assert ev["accepted"] is True
+        assert ev["routing"] == "direct"
+
+    def test_accept_routing_segment_wildcard(self):
+        ti = _make_input(
+            allowed_callsigns=["ALPHA-1"], my_callsign="HYDRA-2-USV",
+        )
+        ti._handle_datagram(
+            _build_geochat("HYDRA-ALL-USV LOCK 5", sender="ALPHA-1")
+        )
+        ev = ti.get_recent_commands(10)[-1]
+        assert ev["routing"] == "segment_wildcard"
+
+    def test_reject_unauthorized_sender(self):
+        ti = _make_input(allowed_callsigns=["ALPHA-1"])
+        ti._handle_datagram(_build_geochat("HYDRA LOCK 5", sender="HACKER"))
+        ev = ti.get_recent_commands(10)[-1]
+        assert ev["accepted"] is False
+        assert ev["reject_reason"] == "unauthorized_sender"
+        assert ev["sender"] == "HACKER"
+        assert ev["action"] == "LOCK"
+        assert ev["track_id"] == 5
+
+    def test_reject_no_allowlist(self):
+        ti = _make_input(allowed_callsigns=None)
+        ti._handle_datagram(_build_geochat("HYDRA LOCK 5", sender="ALPHA-1"))
+        ev = ti.get_recent_commands(10)[-1]
+        assert ev["accepted"] is False
+        assert ev["reject_reason"] == "no_allowlist"
+        assert ev["action"] == "LOCK"
+
+    def test_reject_hmac_missing(self):
+        ti = TAKInput(
+            listen_port=16969, multicast_group="",
+            on_lock=MagicMock(return_value=True),
+            on_strike=MagicMock(return_value=True),
+            on_unlock=MagicMock(),
+            allowed_callsigns=["ALPHA-1"], hmac_secret="shhh",
+            my_callsign="HYDRA-1",
+        )
+        ti._handle_datagram(_build_geochat("HYDRA LOCK 5", sender="ALPHA-1"))
+        ev = ti.get_recent_commands(10)[-1]
+        assert ev["accepted"] is False
+        assert ev["reject_reason"] == "hmac_missing"
+        assert ev["hmac_state"] == "missing"
+
+    def test_reject_hmac_invalid(self):
+        ti = TAKInput(
+            listen_port=16969, multicast_group="",
+            on_lock=MagicMock(return_value=True),
+            on_strike=MagicMock(return_value=True),
+            on_unlock=MagicMock(),
+            allowed_callsigns=["ALPHA-1"], hmac_secret="shhh",
+            my_callsign="HYDRA-1",
+        )
+        ti._handle_datagram(
+            _build_geochat("HYDRA LOCK 5|HMAC:deadbeef", sender="ALPHA-1")
+        )
+        ev = ti.get_recent_commands(10)[-1]
+        assert ev["accepted"] is False
+        assert ev["reject_reason"] == "hmac_invalid"
+        assert ev["hmac_state"] == "invalid"
+
+    def test_hmac_verified_state_on_accept(self):
+        secret = "s3cret"
+        signed = _sign_hmac("HYDRA LOCK 7", secret)
+        ti = TAKInput(
+            listen_port=16969, multicast_group="",
+            on_lock=MagicMock(return_value=True),
+            on_strike=MagicMock(return_value=True),
+            on_unlock=MagicMock(),
+            allowed_callsigns=["ALPHA-1"], hmac_secret=secret,
+            my_callsign="HYDRA-1",
+        )
+        ti._handle_datagram(_build_geochat(signed, sender="ALPHA-1"))
+        ev = ti.get_recent_commands(10)[-1]
+        assert ev["accepted"] is True
+        assert ev["hmac_state"] == "verified"
+
+    def test_not_addressed_to_us_is_not_logged(self):
+        """Commands routed to other vehicles are silently dropped, not logged."""
+        ti = _make_input(
+            allowed_callsigns=["ALPHA-1"], my_callsign="HYDRA-2-USV",
+        )
+        ti._handle_datagram(
+            _build_geochat("HYDRA-3-DRONE LOCK 5", sender="ALPHA-1")
+        )
+        assert ti.get_recent_commands(10) == []
+
+    def test_non_command_chat_not_logged(self):
+        ti = _make_input()
+        ti._handle_datagram(_build_geochat("Hello world", sender="ALPHA-1"))
+        assert ti.get_recent_commands(10) == []
+
+    def test_bounded_deque_eviction(self):
+        """Deque is bounded — oldest entries evicted past the cap."""
+        ti = _make_input()
+        cap = _COMMAND_LOG_MAXLEN
+        # Push cap+10 accepted events via the public helper
+        for i in range(cap + 10):
+            ti._log_command_event(
+                accepted=True, sender="ALPHA-1", addressee="HYDRA",
+                action="LOCK", track_id=i, hmac_state="disabled",
+                routing="fleet", reject_reason=None,
+                raw_text=f"HYDRA LOCK {i}",
+            )
+        events = ti.get_recent_commands(cap + 20)
+        assert len(events) == cap
+        # Oldest surviving track_id should be 10 (first 10 evicted)
+        assert events[0]["track_id"] == 10
+        assert events[-1]["track_id"] == cap + 9
+
+    def test_raw_text_truncated(self):
+        ti = _make_input()
+        long = "HYDRA LOCK 5 " + ("X" * 500)
+        ti._log_command_event(
+            accepted=False, sender="ALPHA-1", addressee="HYDRA",
+            action="LOCK", track_id=5, hmac_state="disabled",
+            routing="fleet", reject_reason="unauthorized_sender",
+            raw_text=long,
+        )
+        ev = ti.get_recent_commands(1)[-1]
+        assert len(ev["raw_text"]) == 200
+
+    def test_get_recent_commands_limit(self):
+        ti = _make_input()
+        for i in range(20):
+            ti._log_command_event(
+                accepted=True, sender="ALPHA-1", addressee="HYDRA",
+                action="LOCK", track_id=i, hmac_state="disabled",
+                routing="fleet", reject_reason=None, raw_text="",
+            )
+        assert len(ti.get_recent_commands(5)) == 5
+        # Returns the NEWEST 5
+        tail = ti.get_recent_commands(5)
+        assert [e["track_id"] for e in tail] == [15, 16, 17, 18, 19]
+        # Zero/negative limit returns empty list
+        assert ti.get_recent_commands(0) == []
+        assert ti.get_recent_commands(-1) == []
+
+    def test_custom_cot_accept_logged(self):
+        ti = _make_input(allowed_callsigns=["ALPHA-1"])
+        ti._handle_datagram(_build_custom_cot(
+            "a-x-hydra-l", track_id=5, sender_callsign="ALPHA-1",
+        ))
+        ev = ti.get_recent_commands(10)[-1]
+        assert ev["accepted"] is True
+        assert ev["action"] == "LOCK"
+        assert ev["track_id"] == 5
+        assert ev["addressee"] == "a-x-hydra-l"
+        assert ev["routing"] == "direct"
+
+    def test_custom_cot_unauthorized_logged(self):
+        ti = _make_input(allowed_callsigns=["ALPHA-1"])
+        ti._handle_datagram(_build_custom_cot(
+            "a-x-hydra-l", track_id=5, sender_callsign="HACKER",
+        ))
+        ev = ti.get_recent_commands(10)[-1]
+        assert ev["accepted"] is False
+        assert ev["reject_reason"] == "unauthorized_sender"
