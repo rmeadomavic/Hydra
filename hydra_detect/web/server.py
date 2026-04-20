@@ -640,6 +640,11 @@ _servo_tracker_ref: Any = None
 # set_rf_ambient_scan(). None => dashboard renders the idle state.
 _rf_ambient_ref: Any = None
 
+# Autonomous controller handle — powers /api/autonomy/status and
+# /api/autonomy/mode. Set via set_autonomous_controller(). None =>
+# endpoint returns the idle/default shape so the dashboard renders.
+_autonomous_ref: Any = None
+
 
 def set_tak_input(tak_input: Any) -> None:
     """Register the TAKInput instance for the /api/tak/commands feed.
@@ -675,6 +680,17 @@ def set_rf_ambient_scan(scanner: Any) -> None:
     """
     global _rf_ambient_ref
     _rf_ambient_ref = scanner
+
+
+def set_autonomous_controller(controller: Any) -> None:
+    """Register an AutonomousController for /api/autonomy/* endpoints.
+
+    The provided object must expose ``get_dashboard_snapshot(callsign=...)``
+    and ``set_mode(mode)``. Pass None to detach (endpoint falls back to
+    an idle-default shape so the dashboard still renders).
+    """
+    global _autonomous_ref
+    _autonomous_ref = controller
 
 
 # ── Routes ────────────────────────────────────────────────────────────
@@ -1880,6 +1896,99 @@ async def restart_pipeline(request: Request, authorization: Optional[str] = Head
         return {"status": "restarting"}
     _audit(request, "pipeline_restart", outcome="unavailable")
     return JSONResponse({"error": "restart not available"}, status_code=503)
+
+
+# ── Autonomy dashboard ────────────────────────────────────────────────
+
+_AUTONOMY_MODES = ("dryrun", "shadow", "live")
+
+
+def _autonomy_default_snapshot(callsign: str) -> dict:
+    """Idle/default status shape returned when no controller is registered."""
+    return {
+        "mode": "dryrun",
+        "enabled": False,
+        "callsign": callsign,
+        "geofence": {
+            "shape": "CIRCLE",
+            "radius_m": 0.0,
+            "center_lat": 0.0,
+            "center_lon": 0.0,
+            "polygon": "",
+        },
+        "self_position": None,
+        "criteria": {
+            "min_confidence": 0.85,
+            "min_track_frames": 5,
+            "strike_cooldown_sec": 30.0,
+            "gps_max_stale_sec": 2.0,
+            "require_operator_lock": True,
+            "allowed_vehicle_modes": "AUTO",
+            "allowed_classes": [],
+        },
+        "gates": [
+            {"id": "geofence", "state": "N/A", "detail": ""},
+            {"id": "vehicle_mode", "state": "N/A", "detail": ""},
+            {"id": "operator_lock", "state": "N/A", "detail": ""},
+            {"id": "gps_fresh", "state": "N/A", "detail": ""},
+            {"id": "cooldown", "state": "N/A", "detail": ""},
+        ],
+        "log": [],
+    }
+
+
+@app.get("/api/autonomy/status")
+async def api_autonomy_status():
+    """Return autonomy gate + explainability snapshot.
+
+    Auth-free read (same precedent as /api/stats). Powers the #autonomy
+    dashboard view: mode picker, gate panel, and the rolling decision log.
+    Returns an idle default shape when no controller is registered so the
+    dashboard can render on a cold boot.
+    """
+    callsign = str(stream_state.get_stats().get("callsign") or "HYDRA-1")
+    ctrl = _autonomous_ref
+    if ctrl is None:
+        return _autonomy_default_snapshot(callsign)
+    try:
+        return ctrl.get_dashboard_snapshot(callsign=callsign)
+    except Exception as exc:
+        logger.warning("autonomy snapshot failed: %s", exc)
+        return _autonomy_default_snapshot(callsign)
+
+
+@app.post("/api/autonomy/mode")
+async def api_autonomy_mode(
+    request: Request, authorization: Optional[str] = Header(None),
+):
+    """Set the autonomy mode. Body: {"mode": "dryrun" | "shadow" | "live"}.
+
+    Bearer auth required — this is a safety-critical write.
+    """
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
+    mode = body.get("mode")
+    if not isinstance(mode, str) or mode not in _AUTONOMY_MODES:
+        return JSONResponse(
+            {"error": f"mode must be one of {list(_AUTONOMY_MODES)}"},
+            status_code=400,
+        )
+    ctrl = _autonomous_ref
+    if ctrl is None:
+        _audit(request, "autonomy_mode", target=mode, outcome="unavailable")
+        return JSONResponse(
+            {"error": "autonomous controller not available"}, status_code=503,
+        )
+    try:
+        ctrl.set_mode(mode)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    _audit(request, "autonomy_mode", target=mode)
+    return {"status": "ok", "mode": mode}
 
 
 @app.post("/api/vehicle/beep")
