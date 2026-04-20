@@ -244,6 +244,192 @@ input[type="range"]::-webkit-slider-thumb {
     border: 0;
 }
 
+/* ── Power-UX: Keybinds Help Overlay ── */
+#keybinds-help {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    background: var(--overlay-bg);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 80ms ease-out;
+    padding: var(--s-4);
+}
+#keybinds-help.active { opacity: 1; }
+.keybinds-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    padding: var(--s-4);
+    max-width: 520px;
+    width: 100%;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: var(--glow-green);
+}
+.keybinds-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--s-3);
+    border-bottom: 1px solid var(--border-default);
+    padding-bottom: var(--s-2);
+}
+.keybinds-title {
+    font-family: var(--font-cond);
+    font-size: var(--font-lg);
+    font-weight: 700;
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--text-primary);
+}
+.keybinds-close {
+    background: transparent;
+    border: 1px solid var(--border-default);
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    padding: 2px 8px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+.keybinds-close:hover {
+    color: var(--text-primary);
+    border-color: var(--border-hover);
+}
+.keybinds-section {
+    margin-top: var(--s-3);
+}
+.keybinds-section:first-of-type { margin-top: 0; }
+.keybinds-section-title {
+    font-family: var(--font-cond);
+    font-size: var(--font-sm);
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--ogt-muted);
+    margin-bottom: var(--s-2);
+}
+.keybinds-row {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-1) 0;
+    font-size: var(--font-sm);
+}
+.keybinds-kbd {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    font-weight: 600;
+    padding: 2px 6px;
+    min-width: 22px;
+    text-align: center;
+    background: var(--bg-panel-alt);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    letter-spacing: var(--ls-mono);
+}
+.keybinds-sep {
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+}
+.keybinds-desc {
+    color: var(--text-data);
+    font-family: var(--font-body);
+}
+
+/* ── Power-UX: Command Palette Overlay (Ctrl+K / Cmd+K) ── */
+#hydra-command-palette {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    background: var(--overlay-bg);
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 80ms ease-out;
+    padding-top: 15vh;
+}
+#hydra-command-palette.active { opacity: 1; }
+.cmd-palette-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    width: 100%;
+    max-width: 560px;
+    max-height: 60vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: var(--glow-green-strong);
+}
+.cmd-palette-input {
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: var(--font-base);
+    padding: var(--s-3);
+    border: none;
+    border-bottom: 1px solid var(--border-default);
+    background: var(--bg-panel-alt);
+    color: var(--text-primary);
+    outline: none;
+    border-radius: 0;
+}
+.cmd-palette-input:focus {
+    border-bottom-color: var(--olive-primary);
+    box-shadow: none;
+}
+.cmd-palette-list {
+    overflow-y: auto;
+    max-height: 48vh;
+    padding: var(--s-1) 0;
+}
+.cmd-palette-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-3);
+    padding: var(--s-2) var(--s-3);
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.cmd-palette-row.selected {
+    background: var(--card-bg-hover);
+    border-left-color: var(--olive-primary);
+}
+.cmd-palette-row:hover {
+    background: var(--card-bg-hover);
+}
+.cmd-palette-label {
+    font-family: var(--font-body);
+    font-size: var(--font-sm);
+    color: var(--text-primary);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.cmd-palette-hint {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    letter-spacing: var(--ls-mono);
+    text-transform: uppercase;
+}
+.cmd-palette-empty {
+    padding: var(--s-3);
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    text-align: center;
+}
+
 /* ── Sentience Easter Egg ── */
 #sentience-overlay {
     position: fixed;

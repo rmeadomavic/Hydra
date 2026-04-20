@@ -190,6 +190,44 @@
         </div>
     </div>
 
+    <!-- ── Keybinds Help Overlay (press ?) ── -->
+    <div id="keybinds-help" role="dialog" aria-modal="true" aria-labelledby="keybinds-help-title" style="display:none;">
+        <div class="keybinds-card">
+            <div class="keybinds-header">
+                <h3 id="keybinds-help-title" class="keybinds-title">Keyboard Shortcuts</h3>
+                <button class="keybinds-close" type="button" data-role="keybinds-close" aria-label="Close help">✕</button>
+            </div>
+            <div class="keybinds-section">
+                <div class="keybinds-section-title">Views</div>
+                <div class="keybinds-row"><kbd class="keybinds-kbd">1</kbd><span class="keybinds-desc">Ops</span></div>
+                <div class="keybinds-row"><kbd class="keybinds-kbd">2</kbd><span class="keybinds-desc">TAK</span></div>
+                <div class="keybinds-row"><kbd class="keybinds-kbd">3</kbd><span class="keybinds-desc">Systems</span></div>
+                <div class="keybinds-row"><kbd class="keybinds-kbd">4</kbd><span class="keybinds-desc">Autonomy</span></div>
+                <div class="keybinds-row"><kbd class="keybinds-kbd">5</kbd><span class="keybinds-desc">Config</span></div>
+                <div class="keybinds-row"><kbd class="keybinds-kbd">6</kbd><span class="keybinds-desc">Settings</span></div>
+            </div>
+            <div class="keybinds-section">
+                <div class="keybinds-section-title">Global</div>
+                <div class="keybinds-row"><kbd class="keybinds-kbd">?</kbd><span class="keybinds-desc">Toggle this help</span></div>
+                <div class="keybinds-row"><kbd class="keybinds-kbd">/</kbd><span class="keybinds-desc">Focus search in current view</span></div>
+                <div class="keybinds-row"><kbd class="keybinds-kbd">Esc</kbd><span class="keybinds-desc">Close any open overlay</span></div>
+                <div class="keybinds-row"><kbd class="keybinds-kbd">Ctrl</kbd><span class="keybinds-sep">+</span><kbd class="keybinds-kbd">K</kbd><span class="keybinds-desc">Open command palette</span></div>
+                <div class="keybinds-row"><kbd class="keybinds-kbd">Cmd</kbd><span class="keybinds-sep">+</span><kbd class="keybinds-kbd">K</kbd><span class="keybinds-desc">Open command palette (macOS)</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Command Palette Overlay (Ctrl+K / Cmd+K) ── -->
+    <div id="hydra-command-palette" role="dialog" aria-modal="true" aria-labelledby="hydra-command-palette-label" style="display:none;">
+        <div class="cmd-palette-card">
+            <label class="visually-hidden" id="hydra-command-palette-label" for="hydra-command-palette-input">Command palette search</label>
+            <input id="hydra-command-palette-input" class="cmd-palette-input"
+                   type="text" autocomplete="off" spellcheck="false"
+                   placeholder="Search tracks, peers, actions…">
+            <div id="hydra-command-palette-list" class="cmd-palette-list" role="listbox" aria-label="Command palette results"></div>
+        </div>
+    </div>
+
     <!-- ── Sentience Easter Egg Overlay ── -->
     <div id="sentience-overlay">
         <div id="sentience-terminal"></div>
@@ -231,6 +269,8 @@
     <script src="/static/js/api/client.js"></script>
     <script src="/static/js/preflight/preflight.js"></script>
     <script src="/static/js/easter.js"></script>
+    <script src="/static/js/keybinds.js"></script>
+    <script src="/static/js/command-palette.js"></script>
     <script src="/static/js/main.js"></script>
     <script src="/static/js/panels.js"></script>
     <script src="/static/js/ops.js"></script>
