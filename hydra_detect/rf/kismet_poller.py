@@ -102,18 +102,13 @@ def _normalise_freq_mhz(raw: Any) -> float | None:
     return freq
 
 
-_BT_DEFAULT_FREQ_MHZ = 2440.0
-_BT_FALLBACK_RSSI_DBM = -80.0
-
-
 def _parse_devices(payload: Any, max_samples: int) -> list[dict]:
     """Turn a Kismet /devices.json response into sample dicts.
 
-    Stale devices (``last_time`` older than ``_STALE_CUTOFF_SEC``) are
-    skipped. Bluetooth devices get synthetic metadata when Kismet's
-    linuxbluetooth helper omits frequency or RSSI (Classic HCI inquiry
-    doesn't always report either), so they still surface in the ambient
-    scan buffer.
+    Stale devices (``last_time`` older than ``_STALE_CUTOFF_SEC``) and
+    devices without a real measured frequency or non-zero RSSI are
+    skipped. All downstream consumers can assume every sample carries a
+    physical measurement — no synthetic or placeholder values.
     """
     if not isinstance(payload, list):
         return []
@@ -125,29 +120,20 @@ def _parse_devices(payload: Any, max_samples: int) -> list[dict]:
         last_time = dev.get("kismet.device.base.last_time") or 0
         if last_time and last_time < stale_cutoff:
             continue
-        phy = str(dev.get("kismet.device.base.phyname") or "")
-        phy_lower = phy.lower()
-        is_bluetooth = "bluetooth" in phy_lower or "btle" in phy_lower or "ble" in phy_lower
         freq_mhz = _normalise_freq_mhz(
             dev.get("kismet.device.base.frequency"),
         )
         if freq_mhz is None:
-            if is_bluetooth:
-                freq_mhz = _BT_DEFAULT_FREQ_MHZ
-            else:
-                continue
+            continue
         sig = dev.get("kismet.device.base.signal") or {}
         rssi_raw = sig.get("kismet.common.signal.last_signal")
         if rssi_raw is None or rssi_raw == 0:
-            if is_bluetooth:
-                rssi_dbm = _BT_FALLBACK_RSSI_DBM
-            else:
-                continue
-        else:
-            try:
-                rssi_dbm = float(rssi_raw)
-            except (TypeError, ValueError):
-                continue
+            continue
+        try:
+            rssi_dbm = float(rssi_raw)
+        except (TypeError, ValueError):
+            continue
+        phy = str(dev.get("kismet.device.base.phyname") or "")
         first_time = dev.get("kismet.device.base.first_time") or 0
         duration_ms = 0.0
         if first_time and last_time and last_time >= first_time:
