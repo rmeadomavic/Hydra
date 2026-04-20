@@ -1,18 +1,31 @@
-<!-- TAK View (M1 scaffold) — 3-column grid: Type Counts · Inbound Commands · Peers + Audit footer -->
+<!-- TAK View — M2: 3-column grid (Type Counts · Inbound Commands · Peers+Security) + Audit footer -->
+<!-- M2 migration notes (preserved for history; B2 — not yet built stub replaced by /api/tak/type_counts) -->
+<!-- M2 migration notes (preserved for history; B3 — not yet built stub replaced by /api/tak/peers)       -->
+<!-- M2 migration notes (preserved for history; B9 — not yet built stub replaced by /api/audit/summary)   -->
 
 <div class="tak-grid" id="tak-grid">
-    <!-- Left column (B2 — not yet built) -->
-    <aside class="tak-col tak-col-left" id="tak-col-left" aria-label="Type Counts">
+    <!-- Left column: inbound CoT type counts + breakdown -->
+    <aside class="tak-col tak-col-left" id="tak-col-left" aria-label="CoT Type Counts">
         <header class="tak-col-header">
             <span class="tak-col-title">Type Counts</span>
-            <span class="tak-col-badge" title="Pending backend endpoint">B2 — not yet built</span>
+            <span class="tak-col-chip tak-live" id="tak-type-chip" title="Polling /api/tak/type_counts at 0.5 Hz">LIVE</span>
+            <span class="tak-col-sub" id="tak-type-window">-- window</span>
         </header>
-        <div class="tak-col-body">
-            <p class="tak-placeholder">Awaiting backend endpoint; will show CoT type histogram.</p>
+        <div class="tak-col-body tak-type-body" id="tak-type-counts" role="region" aria-live="polite">
+            <section class="tak-counter-card" aria-label="CoT inbound events total">
+                <div class="tak-counter-label">CoT Events (inbound)</div>
+                <div class="tak-counter-value" id="tak-type-total">0</div>
+                <div class="tak-counter-sub" id="tak-type-subline">awaiting data</div>
+            </section>
+            <section class="tak-breakdown-card" aria-label="CoT type breakdown">
+                <header class="tak-breakdown-header">Breakdown</header>
+                <div class="tak-breakdown-list" id="tak-type-list"></div>
+                <div class="tak-breakdown-empty" id="tak-type-empty">no events in window</div>
+            </section>
         </div>
     </aside>
 
-    <!-- Center column (inbound commands feed, B1 live) -->
+    <!-- Center column (inbound commands feed, M1 live) -->
     <section class="tak-col tak-col-center" id="tak-col-center" aria-label="Inbound TAK commands">
         <header class="tak-col-header">
             <span class="tak-col-title">Inbound Commands</span>
@@ -25,21 +38,78 @@
         </div>
     </section>
 
-    <!-- Right column (B3 — not yet built) -->
-    <aside class="tak-col tak-col-right" id="tak-col-right" aria-label="Peers">
+    <!-- Right column: peers + security -->
+    <aside class="tak-col tak-col-right" id="tak-col-right" aria-label="Peers and Security">
         <header class="tak-col-header">
             <span class="tak-col-title">Peers</span>
-            <span class="tak-col-badge" title="Pending backend endpoint">B3 — not yet built</span>
+            <span class="tak-col-chip tak-live" id="tak-peers-chip" title="Polling /api/tak/peers at 0.33 Hz">LIVE</span>
+            <span class="tak-col-sub" id="tak-peers-count">0 peers</span>
         </header>
-        <div class="tak-col-body">
-            <p class="tak-placeholder">Awaiting backend endpoint; will show TAK peer list + unicast target list.</p>
+        <div class="tak-col-body tak-peers-body" id="tak-peers" role="region" aria-live="polite">
+            <section class="tak-peers-card" aria-label="Peer roster">
+                <div class="tak-peers-list" id="tak-peers-list"></div>
+                <div class="tak-peers-empty" id="tak-peers-empty">no peers seen in window</div>
+            </section>
+            <section class="tak-security-card" id="tak-security" aria-label="TAK security">
+                <header class="tak-security-header">Security</header>
+                <div class="tak-security-row" data-key="hmac">
+                    <span class="tak-security-label">HMAC enforced</span>
+                    <span class="tak-security-value" id="tak-security-hmac">--</span>
+                </div>
+                <div class="tak-security-row" data-key="allowed">
+                    <span class="tak-security-label">Allowed callsigns</span>
+                    <span class="tak-security-value" id="tak-security-allowed">0</span>
+                </div>
+                <div class="tak-security-row" data-key="duplicate">
+                    <span class="tak-security-label">Duplicate callsign alarm</span>
+                    <span class="tak-security-value" id="tak-security-dup">--</span>
+                </div>
+                <div class="tak-security-row tak-security-row-targets" data-key="targets">
+                    <span class="tak-security-label">Unicast targets</span>
+                    <span class="tak-security-value tak-security-targets" id="tak-security-targets">--</span>
+                </div>
+            </section>
         </div>
     </aside>
 </div>
 
-<!-- Audit footer strip (B9 — not yet built) -->
+<!-- Audit footer strip (6 tiles + recent events) -->
 <footer class="tak-audit" id="tak-audit" aria-label="Audit summary">
-    <span class="tak-audit-title">Audit Summary</span>
-    <span class="tak-audit-badge" title="Pending backend endpoint">B9 — not yet built</span>
-    <span class="tak-audit-text">Awaiting backend endpoint; will show rejection counters and audit status.</span>
+    <div class="tak-audit-footer" id="tak-audit-footer">
+        <header class="tak-audit-header">
+            <span class="tak-audit-title">Audit Summary</span>
+            <span class="tak-col-chip tak-live" id="tak-audit-chip" title="Polling /api/audit/summary at 0.2 Hz">LIVE</span>
+            <span class="tak-audit-window" id="tak-audit-window">-- window</span>
+        </header>
+        <div class="tak-audit-tiles" id="tak-audit-tiles">
+            <div class="tak-audit-tile" data-kind="tak_accepted">
+                <div class="tak-audit-tile-label">Accepted</div>
+                <div class="tak-audit-tile-count" id="tak-audit-accepted">0</div>
+            </div>
+            <div class="tak-audit-tile" data-kind="tak_rejected">
+                <div class="tak-audit-tile-label">Rejected</div>
+                <div class="tak-audit-tile-count" id="tak-audit-rejected">0</div>
+            </div>
+            <div class="tak-audit-tile" data-kind="hmac_invalid_events">
+                <div class="tak-audit-tile-label">HMAC invalid</div>
+                <div class="tak-audit-tile-count" id="tak-audit-hmac-invalid">0</div>
+            </div>
+            <div class="tak-audit-tile" data-kind="approach_arm_events">
+                <div class="tak-audit-tile-label">Approach arm</div>
+                <div class="tak-audit-tile-count" id="tak-audit-approach-arm">0</div>
+            </div>
+            <div class="tak-audit-tile" data-kind="drop_events">
+                <div class="tak-audit-tile-label">Drop</div>
+                <div class="tak-audit-tile-count" id="tak-audit-drop">0</div>
+            </div>
+            <div class="tak-audit-tile" data-kind="strike_events">
+                <div class="tak-audit-tile-label">Strike</div>
+                <div class="tak-audit-tile-count" id="tak-audit-strike">0</div>
+            </div>
+        </div>
+        <div class="tak-audit-events">
+            <div class="tak-audit-events-empty" id="tak-audit-events-empty">no audit events in window</div>
+            <div class="tak-audit-events-list" id="tak-audit-events-list"></div>
+        </div>
+    </div>
 </footer>
