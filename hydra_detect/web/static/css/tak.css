@@ -23,14 +23,120 @@ body.view-tak #mjpeg-stream {
     height: 0;
 }
 
-/* 3-column grid */
+/* ── Primary map pane (Leaflet) ──────────────────────────────── */
+.tak-map-pane {
+    display: flex;
+    flex-direction: column;
+    margin: var(--s-2) var(--s-2) 0;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    overflow: hidden;
+    min-height: 360px;
+    flex: 1 1 55%;
+}
+.tak-map-header {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-1) var(--s-2);
+    background: var(--bg-panel-alt);
+    border-bottom: 1px solid var(--border-subtle);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+.tak-map-title {
+    color: var(--text-primary);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+.tak-map-chip.tak-live {
+    color: var(--bg-void);
+    background: var(--olive-muted);
+    padding: 1px 6px;
+    border-radius: var(--radius);
+    font-weight: 700;
+    font-size: 9px;
+}
+.tak-map-sub {
+    color: var(--text-secondary);
+    margin-left: auto;
+}
+.tak-map-canvas {
+    flex: 1;
+    min-height: 300px;
+    background: #0b0d10;
+}
+
+/* Shared map marker styles (used by ops cockpit + tak-pane) */
+.hydra-map-self { position: relative; }
+.hydra-self-dot {
+    position: absolute;
+    left: 8px; top: 8px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--olive-primary, #A6BC92);
+    box-shadow: 0 0 0 2px #000, 0 0 8px rgba(166, 188, 146, 0.8);
+}
+.hydra-self-heading {
+    position: absolute;
+    left: 11px; top: -2px;
+    width: 6px; height: 18px;
+    background: linear-gradient(to top, transparent, var(--olive-primary, #A6BC92));
+    transform-origin: 3px 16px;
+    pointer-events: none;
+}
+.hydra-map-peer { position: relative; }
+.hydra-peer-dot {
+    position: absolute;
+    left: 7px; top: 7px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #93c5fd;
+    box-shadow: 0 0 0 2px #000;
+}
+.hydra-peer-label {
+    position: absolute;
+    left: 20px; top: 4px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: #93c5fd;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 0 4px;
+    border-radius: 2px;
+    white-space: nowrap;
+}
+.hydra-map-track { position: relative; }
+.hydra-track-dot {
+    position: absolute;
+    left: 6px; top: 6px;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--danger, #ef4444);
+    box-shadow: 0 0 0 2px #000;
+}
+.hydra-track-label {
+    position: absolute;
+    left: 16px; top: 3px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--danger, #ef4444);
+    background: rgba(0, 0, 0, 0.6);
+    padding: 0 3px;
+    border-radius: 2px;
+    white-space: nowrap;
+}
+
+/* 3-column grid — now below the map pane */
 .tak-grid {
     display: grid;
     grid-template-columns: minmax(280px, 360px) minmax(480px, 1fr) minmax(300px, 380px);
     gap: var(--s-2);
     padding: var(--s-2);
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     min-height: 0;
+    max-height: 45%;
     background: var(--bg-void);
 }
 

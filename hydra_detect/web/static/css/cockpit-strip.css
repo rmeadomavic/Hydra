@@ -171,6 +171,16 @@
     inset: 0;
 }
 
+/* Leaflet replacement for the SVG radar. Sized by flex parent, full
+   bleed within the cockpit cell. */
+.cockpit-tak-map {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    inset: 0;
+    background: #0b0d10;
+}
+
 .cockpit-tak-expand {
     position: absolute;
     bottom: 4px;

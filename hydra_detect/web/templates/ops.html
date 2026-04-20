@@ -281,7 +281,7 @@
             </div>
         </section>
 
-        <!-- Cell 2: Cockpit TAK map -->
+        <!-- Cell 2: Cockpit TAK map (Leaflet) -->
         <section class="cockpit-cell cockpit-cell-tak" id="ops-cockpit-tak"
                  title="Click to expand TAK map">
             <header class="cockpit-cell-header cockpit-tak-header">
@@ -290,16 +290,7 @@
                 <span class="cockpit-cell-pill cockpit-pill-live">LIVE</span>
             </header>
             <div class="cockpit-tak-canvas">
-                <svg class="cockpit-tak-svg" id="ops-cockpit-tak-svg" preserveAspectRatio="none"
-                     aria-hidden="true">
-                    <defs>
-                        <pattern id="cockpit-tak-grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                            <path d="M20 0 L0 0 0 20" fill="none"
-                                  stroke="rgba(166,188,146,0.2)" stroke-width="0.4"></path>
-                        </pattern>
-                    </defs>
-                    <rect width="100%" height="100%" fill="url(#cockpit-tak-grid)"></rect>
-                </svg>
+                <div class="cockpit-tak-map" id="ops-cockpit-tak-map"></div>
                 <div class="cockpit-tak-expand">click &#8689;</div>
             </div>
         </section>

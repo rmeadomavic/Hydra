@@ -52,6 +52,8 @@ const HydraTak = (() => {
     let auditEventRowOrder = [];
 
     // ── Lifecycle ──
+    let mapCtl = null;
+
     function onEnter() {
         renderedKeys = [];
         rowNodes = Object.create(null);
@@ -65,6 +67,30 @@ const HydraTak = (() => {
         clearFeedList();
         showEmpty(true);
 
+        // Large Leaflet map — self + peers + tracks, 2s poll. Shared module.
+        if (window.HydraTakMap && document.getElementById('tak-map-canvas')) {
+            mapCtl = HydraTakMap.init({
+                containerId: 'tak-map-canvas',
+                pollMs: 2000,
+                showZoom: true,
+                showAttribution: true,
+                showTracks: true,
+                onTitleUpdate: (callsign, info) => {
+                    const t = document.getElementById('tak-map-title');
+                    const s = document.getElementById('tak-map-sub');
+                    if (t) t.textContent = 'TAK · ' + callsign;
+                    if (s) {
+                        if (info.lat != null && info.lon != null) {
+                            s.textContent = info.lat.toFixed(5) + ', ' +
+                                info.lon.toFixed(5) + ' · fix ' + info.fix;
+                        } else {
+                            s.textContent = 'no fix';
+                        }
+                    }
+                },
+            });
+        }
+
         startCommandsPoll();
         startTypeCountsPoll();
         startPeersPoll();
@@ -73,6 +99,7 @@ const HydraTak = (() => {
 
     function onLeave() {
         stopAllPolls();
+        if (mapCtl) { mapCtl.stop(); mapCtl = null; }
     }
 
     function stopAllPolls() {

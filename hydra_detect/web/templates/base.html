@@ -15,6 +15,9 @@
     <link rel="stylesheet" href="/static/css/tak.css">
     <link rel="stylesheet" href="/static/css/systems.css">
     <link rel="stylesheet" href="/static/css/autonomy.css">
+    <!-- Leaflet (used by Cockpit TAK map on Ops + large map on TAK tab) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
 </head>
 <body class="view-ops">
     <!-- ── MJPEG Stream (persists across views) ── -->
@@ -274,6 +277,7 @@
     <script src="/static/js/command-palette.js"></script>
     <script src="/static/js/main.js"></script>
     <script src="/static/js/panels.js"></script>
+    <script src="/static/js/tak-map.js"></script>
     <script src="/static/js/ops.js"></script>
     <script src="/static/js/config.js"></script>
     <script src="/static/js/settings.js"></script>

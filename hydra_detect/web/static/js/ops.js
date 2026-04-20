@@ -2105,101 +2105,26 @@ const HydraOps = (() => {
         if (rateLabel) rateLabel.textContent = 'PWM';
     }
 
-    function renderCockpitMap(data) {
-        var svg = document.getElementById('ops-cockpit-tak-svg');
-        var titleEl = document.getElementById('ops-cockpit-tak-title');
-        if (!svg) return;
-        var peers = (data && Array.isArray(data.peers)) ? data.peers : [];
-        var stats = HydraApp.state.stats || {};
-        var callsign = stats.callsign || 'HYDRA-1';
-        if (titleEl) titleEl.textContent = 'TAK \u00B7 ' + callsign;
-
-        var sig = peers.length + '|' + callsign;
-        if (svg._lastSig === sig) return;
-        svg._lastSig = sig;
-
-        // Drop everything except the existing <defs> + grid <rect>
-        var defs = svg.querySelector('defs');
-        var rect = svg.querySelector('rect');
-        while (svg.firstChild) svg.removeChild(svg.firstChild);
-        if (defs) svg.appendChild(defs);
-        if (rect) svg.appendChild(rect);
-
-        var selfX = 50, selfY = 58; // percent
-        // Range rings
-        var rings = [40, 80, 130];
-        for (var r = 0; r < rings.length; r++) {
-            var ring = document.createElementNS(SVG_NS, 'circle');
-            ring.setAttribute('cx', selfX + '%');
-            ring.setAttribute('cy', selfY + '%');
-            ring.setAttribute('r', String(rings[r] * 0.55));
-            ring.setAttribute('fill', 'none');
-            ring.setAttribute('stroke', 'rgba(166,188,146,0.15)');
-            ring.setAttribute('stroke-width', '0.5');
-            ring.setAttribute('stroke-dasharray', '2 3');
-            svg.appendChild(ring);
-        }
-
-        // Peers: lay them out radially around self, clamped to canvas
-        var maxPeers = Math.min(peers.length, 6);
-        for (var p = 0; p < maxPeers; p++) {
-            var theta = (p / Math.max(1, maxPeers)) * Math.PI * 2;
-            var px = Math.max(8, Math.min(92, selfX + Math.cos(theta) * 28));
-            var py = Math.max(8, Math.min(92, selfY + Math.sin(theta) * 22));
-            var line = document.createElementNS(SVG_NS, 'line');
-            line.setAttribute('x1', selfX + '%');
-            line.setAttribute('y1', selfY + '%');
-            line.setAttribute('x2', px + '%');
-            line.setAttribute('y2', py + '%');
-            line.setAttribute('stroke', 'rgba(147,197,253,0.25)');
-            line.setAttribute('stroke-width', '0.6');
-            line.setAttribute('stroke-dasharray', '2 3');
-            svg.appendChild(line);
-
-            var peerG = document.createElementNS(SVG_NS, 'g');
-            peerG.setAttribute('transform', 'translate(' + px + '% ' + py + '%)');
-            var pdot = document.createElementNS(SVG_NS, 'circle');
-            pdot.setAttribute('r', '3.5');
-            pdot.setAttribute('fill', 'var(--info)');
-            pdot.setAttribute('stroke', '#000');
-            pdot.setAttribute('stroke-width', '0.4');
-            peerG.appendChild(pdot);
-            var pl = document.createElementNS(SVG_NS, 'text');
-            pl.setAttribute('x', '6');
-            pl.setAttribute('y', '3');
-            pl.setAttribute('font-family', 'var(--font-mono)');
-            pl.setAttribute('font-size', '8');
-            pl.setAttribute('fill', 'var(--info)');
-            pl.textContent = String(peers[p].callsign || peers[p].cs || 'PEER');
-            peerG.appendChild(pl);
-            svg.appendChild(peerG);
-        }
-
-        // Self marker — inner dot + outer dashed ring (CSS spin)
-        var selfG = document.createElementNS(SVG_NS, 'g');
-        selfG.setAttribute('transform', 'translate(' + selfX + '% ' + selfY + '%)');
-        var ring2 = document.createElementNS(SVG_NS, 'circle');
-        ring2.setAttribute('r', '7');
-        ring2.setAttribute('fill', 'none');
-        ring2.setAttribute('stroke', 'var(--olive-muted)');
-        ring2.setAttribute('stroke-width', '0.7');
-        ring2.setAttribute('stroke-dasharray', '2 2');
-        ring2.setAttribute('class', 'cockpit-tak-self-ring');
-        selfG.appendChild(ring2);
-        var sdot = document.createElementNS(SVG_NS, 'circle');
-        sdot.setAttribute('r', '3.5');
-        sdot.setAttribute('fill', 'var(--olive-muted)');
-        selfG.appendChild(sdot);
-        var sl = document.createElementNS(SVG_NS, 'text');
-        sl.setAttribute('x', '6');
-        sl.setAttribute('y', '3');
-        sl.setAttribute('font-family', 'var(--font-mono)');
-        sl.setAttribute('font-size', '8');
-        sl.setAttribute('fill', 'var(--text-primary)');
-        sl.setAttribute('font-weight', '700');
-        sl.textContent = callsign;
-        selfG.appendChild(sl);
-        svg.appendChild(selfG);
+    // Cockpit TAK map is now a small Leaflet instance managed by tak-map.js.
+    // Init on first call, no-op after. Called from the polling loop only to
+    // kick the init — the shared module handles its own data refresh.
+    var _cockpitMapCtl = null;
+    function renderCockpitMap(_data) {
+        if (_cockpitMapCtl) return;
+        if (!window.HydraTakMap) return;
+        var container = document.getElementById('ops-cockpit-tak-map');
+        if (!container) return;
+        _cockpitMapCtl = HydraTakMap.init({
+            containerId: 'ops-cockpit-tak-map',
+            pollMs: 2500,
+            showZoom: false,
+            showAttribution: false,
+            showTracks: true,
+            onTitleUpdate: function (callsign, _info) {
+                var titleEl = document.getElementById('ops-cockpit-tak-title');
+                if (titleEl) titleEl.textContent = 'TAK \u00B7 ' + callsign;
+            },
+        });
     }
 
     function renderCockpitSdr(data) {
