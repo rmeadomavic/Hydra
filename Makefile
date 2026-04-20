@@ -65,8 +65,14 @@ lint:
 	  echo "mypy not installed — skipping"; \
 	fi
 
+GIT_SHA     := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+GIT_DESCRIBE := $(shell git describe --always --dirty 2>/dev/null || echo unknown)
+
 build:
-	$(DOCKER) build -t $(IMAGE) .
+	$(DOCKER) build \
+	  --label git.sha=$(GIT_SHA) \
+	  --label git.describe=$(GIT_DESCRIBE) \
+	  -t $(IMAGE) .
 
 up:
 	sudo systemctl restart $(SERVICE)
