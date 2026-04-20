@@ -1127,6 +1127,32 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             description="Minimum consecutive track frames before autonomous action (fixed-wing)",
         ),
     },
+    "audit": {
+        "enabled": FieldSpec(
+            FieldType.BOOL,
+            default=True,
+            description="Write durable JSONL audit trail to disk",
+        ),
+        "jsonl_path": FieldSpec(
+            FieldType.STRING,
+            default="/data/audit/hydra.jsonl",
+            description="Path to the active audit JSONL file (rotations get .1 .2 ...)",
+        ),
+        "max_size_mb": FieldSpec(
+            FieldType.INT,
+            min_val=1,
+            max_val=500,
+            default=10,
+            description="Rotate the audit file when it reaches this many MB",
+        ),
+        "max_rotations": FieldSpec(
+            FieldType.INT,
+            min_val=1,
+            max_val=50,
+            default=5,
+            description="Keep this many rotated audit files (older are pruned)",
+        ),
+    },
 }
 
 

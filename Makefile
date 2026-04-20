@@ -16,12 +16,12 @@ FAST_IGNORES := --ignore=tests/test_integration_wiring.py
 FAST_KEXPR   := -k "not integration"
 
 # Endpoints probed by `make smoke`. Format: <path>:<json-key-to-grep>.
-# Only GET routes that are auth-free (same-origin bypass list) so curl works
-# without a bearer token. Extend as new public reads land.
+# Only object-returning GET routes (array responses like /api/tracks have no
+# grep-able key). The curl below sends `Sec-Fetch-Site: same-origin` so the
+# auth bypass list engages without a bearer token. Extend as new reads land.
 SMOKE_PROBES := \
   /api/health:healthy \
   /api/stats:fps \
-  /api/tracks:tracks \
   /api/servo/status:enabled \
   /api/autonomy/status:mode \
   /api/tak/peers:peers \
@@ -29,7 +29,6 @@ SMOKE_PROBES := \
   /api/rf/status:state \
   /api/approach/status:mode \
   /api/events:events \
-  /api/detections:detections \
   /api/rtsp/status:enabled \
   /api/tak/status:enabled \
   /api/config/full:camera \
@@ -85,7 +84,7 @@ smoke:
 	for p in $(SMOKE_PROBES); do \
 	  total=$$((total+1)); \
 	  ep=$${p%%:*}; key=$${p##*:}; \
-	  body=$$(curl -sf --max-time 3 $(SMOKE_HOST)$$ep 2>/dev/null || true); \
+	  body=$$(curl -sf --max-time 3 -H "Sec-Fetch-Site: same-origin" $(SMOKE_HOST)$$ep 2>/dev/null || true); \
 	  if [ -n "$$body" ] && printf "%s" "$$body" | grep -q "\"$$key\""; then \
 	    printf "  OK   %-28s (%s)\n" "$$ep" "$$key"; \
 	    pass=$$((pass+1)); \
