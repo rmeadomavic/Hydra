@@ -109,6 +109,16 @@ class TestPreflightEndpoint:
         data = resp.json()
         assert data["overall"] == "pass"
 
+    def test_warning_modal_gated_by_session_storage(self, client):
+        """Served preflight.js must guard the WARNING modal with sessionStorage
+        and set the dismissed flag on Continue click. Operators complained the
+        warn modal fired on every page load — this asserts the fix stays wired."""
+        resp = client.get("/static/js/preflight/preflight.js")
+        assert resp.status_code == 200
+        js = resp.text
+        assert "sessionStorage.getItem('hydra-preflight-dismissed')" in js
+        assert "sessionStorage.setItem('hydra-preflight-dismissed', '1')" in js
+
     def test_preflight_check_status_values(self, client):
         """All status values should be one of pass/warn/fail."""
         def mock_preflight():

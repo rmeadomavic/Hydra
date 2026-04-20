@@ -10,8 +10,13 @@ window.HydraModules.createPreflight = function createPreflight({ fetchImpl }) {
             const resp = await fetcher('/api/preflight');
             if (!resp.ok) return;
             const data = await resp.json();
-            if (data.overall === 'fail' || data.overall === 'warn') {
-                showPreflightOverlay(data.checks, data.overall === 'fail');
+            if (data.overall === 'fail') {
+                showPreflightOverlay(data.checks, true);
+            } else if (data.overall === 'warn') {
+                // Gate the WARNING modal to once per tab session (operator request).
+                // Cleared by tab close or Ctrl+Shift+R.
+                if (sessionStorage.getItem('hydra-preflight-dismissed') === '1') return;
+                showPreflightOverlay(data.checks, false);
             }
         } catch (e) {
             console.warn('Preflight check failed:', e);
@@ -49,7 +54,10 @@ window.HydraModules.createPreflight = function createPreflight({ fetchImpl }) {
         const btn = document.createElement('button');
         btn.className = 'preflight-btn';
         btn.textContent = blocking ? 'Re-check' : 'Continue';
-        btn.addEventListener('click', blocking ? runPreflight : dismissPreflight);
+        btn.addEventListener('click', blocking ? runPreflight : function() {
+            sessionStorage.setItem('hydra-preflight-dismissed', '1');
+            dismissPreflight();
+        });
         card.appendChild(btn);
 
         overlay.appendChild(card);
