@@ -1,11 +1,13 @@
-"""Tests for the Ops / NVG / Lattice theme system.
+"""Tests for the theme system (locked to Lattice).
 
-Covers:
-- variables.css declares all three theme selectors with token overrides
-- settings.html renders three theme radio cards with swatches
-- config_schema validates theme in {ops, nvg, lattice}
-- settings.js wires the <html data-theme="..."> attribute and respects
-  the existing save pattern (POST /api/config/full)
+Originally supported ops/nvg/lattice with a settings picker. The picker
+was removed when the dashboard was permanently locked to Lattice — these
+tests now assert the lock-down invariants:
+
+- variables.css still declares the lattice theme selector + tokens
+- settings.html does NOT render a theme picker
+- config_schema lists only "lattice" as a valid choice
+- settings.js always applies lattice, ignores incoming values
 - regression: hud_layout is still in config_schema (PRESERVATION rule)
 """
 
@@ -22,6 +24,7 @@ from hydra_detect.web.server import app
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CSS_PATH = REPO_ROOT / "hydra_detect" / "web" / "static" / "css" / "variables.css"
+BASE_HTML = REPO_ROOT / "hydra_detect" / "web" / "templates" / "base.html"
 SETTINGS_HTML = REPO_ROOT / "hydra_detect" / "web" / "templates" / "settings.html"
 SETTINGS_JS = REPO_ROOT / "hydra_detect" / "web" / "static" / "js" / "settings.js"
 
@@ -31,41 +34,10 @@ def client():
     return TestClient(app)
 
 
-class TestVariablesCssThemes:
-    def test_css_has_all_three_theme_selectors(self):
+class TestVariablesCssLattice:
+    def test_css_has_lattice_theme_selector(self):
         css = CSS_PATH.read_text()
-        assert ':root[data-theme="nvg"]' in css
         assert ':root[data-theme="lattice"]' in css
-
-    def test_nvg_theme_overrides_required_variables(self):
-        css = CSS_PATH.read_text()
-        start = css.index(':root[data-theme="nvg"]')
-        end = css.index("}", start)
-        block = css[start:end]
-        # Task contract: NVG must override these tokens into monochrome green
-        for var in (
-            "--olive-primary",
-            "--olive-muted",
-            "--ogt-muted",
-            "--text-primary",
-            "--text-data",
-            "--bg-panel",
-            "--bg-panel-alt",
-            "--bg-void",
-            "--danger",
-            "--warning",
-            "--info",
-            "--gold",
-        ):
-            assert var in block, f"NVG block missing {var}"
-
-    def test_nvg_accent_is_monochrome_green(self):
-        css = CSS_PATH.read_text()
-        start = css.index(':root[data-theme="nvg"]')
-        end = css.index("}", start)
-        block = css[start:end]
-        # tokens.js THEMES.nvg.accent = '#00ff41'
-        assert "#00ff41" in block
 
     def test_lattice_theme_mirrors_tokens_js(self):
         css = CSS_PATH.read_text()
@@ -81,79 +53,84 @@ class TestVariablesCssThemes:
         assert "#A6BC92" in block
 
 
-class TestSettingsHtmlThemePicker:
-    def test_all_three_theme_radios_present(self, client):
+class TestBaseHtmlLocksTheme:
+    def test_html_root_has_lattice_attribute(self, client):
         resp = client.get("/")
         assert resp.status_code == 200
         html = resp.text
-        assert 'data-theme-option="ops"' in html
-        assert 'data-theme-option="nvg"' in html
-        assert 'data-theme-option="lattice"' in html
+        # <html lang="en" data-theme="lattice"> locks the theme at load
+        # time, before any JS runs — no flash of non-lattice.
+        assert 'data-theme="lattice"' in html
 
-    def test_theme_picker_has_radio_inputs(self, client):
+
+class TestSettingsHtmlNoPicker:
+    def test_theme_picker_not_rendered(self, client):
         resp = client.get("/")
         html = resp.text
-        # Three <input type="radio" name="settings-theme" ...>
-        assert html.count('name="settings-theme"') == 3
-        for value in ('value="ops"', 'value="nvg"', 'value="lattice"'):
-            assert value in html
+        # Picker removed. None of the old hooks should be in the DOM.
+        assert 'id="settings-theme-picker"' not in html
+        assert 'name="settings-theme"' not in html
+        assert 'data-theme-option' not in html
 
-    def test_theme_picker_renders_before_form_container(self, client):
-        resp = client.get("/")
-        html = resp.text
-        picker_idx = html.index('id="settings-theme-picker"')
-        form_idx = html.index('id="settings-form"')
-        assert picker_idx < form_idx
+    def test_settings_html_source_is_clean(self):
+        html = SETTINGS_HTML.read_text()
+        assert 'settings-theme-picker' not in html
+        assert 'settings-theme-grid' not in html
+        assert 'data-theme-option' not in html
 
 
-class TestConfigSchemaTheme:
-    def test_theme_field_exists(self):
+class TestConfigSchemaThemeLockedToLattice:
+    def test_theme_field_locked_to_lattice(self):
         assert "theme" in SCHEMA["web"]
         spec = SCHEMA["web"]["theme"]
         assert spec.type is FieldType.ENUM
-        assert spec.default == "ops"
-        assert set(spec.choices) == {"ops", "nvg", "lattice"}
+        assert spec.default == "lattice"
+        assert set(spec.choices) == {"lattice"}
 
-    def test_theme_validation_accepts_all_three(self):
-        import configparser
-        for choice in ("ops", "nvg", "lattice"):
-            cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
-            cfg.add_section("web")
-            cfg.set("web", "theme", choice)
-            result = validate_config(cfg)
-            web_errors = [e for e in result.errors
-                          if "[web]" in e and "theme" in e]
-            assert not web_errors, (
-                f"theme={choice} rejected: {web_errors}"
-            )
-
-    def test_theme_validation_rejects_unknown(self):
+    def test_theme_validation_accepts_lattice(self):
         import configparser
         cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
         cfg.add_section("web")
-        cfg.set("web", "theme", "hot_pink")
+        cfg.set("web", "theme", "lattice")
         result = validate_config(cfg)
-        theme_errors = [e for e in result.errors
-                        if "[web]" in e and "theme" in e]
-        assert theme_errors
+        web_errors = [e for e in result.errors
+                      if "[web]" in e and "theme" in e]
+        assert not web_errors
+
+    def test_theme_validation_rejects_removed_choices(self):
+        import configparser
+        for removed in ("ops", "nvg", "hot_pink"):
+            cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
+            cfg.add_section("web")
+            cfg.set("web", "theme", removed)
+            result = validate_config(cfg)
+            theme_errors = [e for e in result.errors
+                            if "[web]" in e and "theme" in e]
+            assert theme_errors, (
+                f"theme={removed} should be rejected after lock-down"
+            )
 
 
-class TestSettingsJsThemeWiring:
-    def test_js_sets_html_data_theme(self):
-        js = SETTINGS_JS.read_text()
-        assert "document.documentElement" in js
-        assert "setAttribute('data-theme'" in js
-        assert "removeAttribute('data-theme')" in js
-
-    def test_js_posts_theme_to_config_api(self):
-        js = SETTINGS_JS.read_text()
-        assert "/api/config/full" in js
-        assert "theme" in js
-
-    def test_js_has_all_three_theme_choices(self):
+class TestSettingsJsAppliesLattice:
+    def test_js_theme_choices_collapsed_to_lattice(self):
         js = SETTINGS_JS.read_text()
         assert "THEME_CHOICES" in js
-        assert "'ops'" in js and "'nvg'" in js and "'lattice'" in js
+        # Only 'lattice' remains; 'ops' and 'nvg' must not appear as
+        # choices anywhere in the module.
+        assert "'lattice'" in js
+        assert "'ops'" not in js
+        assert "'nvg'" not in js
+
+    def test_js_applyTheme_forces_lattice(self):
+        js = SETTINGS_JS.read_text()
+        # The applyTheme function should unconditionally set lattice.
+        assert "setAttribute('data-theme', 'lattice')" in js
+
+    def test_js_theme_picker_init_is_noop(self):
+        js = SETTINGS_JS.read_text()
+        # initThemePicker should no longer wire a change listener.
+        assert "addEventListener('change'" not in js or \
+               "settings-theme-grid" not in js
 
 
 class TestPreservationHudLayoutIntact:

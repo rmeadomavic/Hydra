@@ -950,12 +950,16 @@ async def api_stats():
 
 def _flight_fields() -> Dict[str, Any]:
     """Read heading/airspeed/altitude/vertical_speed from the MAVLink
-    handle, falling back to None when MAVLink is not registered."""
+    handle, plus lat/lon/alt_agl for map rendering, falling back to
+    None when MAVLink is not registered or has no fix."""
     defaults: Dict[str, Any] = {
         "heading": None,
         "airspeed": None,
         "altitude": None,
         "vertical_speed": None,
+        "lat": None,
+        "lon": None,
+        "alt_msl_m": None,
     }
     mav = _mavlink_ref
     if mav is None:
@@ -963,11 +967,18 @@ def _flight_fields() -> Dict[str, Any]:
     try:
         data = mav.get_flight_data()
     except Exception:
-        return defaults
-    if not isinstance(data, dict):
-        return defaults
-    for key in defaults:
-        defaults[key] = data.get(key)
+        data = {}
+    if isinstance(data, dict):
+        for key in ("heading", "airspeed", "altitude", "vertical_speed"):
+            defaults[key] = data.get(key)
+    try:
+        lat, lon, alt = mav.get_lat_lon()
+    except Exception:
+        lat = lon = alt = None
+    if lat is not None and lon is not None:
+        defaults["lat"] = lat
+        defaults["lon"] = lon
+        defaults["alt_msl_m"] = alt
     return defaults
 
 

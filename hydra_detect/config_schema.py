@@ -332,9 +332,9 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
         ),
         "theme": FieldSpec(
             FieldType.ENUM,
-            choices=["ops", "nvg", "lattice"],
-            default="ops",
-            description="Dashboard color theme (ops/nvg/lattice)",
+            choices=["lattice"],
+            default="lattice",
+            description="Dashboard color theme (locked to lattice)",
         ),
     },
     "autonomous": {

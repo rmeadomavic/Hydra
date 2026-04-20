@@ -117,45 +117,18 @@ const HydraSettings = (() => {
         },
     };
 
-    // Valid theme ids — keep in sync with config_schema [web].theme choices
-    const THEME_CHOICES = ['ops', 'nvg', 'lattice'];
+    // Theme is locked to Lattice. The picker UI and config plumbing
+    // were removed — keep a no-op applyTheme export so downstream
+    // callers don't blow up.
+    const THEME_CHOICES = ['lattice'];
 
-    function applyTheme(theme) {
-        const id = THEME_CHOICES.includes(theme) ? theme : 'ops';
-        const root = document.documentElement;
-        if (id === 'ops') {
-            root.removeAttribute('data-theme');
-        } else {
-            root.setAttribute('data-theme', id);
-        }
-        document.querySelectorAll('.theme-card').forEach(card => {
-            card.classList.toggle('theme-card-active',
-                card.dataset.themeOption === id);
-            const radio = card.querySelector('input[type="radio"]');
-            if (radio) radio.checked = card.dataset.themeOption === id;
-        });
-    }
-
-    async function saveTheme(theme) {
-        if (!THEME_CHOICES.includes(theme)) return;
-        const result = await HydraApp.apiPost('/api/config/full',
-            { web: { theme: theme } });
-        if (result) {
-            if (configData && configData.web) configData.web.theme = theme;
-            HydraApp.showToast('Theme: ' + theme, 'success');
-        }
+    function applyTheme(_theme) {
+        // Always force lattice; ignore incoming value.
+        document.documentElement.setAttribute('data-theme', 'lattice');
     }
 
     function initThemePicker() {
-        const grid = document.getElementById('settings-theme-grid');
-        if (!grid) return;
-        grid.addEventListener('change', (e) => {
-            const t = e.target;
-            if (t && t.name === 'settings-theme' && t.value) {
-                applyTheme(t.value);
-                saveTheme(t.value);
-            }
-        });
+        // No-op: picker removed from settings.html.
     }
 
     function onEnter() {
@@ -192,8 +165,8 @@ const HydraSettings = (() => {
             showError('Failed to load configuration');
             return;
         }
-        const theme = configData.web && configData.web.theme;
-        applyTheme(theme || 'ops');
+        // Theme locked to lattice; ignore configData.web.theme.
+        applyTheme('lattice');
         // Defer render to next frame so the view's display:flex has applied
         // (prevents empty Camera tab on initial load when CSS transition
         // from display:none hasn't completed yet).
