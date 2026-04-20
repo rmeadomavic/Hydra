@@ -1,0 +1,524 @@
+/* ── Tech-Day Demo View ────────────────────────────────────────────────
+   Port of design_reference/src/tech-day-demo.jsx. Only post-migration
+   tokens; flat 2px radii. Grid 280px 1fr 300px on var(--bg-void).
+   The center feed frame keeps the bordered/glow panel from the mock
+   (2px outer border, 1px inner, olive glow).
+   ────────────────────────────────────────────────────────────────────── */
+
+/* View container — matches the tak/systems pattern. Only active when
+   <body class="view-demo"> is set. Integration (base.html + router)
+   happens in a follow-up wave; these rules no-op until then. */
+body.view-demo .view.view-demo {
+    display: flex;
+    flex-direction: column;
+}
+.view.view-demo {
+    position: fixed;
+    top: var(--topbar-height);
+    left: 0;
+    right: 0;
+    bottom: var(--footer-height);
+    z-index: 2;
+}
+body.view-demo #mjpeg-stream {
+    opacity: 0;
+    pointer-events: none;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+}
+
+/* ── Outer grid ───────────────────────────────────────────────────────
+   Mock specifies 280/1fr/300; background token used in place of raw hex. */
+.demo-grid {
+    display: grid;
+    grid-template-columns: 280px 1fr 300px;
+    height: 100%;
+    background: var(--bg-void);
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* ── Shared column chrome ────────────────────────────────────────── */
+.demo-col {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    background: var(--bg-panel);
+}
+
+.demo-col-left {
+    border-right: 1px solid var(--border-default);
+}
+
+.demo-col-right {
+    border-left: 1px solid var(--border-default);
+}
+
+.demo-col-header {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-2) var(--s-3);
+    border-bottom: 1px solid var(--border-default);
+    background: var(--bg-panel-alt);
+}
+
+.demo-col-title {
+    font-family: var(--font-cond);
+    font-weight: 700;
+    font-size: var(--font-base);
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--text-primary);
+}
+
+.demo-col-chip {
+    margin-left: auto;
+    font-family: var(--font-cond);
+    font-size: var(--font-xs);
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 2px var(--s-2);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+}
+
+.demo-col-chip-live {
+    color: var(--olive-primary);
+    border-color: var(--olive-primary);
+    background: rgba(56, 87, 35, 0.12);
+}
+
+.demo-col-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--s-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+}
+
+/* ── LEFT rail: tech highlights ──────────────────────────────────── */
+.demo-highlights {
+    gap: var(--s-2);
+}
+
+.demo-highlight {
+    padding: var(--s-2) var(--s-3);
+    background: var(--card-bg);
+    border: 1px solid var(--border-default);
+    border-left: 2px solid var(--olive-primary);
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.demo-highlight-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--s-2);
+}
+
+.demo-highlight-idx {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    letter-spacing: var(--ls-mono);
+}
+
+.demo-highlight-name {
+    font-family: var(--font-cond);
+    font-size: var(--font-base);
+    font-weight: 600;
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--text-primary);
+}
+
+.demo-highlight-detail {
+    font-family: var(--font-body);
+    font-size: var(--font-xs);
+    color: var(--text-data);
+    line-height: 1.35;
+}
+
+.demo-highlight-meta {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--ogt-muted);
+    letter-spacing: var(--ls-mono);
+    margin-top: 2px;
+}
+
+/* ── CENTER: live feed + mini TAK ────────────────────────────────── */
+.demo-col-center {
+    padding: var(--s-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-3);
+    overflow: hidden;
+    min-width: 0;
+    min-height: 0;
+    background: var(--bg-void);
+}
+
+.demo-center-header {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    flex-shrink: 0;
+}
+
+.demo-center-title {
+    font-family: var(--font-cond);
+    font-size: var(--font-md);
+    font-weight: 600;
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--ogt-muted);
+}
+
+.demo-center-divider {
+    flex: 1 1 auto;
+    height: 1px;
+    background: var(--border-default);
+}
+
+.demo-center-meta {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+}
+
+/* Feed frame: 16:9, max-height 60%, padding for inner bezel, olive glow. */
+.demo-feed-frame {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    max-height: 60%;
+    padding: 10px;
+    background: linear-gradient(180deg, #0c0c0c, #020202);
+    border: 2px solid var(--border-default);
+    border-radius: var(--radius);
+    box-shadow:
+        0 0 0 1px #000,
+        0 0 24px rgba(56, 87, 35, 0.15),
+        inset 0 0 0 1px #2a2a2a;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.demo-feed-bezel {
+    position: absolute;
+    bottom: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    padding: 0 var(--s-2);
+    background: var(--bg-void);
+}
+
+.demo-feed-screen {
+    height: 100%;
+    position: relative;
+    background: #000;
+    overflow: hidden;
+}
+
+.demo-feed-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+.demo-feed-overlay {
+    position: absolute;
+    top: var(--s-3);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    background: rgba(0, 0, 0, 0.65);
+    border: 1px solid var(--olive-primary);
+    border-radius: var(--radius);
+    padding: 4px var(--s-3);
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    color: var(--ogt-muted);
+    box-shadow: var(--glow-subtle);
+}
+
+.demo-feed-label {
+    font-family: var(--font-cond);
+    font-size: var(--font-sm);
+    font-weight: 700;
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+}
+
+/* Mini TAK map — slots below the feed, fills remaining space. */
+.demo-takmini {
+    flex: 1 1 auto;
+    min-height: 160px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.demo-takmini-header {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: 6px var(--s-3);
+    border-bottom: 1px solid var(--border-default);
+    background: rgba(56, 87, 35, 0.1);
+}
+
+.demo-takmini-title {
+    font-family: var(--font-cond);
+    font-size: var(--font-sm);
+    font-weight: 700;
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--text-primary);
+}
+
+.demo-takmini-spacer {
+    flex: 1 1 auto;
+}
+
+.demo-takmini-meta {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+}
+
+.demo-takmini-canvas {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    background: #04080a;
+}
+
+.demo-takmini-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.demo-takmini-empty {
+    position: absolute;
+    bottom: var(--s-2);
+    left: var(--s-3);
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+}
+
+.demo-takmini-empty[hidden] {
+    display: none;
+}
+
+/* Peer markers are plain <g> with text; tone via fill attr. */
+.demo-takmini-peer-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    fill: var(--info);
+}
+
+/* ── RIGHT rail: top hits ────────────────────────────────────────── */
+.demo-tophits {
+    gap: var(--s-3);
+}
+
+.demo-stat-strip {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: var(--s-2);
+}
+
+.demo-stat-tile {
+    padding: var(--s-2);
+    background: var(--card-bg);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    text-align: center;
+}
+
+.demo-stat-tile-value {
+    font-family: var(--font-mono);
+    font-size: var(--font-lg);
+    font-weight: 700;
+    color: var(--ogt-muted);
+}
+
+.demo-stat-tile-label {
+    font-family: var(--font-cond);
+    font-size: 9px;
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-top: 2px;
+}
+
+.demo-peers-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--card-bg);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.demo-peers-header {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-2) var(--s-3);
+    border-bottom: 1px solid var(--border-default);
+    background: var(--bg-panel-alt);
+}
+
+.demo-peers-title {
+    font-family: var(--font-cond);
+    font-size: var(--font-sm);
+    font-weight: 700;
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--text-primary);
+}
+
+.demo-peers-count {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--ogt-muted);
+}
+
+.demo-peers-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.demo-peers-list:empty + .demo-peers-empty {
+    display: block;
+}
+
+.demo-peers-empty {
+    display: none;
+    padding: var(--s-3);
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    text-align: center;
+}
+
+.demo-peer-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: var(--s-2);
+    align-items: center;
+    padding: 6px var(--s-3);
+    border-bottom: 1px solid var(--divider);
+}
+
+.demo-peer-row:last-child {
+    border-bottom: 0;
+}
+
+.demo-peer-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--info);
+}
+
+.demo-peer-dot-friendly { background: var(--ogt-muted); }
+.demo-peer-dot-hostile  { background: var(--danger); }
+
+.demo-peer-name {
+    font-family: var(--font-cond);
+    font-size: var(--font-base);
+    font-weight: 600;
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.demo-peer-age {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+}
+
+.demo-footer-card {
+    padding: var(--s-2) var(--s-3);
+    background: var(--card-bg);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+}
+
+.demo-footer-line {
+    font-family: var(--font-cond);
+    font-size: var(--font-xs);
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    color: var(--text-primary);
+}
+
+.demo-footer-dim {
+    color: var(--text-dim);
+    font-weight: 400;
+}
+
+/* ── Shared dots / pills (demo-scoped to avoid cross-view regressions) ── */
+.demo-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    display: inline-block;
+}
+
+.demo-dot-green {
+    background: var(--olive-primary);
+    box-shadow: var(--glow-green);
+}
+
+.demo-pill {
+    font-family: var(--font-cond);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-default);
+    color: var(--text-dim);
+}
+
+.demo-pill-live {
+    color: var(--olive-primary);
+    border-color: var(--olive-primary);
+    background: rgba(56, 87, 35, 0.15);
+}

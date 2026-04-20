@@ -1,0 +1,173 @@
+<!--
+    Tech-Day Demo View — port of design_reference/src/tech-day-demo.jsx.
+    Compact single-screen "show-off" layout for 2-minute open-house demos.
+    Grid: 280px (tech highlights rail) / 1fr (live feed + mini TAK) / 300px
+    (top-hits rail). Center feed uses the bordered/glow frame from the mock.
+    HydraDemo (demo.js) polls /api/stats at 1s and /api/tak/peers at 3s.
+-->
+
+<div class="demo-grid" id="demo-grid">
+
+    <!-- ── LEFT rail: tech highlights ── -->
+    <aside class="demo-col demo-col-left" id="demo-col-left"
+           aria-label="Technology highlights">
+        <header class="demo-col-header">
+            <span class="demo-col-title">Tech Highlights</span>
+            <span class="demo-col-chip" id="demo-left-chip" title="Payload capabilities">SORCC</span>
+        </header>
+        <div class="demo-col-body demo-highlights" role="region">
+            <article class="demo-highlight" data-highlight="jetson">
+                <header class="demo-highlight-head">
+                    <span class="demo-highlight-idx">01</span>
+                    <span class="demo-highlight-name">Jetson Orin Nano</span>
+                </header>
+                <div class="demo-highlight-detail">8 GB shared · CUDA 12 · MAXN Super</div>
+                <div class="demo-highlight-meta" id="demo-stat-fps">-- FPS</div>
+            </article>
+            <article class="demo-highlight" data-highlight="detector">
+                <header class="demo-highlight-head">
+                    <span class="demo-highlight-idx">02</span>
+                    <span class="demo-highlight-name">YOLO Detection</span>
+                </header>
+                <div class="demo-highlight-detail">TensorRT · fp16 · 640 × 640</div>
+                <div class="demo-highlight-meta" id="demo-stat-model">detector: --</div>
+            </article>
+            <article class="demo-highlight" data-highlight="tracker">
+                <header class="demo-highlight-head">
+                    <span class="demo-highlight-idx">03</span>
+                    <span class="demo-highlight-name">ByteTrack</span>
+                </header>
+                <div class="demo-highlight-detail">Multi-object tracking · persistent IDs</div>
+                <div class="demo-highlight-meta" id="demo-stat-tracks">-- tracks</div>
+            </article>
+            <article class="demo-highlight" data-highlight="mavlink">
+                <header class="demo-highlight-head">
+                    <span class="demo-highlight-idx">04</span>
+                    <span class="demo-highlight-name">MAVLink Bridge</span>
+                </header>
+                <div class="demo-highlight-detail">Pixhawk + GCS · ArduPilot</div>
+                <div class="demo-highlight-meta" id="demo-stat-mavlink">link: --</div>
+            </article>
+            <article class="demo-highlight" data-highlight="tak">
+                <header class="demo-highlight-head">
+                    <span class="demo-highlight-idx">05</span>
+                    <span class="demo-highlight-name">TAK / CoT Multicast</span>
+                </header>
+                <div class="demo-highlight-detail">239.2.3.1:6969 · common op picture</div>
+                <div class="demo-highlight-meta" id="demo-stat-peers">-- peers</div>
+            </article>
+            <article class="demo-highlight" data-highlight="rf">
+                <header class="demo-highlight-head">
+                    <span class="demo-highlight-idx">06</span>
+                    <span class="demo-highlight-name">RF Hunt</span>
+                </header>
+                <div class="demo-highlight-detail">Kismet + RTL-SDR · RSSI gradient ascent</div>
+                <div class="demo-highlight-meta">2.4 / 5 GHz / BLE</div>
+            </article>
+        </div>
+    </aside>
+
+    <!-- ── CENTER: live feed + mini TAK ── -->
+    <section class="demo-col demo-col-center" id="demo-col-center"
+             aria-label="Live video feed and mini TAK map">
+        <header class="demo-center-header">
+            <span class="demo-center-title">Live Feed</span>
+            <span class="demo-center-divider"></span>
+            <span class="demo-center-meta" id="demo-center-meta">-- · HDMI 0</span>
+        </header>
+
+        <!-- 16:9 bordered frame with olive glow (per mock) -->
+        <div class="demo-feed-frame" id="demo-feed-frame">
+            <div class="demo-feed-bezel">HYDRA</div>
+            <div class="demo-feed-screen">
+                <img class="demo-feed-img" id="demo-feed-img"
+                     alt="Hydra live detection feed"
+                     src="/stream.jpg">
+                <div class="demo-feed-overlay" id="demo-feed-overlay">
+                    <div class="demo-feed-label" id="demo-feed-mode">TRACKING</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mini TAK map below the feed -->
+        <div class="demo-takmini" id="demo-takmini" aria-label="Mini TAK map">
+            <header class="demo-takmini-header">
+                <span class="demo-dot demo-dot-green"></span>
+                <span class="demo-takmini-title" id="demo-takmini-callsign">TAK · HYDRA-1</span>
+                <span class="demo-takmini-spacer"></span>
+                <span class="demo-takmini-meta">takserver.sorcc:8089</span>
+                <span class="demo-pill demo-pill-live">LIVE</span>
+            </header>
+            <div class="demo-takmini-canvas">
+                <!-- Background grid + range rings + self marker -->
+                <svg class="demo-takmini-svg" viewBox="0 0 400 300" preserveAspectRatio="none"
+                     aria-hidden="true">
+                    <defs>
+                        <pattern id="demo-takmini-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+                            <path d="M24 0 L0 0 0 24" fill="none"
+                                  stroke="rgba(166,188,146,0.2)" stroke-width="0.5"/>
+                        </pattern>
+                    </defs>
+                    <rect width="100%" height="100%" fill="url(#demo-takmini-grid)"/>
+                    <!-- range rings centred at 50%,55% -->
+                    <circle cx="200" cy="165" r="27" fill="none"
+                            stroke="rgba(166,188,146,0.15)" stroke-width="0.6"
+                            stroke-dasharray="3 3"/>
+                    <circle cx="200" cy="165" r="54" fill="none"
+                            stroke="rgba(166,188,146,0.15)" stroke-width="0.6"
+                            stroke-dasharray="3 3"/>
+                    <circle cx="200" cy="165" r="81" fill="none"
+                            stroke="rgba(166,188,146,0.15)" stroke-width="0.6"
+                            stroke-dasharray="3 3"/>
+                    <!-- self marker -->
+                    <g transform="translate(200 165)">
+                        <circle r="8" fill="none" stroke="#A6BC92" stroke-width="0.8"
+                                stroke-dasharray="2 2"/>
+                        <circle r="4" fill="#A6BC92"/>
+                    </g>
+                    <!-- peer markers injected by demo.js -->
+                    <g id="demo-takmini-peers"></g>
+                </svg>
+                <div class="demo-takmini-empty" id="demo-takmini-empty">no peers seen</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── RIGHT rail: top hits (peers + stats) ── -->
+    <aside class="demo-col demo-col-right" id="demo-col-right"
+           aria-label="Top hits and peer roster">
+        <header class="demo-col-header">
+            <span class="demo-col-title">Top Hits</span>
+            <span class="demo-col-chip demo-col-chip-live" id="demo-right-chip"
+                  title="Polling /api/tak/peers at 3s">LIVE</span>
+        </header>
+        <div class="demo-col-body demo-tophits">
+            <section class="demo-stat-strip" aria-label="Live telemetry strip">
+                <div class="demo-stat-tile" data-kind="fps">
+                    <div class="demo-stat-tile-value" id="demo-tile-fps">--</div>
+                    <div class="demo-stat-tile-label">FPS</div>
+                </div>
+                <div class="demo-stat-tile" data-kind="tracks">
+                    <div class="demo-stat-tile-value" id="demo-tile-tracks">--</div>
+                    <div class="demo-stat-tile-label">Tracks</div>
+                </div>
+                <div class="demo-stat-tile" data-kind="peers">
+                    <div class="demo-stat-tile-value" id="demo-tile-peers">--</div>
+                    <div class="demo-stat-tile-label">Peers</div>
+                </div>
+            </section>
+            <section class="demo-peers-card" aria-label="Peer callsigns">
+                <header class="demo-peers-header">
+                    <span class="demo-peers-title">Peers on TAK</span>
+                    <span class="demo-peers-count" id="demo-peers-count">0</span>
+                </header>
+                <div class="demo-peers-list" id="demo-peers-list"></div>
+                <div class="demo-peers-empty" id="demo-peers-empty">no peers in window</div>
+            </section>
+            <section class="demo-footer-card">
+                <div class="demo-footer-line">Hydra Detect · v2.0</div>
+                <div class="demo-footer-line demo-footer-dim">SORCC payload demo</div>
+            </section>
+        </div>
+    </aside>
+</div>
