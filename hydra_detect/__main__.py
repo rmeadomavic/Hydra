@@ -39,6 +39,54 @@ def _apply_sim_overrides(cfg: configparser.ConfigParser) -> None:
     logger.info("SITL simulation mode — MAVLink UDP, file camera, sim GPS")
 
 
+def _wire_ambient_rf(cfg: configparser.ConfigParser) -> None:
+    """Register an AmbientScanBuffer with the web server; start the
+    Kismet poller if ``[kismet]`` is present and enabled.
+
+    The buffer is *always* registered — even with no Kismet, the
+    ``/api/rf/ambient_scan`` endpoint then returns an empty sample set
+    instead of the idle/disabled shape. The poller is the only optional
+    piece: missing or disabled config leaves the buffer empty but alive.
+    """
+    from .rf import AmbientScanBuffer, KismetPoller
+    from .web import server as web_server
+
+    buffer = AmbientScanBuffer()
+    web_server.set_rf_ambient_scan(buffer)
+
+    if not cfg.has_section("kismet"):
+        logger.info(
+            "[kismet] section absent — ambient scan buffer registered, "
+            "poller not started",
+        )
+        return
+    kc = cfg["kismet"]
+    if not kc.getboolean("enabled", fallback=True):
+        logger.info("[kismet] enabled=false — poller not started")
+        return
+    host = kc.get("host", fallback="").strip()
+    if not host:
+        logger.warning("[kismet] host empty — poller not started")
+        return
+    try:
+        poller = KismetPoller(
+            buffer,
+            host=host,
+            user=kc.get("user", fallback=""),
+            password=kc.get("password", fallback=""),
+            poll_interval_sec=kc.getfloat(
+                "poll_interval_sec", fallback=0.5,
+            ),
+            timeout_sec=kc.getfloat("timeout_sec", fallback=2.0),
+            max_samples_per_cycle=kc.getint(
+                "max_samples_per_cycle", fallback=50,
+            ),
+        )
+        poller.start()
+    except Exception as exc:
+        logger.warning("KismetPoller init failed: %s", exc)
+
+
 def _apply_camera_source_override(cfg: configparser.ConfigParser, source: str) -> None:
     """Override camera source and auto-detect source type."""
     cfg.set("camera", "source", source)
@@ -92,6 +140,12 @@ def main():
         _apply_camera_source_override(cfg, args.camera_source)
 
     pipeline = Pipeline(config_path=args.config, vehicle=args.vehicle, cfg_override=cfg)
+
+    # Wire the ambient-RF scan buffer + Kismet poller *before* the
+    # pipeline starts its web server so the first request to
+    # /api/rf/ambient_scan already sees the live buffer.
+    _wire_ambient_rf(cfg)
+
     pipeline.start()
 
     # Hard exit to prevent "terminate called without an active exception"
