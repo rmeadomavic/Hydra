@@ -54,9 +54,9 @@
     </div>
 </div>
 
-<!-- HUD Sidebar (right 40%) -->
+<!-- HUD Sidebar (right 40%) — composite operator station per ops-station.jsx mock -->
 <div class="ops-hud-sidebar" id="ops-hud-sidebar">
-    <!-- Track Summary -->
+    <!-- 1. Track Summary -->
     <div class="ops-sidebar-section">
         <div class="ops-sidebar-header">TRACKS</div>
         <div class="ops-track-list" id="ops-track-list">
@@ -64,7 +64,7 @@
         </div>
     </div>
 
-    <!-- Approach Status (hidden when approach.mode === idle) -->
+    <!-- 2. Approach Status (hidden when approach.mode === idle) -->
     <div class="ops-sidebar-section" id="ops-approach-section" style="display:none;">
         <div class="ops-sidebar-header">APPROACH</div>
         <div class="ops-approach-body">
@@ -82,7 +82,7 @@
                     <span class="panel-stat-value mono" id="ops-approach-wp">--</span>
                 </div>
             </div>
-            <div id="ops-approach-arm-status" style="display:none; margin-top:var(--gap-sm);">
+            <div id="ops-approach-arm-status" style="display:none; margin-top:var(--s-2);">
                 <div class="panel-stat-grid">
                     <div class="panel-stat">
                         <span class="panel-stat-label">SW ARM</span>
@@ -94,21 +94,83 @@
                     </div>
                 </div>
             </div>
-            <div style="margin-top:var(--gap-sm);">
+            <div style="margin-top:var(--s-2);">
                 <button class="btn btn-danger" id="ops-btn-approach-abort" style="width:100%;">Abort Approach</button>
             </div>
         </div>
     </div>
 
-    <!-- Minimap Placeholder -->
-    <div class="ops-sidebar-section">
-        <div class="ops-sidebar-header">MAP</div>
-        <div class="ops-minimap" id="ops-minimap">
-            <canvas id="ops-minimap-canvas" width="300" height="200"></canvas>
+    <!-- 3. RF Hunt (compact mirror — read-only) -->
+    <div class="ops-sidebar-section" id="ops-rf-section">
+        <div class="ops-sidebar-header">
+            <span>RF HUNT</span>
+            <span class="ops-card-badge" id="ops-rf-state-badge">N/A</span>
+        </div>
+        <div class="ops-card-body">
+            <div class="ops-card-row">
+                <span class="ops-card-label">RSSI</span>
+                <span class="ops-card-value mono" id="ops-rf-rssi">--</span>
+                <span class="ops-card-best" id="ops-rf-best" title="Best RSSI so far">&#9733; --</span>
+            </div>
+            <div class="ops-rf-bar">
+                <div class="ops-rf-bar-fill" id="ops-rf-bar-fill"></div>
+            </div>
+            <div class="ops-rf-spark" id="ops-rf-spark"></div>
+            <div class="ops-card-row ops-card-row-dim">
+                <span class="ops-card-label">Samples</span>
+                <span class="ops-card-value mono" id="ops-rf-samples">--</span>
+                <span class="ops-card-label">WP</span>
+                <span class="ops-card-value mono" id="ops-rf-wp">--</span>
+            </div>
         </div>
     </div>
 
-    <!-- Vehicle Info -->
+    <!-- 4. Mission (compact mirror — elapsed timer + start/end) -->
+    <div class="ops-sidebar-section" id="ops-mission-section">
+        <div class="ops-sidebar-header">
+            <span>MISSION</span>
+            <span class="ops-card-badge" id="ops-mission-badge">IDLE</span>
+        </div>
+        <div class="ops-card-body">
+            <div class="ops-card-row">
+                <span class="ops-card-label">Name</span>
+                <span class="ops-card-value mono" id="ops-mission-name">--</span>
+            </div>
+            <div class="ops-card-row">
+                <span class="ops-card-label">Elapsed</span>
+                <span class="ops-card-value mono" id="ops-mission-elapsed">--</span>
+                <span class="ops-card-label">Detections</span>
+                <span class="ops-card-value mono" id="ops-mission-dets">--</span>
+            </div>
+            <div class="ops-card-btns">
+                <button class="btn btn-sm" id="ops-btn-mission-end" disabled title="End current mission">End</button>
+                <button class="btn btn-sm" id="ops-btn-mission-export" title="Export detection waypoints (QGC WPL 110)">Export WP</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. Pipeline (pause/stop mirror — plain-English confirm) -->
+    <div class="ops-sidebar-section" id="ops-pipeline-section">
+        <div class="ops-sidebar-header">
+            <span>PIPELINE</span>
+            <span class="ops-card-badge" id="ops-pipeline-badge">RUN</span>
+        </div>
+        <div class="ops-card-body">
+            <div class="ops-card-row">
+                <span class="ops-card-label">FPS</span>
+                <span class="ops-card-value mono accent" id="ops-pipeline-fps">--</span>
+                <span class="ops-card-label">Inf</span>
+                <span class="ops-card-value mono" id="ops-pipeline-inf">--</span>
+            </div>
+            <div class="ops-card-btns">
+                <button class="btn btn-sm" id="ops-btn-pipeline-pause" title="Pause the detection loop (does NOT restart Python or Docker)">Pause</button>
+                <button class="btn btn-sm btn-danger" id="ops-btn-pipeline-stop" title="Stop the detection loop (does NOT restart Python or Docker)">Stop</button>
+            </div>
+            <div class="ops-card-note" id="ops-pipeline-note">Pause/Stop affects the detect loop only — the Python process and Docker container keep running.</div>
+        </div>
+    </div>
+
+    <!-- 6. Vehicle Info (existing — preserve IDs wired by SIM GPS agent) -->
     <div class="ops-sidebar-section">
         <div class="ops-sidebar-header">VEHICLE</div>
         <div class="ops-vehicle-info" id="ops-vehicle-info">
@@ -116,6 +178,22 @@
             <div class="ops-info-row"><span class="ops-info-label">Armed</span><span class="ops-info-value" id="ops-info-armed">--</span></div>
             <div class="ops-info-row"><span class="ops-info-label">Battery</span><span class="ops-info-value" id="ops-info-battery">--</span></div>
             <div class="ops-info-row"><span class="ops-info-label">Position</span><span class="ops-info-value" id="ops-info-position">--</span></div>
+        </div>
+    </div>
+
+    <!-- 7. Map (folded into sidebar; preserved from prior layout) -->
+    <div class="ops-sidebar-section">
+        <div class="ops-sidebar-header">MAP</div>
+        <div class="ops-minimap" id="ops-minimap">
+            <canvas id="ops-minimap-canvas" width="300" height="200"></canvas>
+        </div>
+    </div>
+
+    <!-- 8. Detection Log (event-feed mirror) -->
+    <div class="ops-sidebar-section" id="ops-detlog-section">
+        <div class="ops-sidebar-header">DETECTION LOG</div>
+        <div class="ops-detlog" id="ops-detlog">
+            <div class="ops-detlog-empty">No detections yet</div>
         </div>
     </div>
 </div>

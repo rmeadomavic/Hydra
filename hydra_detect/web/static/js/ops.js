@@ -460,7 +460,7 @@ const HydraOps = (() => {
         card.appendChild(title);
 
         var desc = document.createElement('div');
-        desc.style.cssText = 'font-family: var(--font-mono); font-size: var(--font-sm); color: var(--text-secondary); margin-bottom: var(--s-3);';
+        desc.style.cssText = 'font-family: var(--font-mono); font-size: var(--font-sm); color: var(--text-dim); margin-bottom: var(--s-3);';
         desc.textContent = 'Target #' + trackId + ' ' + trackLabel;
         card.appendChild(desc);
 
@@ -512,6 +512,10 @@ const HydraOps = (() => {
         updateSidebarVehicle(stats);
         updateApproachPanel(stats);
         drawBoundingBoxes();
+        updateSidebarRF(HydraApp.state.rfStatus);
+        updateSidebarMission(stats);
+        updateSidebarPipeline(stats);
+        updateSidebarDetLog(HydraApp.state.detections);
     }
 
     function updateSidebarTracks() {
@@ -721,6 +725,309 @@ const HydraOps = (() => {
         }
     }
 
+    // ── Sidebar Cards: RF / Mission / Pipeline / Det-Log ──
+    // These read the same HydraApp.state that config.js consumes; compact
+    // mirrors only. Missing fields render '--' with var(--text-dim).
+
+    var RF_BADGE_CLASS = {
+        searching: 'on', homing: 'on', scanning: 'on', converged: 'on',
+        idle: 'off', lost: 'warn', aborted: 'off', unavailable: 'off',
+    };
+    var RF_BADGE_TEXT = {
+        idle: 'IDLE', searching: 'SEARCH', homing: 'HOMING',
+        converged: 'DONE', lost: 'LOST', aborted: 'STOP', unavailable: 'N/A',
+        scanning: 'SCAN',
+    };
+
+    // Small history buffer so we can draw a 30-point RSSI sparkline without
+    // calling config.js. Trimmed on every tick; survives view switches.
+    var rssiHistory = [];
+    var RSSI_HIST_MAX = 30;
+
+    function setDim(el, value, isMissing) {
+        if (!el) return;
+        el.textContent = value;
+        el.style.color = isMissing ? 'var(--text-dim)' : '';
+    }
+
+    function updateSidebarRF(rf) {
+        var section = document.getElementById('ops-rf-section');
+        if (!section) return;
+
+        var badge = document.getElementById('ops-rf-state-badge');
+        var rssiEl = document.getElementById('ops-rf-rssi');
+        var bestEl = document.getElementById('ops-rf-best');
+        var samplesEl = document.getElementById('ops-rf-samples');
+        var wpEl = document.getElementById('ops-rf-wp');
+        var barFill = document.getElementById('ops-rf-bar-fill');
+        var spark = document.getElementById('ops-rf-spark');
+
+        if (!rf || typeof rf !== 'object') {
+            if (badge) { badge.textContent = 'N/A'; badge.className = 'ops-card-badge off'; }
+            setDim(rssiEl, '--', true);
+            setDim(bestEl, '\u2605 --', true);
+            setDim(samplesEl, '--', true);
+            setDim(wpEl, '--', true);
+            if (barFill) barFill.style.width = '0%';
+            return;
+        }
+
+        var state = rf.state || 'unavailable';
+        if (badge) {
+            badge.textContent = RF_BADGE_TEXT[state] || state.toUpperCase();
+            badge.className = 'ops-card-badge ' + (RF_BADGE_CLASS[state] || 'off');
+        }
+
+        var rssi = (typeof rf.best_rssi === 'number') ? rf.best_rssi : null;
+        var curRssi = (typeof rf.current_rssi === 'number') ? rf.current_rssi : rssi;
+
+        if (rssiEl) {
+            if (curRssi != null) {
+                rssiEl.textContent = curRssi.toFixed(0) + ' dBm';
+                rssiEl.style.color = '';
+            } else {
+                setDim(rssiEl, '--', true);
+            }
+        }
+        if (bestEl) {
+            if (rssi != null) {
+                bestEl.textContent = '\u2605 ' + rssi.toFixed(0) + ' dBm';
+                bestEl.style.color = 'var(--gold)';
+            } else {
+                bestEl.textContent = '\u2605 --';
+                bestEl.style.color = 'var(--text-dim)';
+            }
+        }
+        if (samplesEl) setDim(samplesEl, rf.samples != null ? String(rf.samples) : '--', rf.samples == null);
+        if (wpEl) setDim(wpEl, rf.wp_progress || '--', !rf.wp_progress);
+
+        if (barFill && curRssi != null) {
+            var pct = Math.max(0, Math.min(100, curRssi + 100));
+            barFill.style.width = pct + '%';
+            if (pct > 60) {
+                barFill.style.background = 'var(--olive-primary)';
+            } else if (pct > 30) {
+                barFill.style.background = '#eab308';
+            } else {
+                barFill.style.background = '#c53030';
+            }
+        } else if (barFill) {
+            barFill.style.width = '0%';
+        }
+
+        // Track RSSI history + redraw sparkline (DOM-diff: only rewrite SVG
+        // when the most recent point changes).
+        if (curRssi != null) {
+            var last = rssiHistory[rssiHistory.length - 1];
+            if (last !== curRssi) {
+                rssiHistory.push(curRssi);
+                while (rssiHistory.length > RSSI_HIST_MAX) rssiHistory.shift();
+                renderOpsSparkline(spark, rssiHistory);
+            }
+        }
+    }
+
+    function renderOpsSparkline(container, data) {
+        if (!container) return;
+        while (container.firstChild) container.removeChild(container.firstChild);
+        if (!data || data.length < 2) return;
+
+        var svgNs = 'http://www.w3.org/2000/svg';
+        var svg = document.createElementNS(svgNs, 'svg');
+        svg.setAttribute('viewBox', '0 0 100 24');
+        svg.setAttribute('preserveAspectRatio', 'none');
+
+        var min = -100;
+        var max = 0;
+        var n = data.length;
+        var pts = [];
+        for (var i = 0; i < n; i++) {
+            var x = (i / (n - 1)) * 100;
+            var y = 24 - ((data[i] - min) / (max - min)) * 24;
+            pts.push(x.toFixed(1) + ',' + y.toFixed(1));
+        }
+
+        var poly = document.createElementNS(svgNs, 'polyline');
+        poly.setAttribute('points', pts.join(' '));
+        poly.setAttribute('fill', 'none');
+        poly.setAttribute('stroke', 'var(--olive-primary)');
+        poly.setAttribute('stroke-width', '1');
+        svg.appendChild(poly);
+        container.appendChild(svg);
+    }
+
+    function formatElapsed(seconds) {
+        if (seconds == null || isNaN(seconds) || seconds < 0) return '--';
+        var s = Math.floor(seconds);
+        var h = Math.floor(s / 3600);
+        var m = Math.floor((s % 3600) / 60);
+        var sec = s % 60;
+        function pad(v) { return v < 10 ? '0' + v : String(v); }
+        return (h > 0 ? h + ':' + pad(m) : m) + ':' + pad(sec);
+    }
+
+    function updateSidebarMission(stats) {
+        var badge = document.getElementById('ops-mission-badge');
+        var nameEl = document.getElementById('ops-mission-name');
+        var elapsedEl = document.getElementById('ops-mission-elapsed');
+        var detsEl = document.getElementById('ops-mission-dets');
+        var endBtn = document.getElementById('ops-btn-mission-end');
+
+        var s = stats || {};
+        var isActive = !!s.mission_name;
+
+        if (badge) {
+            badge.textContent = isActive ? 'ACTIVE' : 'IDLE';
+            badge.className = 'ops-card-badge ' + (isActive ? 'on' : 'off');
+        }
+        if (nameEl) setDim(nameEl, s.mission_name || '--', !isActive);
+
+        if (elapsedEl) {
+            if (isActive && typeof s.mission_elapsed_sec === 'number') {
+                elapsedEl.textContent = formatElapsed(s.mission_elapsed_sec);
+                elapsedEl.style.color = '';
+            } else {
+                setDim(elapsedEl, '--', true);
+            }
+        }
+        if (detsEl) {
+            var dets = HydraApp.state.detections;
+            if (Array.isArray(dets)) {
+                detsEl.textContent = String(dets.length);
+                detsEl.style.color = '';
+            } else {
+                setDim(detsEl, '--', true);
+            }
+        }
+        if (endBtn) endBtn.disabled = !isActive;
+    }
+
+    function updateSidebarPipeline(stats) {
+        var s = stats || {};
+        var badge = document.getElementById('ops-pipeline-badge');
+        var fpsEl = document.getElementById('ops-pipeline-fps');
+        var infEl = document.getElementById('ops-pipeline-inf');
+        var pauseBtn = document.getElementById('ops-btn-pipeline-pause');
+
+        var paused = !!s.pipeline_paused;
+        if (badge) {
+            badge.textContent = paused ? 'PAUSED' : 'RUN';
+            badge.className = 'ops-card-badge ' + (paused ? 'warn' : 'on');
+        }
+        if (fpsEl) {
+            if (typeof s.fps === 'number') {
+                fpsEl.textContent = s.fps.toFixed(1);
+                fpsEl.style.color = '';
+            } else {
+                setDim(fpsEl, '--', true);
+            }
+        }
+        if (infEl) {
+            if (typeof s.inference_ms === 'number') {
+                infEl.textContent = s.inference_ms.toFixed(0) + ' ms';
+                infEl.style.color = '';
+            } else {
+                setDim(infEl, '--', true);
+            }
+        }
+        if (pauseBtn) pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+    }
+
+    function updateSidebarDetLog(detections) {
+        var log = document.getElementById('ops-detlog');
+        if (!log) return;
+
+        var dets = Array.isArray(detections) ? detections : [];
+        if (dets.length === 0) {
+            if (!log.querySelector('.ops-detlog-empty')) {
+                while (log.firstChild) log.removeChild(log.firstChild);
+                var empty = document.createElement('div');
+                empty.className = 'ops-detlog-empty';
+                empty.textContent = 'No detections yet';
+                log.appendChild(empty);
+            }
+            return;
+        }
+
+        // Render newest-first, cap to 20 rows; DOM-diff by count.
+        var rows = Math.min(dets.length, 20);
+        var emptyEl = log.querySelector('.ops-detlog-empty');
+        if (emptyEl) log.removeChild(emptyEl);
+        while (log.children.length > rows) log.removeChild(log.lastChild);
+        while (log.children.length < rows) {
+            var row = document.createElement('div');
+            row.className = 'ops-detlog-entry';
+            row.appendChild(document.createElement('span'));
+            row.appendChild(document.createElement('span'));
+            row.appendChild(document.createElement('span'));
+            row.children[0].className = 'ops-detlog-time';
+            row.children[1].className = 'ops-detlog-label';
+            row.children[2].className = 'ops-detlog-conf';
+            log.appendChild(row);
+        }
+
+        for (var i = 0; i < rows; i++) {
+            var d = dets[dets.length - 1 - i] || {};
+            var row2 = log.children[i];
+            if (!row2) continue;
+            var t = '';
+            if (typeof d.timestamp === 'string' && d.timestamp.indexOf('T') > -1) {
+                t = d.timestamp.split('T')[1].split('.')[0];
+            }
+            row2.children[0].textContent = t || '--';
+            row2.children[1].textContent = d.label || 'unknown';
+            var c = typeof d.confidence === 'number' ? (d.confidence * 100).toFixed(0) + '%' : '--';
+            row2.children[2].textContent = c;
+        }
+    }
+
+    // ── Sidebar Actions: mission end / export, pipeline pause / stop ──
+    async function endMissionFromOps() {
+        var resp = await HydraApp.apiPost('/api/mission/end', {});
+        if (resp && resp.status === 'ended') {
+            HydraApp.showToast('Mission ended', 'info');
+        }
+    }
+
+    async function exportWaypointsFromOps() {
+        try {
+            var resp = await fetch('/api/export/waypoints', { credentials: 'same-origin' });
+            if (!resp.ok) {
+                HydraApp.showToast('Waypoint export failed', 'error');
+                return;
+            }
+            var blob = await resp.blob();
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'hydra-waypoints.waypoints';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            HydraApp.showToast('Waypoints exported', 'success');
+        } catch (e) {
+            HydraApp.showToast('Waypoint export failed', 'error');
+        }
+    }
+
+    async function togglePipelinePauseFromOps() {
+        var stats = HydraApp.state.stats || {};
+        var paused = !!stats.pipeline_paused;
+        var msg = paused
+            ? 'Resume detection loop? (does NOT restart Python or Docker)'
+            : 'Pause detection loop? (does NOT restart Python or Docker)';
+        if (!confirm(msg)) return;
+        var resp = await HydraApp.apiPost('/api/pipeline/pause', {});
+        if (resp) HydraApp.showToast(paused ? 'Pipeline resumed' : 'Pipeline paused', 'info');
+    }
+
+    async function stopPipelineFromOps() {
+        if (!confirm('Stop detection loop? (does NOT restart Python or Docker)')) return;
+        var resp = await HydraApp.apiPost('/api/pipeline/stop', {});
+        if (resp) HydraApp.showToast('Pipeline stopped', 'info');
+    }
+
     // ── Event Handlers ──
     function wireEventHandlers() {
         if (handlersWired) return;
@@ -794,6 +1101,21 @@ const HydraOps = (() => {
                 hideConfirmOverlay();
             }
         });
+
+        // Sidebar card buttons (mission / pipeline mirrors)
+        var missionEndBtn = document.getElementById('ops-btn-mission-end');
+        if (missionEndBtn) missionEndBtn.addEventListener('click', function () {
+            if (!confirm('End current mission?')) return;
+            endMissionFromOps();
+        });
+        var missionExportBtn = document.getElementById('ops-btn-mission-export');
+        if (missionExportBtn) missionExportBtn.addEventListener('click', exportWaypointsFromOps);
+
+        var pipelinePauseBtn = document.getElementById('ops-btn-pipeline-pause');
+        if (pipelinePauseBtn) pipelinePauseBtn.addEventListener('click', togglePipelinePauseFromOps);
+
+        var pipelineStopBtn = document.getElementById('ops-btn-pipeline-stop');
+        if (pipelineStopBtn) pipelineStopBtn.addEventListener('click', stopPipelineFromOps);
     }
 
     return {
@@ -804,5 +1126,9 @@ const HydraOps = (() => {
         updateApproachPanel: updateApproachPanel,
         abortApproach: abortApproach,
         drawBoundingBoxes: drawBoundingBoxes,
+        updateSidebarRF: updateSidebarRF,
+        updateSidebarMission: updateSidebarMission,
+        updateSidebarPipeline: updateSidebarPipeline,
+        updateSidebarDetLog: updateSidebarDetLog,
     };
 })();

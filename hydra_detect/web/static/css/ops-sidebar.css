@@ -1,0 +1,158 @@
+/* ── Ops HUD Sidebar — composite operator station cards ── */
+
+/* Header now supports a right-aligned state badge */
+.ops-sidebar-header {
+    justify-content: space-between;
+}
+
+.ops-card-badge {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    padding: 1px 6px;
+    border-radius: var(--radius);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
+}
+.ops-card-badge.on {
+    background: rgba(74, 124, 46, 0.25);
+    color: var(--ogt-light);
+}
+.ops-card-badge.warn {
+    background: rgba(234, 179, 8, 0.18);
+    color: #eab308;
+}
+.ops-card-badge.off {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-dim);
+}
+
+.ops-card-body {
+    padding: var(--s-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+}
+
+.ops-card-row {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    font-size: var(--font-xs);
+}
+.ops-card-row-dim {
+    color: var(--text-dim);
+}
+
+.ops-card-label {
+    font-family: var(--font-cond);
+    text-transform: uppercase;
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-dim);
+    font-size: var(--font-xs);
+}
+
+.ops-card-value {
+    color: var(--text-data);
+    font-family: var(--font-mono);
+    min-width: 40px;
+}
+.ops-card-value.accent {
+    color: var(--ogt-light);
+}
+
+.ops-card-best {
+    margin-left: auto;
+    color: var(--gold);
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+}
+
+.ops-card-btns {
+    display: flex;
+    gap: var(--s-2);
+}
+.ops-card-btns .btn {
+    flex: 1;
+}
+
+.ops-card-note {
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    line-height: 1.3;
+}
+
+/* RF — compact bar + sparkline */
+.ops-rf-bar {
+    position: relative;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+.ops-rf-bar-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 0%;
+    background: var(--olive-primary);
+    transition: width 0.3s ease, background 0.3s ease;
+}
+
+.ops-rf-spark {
+    height: 24px;
+    width: 100%;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    position: relative;
+    overflow: hidden;
+}
+.ops-rf-spark svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* Detection log — event-feed style */
+.ops-detlog {
+    max-height: 180px;
+    overflow-y: auto;
+    padding: var(--s-1);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.ops-detlog-empty {
+    color: var(--text-dim);
+    text-align: center;
+    padding: var(--s-3);
+    font-size: var(--font-xs);
+}
+
+.ops-detlog-entry {
+    display: grid;
+    grid-template-columns: 60px 1fr 40px;
+    gap: var(--s-1);
+    align-items: center;
+    padding: 2px var(--s-1);
+    font-size: var(--font-xs);
+    border-left: 2px solid var(--olive-primary);
+    background: rgba(56, 87, 35, 0.05);
+    border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.ops-detlog-time {
+    font-family: var(--font-mono);
+    color: var(--text-dim);
+}
+.ops-detlog-label {
+    color: var(--text-primary);
+}
+.ops-detlog-conf {
+    font-family: var(--font-mono);
+    color: var(--text-data);
+    text-align: right;
+}

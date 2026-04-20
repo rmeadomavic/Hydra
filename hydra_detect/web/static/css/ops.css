@@ -1,4 +1,6 @@
 /* ── Ops HUD View — Full-Width Video with Overlay Elements ── */
+@import url('./ops-sidebar.css');
+
 
 /* Ops view: 60% video left, 40% HUD panels right */
 #view-ops {
@@ -58,7 +60,7 @@
 }
 
 .ops-sidebar-section:hover {
-    border-color: var(--card-border-hover);
+    border-color: var(--border-hover);
 }
 
 .ops-sidebar-header {
