@@ -21,61 +21,96 @@
     <img id="mjpeg-stream" alt="Live video feed">
 
     <!-- ── Top Bar ── -->
-    <header class="topbar" role="banner">
-        <div class="topbar-left">
-            <svg class="topbar-badge" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="17" y="2" width="21" height="21" rx="2" transform="rotate(45 17 2)" fill="#385723" stroke="#A6BC92" stroke-width="1"/>
-                <text x="17" y="20" text-anchor="middle" fill="#EFF5EB" font-family="Barlow Condensed" font-size="8" font-weight="700" letter-spacing="0.08em">SORCC</text>
-            </svg>
-            <span class="topbar-brand">Hydra Detect</span>
+    <header class="topbar" data-mock="1" role="banner">
+        <!-- Logo lockup: SORCC shield (PNG) + HYDRA DETECT wordmark + OGT mark.
+             PNG asset is primary; inline SVG fallback renders if PNG 404s so
+             the lockup degrades gracefully on partial static deploys. -->
+        <div class="tb-lockup" id="tb-lockup">
+            <img class="tb-shield" id="tb-shield" src="/static/assets/SORCC_Official.png"
+                 alt="SORCC" onerror="this.onerror=null;this.outerHTML=this.dataset.fallback"
+                 data-fallback='<svg class=&quot;tb-shield&quot; viewBox=&quot;0 0 46 46&quot; xmlns=&quot;http://www.w3.org/2000/svg&quot; aria-label=&quot;SORCC shield&quot;><rect x=&quot;23&quot; y=&quot;3&quot; width=&quot;28&quot; height=&quot;28&quot; rx=&quot;3&quot; transform=&quot;rotate(45 23 3)&quot; fill=&quot;#385723&quot; stroke=&quot;#A6BC92&quot; stroke-width=&quot;1.2&quot;/><text x=&quot;23&quot; y=&quot;26&quot; text-anchor=&quot;middle&quot; fill=&quot;#EFF5EB&quot; font-family=&quot;Barlow Condensed&quot; font-size=&quot;10&quot; font-weight=&quot;700&quot; letter-spacing=&quot;0.1em&quot;>SORCC</text></svg>'>
+            <span class="tb-divider tb-divider-lockup" aria-hidden="true"></span>
+            <div class="tb-wordmark-block">
+                <span class="topbar-brand tb-wordmark">HYDRA DETECT</span>
+                <span class="tb-subtitle">OPERATOR DASHBOARD</span>
+            </div>
+            <img class="tb-ogt" id="tb-ogt" src="/static/assets/OGT_Horizontal_White.png"
+                 alt="Oak Grove Technologies"
+                 onerror="this.style.display='none'">
         </div>
 
-        <nav class="topbar-center" role="navigation" aria-label="View navigation">
-            <button class="topbar-tab active" data-view="ops" aria-label="Ops HUD view">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
-                <span class="tab-label">Ops</span>
-            </button>
-            <button class="topbar-tab" data-view="tak" aria-label="TAK view">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16"/><path d="M12 4l6 12H6L12 4z"/><circle cx="12" cy="13" r="1.4"/></svg>
-                <span class="tab-label">TAK</span>
-            </button>
-            <button class="topbar-tab" data-view="systems" aria-label="Systems view">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="22"/><line x1="15" y1="20" x2="15" y2="22"/><line x1="20" y1="9" x2="22" y2="9"/><line x1="20" y1="14" x2="22" y2="14"/><line x1="2" y1="9" x2="4" y2="9"/><line x1="2" y1="14" x2="4" y2="14"/></svg>
-                <span class="tab-label">Systems</span>
-            </button>
-            <button class="topbar-tab" data-view="autonomy" aria-label="Autonomy view">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6l8-4z"/><path d="M9 12l2 2 4-4"/></svg>
-                <span class="tab-label">Autonomy</span>
-            </button>
-            <button class="topbar-tab" data-view="config" aria-label="Config view">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                <span class="tab-label">Config</span>
-            </button>
-            <button class="topbar-tab" data-view="settings" aria-label="Settings view">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-                <span class="tab-label">Settings</span>
-            </button>
+        <span class="tb-divider tb-divider-nav" aria-hidden="true"></span>
+
+        <nav class="tb-nav" role="navigation" aria-label="View navigation">
+            <button class="topbar-tab active" data-view="ops" aria-label="Ops HUD view">Operator</button>
+            <button class="topbar-tab" data-view="tak" aria-label="TAK view">TAK</button>
+            <button class="topbar-tab" data-view="autonomy" aria-label="Autonomy view">Autonomy</button>
+            <button class="topbar-tab" data-view="systems" aria-label="Systems view">Systems</button>
+            <button class="topbar-tab" data-view="config" aria-label="Config view">Config</button>
+            <button class="topbar-tab" data-view="settings" aria-label="Settings view">Settings</button>
         </nav>
 
-        <div class="topbar-right">
-            <div class="topbar-thumbnail" id="mini-thumbnail" title="Click to go to Ops">
-                <img id="mjpeg-thumbnail" alt="">
-            </div>
-            <!-- Status dots -->
-            <span class="status-dot green" id="dot-camera" title="Camera">CAM</span>
-            <span class="status-dot" id="dot-mavlink" title="MAVLink">MAV</span>
-            <span class="status-dot" id="dot-gps" title="GPS Fix">GPS</span>
-            <span class="sim-gps-pill" id="sim-gps-pill" title="Simulated GPS — not live" hidden>SIM GPS</span>
-            <span class="topbar-tracks" id="track-count-badge" title="Active tracks">0 TRACKS</span>
-            <span class="low-light-badge" id="low-light-badge" aria-label="Low light warning" title="Low light detected — image brightness below threshold">LOW LIGHT</span>
-            <button class="bandwidth-toggle" id="bandwidth-toggle" aria-label="Toggle low bandwidth mode" title="Toggle low bandwidth mode — reduces JPEG quality to save bandwidth">LOW BW</button>
-            <span class="pill pill-live" id="connection-pill" aria-label="Connection status">
-                <span class="pill-dot"></span>
-                <span id="connection-text">LIVE</span>
-            </span>
-            <span class="topbar-fps" id="fps-display" aria-label="Frames per second">-- FPS</span>
+        <div class="tb-spacer"></div>
+
+        <!-- Platform / Callsign chips -->
+        <div class="tb-chips" aria-label="Platform and callsign">
+            <span class="tb-chip"><span class="tb-chip-label">PLT </span><span class="tb-chip-value" id="tb-plt-value">USV</span></span>
+            <span class="tb-chip"><span class="tb-chip-label">CS </span><span class="tb-chip-value tb-chip-value-cs" id="tb-cs-value">HYDRA-1</span></span>
         </div>
+
+        <span class="tb-divider" aria-hidden="true"></span>
+
+        <!-- Health blips -->
+        <div class="tb-blips" aria-label="Subsystem health">
+            <span class="tb-blip" data-blip="mav" title="MAVLink">
+                <span class="tb-dot dim" id="dot-mavlink"></span>MAV
+            </span>
+            <span class="tb-blip" data-blip="gps" title="GPS Fix">
+                <span class="tb-dot dim" id="dot-gps"></span><span id="tb-gps-label">GPS --</span>
+            </span>
+            <span class="tb-blip" data-blip="sim" title="SIM GPS">
+                <span class="tb-dot dim" id="dot-sim"></span>SIM
+            </span>
+            <span class="tb-blip" data-blip="kis" title="Kismet">
+                <span class="tb-dot dim" id="dot-kismet"></span>KIS
+            </span>
+            <span class="tb-blip" data-blip="tak" title="TAK">
+                <span class="tb-dot dim" id="dot-tak"></span>TAK
+            </span>
+            <span class="tb-blip" data-blip="cam" title="Camera">
+                <span class="tb-dot dim" id="dot-camera"></span>CAM
+            </span>
+            <span class="tb-sim-pill sim-gps-pill" id="sim-gps-pill" hidden>SIM</span>
+        </div>
+
+        <span class="tb-divider" aria-hidden="true"></span>
+
+        <!-- FPS / Latency -->
+        <div class="tb-fps-block" aria-label="FPS and latency">
+            <span class="tb-fps-value" id="fps-display">--</span>
+            <span class="tb-fps-unit"> FPS</span>
+            <span class="tb-fps-sep">|</span>
+            <span class="tb-lat-value" id="tb-latency-value">--</span>
+            <span class="tb-lat-unit">ms</span>
+        </div>
+
+        <!-- Settings gear (opens Settings view) -->
+        <button class="tb-gear topbar-tab" data-view="settings"
+                aria-label="Open settings">⚙</button>
+
+        <!-- ABORT -->
+        <button class="tb-abort btn btn-danger btn-danger-lg" id="tb-abort"
+                aria-label="Emergency abort">⏻ ABORT</button>
+
+        <!-- Legacy bandwidth toggle retained for main.js + CSP-listener test.
+             Hidden in the mock layout (not in primitives.jsx) but still bound
+             so existing behaviour and regression coverage stay intact. -->
+        <button class="bandwidth-toggle" id="bandwidth-toggle" hidden
+                aria-label="Toggle low bandwidth mode">LOW BW</button>
     </header>
+
+    <!-- ── Emergency Flash Overlay (activates when body[data-emerg="1"]) ── -->
+    <div id="emergency-flash" aria-hidden="true"></div>
 
     <!-- ── Toast Notifications ── -->
     <div class="toast-container" id="toast-container" role="alert" aria-live="polite"></div>
