@@ -1,0 +1,45 @@
+<!-- TAK View (M1 scaffold) — 3-column grid: Type Counts · Inbound Commands · Peers + Audit footer -->
+
+<div class="tak-grid" id="tak-grid">
+    <!-- Left column (B2 — not yet built) -->
+    <aside class="tak-col tak-col-left" id="tak-col-left" aria-label="Type Counts">
+        <header class="tak-col-header">
+            <span class="tak-col-title">Type Counts</span>
+            <span class="tak-col-badge" title="Pending backend endpoint">B2 — not yet built</span>
+        </header>
+        <div class="tak-col-body">
+            <p class="tak-placeholder">Awaiting backend endpoint; will show CoT type histogram.</p>
+        </div>
+    </aside>
+
+    <!-- Center column (inbound commands feed, B1 live) -->
+    <section class="tak-col tak-col-center" id="tak-col-center" aria-label="Inbound TAK commands">
+        <header class="tak-col-header">
+            <span class="tak-col-title">Inbound Commands</span>
+            <span class="tak-col-chip tak-live" id="tak-live-chip" title="Polling /api/tak/commands at 1 Hz">LIVE</span>
+            <span class="tak-col-sub" id="tak-commands-meta">0 events</span>
+        </header>
+        <div class="tak-col-body tak-feed" id="tak-feed" role="log" aria-live="polite">
+            <div class="tak-empty" id="tak-feed-empty">No TAK commands received</div>
+            <div class="tak-feed-list" id="tak-feed-list"></div>
+        </div>
+    </section>
+
+    <!-- Right column (B3 — not yet built) -->
+    <aside class="tak-col tak-col-right" id="tak-col-right" aria-label="Peers">
+        <header class="tak-col-header">
+            <span class="tak-col-title">Peers</span>
+            <span class="tak-col-badge" title="Pending backend endpoint">B3 — not yet built</span>
+        </header>
+        <div class="tak-col-body">
+            <p class="tak-placeholder">Awaiting backend endpoint; will show TAK peer list + unicast target list.</p>
+        </div>
+    </aside>
+</div>
+
+<!-- Audit footer strip (B9 — not yet built) -->
+<footer class="tak-audit" id="tak-audit" aria-label="Audit summary">
+    <span class="tak-audit-title">Audit Summary</span>
+    <span class="tak-audit-badge" title="Pending backend endpoint">B9 — not yet built</span>
+    <span class="tak-audit-text">Awaiting backend endpoint; will show rejection counters and audit status.</span>
+</footer>

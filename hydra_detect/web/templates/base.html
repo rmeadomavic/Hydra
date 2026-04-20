@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="/static/css/ops.css">
     <link rel="stylesheet" href="/static/css/config.css">
     <link rel="stylesheet" href="/static/css/settings.css">
+    <link rel="stylesheet" href="/static/css/tak.css">
 </head>
 <body class="view-ops">
     <!-- ── MJPEG Stream (persists across views) ── -->
@@ -39,6 +40,10 @@
             <button class="topbar-tab" data-view="settings" aria-label="Settings view">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
                 <span class="tab-label">Settings</span>
+            </button>
+            <button class="topbar-tab" data-view="tak" aria-label="TAK view">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16"/><path d="M12 4l6 12H6L12 4z"/><circle cx="12" cy="13" r="1.4"/></svg>
+                <span class="tab-label">TAK</span>
             </button>
         </nav>
 
@@ -78,6 +83,11 @@
     <!-- ── View: Settings ── -->
     <div class="view view-settings" id="view-settings">
         {% include 'settings.html' %}
+    </div>
+
+    <!-- ── View: TAK ── -->
+    <div class="view view-tak" id="view-tak">
+        {% include 'tak.html' %}
     </div>
 
     <!-- ── Strike Confirmation Modal ── -->
@@ -170,5 +180,6 @@
     <script src="/static/js/ops.js"></script>
     <script src="/static/js/config.js"></script>
     <script src="/static/js/settings.js"></script>
+    <script src="/static/js/tak.js"></script>
 </body>
 </html>

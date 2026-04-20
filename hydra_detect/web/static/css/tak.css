@@ -1,0 +1,304 @@
+/* ── TAK View (M1 scaffold) ── */
+
+/* View container — show only when body.view-tak is active.
+   Mirrors topbar.css's pattern for view-ops / view-config / view-settings. */
+body.view-tak .view.view-tak {
+    display: flex;
+    flex-direction: column;
+}
+.view.view-tak {
+    position: fixed;
+    top: var(--topbar-height);
+    left: 0;
+    right: 0;
+    bottom: var(--footer-height);
+    z-index: 2;
+}
+body.view-tak #mjpeg-stream {
+    opacity: 0;
+    pointer-events: none;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+}
+
+/* 3-column grid */
+.tak-grid {
+    display: grid;
+    grid-template-columns: minmax(280px, 360px) minmax(480px, 1fr) minmax(300px, 380px);
+    gap: var(--s-2);
+    padding: var(--s-2);
+    flex: 1 1 auto;
+    min-height: 0;
+    background: var(--bg-void);
+}
+
+.tak-col {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    min-height: 0;
+    overflow: hidden;
+}
+
+.tak-col-header {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-2) var(--s-3);
+    border-bottom: 1px solid var(--border-default);
+    background: var(--bg-panel-alt);
+}
+
+.tak-col-title {
+    font-family: var(--font-cond);
+    font-weight: 600;
+    font-size: var(--font-base);
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-primary);
+    text-transform: uppercase;
+}
+
+.tak-col-badge {
+    font-family: var(--font-cond);
+    font-size: var(--font-xs);
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-dim);
+    text-transform: uppercase;
+    padding: 2px var(--s-2);
+    border: 1px dashed var(--border-default);
+    border-radius: var(--radius-sm);
+}
+
+.tak-col-sub {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    letter-spacing: var(--ls-mono);
+}
+
+.tak-col-chip {
+    font-family: var(--font-cond);
+    font-size: var(--font-xs);
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    padding: 2px var(--s-2);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+}
+.tak-col-chip.tak-live {
+    background: var(--olive-primary);
+    color: var(--text-primary);
+    box-shadow: var(--glow-green);
+}
+
+.tak-col-body {
+    padding: var(--s-3);
+    overflow: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.tak-placeholder {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: var(--font-sm);
+    font-style: italic;
+    line-height: 1.5;
+}
+
+/* ── Center column (commands feed) ── */
+.tak-feed {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+}
+
+.tak-empty {
+    padding: var(--s-4);
+    color: var(--text-dim);
+    font-size: var(--font-sm);
+    font-style: italic;
+    text-align: center;
+}
+
+.tak-feed-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: var(--s-2) var(--s-3);
+}
+
+.tak-row {
+    display: grid;
+    grid-template-columns: 72px 1fr auto;
+    grid-template-areas:
+        "ts head  pills"
+        "ts body  body";
+    column-gap: var(--s-3);
+    row-gap: var(--s-1);
+    padding: var(--s-2) 0;
+    border-bottom: 1px solid var(--divider);
+    font-size: var(--font-sm);
+    color: var(--text-data);
+}
+.tak-row:last-child {
+    border-bottom: none;
+}
+
+.tak-row-ts {
+    grid-area: ts;
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    letter-spacing: var(--ls-mono);
+    align-self: center;
+}
+
+.tak-row-head {
+    grid-area: head;
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    min-width: 0;
+}
+
+.tak-row-sender {
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    color: var(--text-primary);
+    letter-spacing: var(--ls-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 160px;
+}
+
+.tak-row-action {
+    font-family: var(--font-cond);
+    font-size: var(--font-xs);
+    text-transform: uppercase;
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-secondary);
+    padding: 1px var(--s-2);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+}
+
+.tak-row-pills {
+    grid-area: pills;
+    display: flex;
+    align-items: center;
+    gap: var(--s-1);
+}
+
+.tak-pill {
+    font-family: var(--font-cond);
+    font-size: var(--font-xs);
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    padding: 1px var(--s-2);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+.tak-pill-accepted {
+    background: var(--olive-muted);
+}
+.tak-pill-rejected {
+    background: var(--danger);
+}
+.tak-chip-hmac {
+    background: transparent;
+    color: var(--info);
+    border: 1px solid var(--info);
+    font-family: var(--font-cond);
+    font-size: var(--font-xs);
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    padding: 0 var(--s-2);
+    border-radius: var(--radius-sm);
+}
+
+.tak-row-body {
+    grid-area: body;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.tak-row-reason {
+    font-family: var(--font-body);
+    font-size: var(--font-xs);
+    color: var(--danger);
+}
+
+.tak-row-raw {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    letter-spacing: var(--ls-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Audit footer strip ── */
+.tak-audit {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    padding: var(--s-2) var(--s-4);
+    border-top: 1px solid var(--border-default);
+    background: var(--bg-panel);
+    flex: 0 0 auto;
+}
+.tak-audit-title {
+    font-family: var(--font-cond);
+    font-weight: 600;
+    font-size: var(--font-sm);
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-primary);
+    text-transform: uppercase;
+}
+.tak-audit-badge {
+    font-family: var(--font-cond);
+    font-size: var(--font-xs);
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-dim);
+    text-transform: uppercase;
+    padding: 2px var(--s-2);
+    border: 1px dashed var(--border-default);
+    border-radius: var(--radius-sm);
+}
+.tak-audit-text {
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    font-style: italic;
+}
+
+/* ── Responsive ── */
+@media (max-width: 1199px) {
+    .tak-grid {
+        grid-template-columns: 1fr minmax(300px, 380px);
+        grid-template-areas:
+            "left   left"
+            "center right";
+    }
+    .tak-col-left   { grid-area: left; max-height: 180px; }
+    .tak-col-center { grid-area: center; }
+    .tak-col-right  { grid-area: right; }
+}
+
+@media (max-width: 819px) {
+    .tak-grid {
+        grid-template-columns: 1fr;
+        grid-template-areas: "left" "center" "right";
+    }
+    .tak-col-left { max-height: none; }
+}
