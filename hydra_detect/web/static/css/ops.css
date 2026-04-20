@@ -16,8 +16,8 @@ body.view-ops #view-ops {
  * future mission-rail; today the slot collapses to 0px width. */
 .ops-grid {
     display: grid;
-    grid-template-columns: auto 1fr 360px;
-    grid-template-rows: 1fr 220px;
+    grid-template-columns: auto minmax(0, 1fr) minmax(280px, 360px);
+    grid-template-rows: minmax(0, 1fr) 220px;
     height: 100%;
     width: 100%;
     gap: 0;

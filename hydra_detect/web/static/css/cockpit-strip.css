@@ -7,7 +7,7 @@
     grid-column: 2 / 3;
     grid-row: 2 / 3;
     display: grid;
-    grid-template-columns: 260px 200px 1fr;
+    grid-template-columns: minmax(200px, 260px) minmax(160px, 200px) minmax(0, 1fr);
     min-height: 0;
     min-width: 0;
     border-top: 1px solid var(--border-default);
