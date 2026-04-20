@@ -202,11 +202,25 @@ class AutonomousController:
         Called once per frame from the pipeline loop.
         """
         if not self.enabled or self._suppressed or mavlink is None:
+            # System off / suppressed — mark every gate N/A so the dashboard
+            # does not display stale PASS/FAIL from a prior active session.
+            off_reason = (
+                "disabled" if not self.enabled
+                else "suppressed" if self._suppressed
+                else "no mavlink"
+            )
+            for gid in GATE_IDS:
+                self._record_gate_evaluation(gid, "N/A", off_reason)
             return
 
         # Check geofence is configured
         if not self._has_valid_geofence():
             self._record_gate_evaluation("geofence", "N/A", "no geofence configured")
+            self._mark_gates_na(
+                "cooldown", "vehicle_mode", "gps_fresh", "operator_lock",
+                detail="gate not reached",
+            )
+            self._record_decision(None, "", "reject", "no geofence configured")
             return
 
         # Check cooldown
@@ -214,6 +228,13 @@ class AutonomousController:
         if self._last_strike_time > 0.0 and (now - self._last_strike_time) < self._strike_cooldown:
             remaining = self._strike_cooldown - (now - self._last_strike_time)
             self._record_gate_evaluation("cooldown", "FAIL", f"{remaining:.1f}s remaining")
+            self._mark_gates_na(
+                "vehicle_mode", "gps_fresh", "geofence", "operator_lock",
+                detail="cooldown active",
+            )
+            self._record_decision(
+                None, "", "reject", f"cooldown {remaining:.1f}s remaining",
+            )
             return
         cooldown_detail = "ready" if self._last_strike_time > 0.0 else "no prior strike"
         cooldown_state = "PASS" if self._last_strike_time > 0.0 else "N/A"
@@ -223,11 +244,25 @@ class AutonomousController:
         vehicle_mode = getattr(mavlink, "get_vehicle_mode", lambda: None)()
         if vehicle_mode is None:
             self._record_gate_evaluation("vehicle_mode", "N/A", "mode unknown")
+            self._mark_gates_na(
+                "gps_fresh", "geofence", "operator_lock",
+                detail="vehicle_mode unknown",
+            )
+            self._record_decision(None, "", "reject", "vehicle mode unknown")
             return  # Can't determine mode — don't act
         if vehicle_mode.upper() not in self._allowed_modes:
+            need = "/".join(self._allowed_modes)
             self._record_gate_evaluation(
                 "vehicle_mode", "FAIL",
-                f"{vehicle_mode} not in {','.join(self._allowed_modes)}",
+                f"{vehicle_mode.upper()} (need {need})",
+            )
+            self._mark_gates_na(
+                "gps_fresh", "geofence", "operator_lock",
+                detail="vehicle_mode failed",
+            )
+            self._record_decision(
+                None, "", "reject",
+                f"vehicle mode {vehicle_mode.upper()} not in {need}",
             )
             return
         self._record_gate_evaluation("vehicle_mode", "PASS", vehicle_mode.upper())
@@ -245,6 +280,13 @@ class AutonomousController:
                     self._record_gate_evaluation(
                         "gps_fresh", "FAIL", f"fix age {gps_age:.1f}s",
                     )
+                    self._mark_gates_na(
+                        "geofence", "operator_lock",
+                        detail="gps_fresh failed",
+                    )
+                    self._record_decision(
+                        None, "", "reject", f"GPS stale {gps_age:.1f}s",
+                    )
                     logger.debug("GPS stale (%.1fs) — skipping autonomous eval", gps_age)
                     return
                 self._record_gate_evaluation(
@@ -260,6 +302,11 @@ class AutonomousController:
         # Check vehicle inside geofence
         get_lat_lon = getattr(mavlink, "get_lat_lon", None)
         if get_lat_lon is None:
+            self._mark_gates_na(
+                "geofence", "operator_lock",
+                detail="no GPS position source",
+            )
+            self._record_decision(None, "", "reject", "no GPS position source")
             return
         try:
             lat, lon, _ = get_lat_lon()
@@ -267,8 +314,18 @@ class AutonomousController:
             logger.warning(
                 "Autonomous: GPS unavailable for geofence check: %s", exc,
             )
+            self._mark_gates_na(
+                "geofence", "operator_lock",
+                detail="GPS read failed",
+            )
+            self._record_decision(None, "", "reject", "GPS read failed")
             return
         if lat is None or lon is None:
+            self._mark_gates_na(
+                "geofence", "operator_lock",
+                detail="no GPS fix",
+            )
+            self._record_decision(None, "", "reject", "no GPS fix")
             return
         fence_dist = self._distance_to_fence_center(lat, lon)
         self._update_self_position(lat, lon, fence_dist)
@@ -276,6 +333,10 @@ class AutonomousController:
             self._record_gate_evaluation(
                 "geofence", "FAIL",
                 f"{fence_dist:.0f}m of {self._geofence_radius_m:.0f}m",
+            )
+            self._mark_gates_na("operator_lock", detail="geofence failed")
+            self._record_decision(
+                None, "", "reject", f"outside geofence ({fence_dist:.0f}m)",
             )
             return
         self._record_gate_evaluation(
@@ -286,11 +347,12 @@ class AutonomousController:
         # Operator lock requirement
         if self._require_operator_lock and self._operator_locked_track is None:
             self._record_gate_evaluation("operator_lock", "FAIL", "no soft-lock")
+            self._record_decision(None, "", "reject", "no operator soft-lock")
             return
         if self._require_operator_lock:
             self._record_gate_evaluation(
                 "operator_lock", "PASS",
-                f"track #{self._operator_locked_track}",
+                f"locked on track {self._operator_locked_track}",
             )
         else:
             self._record_gate_evaluation(
@@ -334,6 +396,8 @@ class AutonomousController:
         self._persistence.end_frame()
 
         if best_track is None:
+            # All gates passed but no track qualifies yet — temporary wait.
+            self._record_decision(None, "", "defer", "no qualifying track")
             return
 
         # All criteria met — initiate autonomous strike
@@ -365,10 +429,18 @@ class AutonomousController:
 
         if result:
             self._last_strike_time = now
+            self._record_decision(
+                best_track.track_id, best_track.label, "engage",
+                f"conf={best_track.confidence:.2f} frames={best_frames}",
+            )
             audit_log.info(
                 "AUTONOMOUS STRIKE CONFIRMED: track_id=%d", best_track.track_id
             )
         else:
+            self._record_decision(
+                best_track.track_id, best_track.label, "reject",
+                "strike callback failed",
+            )
             audit_log.warning(
                 "AUTONOMOUS STRIKE FAILED: track_id=%d (strike_cb returned False)",
                 best_track.track_id,
@@ -472,6 +544,15 @@ class AutonomousController:
             raise ValueError(f"invalid gate state: {state!r}")
         with self._dashboard_lock:
             self._gate_cache[gate_id] = {"state": state, "detail": str(detail)}
+
+    def _mark_gates_na(self, *gate_ids: str, detail: str = "") -> None:
+        """Mark every given gate as N/A with a shared detail string.
+
+        Used after an early-return from a FAILed gate so later gates on the
+        same evaluate() path do not display stale PASS/FAIL from prior cycles.
+        """
+        for gid in gate_ids:
+            self._record_gate_evaluation(gid, "N/A", detail)
 
     def _record_decision(
         self,
