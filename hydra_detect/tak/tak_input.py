@@ -27,6 +27,17 @@ _CMD_RE = re.compile(
 _COMMAND_LOG_MAXLEN = 500
 _RAW_TEXT_TRUNC = 200
 
+# Bounded CoT-type histogram window (seconds) and hard cap on the ring.
+# Feeds /api/tak/type_counts. Entries older than the window are filtered at
+# read time; the hard cap prevents unbounded growth during a flood.
+_TYPE_HISTOGRAM_WINDOW_SEC = 900  # 15 minutes
+_TYPE_HISTOGRAM_MAXLEN = 4000
+
+# Bounded inbound peer roster (B3). Keyed by uid. Hard cap + stale pruning
+# (last_seen older than _PEER_STALE_SEC) guard against unbounded growth.
+_PEER_ROSTER_MAXLEN = 200
+_PEER_STALE_SEC = 300.0  # 5 minutes
+
 
 def _classify_routing(command_prefix: str) -> str:
     """Classify how a GeoChat command prefix addresses vehicles.
@@ -140,6 +151,20 @@ class TAKInput:
         # thread and request handlers.
         self._command_log: deque[dict] = deque(maxlen=_COMMAND_LOG_MAXLEN)
         self._command_log_lock = threading.Lock()
+
+        # Bounded (ts, cot_type) ring for the inbound CoT-type histogram —
+        # powers /api/tak/type_counts. Entries older than the configured
+        # window are filtered at read time.
+        self._type_events: deque[tuple[float, str]] = deque(
+            maxlen=_TYPE_HISTOGRAM_MAXLEN,
+        )
+        self._type_events_lock = threading.Lock()
+
+        # Bounded peer roster (uid -> {callsign, uid, last_seen, lat, lon,
+        # cot_type, affiliation}) — powers /api/tak/peers. Hard cap +
+        # stale pruning guard against unbounded growth.
+        self._peers: dict[str, dict] = {}
+        self._peers_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -337,6 +362,17 @@ class TAKInput:
         }
         with self._command_log_lock:
             self._command_log.append(entry)
+        # Emit a structured audit line so the B9 audit sink tallies
+        # accepted commands alongside the existing TAK_CMD_REJECTED lines.
+        # Rejected commands already emit their own audit lines at the
+        # point of rejection, so we only emit here on accept.
+        if accepted:
+            audit_logger.info(
+                "TAK_CMD_ACCEPTED action=%s track_id=%s sender=%s",
+                action or "",
+                track_id if track_id is not None else "",
+                sender or "",
+            )
 
     def get_recent_commands(self, limit: int = 100) -> list[dict]:
         """Return up to `limit` most recent command events (newest last)."""
@@ -345,6 +381,117 @@ class TAKInput:
         with self._command_log_lock:
             items = list(self._command_log)
         return items[-limit:]
+
+    # ------------------------------------------------------------------
+    # Inbound CoT type histogram (feeds /api/tak/type_counts)
+    # ------------------------------------------------------------------
+    def _record_cot_type(self, cot_type: str) -> None:
+        """Push one (ts, cot_type) sample into the bounded histogram ring."""
+        if not cot_type:
+            return
+        with self._type_events_lock:
+            self._type_events.append((time.time(), cot_type))
+
+    def get_type_counts(
+        self, window_seconds: float = _TYPE_HISTOGRAM_WINDOW_SEC,
+    ) -> dict:
+        """Return a CoT-type histogram over the most recent `window_seconds`.
+
+        Returns a dict of the form::
+
+            {"counts": {cot_type: N, ...}, "total": N, "window_seconds": N}
+
+        Evicts samples older than the window from the backing deque as a
+        side effect, so repeated calls keep the ring tight.
+        """
+        now = time.time()
+        cutoff = now - max(0.0, float(window_seconds))
+        counts: dict[str, int] = {}
+        with self._type_events_lock:
+            # Evict oldest samples that fall outside the window.
+            while self._type_events and self._type_events[0][0] < cutoff:
+                self._type_events.popleft()
+            for _ts, cot_type in self._type_events:
+                counts[cot_type] = counts.get(cot_type, 0) + 1
+        return {
+            "counts": counts,
+            "total": sum(counts.values()),
+            "window_seconds": int(window_seconds),
+        }
+
+    # ------------------------------------------------------------------
+    # Inbound peer roster (feeds /api/tak/peers)
+    # ------------------------------------------------------------------
+    def _record_peer(self, root: ET.Element, cot_type: str) -> None:
+        """Record a peer SA event in the bounded roster.
+
+        Own SA (UID starting with our callsign) is excluded. Entries older
+        than _PEER_STALE_SEC are pruned; at most _PEER_ROSTER_MAXLEN peers
+        are retained (evicts oldest when full).
+        """
+        uid = root.get("uid", "")
+        if not uid:
+            return
+        # Exclude our own SA beacon.
+        if uid.startswith(self._my_callsign):
+            return
+        contact = root.find("detail/contact")
+        callsign = contact.get("callsign", "") if contact is not None else ""
+        point = root.find("point")
+        lat: float | None = None
+        lon: float | None = None
+        if point is not None:
+            try:
+                lat = float(point.get("lat", "0"))
+                lon = float(point.get("lon", "0"))
+            except (ValueError, TypeError):
+                lat = lon = None
+
+        entry = {
+            "uid": uid,
+            "callsign": callsign,
+            "cot_type": cot_type,
+            "lat": lat,
+            "lon": lon,
+            "last_seen": time.time(),
+        }
+        now = entry["last_seen"]
+        with self._peers_lock:
+            self._peers[uid] = entry
+            # Prune stale peers.
+            stale_cutoff = now - _PEER_STALE_SEC
+            stale = [
+                k for k, v in self._peers.items()
+                if v["last_seen"] < stale_cutoff
+            ]
+            for k in stale:
+                del self._peers[k]
+            # Enforce hard cap — drop oldest-seen peers if over limit.
+            if len(self._peers) > _PEER_ROSTER_MAXLEN:
+                ordered = sorted(
+                    self._peers.items(), key=lambda kv: kv[1]["last_seen"],
+                )
+                for k, _v in ordered[: len(self._peers) - _PEER_ROSTER_MAXLEN]:
+                    del self._peers[k]
+
+    def get_peers(self) -> list[dict]:
+        """Return the current peer roster, newest-first.
+
+        Evicts peers whose `last_seen` is older than _PEER_STALE_SEC as a
+        side effect so callers don't get stale ghosts.
+        """
+        now = time.time()
+        stale_cutoff = now - _PEER_STALE_SEC
+        with self._peers_lock:
+            stale = [
+                k for k, v in self._peers.items()
+                if v["last_seen"] < stale_cutoff
+            ]
+            for k in stale:
+                del self._peers[k]
+            peers = list(self._peers.values())
+        peers.sort(key=lambda p: p["last_seen"], reverse=True)
+        return peers
 
     def _check_duplicate_callsign(self, root: ET.Element) -> None:
         """Check SA events for duplicate callsign on the network."""
@@ -405,9 +552,17 @@ class TAKInput:
 
         cot_type = root.get("type", "")
 
-        # Check SA events for duplicate callsign detection
-        if cot_type.startswith("a-f-") or cot_type.startswith("a-n-"):
+        # Record every inbound CoT type for /api/tak/type_counts.
+        self._record_cot_type(cot_type)
+
+        # Check SA events for duplicate callsign detection + peer roster
+        if (
+            cot_type.startswith("a-f-")
+            or cot_type.startswith("a-n-")
+            or cot_type.startswith("a-h-")
+        ):
             self._check_duplicate_callsign(root)
+            self._record_peer(root, cot_type)
 
         # Path 1: GeoChat messages
         if cot_type == "b-t-f":

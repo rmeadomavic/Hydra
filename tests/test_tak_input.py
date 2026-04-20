@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac as hmac_mod
+import time
 import xml.etree.ElementTree as ET
 from unittest.mock import MagicMock
 
@@ -448,3 +449,141 @@ class TestCommandEventLog:
         ev = ti.get_recent_commands(10)[-1]
         assert ev["accepted"] is False
         assert ev["reject_reason"] == "unauthorized_sender"
+
+
+# =====================================================================
+# Group H: Inbound CoT type histogram (feeds /api/tak/type_counts)
+# =====================================================================
+
+def _build_sa_event(
+    *, uid: str, callsign: str, cot_type: str = "a-f-G-U-C",
+    lat: float = 34.5, lon: float = -118.0,
+) -> bytes:
+    """Build a minimal SA CoT event (friendly/neutral/hostile prefix)."""
+    event = ET.Element("event")
+    event.set("version", "2.0")
+    event.set("uid", uid)
+    event.set("type", cot_type)
+    event.set("time", "2026-04-19T12:00:00Z")
+    event.set("start", "2026-04-19T12:00:00Z")
+    event.set("stale", "2026-04-19T12:02:00Z")
+    event.set("how", "m-g")
+    point = ET.SubElement(event, "point")
+    point.set("lat", str(lat))
+    point.set("lon", str(lon))
+    point.set("hae", "100")
+    point.set("ce", "10")
+    point.set("le", "10")
+    detail = ET.SubElement(event, "detail")
+    contact = ET.SubElement(detail, "contact")
+    contact.set("callsign", callsign)
+    return ET.tostring(event, encoding="unicode").encode("utf-8")
+
+
+class TestCoTTypeHistogram:
+    def test_empty(self):
+        ti = _make_input()
+        hist = ti.get_type_counts()
+        assert hist["counts"] == {}
+        assert hist["total"] == 0
+        assert hist["window_seconds"] > 0
+
+    def test_accept_and_reject_both_increment(self):
+        ti = _make_input(allowed_callsigns=["ALPHA-1"])
+        # Accepted LOCK — b-t-f
+        ti._handle_datagram(_build_geochat("HYDRA LOCK 5", sender="ALPHA-1"))
+        # Rejected (unauthorized) — still b-t-f
+        ti._handle_datagram(_build_geochat("HYDRA LOCK 6", sender="MALLORY"))
+        # Non-command SA event — a-f-G-U-C
+        ti._handle_datagram(_build_sa_event(
+            uid="FRIEND-1", callsign="FRIEND-1", cot_type="a-f-G-U-C",
+        ))
+        hist = ti.get_type_counts()
+        assert hist["counts"].get("b-t-f") == 2
+        assert hist["counts"].get("a-f-G-U-C") == 1
+        assert hist["total"] == 3
+
+    def test_window_evicts_old_samples(self):
+        ti = _make_input()
+        # Backdate a sample outside the window
+        old_ts = time.time() - 10_000
+        ti._type_events.append((old_ts, "b-t-f"))
+        hist = ti.get_type_counts(window_seconds=60)
+        assert hist["counts"] == {}
+        assert hist["total"] == 0
+
+    def test_shape_has_required_fields(self):
+        ti = _make_input()
+        ti._handle_datagram(_build_sa_event(
+            uid="FOE-1", callsign="FOE-1", cot_type="a-h-G",
+        ))
+        hist = ti.get_type_counts(window_seconds=300)
+        assert set(hist.keys()) == {"counts", "total", "window_seconds"}
+        assert hist["window_seconds"] == 300
+
+
+# =====================================================================
+# Group I: Inbound peer roster (feeds /api/tak/peers)
+# =====================================================================
+
+class TestPeerRoster:
+    def test_empty(self):
+        ti = _make_input()
+        assert ti.get_peers() == []
+
+    def test_add_peer(self):
+        ti = _make_input()
+        ti._handle_datagram(_build_sa_event(
+            uid="FRIEND-1", callsign="FRIEND-1",
+            cot_type="a-f-G-U-C", lat=34.0, lon=-118.0,
+        ))
+        peers = ti.get_peers()
+        assert len(peers) == 1
+        assert peers[0]["uid"] == "FRIEND-1"
+        assert peers[0]["callsign"] == "FRIEND-1"
+        assert peers[0]["cot_type"] == "a-f-G-U-C"
+        assert peers[0]["lat"] == 34.0
+        assert peers[0]["lon"] == -118.0
+
+    def test_own_sa_excluded(self):
+        ti = _make_input(my_callsign="HYDRA-1")
+        ti._handle_datagram(_build_sa_event(
+            uid="HYDRA-1-SA", callsign="HYDRA-1",
+            cot_type="a-f-G-U-C",
+        ))
+        assert ti.get_peers() == []
+
+    def test_evict_stale(self):
+        ti = _make_input()
+        # Inject a peer directly with stale last_seen
+        ti._peers["STALE-1"] = {
+            "uid": "STALE-1", "callsign": "STALE-1",
+            "cot_type": "a-f-G-U-C", "lat": 0.0, "lon": 0.0,
+            "last_seen": time.time() - 10_000,
+        }
+        peers = ti.get_peers()
+        assert peers == []
+
+    def test_hostile_tracked(self):
+        ti = _make_input()
+        ti._handle_datagram(_build_sa_event(
+            uid="FOE-1", callsign="FOE-1", cot_type="a-h-G",
+        ))
+        peers = ti.get_peers()
+        assert len(peers) == 1
+        assert peers[0]["cot_type"] == "a-h-G"
+
+    def test_duplicate_uid_updates_in_place(self):
+        ti = _make_input()
+        ti._handle_datagram(_build_sa_event(
+            uid="FRIEND-1", callsign="FRIEND-1",
+            cot_type="a-f-G-U-C", lat=10.0, lon=10.0,
+        ))
+        ti._handle_datagram(_build_sa_event(
+            uid="FRIEND-1", callsign="FRIEND-1",
+            cot_type="a-f-G-U-C", lat=20.0, lon=20.0,
+        ))
+        peers = ti.get_peers()
+        assert len(peers) == 1
+        assert peers[0]["lat"] == 20.0
+        assert peers[0]["lon"] == 20.0

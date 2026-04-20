@@ -36,6 +36,15 @@ from hydra_detect.web.config_api import (
     validate_config_updates,
 )
 from hydra_detect.config_schema import SCHEMA as CONFIG_SCHEMA
+from hydra_detect.audit import (
+    attach_to_logger as _attach_audit,
+    get_default_sink as _get_audit_sink,
+)
+
+# Attach the audit ring handler to the `hydra.audit` logger exactly once.
+# Safe to import-time — idempotent + non-blocking.
+_attach_audit()
+_audit_sink = _get_audit_sink()
 
 logger = logging.getLogger(__name__)
 
@@ -619,6 +628,18 @@ stream_state = StreamState()
 # Powers GET /api/tak/commands (inbound GeoChat feed for dashboard).
 _tak_input_ref: Any = None
 
+# TAK output handle — powers /api/tak/peers (unicast targets) and
+# /api/tak/type_counts side-channels. Set via set_tak_output().
+_tak_output_ref: Any = None
+
+# Servo tracker handle — powers /api/servo/status. Set via
+# set_servo_tracker(). None => dashboard renders the idle state.
+_servo_tracker_ref: Any = None
+
+# RF ambient scan sink handle — powers /api/rf/ambient_scan. Set via
+# set_rf_ambient_scan(). None => dashboard renders the idle state.
+_rf_ambient_ref: Any = None
+
 
 def set_tak_input(tak_input: Any) -> None:
     """Register the TAKInput instance for the /api/tak/commands feed.
@@ -628,6 +649,32 @@ def set_tak_input(tak_input: Any) -> None:
     """
     global _tak_input_ref
     _tak_input_ref = tak_input
+
+
+def set_tak_output(tak_output: Any) -> None:
+    """Register the TAKOutput instance for peer/unicast roll-ups."""
+    global _tak_output_ref
+    _tak_output_ref = tak_output
+
+
+def set_servo_tracker(servo: Any) -> None:
+    """Register a servo-state provider for /api/servo/status.
+
+    The provided object must expose ``get_api_status() -> dict``. Pass
+    None to detach (the endpoint will return the idle/disabled shape).
+    """
+    global _servo_tracker_ref
+    _servo_tracker_ref = servo
+
+
+def set_rf_ambient_scan(scanner: Any) -> None:
+    """Register an ambient-scan sink for /api/rf/ambient_scan.
+
+    The provided object must expose ``get_samples()`` returning a dict
+    with keys ``samples``, ``window_seconds``, ``max_rssi``.
+    """
+    global _rf_ambient_ref
+    _rf_ambient_ref = scanner
 
 
 # ── Routes ────────────────────────────────────────────────────────────
@@ -969,6 +1016,172 @@ async def api_tak_commands(request: Request):
         "duplicate_callsign_alarm": bool(tak_in._duplicate_callsign),
         "limit": limit,
     })
+
+
+@app.get("/api/tak/type_counts")
+async def api_tak_type_counts(request: Request):
+    """Return an inbound CoT-type histogram over a bounded time window.
+
+    Auth-free read (same-origin bypass list alongside /api/tak/commands,
+    /api/stats, /api/tracks, /api/config/full, /api/stream/quality).
+
+    Query params:
+        window_seconds (int, default 900, capped at 3600): window over
+            which to aggregate the histogram.
+    """
+    tak_in = _tak_input_ref
+    try:
+        window = int(request.query_params.get("window_seconds", "900"))
+    except (TypeError, ValueError):
+        window = 900
+    window = max(1, min(3600, window))
+
+    if tak_in is None:
+        return JSONResponse({
+            "enabled": False,
+            "counts": {},
+            "total": 0,
+            "window_seconds": window,
+        })
+
+    hist = tak_in.get_type_counts(window_seconds=window)
+    return JSONResponse({"enabled": True, **hist})
+
+
+@app.get("/api/tak/peers")
+async def api_tak_peers():
+    """Return the current inbound TAK peer roster with security flags.
+
+    Auth-free read. Surfaces allowed_callsigns / hmac_enforced /
+    duplicate_callsign_alarm from TAKInput alongside the peer list and the
+    current unicast target set from TAKOutput — a single roll-up for the
+    TAK map panel and security chip.
+    """
+    tak_in = _tak_input_ref
+    tak_out = _tak_output_ref
+
+    if tak_out is not None:
+        unicast_targets = [
+            f"{t['host']}:{t['port']}" for t in tak_out.get_unicast_targets()
+        ]
+    else:
+        unicast_targets = []
+
+    if tak_in is None:
+        return JSONResponse({
+            "enabled": False,
+            "peers": [],
+            "unicast_targets": unicast_targets,
+            "hmac_enforced": False,
+            "duplicate_callsign_alarm": False,
+            "allowed_callsigns": [],
+        })
+
+    return JSONResponse({
+        "enabled": True,
+        "peers": tak_in.get_peers(),
+        "unicast_targets": unicast_targets,
+        "hmac_enforced": tak_in._hmac_secret is not None,
+        "duplicate_callsign_alarm": bool(tak_in._duplicate_callsign),
+        "allowed_callsigns": sorted(tak_in._allowed_callsigns),
+    })
+
+
+@app.get("/api/audit/summary")
+async def api_audit_summary(request: Request):
+    """Roll-up of recent audit events for the security panel.
+
+    Merges TAK command log, HMAC rejections, approach arm/abort, and
+    strike/drop events that are emitted through the ``hydra.audit``
+    logger into one windowed summary.
+
+    Auth-free read. Bounded ring of 500 most recent events.
+
+    Query params:
+        window_seconds (int, default 3600, capped at 86400): roll-up
+            window for the counts block.
+        recent (int, default 50, capped at 200): cap on recent_events.
+    """
+    try:
+        window = int(request.query_params.get("window_seconds", "3600"))
+    except (TypeError, ValueError):
+        window = 3600
+    window = max(1, min(86400, window))
+    try:
+        recent_limit = int(request.query_params.get("recent", "50"))
+    except (TypeError, ValueError):
+        recent_limit = 50
+    recent_limit = max(0, min(200, recent_limit))
+
+    return JSONResponse(
+        _audit_sink.summary(window_seconds=window, recent_limit=recent_limit)
+    )
+
+
+@app.get("/api/rf/ambient_scan")
+async def api_rf_ambient_scan():
+    """Return the most recent ambient RF samples for the SDR ticker.
+
+    Auth-free read. When no buffer is registered the response has
+    ``enabled=False`` and an empty sample set.
+    """
+    scanner = _rf_ambient_ref
+    if scanner is None:
+        return JSONResponse({
+            "enabled": False,
+            "samples": [],
+            "window_seconds": 60,
+            "max_rssi": None,
+        })
+    try:
+        snapshot = scanner.get_samples()
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning("rf_ambient.get_samples() failed: %s", exc)
+        return JSONResponse({
+            "enabled": False,
+            "samples": [],
+            "window_seconds": 60,
+            "max_rssi": None,
+        })
+    return JSONResponse({"enabled": True, **snapshot})
+
+
+@app.get("/api/servo/status")
+async def api_servo_status():
+    """Return the current pan/tilt servo state for the cockpit dial.
+
+    Auth-free read (same-origin bypass). When no controller is registered
+    the response has ``enabled=False`` and zeroed angles — the dashboard
+    renders that as an idle/off panel.
+    """
+    servo = _servo_tracker_ref
+    if servo is None:
+        return JSONResponse({
+            "enabled": False,
+            "pan_deg": 0.0,
+            "tilt_deg": 0.0,
+            "pan_limit_min": -90.0,
+            "pan_limit_max": 90.0,
+            "tilt_limit_min": -30.0,
+            "tilt_limit_max": 60.0,
+            "scanning": False,
+            "locked_track_id": None,
+        })
+    try:
+        return JSONResponse(servo.get_api_status())
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning("servo.get_api_status() failed: %s", exc)
+        return JSONResponse({
+            "enabled": False,
+            "pan_deg": 0.0,
+            "tilt_deg": 0.0,
+            "pan_limit_min": -90.0,
+            "pan_limit_max": 90.0,
+            "tilt_limit_min": -30.0,
+            "tilt_limit_max": 60.0,
+            "scanning": False,
+            "locked_track_id": None,
+        })
 
 
 @app.get("/api/target")
