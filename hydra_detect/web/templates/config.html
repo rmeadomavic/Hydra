@@ -18,16 +18,16 @@
     <span class="lock-mode" id="lock-mode">TRACK</span>
 </div>
 
-<div class="operations-panels" id="operations-panels">
+<div class="operations-panels mock-card-stack" id="operations-panels">
 
     <!-- 1. Vehicle Telemetry -->
-    <div class="panel" data-panel-id="vehicle" id="panel-vehicle">
-        <div class="panel-header">
+    <div class="panel mock-panel" data-panel-id="vehicle" id="panel-vehicle">
+        <div class="panel-header mock-panel-head">
             <span class="panel-drag-handle">&#10303;</span>
-            <h3 class="panel-title">Vehicle Telemetry</h3>
+            <h3 class="panel-title mock-section-label">Vehicle Telemetry</h3>
             <button class="panel-collapse-btn" aria-label="Collapse panel">&#9662;</button>
         </div>
-        <div class="panel-body">
+        <div class="panel-body mock-panel-body">
             <div class="panel-badges">
                 <span class="badge mode-badge" id="ctrl-mode-badge">--</span>
                 <span class="badge armed-badge" id="ctrl-armed-badge">--</span>
@@ -69,13 +69,13 @@
     </div>
 
     <!-- 2. Target Control -->
-    <div class="panel" data-panel-id="target" id="panel-target">
-        <div class="panel-header">
+    <div class="panel mock-panel" data-panel-id="target" id="panel-target">
+        <div class="panel-header mock-panel-head">
             <span class="panel-drag-handle">&#10303;</span>
-            <h3 class="panel-title">Target Control</h3>
+            <h3 class="panel-title mock-section-label">Target Control</h3>
             <button class="panel-collapse-btn" aria-label="Collapse panel">&#9662;</button>
         </div>
-        <div class="panel-body">
+        <div class="panel-body mock-panel-body">
             <div class="panel-lock-indicator" id="ctrl-lock-indicator" style="display:none;"></div>
             <div class="panel-track-list" id="ctrl-track-list">
                 <div class="panel-track-empty">No tracks</div>
@@ -87,13 +87,13 @@
     </div>
 
     <!-- 3. Pipeline Stats -->
-    <div class="panel" data-panel-id="pipeline" id="panel-pipeline">
-        <div class="panel-header">
+    <div class="panel mock-panel" data-panel-id="pipeline" id="panel-pipeline">
+        <div class="panel-header mock-panel-head">
             <span class="panel-drag-handle">&#10303;</span>
-            <h3 class="panel-title">Pipeline Stats</h3>
+            <h3 class="panel-title mock-section-label">Pipeline Stats</h3>
             <button class="panel-collapse-btn" aria-label="Collapse panel">&#9662;</button>
         </div>
-        <div class="panel-body">
+        <div class="panel-body mock-panel-body">
             <div class="panel-stat-grid panel-stat-grid-3">
                 <div class="panel-stat">
                     <span class="panel-stat-label">FPS</span>
@@ -182,13 +182,13 @@
     </div>
 
     <!-- 4. Detection Config -->
-    <div class="panel" data-panel-id="detection" id="panel-detection">
-        <div class="panel-header">
+    <div class="panel mock-panel" data-panel-id="detection" id="panel-detection">
+        <div class="panel-header mock-panel-head">
             <span class="panel-drag-handle">&#10303;</span>
-            <h3 class="panel-title">Detection Config</h3>
+            <h3 class="panel-title mock-section-label">Detection Config</h3>
             <button class="panel-collapse-btn" aria-label="Collapse panel">&#9662;</button>
         </div>
-        <div class="panel-body">
+        <div class="panel-body mock-panel-body">
             <div class="panel-field">
                 <label class="panel-field-label" for="ctrl-camera-select">Camera</label>
                 <select id="ctrl-camera-select">
@@ -232,14 +232,14 @@
     </div>
 
     <!-- 5. RF Hunt -->
-    <div class="panel" data-panel-id="rf" id="panel-rf">
-        <div class="panel-header">
+    <div class="panel mock-panel" data-panel-id="rf" id="panel-rf">
+        <div class="panel-header mock-panel-head">
             <span class="panel-drag-handle">&#10303;</span>
-            <h3 class="panel-title">RF Hunt</h3>
+            <h3 class="panel-title mock-section-label">RF Hunt</h3>
             <span class="badge" id="ctrl-rf-state-badge" style="margin-left:auto; margin-right:var(--s-2);">N/A</span>
             <button class="panel-collapse-btn" aria-label="Collapse panel">&#9662;</button>
         </div>
-        <div class="panel-body">
+        <div class="panel-body mock-panel-body">
             <!-- Status display (shown when hunt is active) -->
             <div id="ctrl-rf-status-panel" style="display:none;">
                 <div class="panel-stat-grid panel-stat-grid-3">
@@ -333,14 +333,14 @@
     </div>
 
     <!-- 6. Mission Control -->
-    <div class="panel" data-panel-id="mission" id="panel-mission">
-        <div class="panel-header">
+    <div class="panel mock-panel" data-panel-id="mission" id="panel-mission">
+        <div class="panel-header mock-panel-head">
             <span class="panel-drag-handle">&#10303;</span>
-            <h3 class="panel-title">Mission</h3>
+            <h3 class="panel-title mock-section-label">Mission</h3>
             <span class="badge" id="ctrl-mission-badge" style="margin-left:auto; margin-right:var(--s-2);">IDLE</span>
             <button class="panel-collapse-btn" aria-label="Collapse panel">&#9662;</button>
         </div>
-        <div class="panel-body">
+        <div class="panel-body mock-panel-body">
             <div class="panel-field" id="ctrl-mission-name-field">
                 <label class="panel-field-label" for="ctrl-mission-name">Mission Name</label>
                 <input type="text" id="ctrl-mission-name" placeholder="e.g., mission-alpha" maxlength="100" style="width:100%; background:var(--bg-panel-alt); border:1px solid var(--border-default); color:var(--text-primary); padding:6px 8px; border-radius:4px; font-family:inherit; font-size:var(--font-sm);">
@@ -360,13 +360,13 @@
     </div>
 
     <!-- 7. Detection Log -->
-    <div class="panel" data-panel-id="log" id="panel-log">
-        <div class="panel-header">
+    <div class="panel mock-panel" data-panel-id="log" id="panel-log">
+        <div class="panel-header mock-panel-head">
             <span class="panel-drag-handle">&#10303;</span>
-            <h3 class="panel-title">Detection Log</h3>
+            <h3 class="panel-title mock-section-label">Detection Log</h3>
             <button class="panel-collapse-btn" aria-label="Collapse panel">&#9662;</button>
         </div>
-        <div class="panel-body">
+        <div class="panel-body mock-panel-body">
             <div class="panel-det-log" id="ctrl-det-log">
                 <div class="panel-track-empty">Waiting for detections...</div>
             </div>

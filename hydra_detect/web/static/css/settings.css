@@ -1,120 +1,226 @@
-/* ── Settings View ── */
+/* ── Settings View — mock-aligned visual shell ──
+ * Visual vocabulary sourced from the Phase 2 mock tweaks panel:
+ *   design_handoff_hydra_alignment/design_reference/Hydra Dashboard.html:30-65
+ *     (tweaks-panel → panel-head → panel-body → h4 section labels)
+ * Section labels: Barlow Condensed 700 / 10px / 0.18em uppercase / color #556.
+ * Panel head padding 10px 14px, border-bottom 1px solid --border-default.
+ * Radii flat 2px via var(--radius). All colors are tokens.
+ * JS contracts: #settings-form, #settings-nav, #settings-power-footer,
+ * #settings-power-user, and all .settings-section-btn[data-section=…]
+ * IDs/classes are preserved for settings.js to drive section rendering
+ * and the power-user easter-egg visibility/click flow. */
+
 /* Note: .view { display: none } in topbar.css hides all views by default.
    body.view-settings .view.view-settings { display: flex } in topbar.css shows it.
    Do NOT set display:flex here unconditionally — it overrides the hide rule. */
 
-.settings-nav {
+/* ── Left rail (tweaks nav) ── */
+.settings-nav,
+.settings-nav.mock-tweaks-nav {
     width: var(--settings-nav-width);
     background: var(--sidebar-bg);
     border-right: 1px solid var(--border-default);
-    padding: var(--s-3);
+    padding: var(--s-3) var(--s-2);
     display: flex;
     flex-direction: column;
-    gap: var(--s-1);
+    gap: 2px;
     overflow-y: auto;
+}
+
+/* Mock section label — Barlow Condensed 700 / 10px / 0.18em uppercase */
+.mock-section-label {
+    font-family: var(--font-cond);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin: 0 0 var(--s-2) 0;
+    padding: 0 var(--s-2);
+}
+
+.settings-nav-label.mock-section-label {
+    margin-bottom: var(--s-2);
+    color: var(--text-dim);
 }
 
 .settings-section-btn {
-    font-family: 'Barlow Condensed', sans-serif;
-    font-size: var(--font-sm);
+    font-family: var(--font-cond);
+    font-size: 12px;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: var(--ls-condensed);
+    letter-spacing: 0.1em;
     text-align: left;
-    padding: var(--s-1) var(--s-2);
-    border: none;
-    border-left: 2px solid transparent;
-    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    padding: 7px 10px;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
     background: transparent;
     color: var(--text-dim);
     cursor: pointer;
-    transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
+    transition: color var(--transition-fast),
+                border-color var(--transition-fast),
+                background var(--transition-fast);
     width: 100%;
     white-space: nowrap;
+    margin-bottom: 3px;
 }
 .settings-section-btn:hover {
     background: rgba(255, 255, 255, 0.04);
-    color: var(--text-primary);
-    border-left-color: rgba(166, 188, 146, 0.25);
+    border-color: var(--border-hover);
+    color: var(--text-data);
 }
 .settings-section-btn.active {
-    background: rgba(56, 87, 35, 0.12);
-    color: var(--ogt-muted);
-    border-left-color: var(--olive-primary);
+    background: rgba(56, 87, 35, 0.15);
+    color: var(--text-primary);
+    border-color: var(--olive-primary);
 }
 
-.settings-content {
+/* ── Right column (tweaks content) ── */
+.settings-content,
+.settings-content.mock-tweaks-content {
     flex: 1;
-    padding: var(--s-4);
+    padding: 0;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: var(--s-3);
+    gap: 0;
     background: var(--bg-panel);
+}
+
+/* Mock panel head — padding 10px 14px, dark cap + bottom divider */
+.mock-panel-head,
+.mock-panel-head.settings-panel-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--s-3);
+    padding: 10px 14px;
+    background: var(--bg-panel-alt);
+    border-bottom: 1px solid var(--border-default);
+}
+
+.mock-panel-ttl {
+    font-family: var(--font-cond);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-primary);
+}
+
+.mock-panel-sub {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+}
+
+/* Body scroll region (everything below the panel-head) */
+.settings-content > .settings-theme-picker,
+.settings-content > .settings-warning,
+.settings-content > .settings-error,
+.settings-content > .settings-form,
+.settings-content > .log-viewer-panel,
+.settings-content > .settings-restart,
+.settings-content > .settings-actions,
+.settings-content > .settings-restart-warning,
+.settings-content > .settings-recovery,
+.settings-content > .settings-footer {
+    margin: 0 var(--s-4);
+}
+
+.settings-content > .settings-theme-picker {
+    margin-top: var(--s-4);
 }
 
 .settings-warning {
     background: var(--danger-bg);
     border: 1px solid var(--danger);
-    border-radius: var(--radius-lg);
+    border-left: 2px solid var(--danger);
+    border-radius: var(--radius);
     padding: var(--s-3);
-    color: #fca5a5;
+    color: var(--danger);
     font-size: var(--font-sm);
     font-weight: 600;
+    margin-top: var(--s-3);
 }
 
 .settings-error {
     background: var(--danger-bg);
     border: 1px solid var(--danger);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius);
     padding: var(--s-2) var(--s-3);
-    color: #fca5a5;
+    color: var(--danger);
     font-size: var(--font-sm);
+    margin-top: var(--s-2);
 }
 
-.settings-form {
+/* ── Mock tweaks card (dynamic form container) ── */
+.settings-form,
+.settings-form.mock-tweaks-card {
     display: flex;
     flex-direction: column;
-    gap: var(--s-2);
-    background: var(--card-bg);
+    gap: 0;
+    background: linear-gradient(180deg, #0f1214, #0a0d10);
     border: 1px solid var(--border-default);
-    border-radius: var(--radius-lg);
-    padding: var(--s-3);
+    border-radius: var(--radius);
+    padding: var(--s-4);
+    margin-top: var(--s-3);
 }
 
 .settings-field {
     display: grid;
     grid-template-columns: 180px 1fr;
-    gap: var(--s-2);
+    gap: var(--s-3);
     align-items: center;
-    padding: var(--s-1) 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    padding: var(--s-2) 0;
+    border-bottom: 1px solid var(--divider);
+}
+
+.settings-field:first-child {
+    padding-top: 0;
+}
+
+.settings-field:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
 }
 
 .settings-field-label {
-    font-family: var(--font-mono);
-    font-size: var(--font-sm);
-    color: var(--text-dim);
+    font-family: var(--font-cond);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ogt-muted);
 }
 
 .settings-field-label .restart-icon {
     color: var(--warning);
     font-size: var(--font-xs);
     margin-left: 4px;
-    title: "Requires restart";
 }
 
 .settings-field input,
 .settings-field select,
 .settings-field textarea {
     width: 100%;
-    background: #0e0e0e;
+    background: var(--bg-panel);
     color: var(--text-primary);
     border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
-    padding: 4px 8px;
+    border-radius: var(--radius);
+    padding: 5px 8px;
     font-family: var(--font-mono);
     font-size: var(--font-sm);
+    transition: border-color var(--transition-fast);
+}
+
+.settings-field input:focus,
+.settings-field select:focus,
+.settings-field textarea:focus {
+    outline: none;
+    border-color: var(--olive-primary);
+    box-shadow: var(--glow-subtle);
 }
 
 .settings-field select {
@@ -122,15 +228,8 @@
 }
 
 .settings-field textarea {
-    font-family: var(--font-mono);
-    font-size: var(--font-sm);
-    padding: 4px 8px;
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
-    background: #0e0e0e;
-    color: var(--text-primary);
     resize: vertical;
-    min-height: 50px;
+    min-height: 60px;
 }
 
 /* Toggle switch for booleans */
@@ -165,53 +264,56 @@
 .settings-restart {
     background: rgba(180, 83, 9, 0.15);
     border: 1px solid var(--warning);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius);
     padding: var(--s-2) var(--s-3);
     color: var(--warning);
     font-size: var(--font-sm);
+    margin-top: var(--s-2);
 }
 
 .settings-actions {
     display: flex;
     gap: var(--s-2);
-    padding-top: var(--s-3);
+    padding: var(--s-3) 0;
     border-top: 1px solid var(--border-default);
+    margin-top: var(--s-3);
     position: sticky;
     bottom: 0;
     background: var(--bg-panel);
-    padding-bottom: var(--s-2);
+}
+
+.settings-restart-warning {
+    margin-top: 0;
 }
 
 .settings-footer {
-    padding-top: var(--s-4);
+    padding: var(--s-4) 0;
     text-align: center;
 }
 .settings-footer-link {
-    font-size: var(--font-xs);
-    color: var(--text-tertiary, #555);
+    font-family: var(--font-cond);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-dim);
     cursor: pointer;
     opacity: 0.5;
     transition: opacity var(--transition-fast);
 }
 .settings-footer-link:hover {
-    opacity: 0.8;
+    opacity: 0.85;
     text-decoration: underline;
 }
 
-/* ── Recovery Tools ── */
+/* ── Recovery Tools + Quick Links (mock section groups) ── */
 .settings-recovery {
     margin-top: var(--s-4);
     padding-top: var(--s-4);
     border-top: 1px solid var(--border-default);
 }
 .settings-recovery-label {
-    font-family: 'Barlow Condensed', sans-serif;
-    font-size: var(--font-xs);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: var(--ls-condensed);
-    color: var(--text-dim);
     margin-bottom: var(--s-2);
+    padding: 0;
 }
 .settings-recovery-actions {
     display: flex;
@@ -219,10 +321,14 @@
     flex-wrap: wrap;
 }
 .btn-recovery {
+    font-family: var(--font-cond);
     font-size: var(--font-xs);
-    padding: 6px 12px;
-    opacity: 0.7;
-    transition: opacity var(--transition-fast), border-color var(--transition-fast);
+    padding: 6px 14px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    opacity: 0.75;
+    transition: opacity var(--transition-fast),
+                border-color var(--transition-fast);
     text-decoration: none;
 }
 .btn-recovery:hover {
@@ -236,18 +342,18 @@
     background: var(--danger-bg);
 }
 
-/* Quick Links — navigation buttons (anchors) distinct from recovery actions */
+/* Quick Links distinct look */
 a.btn-recovery {
-    opacity: 0.85;
+    opacity: 0.9;
     border-color: rgba(56, 87, 35, 0.35);
     color: var(--ogt-muted);
-    background: linear-gradient(180deg, rgba(42, 65, 24, 0.15), rgba(22, 22, 22, 0.9));
+    background: linear-gradient(180deg, rgba(42, 65, 24, 0.15), rgba(0, 0, 0, 0.3));
 }
 a.btn-recovery:hover {
     opacity: 1;
     border-color: var(--olive-primary);
     color: var(--ogt-warm);
-    background: linear-gradient(180deg, rgba(42, 65, 24, 0.3), rgba(22, 22, 22, 0.9));
+    background: linear-gradient(180deg, rgba(42, 65, 24, 0.3), rgba(0, 0, 0, 0.3));
 }
 
 /* ── Log Viewer ── */
@@ -255,6 +361,7 @@ a.btn-recovery:hover {
     display: flex;
     flex-direction: column;
     gap: var(--s-2);
+    margin-top: var(--s-3);
 }
 
 .log-viewer-controls {
@@ -265,16 +372,19 @@ a.btn-recovery:hover {
 }
 
 .log-viewer-label {
-    font-family: var(--font-mono);
-    font-size: var(--font-sm);
+    font-family: var(--font-cond);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
     color: var(--text-dim);
 }
 
 .log-viewer-controls select {
-    background: #0e0e0e;
+    background: var(--bg-panel);
     color: var(--text-primary);
     border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius);
     padding: 4px 8px;
     font-family: var(--font-mono);
     font-size: var(--font-sm);
@@ -302,9 +412,9 @@ a.btn-recovery:hover {
 }
 
 .log-viewer {
-    background: #0a0a0a;
+    background: var(--bg-panel);
     border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius);
     max-height: 400px;
     overflow-y: auto;
     font-family: var(--font-mono);
@@ -324,15 +434,15 @@ a.btn-recovery:hover {
 }
 
 .log-error {
-    color: #f87171;
+    color: var(--danger);
 }
 
 .log-warning {
-    color: #fb923c;
+    color: var(--warning);
 }
 
 .log-debug {
-    color: #6b7280;
+    color: var(--text-dim);
 }
 
 .log-empty {
@@ -356,8 +466,8 @@ a.btn-recovery:hover {
     height: 6px;
     -webkit-appearance: none;
     appearance: none;
-    background: #2a2a2a;
-    border-radius: 3px;
+    background: var(--border-hover);
+    border-radius: var(--radius);
     outline: none;
     cursor: pointer;
     border: none;
@@ -365,14 +475,12 @@ a.btn-recovery:hover {
     margin: 8px 0;
 }
 
-/* Webkit slider track (filled portion via gradient) */
 .slider-container .schema-slider::-webkit-slider-runnable-track {
     height: 6px;
-    border-radius: 3px;
-    background: #2a2a2a;
+    border-radius: var(--radius);
+    background: var(--border-hover);
 }
 
-/* Webkit slider thumb */
 .slider-container .schema-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
@@ -380,42 +488,39 @@ a.btn-recovery:hover {
     height: 20px;
     border-radius: 50%;
     background: var(--olive-primary);
-    border: 2px solid #0e0e0e;
+    border: 2px solid var(--bg-panel);
     cursor: pointer;
     margin-top: -7px;
-    box-shadow: 0 0 4px rgba(56, 87, 35, 0.5);
+    box-shadow: var(--glow-subtle);
     transition: box-shadow 0.15s;
 }
 .slider-container .schema-slider::-webkit-slider-thumb:hover {
-    box-shadow: 0 0 8px var(--olive-primary);
+    box-shadow: var(--glow-green);
 }
 
-/* Firefox slider track */
 .slider-container .schema-slider::-moz-range-track {
     height: 6px;
-    border-radius: 3px;
-    background: #2a2a2a;
+    border-radius: var(--radius);
+    background: var(--border-hover);
     border: none;
 }
 
-/* Firefox slider thumb */
 .slider-container .schema-slider::-moz-range-thumb {
     width: 20px;
     height: 20px;
     border-radius: 50%;
     background: var(--olive-primary);
-    border: 2px solid #0e0e0e;
+    border: 2px solid var(--bg-panel);
     cursor: pointer;
-    box-shadow: 0 0 4px rgba(56, 87, 35, 0.5);
+    box-shadow: var(--glow-subtle);
 }
 .slider-container .schema-slider::-moz-range-thumb:hover {
-    box-shadow: 0 0 8px var(--olive-primary);
+    box-shadow: var(--glow-green);
 }
 
-/* Firefox filled portion */
 .slider-container .schema-slider::-moz-range-progress {
     height: 6px;
-    border-radius: 3px;
+    border-radius: var(--radius);
     background: var(--olive-primary);
 }
 
@@ -475,23 +580,17 @@ a.btn-recovery:hover {
         flex-wrap: wrap;
         border-right: none;
         border-bottom: 1px solid var(--border-default);
-        padding: var(--s-1) var(--s-2);
+        padding: var(--s-2);
         gap: 2px;
+    }
+    .settings-nav-label.mock-section-label {
+        width: 100%;
+        margin-bottom: var(--s-1);
     }
     .settings-section-btn {
         width: auto;
-        border-left: none;
-        border-bottom: 2px solid transparent;
-        border-radius: 0;
-        padding: var(--s-1) var(--s-2) 4px;
-    }
-    .settings-section-btn:hover {
-        border-left-color: transparent;
-        border-bottom-color: rgba(166, 188, 146, 0.25);
-    }
-    .settings-section-btn.active {
-        border-left-color: transparent;
-        border-bottom-color: var(--olive-primary);
+        border-radius: var(--radius);
+        padding: 5px 10px;
     }
     .settings-field {
         grid-template-columns: 1fr;
