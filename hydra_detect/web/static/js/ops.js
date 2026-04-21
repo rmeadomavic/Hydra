@@ -220,6 +220,12 @@ const HydraOps = (() => {
     var TRAIL_MAX = 16;              // max breadcrumbs per track
     var TRAIL_MS = 2000;             // fade breadcrumbs after 2s
     var ACQUIRE_MS = 550;            // acquisition-pulse duration
+    var LOCK_FADE_MS = 220;          // fade-in duration for lock designator lines
+
+    // Lock-engage timestamp so the designator lines fade in instead of popping
+    // when a new track gets locked. Reset whenever the locked track_id changes.
+    var _lockEngagedId = null;
+    var _lockEngagedAt = 0;
 
     // Category → tactical color palette. Matches the categorization used by
     // the server (`TACTICAL_CATEGORIES` in server.py) — keep in sync.
@@ -332,11 +338,30 @@ const HydraOps = (() => {
             _drawTrackBox(ctx, tracks[k], mapping, now, lockedId);
         }
 
-        // Pass 3: locked-track reticle always on top
+        // Track lock-engage transitions so the designator fades in.
+        if (lockedId !== _lockEngagedId) {
+            _lockEngagedId = lockedId;
+            _lockEngagedAt = lockedId !== null ? now : 0;
+        }
+
+        // Pass 3a: dim designator preview on the context-menu track
+        // ("targeted but not yet locked" affordance). Skipped if that
+        // track is already the locked one.
+        if (contextMenuTrack && contextMenuTrack.track_id !== lockedId) {
+            for (var d = 0; d < tracks.length; d++) {
+                if (tracks[d].track_id === contextMenuTrack.track_id) {
+                    _drawDesignateLines(ctx, tracks[d], mapping);
+                    break;
+                }
+            }
+        }
+
+        // Pass 3b: locked-track reticle always on top
         if (lockedId !== null) {
+            var lockAge = now - _lockEngagedAt;
             for (var m = 0; m < tracks.length; m++) {
                 if (tracks[m].track_id === lockedId) {
-                    _drawLockReticle(ctx, tracks[m], mapping, now);
+                    _drawLockReticle(ctx, tracks[m], mapping, now, lockAge);
                     break;
                 }
             }
@@ -537,7 +562,33 @@ const HydraOps = (() => {
         ctx.restore();
     }
 
-    function _drawLockReticle(ctx, t, mapping, now) {
+    // Dim range lines drawn while a track has the context menu open —
+    // previews the designator before the operator commits to Lock/Strike/etc.
+    function _drawDesignateLines(ctx, t, mapping) {
+        var bbox = t.bbox;
+        if (!bbox || bbox.length < 4) return;
+        var x1 = bbox[0] * mapping.scaleX + mapping.offsetX;
+        var y1 = bbox[1] * mapping.scaleY + mapping.offsetY;
+        var x2 = bbox[2] * mapping.scaleX + mapping.offsetX;
+        var y2 = bbox[3] * mapping.scaleY + mapping.offsetY;
+        var cx = (x1 + x2) / 2;
+        var cy = (y1 + y2) / 2;
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 7]);
+        ctx.beginPath();
+        ctx.moveTo(mapping.offsetX, cy); ctx.lineTo(x1, cy);
+        ctx.moveTo(x2, cy); ctx.lineTo(mapping.offsetX + mapping.renderW, cy);
+        ctx.moveTo(cx, mapping.offsetY); ctx.lineTo(cx, y1);
+        ctx.moveTo(cx, y2); ctx.lineTo(cx, mapping.offsetY + mapping.renderH);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+    }
+
+    function _drawLockReticle(ctx, t, mapping, now, lockAge) {
         var bbox = t.bbox;
         if (!bbox || bbox.length < 4) return;
         var x1 = bbox[0] * mapping.scaleX + mapping.offsetX;
@@ -550,9 +601,14 @@ const HydraOps = (() => {
         // Pulse 0..1 over a 1.2s cycle for a slow, breathing reticle
         var pulse = 0.5 + 0.5 * Math.sin((now % 1200) / 1200 * Math.PI * 2);
 
+        // Ease-out fade-in so the designator lines don't pop on lock.
+        var fade = Math.max(0, Math.min(1, (lockAge || 0) / LOCK_FADE_MS));
+        fade = 1 - (1 - fade) * (1 - fade);
+
         ctx.save();
-        // Range lines from frame edges to target (very faint — signals "designated")
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+        // Range lines from frame edges to target (signals "designated"). Alpha
+        // animates from 0 to ~0.28 over LOCK_FADE_MS.
+        ctx.strokeStyle = 'rgba(255, 255, 255, ' + (0.28 * fade).toFixed(3) + ')';
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 6]);
         ctx.beginPath();
