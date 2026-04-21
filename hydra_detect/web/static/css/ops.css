@@ -44,7 +44,9 @@ body.view-ops #view-ops {
     background: #000;
 }
 
-/* Video container — fills the left side of center-top. */
+/* Video container — fills the left side of center-top.
+ * Layered HUD frame is drawn via ::before (corner brackets + subtle vignette)
+ * and ::after (slow scanline) so the canvas stays untouched. */
 .ops-video-container {
     position: relative;
     flex: 1 1 auto;
@@ -53,6 +55,75 @@ body.view-ops #view-ops {
     background: #000;
     overflow: hidden;
 }
+
+/* Corner brackets framing the whole viewport — the Lattice/Palantir frame.
+ * Built from 4 radial-gradient layers each masked to a small L-shape via
+ * background-image composition of 2 linear-gradients per corner. */
+.ops-video-container::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 6;
+    /* Subtle vignette to focus the eye on the center of the feed. */
+    background:
+        radial-gradient(ellipse at center,
+            transparent 55%,
+            rgba(0, 0, 0, 0.35) 95%,
+            rgba(0, 0, 0, 0.55) 100%),
+        /* Top-left bracket */
+        linear-gradient(to right, var(--ogt-muted) 0 22px, transparent 22px) top left / 22px 2px no-repeat,
+        linear-gradient(to bottom, var(--ogt-muted) 0 22px, transparent 22px) top left / 2px 22px no-repeat,
+        /* Top-right bracket */
+        linear-gradient(to left, var(--ogt-muted) 0 22px, transparent 22px) top right / 22px 2px no-repeat,
+        linear-gradient(to bottom, var(--ogt-muted) 0 22px, transparent 22px) top right / 2px 22px no-repeat,
+        /* Bottom-left bracket */
+        linear-gradient(to right, var(--ogt-muted) 0 22px, transparent 22px) bottom left / 22px 2px no-repeat,
+        linear-gradient(to top, var(--ogt-muted) 0 22px, transparent 22px) bottom left / 2px 22px no-repeat,
+        /* Bottom-right bracket */
+        linear-gradient(to left, var(--ogt-muted) 0 22px, transparent 22px) bottom right / 22px 2px no-repeat,
+        linear-gradient(to top, var(--ogt-muted) 0 22px, transparent 22px) bottom right / 2px 22px no-repeat;
+    opacity: 0.55;
+    /* Give the brackets a faint glow that reads as "active sensor" */
+    filter: drop-shadow(0 0 3px rgba(166, 188, 146, 0.35));
+}
+
+/* Slow scanline drifting top-to-bottom. Painted via background-position on
+ * a full-bleed ::after so the animation is parent-height-aware. Kept very
+ * faint so it never competes with content. */
+.ops-video-container::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 7;
+    background-image: linear-gradient(to bottom,
+        rgba(166, 188, 146, 0) 0%,
+        rgba(166, 188, 146, 0) 47%,
+        rgba(166, 188, 146, 0.30) 50%,
+        rgba(166, 188, 146, 0) 53%,
+        rgba(166, 188, 146, 0) 100%);
+    background-repeat: no-repeat;
+    background-size: 100% 300%;
+    background-position: 50% -60%;
+    animation: ops-scanline 7s linear infinite;
+    opacity: 0.7;
+    will-change: background-position;
+    mix-blend-mode: screen;
+}
+
+@keyframes ops-scanline {
+    0%   { background-position: 50% -60%; }
+    100% { background-position: 50% 160%; }
+}
+
+/* Respect reduced-motion preference — no sweeping scanline. */
+@media (prefers-reduced-motion: reduce) {
+    .ops-video-container::after { animation: none; opacity: 0; }
+}
+
+/* When fullscreen, bracket color intensifies slightly for cockpit viewing. */
+.ops-video-container:fullscreen::before { opacity: 0.75; }
 
 /* Video frame: fill container, maintain aspect ratio */
 .ops-video-frame {
@@ -209,150 +280,268 @@ body.view-ops #view-ops {
 /* ── Stream Lost Badge ── */
 .ops-hud-stream-lost {
     position: absolute;
-    top: var(--s-4);
+    top: calc(var(--s-4) + 10px);
     left: 50%;
     transform: translateX(-50%);
     z-index: 15;
-    background: var(--danger-bg);
+    background: linear-gradient(180deg,
+        rgba(74, 18, 18, 0.92),
+        rgba(20, 8, 8, 0.92));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     border: 1px solid var(--danger);
-    border-radius: var(--radius-lg);
-    padding: var(--s-1) var(--s-3);
-    color: #fca5a5;
+    padding: 6px 14px;
+    color: #fecaca;
     font-family: 'Barlow Condensed', sans-serif;
-    font-size: var(--font-sm);
-    font-weight: 600;
+    font-size: var(--font-base);
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: var(--ls-condensed);
+    letter-spacing: 0.18em;
+    clip-path: polygon(
+        0 0, calc(100% - 8px) 0, 100% 8px,
+        100% 100%, 8px 100%, 0 calc(100% - 8px)
+    );
+    box-shadow: 0 0 18px rgba(197, 48, 48, 0.55);
     animation: pulse-glow 2s ease-in-out infinite;
 }
 
-/* ── Lock Info Overlay (top center) ── */
+/* ── Target Designator Card (top center, shown on lock) ──
+ * Compact multi-row HUD element with corner notches and a pulsing accent
+ * bar. Strike mode shifts to red with a stronger pulse. */
 .ops-lock-overlay {
     position: absolute;
-    top: var(--s-4);
+    top: calc(var(--s-4) + 10px);
     left: 50%;
     transform: translateX(-50%);
     z-index: 10;
-    background: rgba(0, 0, 0, 0.75);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border-radius: var(--radius-lg);
-    padding: var(--s-1) var(--s-3);
-    display: flex;
-    align-items: center;
-    gap: var(--s-2);
+    background: linear-gradient(180deg,
+        rgba(4, 8, 10, 0.88),
+        rgba(4, 8, 10, 0.75));
+    backdrop-filter: blur(10px) saturate(120%);
+    -webkit-backdrop-filter: blur(10px) saturate(120%);
     border: 1px solid var(--olive-primary);
-    box-shadow: var(--glow-green);
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.6) inset,
+        0 0 14px rgba(56, 87, 35, 0.35),
+        0 2px 14px rgba(0, 0, 0, 0.5);
+    padding: 6px 14px 6px 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-mono);
+    letter-spacing: 0.02em;
+    clip-path: polygon(
+        0 0, calc(100% - 8px) 0, 100% 8px,
+        100% 100%, 8px 100%, 0 calc(100% - 8px)
+    );
+}
+
+/* Left accent bar — pulses at 1.2s to sell "designated, tracking". */
+.ops-lock-overlay::before {
+    content: "";
+    width: 3px;
+    height: 20px;
+    background: var(--olive-primary);
+    box-shadow: 0 0 6px var(--olive-primary);
+    border-radius: 1px;
+    animation: lock-accent-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes lock-accent-pulse {
+    0%, 100% { opacity: 0.45; transform: scaleY(0.85); }
+    50%      { opacity: 1;    transform: scaleY(1); }
 }
 
 .ops-lock-overlay.strike {
     border-color: var(--danger);
-    box-shadow: var(--glow-danger);
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.6) inset,
+        0 0 18px rgba(197, 48, 48, 0.55),
+        0 2px 14px rgba(0, 0, 0, 0.55);
+    animation: lock-strike-pulse 0.85s ease-in-out infinite;
+}
+
+.ops-lock-overlay.strike::before {
+    background: var(--danger);
+    box-shadow: 0 0 8px var(--danger);
+}
+
+@keyframes lock-strike-pulse {
+    0%, 100% { box-shadow: 0 0 0 1px rgba(0,0,0,0.6) inset, 0 0 18px rgba(197, 48, 48, 0.55), 0 2px 14px rgba(0,0,0,0.55); }
+    50%      { box-shadow: 0 0 0 1px rgba(0,0,0,0.6) inset, 0 0 26px rgba(197, 48, 48, 0.85), 0 2px 14px rgba(0,0,0,0.55); }
 }
 
 .ops-lock-icon {
-    font-size: var(--font-lg);
-    color: var(--ogt-muted);
+    font-size: 14px;
+    color: var(--olive-primary);
+    text-shadow: 0 0 6px rgba(56, 87, 35, 0.6);
 }
 
 .ops-lock-overlay.strike .ops-lock-icon {
-    color: #fca5a5;
+    color: var(--danger);
+    text-shadow: 0 0 6px rgba(197, 48, 48, 0.7);
 }
 
 .ops-lock-label {
     font-family: 'Barlow Condensed', sans-serif;
-    font-size: var(--font-sm);
-    font-weight: 600;
+    font-size: var(--font-base);
+    font-weight: 700;
     text-transform: uppercase;
+    letter-spacing: var(--ls-condensed);
     color: var(--text-primary);
+    padding-right: 8px;
+    border-right: 1px solid var(--divider);
 }
 
 .ops-lock-mode {
     font-family: var(--font-mono);
     font-size: var(--font-xs);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
     color: var(--ogt-muted);
+    padding: 2px 6px;
+    background: rgba(56, 87, 35, 0.18);
+    border: 1px solid rgba(56, 87, 35, 0.35);
+    border-radius: 1px;
 }
 
 .ops-lock-overlay.strike .ops-lock-mode {
     color: #fca5a5;
+    background: rgba(197, 48, 48, 0.18);
+    border-color: rgba(197, 48, 48, 0.45);
 }
 
 .ops-lock-elapsed {
     font-family: var(--font-mono);
     font-size: var(--font-xs);
-    color: var(--text-dim);
+    color: var(--text-data);
+    opacity: 0.75;
+    padding-left: 2px;
+    border-left: 1px solid var(--divider);
+    margin-left: 2px;
+    padding-left: 8px;
 }
 
-/* ── Telemetry Strip (bottom overlay) ── */
+/* ── Telemetry Strip (bottom overlay) ──
+ * Full-width glass panel with divided cells and a top hairline that glows
+ * very faintly in the brand olive. Cells are separated by vertical rules. */
 .ops-telemetry-strip {
     position: absolute;
     bottom: 0;
     left: 0;
     right: 0;
     z-index: 10;
-    background: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-    border-top: 1px solid rgba(56, 87, 35, 0.3);
+    background: linear-gradient(180deg,
+        rgba(4, 8, 10, 0.65) 0%,
+        rgba(4, 8, 10, 0.85) 100%);
+    backdrop-filter: blur(6px) saturate(120%);
+    -webkit-backdrop-filter: blur(6px) saturate(120%);
+    border-top: 1px solid rgba(166, 188, 146, 0.18);
+    box-shadow: 0 -1px 0 rgba(56, 87, 35, 0.25) inset,
+                0 -4px 14px rgba(0, 0, 0, 0.4);
     display: flex;
     justify-content: center;
-    gap: var(--s-4);
-    padding: var(--s-1) var(--s-3);
+    gap: 0;
+    padding: 6px var(--s-3);
 }
 
 .ops-telem-item {
     display: flex;
     flex-direction: column;
     align-items: center;
-    min-width: 50px;
+    justify-content: center;
+    min-width: 64px;
+    padding: 0 var(--s-3);
+    border-right: 1px solid var(--divider);
 }
+
+.ops-telem-item:last-child { border-right: none; }
 
 .ops-telem-label {
     font-family: 'Barlow Condensed', sans-serif;
-    font-size: 0.5rem;
+    font-size: 9px;
     text-transform: uppercase;
-    letter-spacing: var(--ls-condensed);
-    color: var(--text-dim);
-    font-weight: 600;
+    letter-spacing: 0.18em;
+    color: var(--ogt-muted);
+    font-weight: 700;
     line-height: 1;
+    opacity: 0.75;
+    margin-bottom: 2px;
 }
 
 .ops-telem-value {
     font-family: var(--font-mono);
-    font-size: var(--font-data);
+    font-size: var(--font-md);
     font-weight: 700;
     color: var(--text-data);
-    line-height: 1.3;
+    line-height: 1.1;
+    text-shadow: 0 0 6px rgba(166, 188, 146, 0.18);
 }
 
-/* ── Quick Action Bar (bottom-left) ── */
+/* ── Quick Action Bar (bottom-left) ──
+ * Tactical button stack with clipped corners + brand-olive hover glow.
+ * ABORT is treated as a live danger action — red glow permanently. */
 .ops-quick-actions {
     position: absolute;
-    bottom: 40px;
+    bottom: 48px;
     left: var(--s-3);
     z-index: 10;
     display: flex;
     flex-direction: column;
-    gap: var(--s-1);
+    gap: 4px;
 }
 
 .ops-action-btn {
-    min-width: 70px;
+    min-width: 82px;
+    font-family: 'Barlow Condensed', sans-serif !important;
     font-size: var(--font-sm) !important;
-    padding: 6px 12px !important;
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-    background: rgba(30, 30, 30, 0.85) !important;
-    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.14em !important;
+    padding: 7px 14px !important;
+    backdrop-filter: blur(8px) saturate(130%);
+    -webkit-backdrop-filter: blur(8px) saturate(130%);
+    background: linear-gradient(180deg,
+        rgba(26, 32, 22, 0.85),
+        rgba(10, 14, 10, 0.9)) !important;
+    border: 1px solid rgba(166, 188, 146, 0.22) !important;
+    color: var(--text-primary) !important;
+    clip-path: polygon(
+        0 0, calc(100% - 6px) 0, 100% 6px,
+        100% 100%, 6px 100%, 0 calc(100% - 6px)
+    );
+    transition:
+        background var(--transition-fast),
+        border-color var(--transition-fast),
+        box-shadow var(--transition-fast),
+        transform var(--transition-fast);
 }
 
 .ops-action-btn:hover {
-    background: rgba(50, 50, 50, 0.9) !important;
+    background: linear-gradient(180deg,
+        rgba(56, 87, 35, 0.35),
+        rgba(26, 32, 22, 0.9)) !important;
+    border-color: var(--olive-primary) !important;
+    box-shadow: 0 0 10px rgba(56, 87, 35, 0.45);
 }
 
+.ops-action-btn:active { transform: translateY(1px); }
+
 .ops-action-btn.btn-danger {
-    background: rgba(139, 32, 32, 0.85) !important;
+    background: linear-gradient(180deg,
+        rgba(74, 18, 18, 0.85),
+        rgba(20, 8, 8, 0.95)) !important;
+    border-color: rgba(197, 48, 48, 0.55) !important;
+    color: #fca5a5 !important;
+    box-shadow: 0 0 10px rgba(197, 48, 48, 0.3);
+}
+
+.ops-action-btn.btn-danger:hover {
+    background: linear-gradient(180deg,
+        rgba(139, 32, 32, 0.9),
+        rgba(40, 12, 12, 0.95)) !important;
     border-color: var(--danger) !important;
+    box-shadow: 0 0 16px rgba(197, 48, 48, 0.55);
 }
 
 /* ── Responsive: tablet/Steam Deck ── */

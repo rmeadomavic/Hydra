@@ -208,6 +208,85 @@ const HydraOps = (() => {
     }
 
     // ── Bounding Box Drawing ──
+    // Tactical target display — corner brackets, class-color coding,
+    // confidence micro-bar, velocity trails, acquisition pulse on new tracks,
+    // and a full target-designator reticle on the locked track.
+    //
+    // Per-track history is kept in `_bboxHistory` keyed by track_id so the
+    // trail polyline + velocity vector can render without needing backend
+    // velocity data. `_trackFirstSeen` drives the acquisition flash.
+    var _bboxHistory = Object.create(null);   // {track_id: [{t, cx, cy}, ...]}
+    var _trackFirstSeen = Object.create(null); // {track_id: timestamp_ms}
+    var TRAIL_MAX = 16;              // max breadcrumbs per track
+    var TRAIL_MS = 2000;             // fade breadcrumbs after 2s
+    var ACQUIRE_MS = 550;            // acquisition-pulse duration
+
+    // Category → tactical color palette. Matches the categorization used by
+    // the server (`TACTICAL_CATEGORIES` in server.py) — keep in sync.
+    // Colors are slightly desaturated to avoid eye-strain in low-light ops.
+    var CAT_COLORS = {
+        'People':           '#fbbf24',  // amber
+        'Ground Vehicles':  '#38bdf8',  // cyan
+        'Aircraft':         '#c4b5fd',  // violet
+        'Watercraft':       '#2dd4bf',  // teal
+        'Weapons/Threats':  '#ef4444',  // red
+        'Equipment':        '#e5e7eb',  // neutral
+        'Animals':          '#a78bfa',  // mauve
+        'Infrastructure':   '#94a3b8',  // slate
+        'Other':            '#86c05a',  // olive-brighter for legibility
+    };
+
+    // Minimal client-side mirror of server _CATEGORY_LOOKUP so bbox strokes
+    // can adopt category tints without a round-trip. Only uses lowercase.
+    var _LABEL_TO_CAT = {
+        person: 'People', pedestrian: 'People', people: 'People',
+        soldier: 'People', combatant: 'People', civilian: 'People',
+        car: 'Ground Vehicles', truck: 'Ground Vehicles', bus: 'Ground Vehicles',
+        van: 'Ground Vehicles', motorcycle: 'Ground Vehicles',
+        bicycle: 'Ground Vehicles', tank: 'Ground Vehicles', apc: 'Ground Vehicles',
+        afv: 'Ground Vehicles', humvee: 'Ground Vehicles', train: 'Ground Vehicles',
+        airplane: 'Aircraft', helicopter: 'Aircraft', drone: 'Aircraft',
+        'fighter jet': 'Aircraft', 'fighter plane': 'Aircraft',
+        boat: 'Watercraft', ship: 'Watercraft', warship: 'Watercraft',
+        yacht: 'Watercraft', sailboat: 'Watercraft', kayak: 'Watercraft',
+        gun: 'Weapons/Threats', knife: 'Weapons/Threats', grenade: 'Weapons/Threats',
+        rifle: 'Weapons/Threats', pistol: 'Weapons/Threats', rpg: 'Weapons/Threats',
+        missile: 'Weapons/Threats',
+        backpack: 'Equipment', suitcase: 'Equipment', handbag: 'Equipment',
+        'cell phone': 'Equipment', laptop: 'Equipment', radio: 'Equipment',
+        dog: 'Animals', horse: 'Animals', bird: 'Animals', cat: 'Animals',
+        cow: 'Animals', sheep: 'Animals', bear: 'Animals',
+        'fire hydrant': 'Infrastructure', 'stop sign': 'Infrastructure',
+        'traffic light': 'Infrastructure',
+    };
+
+    function _categoryOf(label) {
+        if (!label) return 'Other';
+        return _LABEL_TO_CAT[String(label).toLowerCase()] || 'Other';
+    }
+
+    function _colorFor(track) {
+        return CAT_COLORS[_categoryOf(track.label)] || CAT_COLORS.Other;
+    }
+
+    // Convert '#rrggbb' to 'rgba(r,g,b,a)' — used for glow fills without
+    // allocating a hex-parse per frame (small cache).
+    var _rgbaCache = Object.create(null);
+    function _withAlpha(hex, alpha) {
+        var key = hex + '|' + alpha;
+        if (_rgbaCache[key]) return _rgbaCache[key];
+        var h = hex.replace('#', '');
+        if (h.length === 3) {
+            h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+        }
+        var r = parseInt(h.slice(0, 2), 16);
+        var g = parseInt(h.slice(2, 4), 16);
+        var b = parseInt(h.slice(4, 6), 16);
+        var out = 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+        _rgbaCache[key] = out;
+        return out;
+    }
+
     function drawBoundingBoxes() {
         var canvas = document.getElementById('ops-bbox-canvas');
         if (!canvas) return;
@@ -217,79 +296,297 @@ const HydraOps = (() => {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         var tracks = HydraApp.state.tracks;
-        if (!tracks || tracks.length === 0) return;
-
         var mapping = getVideoMapping();
         if (!mapping) return;
 
         var target = HydraApp.state.target;
         var lockedId = (target && target.locked) ? target.track_id : null;
+        var now = Date.now();
 
-        for (var i = 0; i < tracks.length; i++) {
-            var t = tracks[i];
-            var bbox = t.bbox;
-            if (!bbox || bbox.length < 4) continue;
-
-            var x1 = bbox[0] * mapping.scaleX + mapping.offsetX;
-            var y1 = bbox[1] * mapping.scaleY + mapping.offsetY;
-            var x2 = bbox[2] * mapping.scaleX + mapping.offsetX;
-            var y2 = bbox[3] * mapping.scaleY + mapping.offsetY;
-            var w = x2 - x1;
-            var h = y2 - y1;
-
-            var isLocked = (lockedId !== null && t.track_id === lockedId);
-
-            // Draw rectangle
-            ctx.strokeStyle = isLocked ? '#ffffff' : '#6aaa4a';
-            ctx.lineWidth = isLocked ? 3 : 2;
-            ctx.strokeRect(x1, y1, w, h);
-
-            // Draw label background + text
-            var label = '#' + t.track_id + ' ' + (t.label || '?') + ' ' + Math.round((t.confidence || 0) * 100) + '%';
-            ctx.font = '11px monospace';
-            var textMetrics = ctx.measureText(label);
-            var textW = textMetrics.width + 6;
-            var textH = 14;
-            var labelY = y1 - textH - 1;
-            if (labelY < 0) labelY = y1 + 1; // flip below if clipped at top
-
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            ctx.fillRect(x1, labelY, textW, textH);
-
-            ctx.fillStyle = isLocked ? '#ffffff' : '#6aaa4a';
-            ctx.fillText(label, x1 + 3, labelY + 11);
-
-            // Locked target: corner brackets for emphasis
-            if (isLocked) {
-                var bracketLen = Math.min(12, w * 0.25, h * 0.25);
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 2;
-                // Top-left
-                ctx.beginPath();
-                ctx.moveTo(x1, y1 + bracketLen);
-                ctx.lineTo(x1, y1);
-                ctx.lineTo(x1 + bracketLen, y1);
-                ctx.stroke();
-                // Top-right
-                ctx.beginPath();
-                ctx.moveTo(x2 - bracketLen, y1);
-                ctx.lineTo(x2, y1);
-                ctx.lineTo(x2, y1 + bracketLen);
-                ctx.stroke();
-                // Bottom-left
-                ctx.beginPath();
-                ctx.moveTo(x1, y2 - bracketLen);
-                ctx.lineTo(x1, y2);
-                ctx.lineTo(x1 + bracketLen, y2);
-                ctx.stroke();
-                // Bottom-right
-                ctx.beginPath();
-                ctx.moveTo(x2 - bracketLen, y2);
-                ctx.lineTo(x2, y2);
-                ctx.lineTo(x2, y2 - bracketLen);
-                ctx.stroke();
+        // ── prune breadcrumbs for tracks that no longer exist ──
+        var activeIds = Object.create(null);
+        if (tracks) for (var j = 0; j < tracks.length; j++) {
+            activeIds[tracks[j].track_id] = true;
+        }
+        for (var tid in _bboxHistory) {
+            if (!activeIds[tid]) {
+                delete _bboxHistory[tid];
+                delete _trackFirstSeen[tid];
             }
         }
+
+        // ── no tracks: render a faint centre reticle so operator knows
+        //    the feed is live but nothing is classified yet ──
+        if (!tracks || tracks.length === 0) {
+            _drawCenterReticle(ctx, mapping);
+            return;
+        }
+
+        // Pass 1: trails (behind everything else, dim)
+        for (var i = 0; i < tracks.length; i++) {
+            _drawTrail(ctx, tracks[i], mapping, now);
+        }
+
+        // Pass 2: boxes + labels
+        for (var k = 0; k < tracks.length; k++) {
+            _drawTrackBox(ctx, tracks[k], mapping, now, lockedId);
+        }
+
+        // Pass 3: locked-track reticle always on top
+        if (lockedId !== null) {
+            for (var m = 0; m < tracks.length; m++) {
+                if (tracks[m].track_id === lockedId) {
+                    _drawLockReticle(ctx, tracks[m], mapping, now);
+                    break;
+                }
+            }
+        }
+    }
+
+    function _drawCenterReticle(ctx, mapping) {
+        var cx = mapping.offsetX + mapping.renderW / 2;
+        var cy = mapping.offsetY + mapping.renderH / 2;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(166, 188, 146, 0.18)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx - 18, cy); ctx.lineTo(cx - 4, cy);
+        ctx.moveTo(cx + 4, cy);  ctx.lineTo(cx + 18, cy);
+        ctx.moveTo(cx, cy - 18); ctx.lineTo(cx, cy - 4);
+        ctx.moveTo(cx, cy + 4);  ctx.lineTo(cx, cy + 18);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    function _drawTrail(ctx, t, mapping, now) {
+        var bbox = t.bbox;
+        if (!bbox || bbox.length < 4) return;
+        var cx = ((bbox[0] + bbox[2]) / 2) * mapping.scaleX + mapping.offsetX;
+        var cy = ((bbox[1] + bbox[3]) / 2) * mapping.scaleY + mapping.offsetY;
+
+        var hist = _bboxHistory[t.track_id];
+        if (!hist) {
+            hist = [];
+            _bboxHistory[t.track_id] = hist;
+            _trackFirstSeen[t.track_id] = now;
+        }
+        hist.push({ t: now, cx: cx, cy: cy });
+        // trim by age AND max length
+        while (hist.length > TRAIL_MAX || (hist.length > 0 && now - hist[0].t > TRAIL_MS)) {
+            hist.shift();
+        }
+        if (hist.length < 2) return;
+
+        var color = _colorFor(t);
+        ctx.save();
+        ctx.lineWidth = 1.5;
+        ctx.lineCap = 'round';
+        for (var i = 1; i < hist.length; i++) {
+            var age = (now - hist[i].t) / TRAIL_MS;
+            var alpha = Math.max(0, 0.35 * (1 - age));
+            ctx.strokeStyle = _withAlpha(color, alpha);
+            ctx.beginPath();
+            ctx.moveTo(hist[i - 1].cx, hist[i - 1].cy);
+            ctx.lineTo(hist[i].cx, hist[i].cy);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    function _drawTrackBox(ctx, t, mapping, now, lockedId) {
+        var bbox = t.bbox;
+        if (!bbox || bbox.length < 4) return;
+
+        var x1 = bbox[0] * mapping.scaleX + mapping.offsetX;
+        var y1 = bbox[1] * mapping.scaleY + mapping.offsetY;
+        var x2 = bbox[2] * mapping.scaleX + mapping.offsetX;
+        var y2 = bbox[3] * mapping.scaleY + mapping.offsetY;
+        var w = x2 - x1;
+        var h = y2 - y1;
+        if (w <= 0 || h <= 0) return;
+
+        var isLocked = (lockedId !== null && t.track_id === lockedId);
+        var color = isLocked ? '#ffffff' : _colorFor(t);
+        var conf = Math.max(0, Math.min(1, t.confidence || 0));
+
+        // Box opacity scales with confidence so low-confidence clutter
+        // doesn't overwhelm the view. Floor at 0.45 to stay visible.
+        var boxAlpha = isLocked ? 1.0 : (0.45 + 0.55 * conf);
+
+        ctx.save();
+
+        // Faint filled interior for stronger figure/ground (locked only)
+        if (isLocked) {
+            ctx.fillStyle = _withAlpha(color, 0.06);
+            ctx.fillRect(x1, y1, w, h);
+        }
+
+        // Hairline full-rect stroke (very faint) to keep the shape readable
+        ctx.strokeStyle = _withAlpha(color, isLocked ? 0.35 : 0.22 * boxAlpha);
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.strokeRect(x1 + 0.5, y1 + 0.5, w - 1, h - 1);
+        ctx.setLineDash([]);
+
+        // ── Tactical corner brackets — the signature element.
+        // Short L-shapes at each corner, thicker than the hairline rect.
+        var bLen = Math.max(6, Math.min(18, Math.min(w, h) * 0.22));
+        ctx.strokeStyle = _withAlpha(color, boxAlpha);
+        ctx.lineWidth = isLocked ? 2.5 : 2;
+        ctx.lineCap = 'square';
+        ctx.shadowColor = _withAlpha(color, isLocked ? 0.8 : 0.45);
+        ctx.shadowBlur = isLocked ? 10 : 4;
+
+        ctx.beginPath();
+        // TL
+        ctx.moveTo(x1, y1 + bLen); ctx.lineTo(x1, y1); ctx.lineTo(x1 + bLen, y1);
+        // TR
+        ctx.moveTo(x2 - bLen, y1); ctx.lineTo(x2, y1); ctx.lineTo(x2, y1 + bLen);
+        // BL
+        ctx.moveTo(x1, y2 - bLen); ctx.lineTo(x1, y2); ctx.lineTo(x1 + bLen, y2);
+        // BR
+        ctx.moveTo(x2 - bLen, y2); ctx.lineTo(x2, y2); ctx.lineTo(x2, y2 - bLen);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // ── Acquisition pulse on newly seen tracks ──
+        var firstSeen = _trackFirstSeen[t.track_id];
+        if (firstSeen !== undefined) {
+            var age = now - firstSeen;
+            if (age < ACQUIRE_MS) {
+                var prog = age / ACQUIRE_MS;
+                var expand = 12 * prog;
+                var pulseAlpha = 0.9 * (1 - prog);
+                ctx.strokeStyle = _withAlpha(color, pulseAlpha);
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(x1 - expand, y1 - expand, w + expand * 2, h + expand * 2);
+            }
+        }
+
+        // ── Label chip (track id · label · confidence) ──
+        // Layout:
+        //   [#123] LABEL                 87%
+        //   ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░         (confidence micro-bar)
+        var idTag = '#' + t.track_id;
+        var lbl = (t.label || '?').toUpperCase();
+        var confTxt = Math.round(conf * 100) + '%';
+
+        ctx.font = '600 11px ' + (getComputedStyle(document.body).getPropertyValue('--font-mono') || 'monospace');
+        var idW = ctx.measureText(idTag).width + 10;
+        var lblW = ctx.measureText(lbl).width + 10;
+        var confW = ctx.measureText(confTxt).width + 8;
+        var chipH = 16;
+        var barH = 2;
+        var chipW = Math.max(idW + lblW + confW, Math.min(w, 160));
+        var chipY = y1 - chipH - barH - 3;
+        var placeBelow = false;
+        if (chipY < 2) {
+            chipY = y2 + 3;
+            placeBelow = true;
+        }
+        // clamp to right edge
+        var chipX = x1;
+        if (chipX + chipW > mapping.offsetX + mapping.renderW) {
+            chipX = mapping.offsetX + mapping.renderW - chipW;
+        }
+
+        // Chip background — slanted left edge for a tactical feel
+        ctx.fillStyle = 'rgba(4, 8, 10, 0.82)';
+        ctx.beginPath();
+        ctx.moveTo(chipX + 4, chipY);
+        ctx.lineTo(chipX + chipW, chipY);
+        ctx.lineTo(chipX + chipW, chipY + chipH);
+        ctx.lineTo(chipX, chipY + chipH);
+        ctx.closePath();
+        ctx.fill();
+
+        // ID tag — solid color block with dark text
+        ctx.fillStyle = _withAlpha(color, 0.95);
+        ctx.beginPath();
+        ctx.moveTo(chipX + 4, chipY);
+        ctx.lineTo(chipX + idW, chipY);
+        ctx.lineTo(chipX + idW, chipY + chipH);
+        ctx.lineTo(chipX, chipY + chipH);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#04080a';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(idTag, chipX + 5, chipY + chipH / 2 + 1);
+
+        // Label
+        ctx.fillStyle = '#EFF5EB';
+        ctx.fillText(lbl, chipX + idW + 4, chipY + chipH / 2 + 1);
+
+        // Confidence (right-aligned)
+        ctx.fillStyle = _withAlpha(color, 0.95);
+        ctx.textAlign = 'right';
+        ctx.fillText(confTxt, chipX + chipW - 4, chipY + chipH / 2 + 1);
+        ctx.textAlign = 'start';
+
+        // Confidence micro-bar under the chip
+        var barY = placeBelow ? chipY + chipH + 1 : chipY + chipH + 1;
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.fillRect(chipX, barY, chipW, barH);
+        ctx.fillStyle = _withAlpha(color, 0.9);
+        ctx.fillRect(chipX, barY, chipW * conf, barH);
+
+        ctx.restore();
+    }
+
+    function _drawLockReticle(ctx, t, mapping, now) {
+        var bbox = t.bbox;
+        if (!bbox || bbox.length < 4) return;
+        var x1 = bbox[0] * mapping.scaleX + mapping.offsetX;
+        var y1 = bbox[1] * mapping.scaleY + mapping.offsetY;
+        var x2 = bbox[2] * mapping.scaleX + mapping.offsetX;
+        var y2 = bbox[3] * mapping.scaleY + mapping.offsetY;
+        var cx = (x1 + x2) / 2;
+        var cy = (y1 + y2) / 2;
+
+        // Pulse 0..1 over a 1.2s cycle for a slow, breathing reticle
+        var pulse = 0.5 + 0.5 * Math.sin((now % 1200) / 1200 * Math.PI * 2);
+
+        ctx.save();
+        // Range lines from frame edges to target (very faint — signals "designated")
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 6]);
+        ctx.beginPath();
+        ctx.moveTo(mapping.offsetX, cy); ctx.lineTo(x1, cy);
+        ctx.moveTo(x2, cy); ctx.lineTo(mapping.offsetX + mapping.renderW, cy);
+        ctx.moveTo(cx, mapping.offsetY); ctx.lineTo(cx, y1);
+        ctx.moveTo(cx, y2); ctx.lineTo(cx, mapping.offsetY + mapping.renderH);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Breathing reticle ring at target center
+        var ringR = 14 + pulse * 6;
+        ctx.strokeStyle = 'rgba(255, 255, 255, ' + (0.35 + 0.45 * pulse).toFixed(3) + ')';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Crosshair ticks
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(cx - 10, cy); ctx.lineTo(cx - 3, cy);
+        ctx.moveTo(cx + 3, cy);  ctx.lineTo(cx + 10, cy);
+        ctx.moveTo(cx, cy - 10); ctx.lineTo(cx, cy - 3);
+        ctx.moveTo(cx, cy + 3);  ctx.lineTo(cx, cy + 10);
+        ctx.stroke();
+
+        // Centre dot
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(cx, cy, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
     }
 
     // ── Click Hit-Testing ──
