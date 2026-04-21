@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import configparser
 import logging
 import os
@@ -1112,6 +1113,9 @@ class Pipeline:
         # Register signal handlers after init is complete
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
+        # atexit covers normal sys.exit() and unhandled-exception exits —
+        # signal handlers only fire on SIGINT/SIGTERM. See #54.
+        atexit.register(self._atexit_safe_servo)
 
         self._running = True
         # Reset watchdog baseline so the cumulative init time isn't counted
@@ -2682,6 +2686,24 @@ class Pipeline:
             except Exception:
                 pass
         self._running = False
+
+    def _atexit_safe_servo(self) -> None:
+        """Belt-and-suspenders: drive strike/arm servos to safe on any exit.
+
+        Signal handlers only cover SIGINT/SIGTERM. atexit covers:
+        - normal sys.exit()
+        - unhandled exceptions (propagated to interpreter exit)
+        - end-of-main-thread exits
+
+        Does nothing on os._exit() / SIGKILL — those bypass atexit. Idempotent
+        with _signal_handler and _shutdown since servo.safe() just re-drives
+        PWM to the same safe value.
+        """
+        if self._servo_tracker is not None:
+            try:
+                self._servo_tracker.safe()
+            except Exception:
+                pass  # best-effort — interpreter is tearing down
 
 
 class _FPSCounter:
