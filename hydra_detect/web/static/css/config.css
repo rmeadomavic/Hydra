@@ -630,6 +630,14 @@ body.view-config #view-config {
     margin-top: var(--s-2);
 }
 
+/* Panel-header trailing badge (e.g. mission badge, RF state badge).
+   Pushes the badge to the right of the header row, leaving room for
+   the collapse chevron after it. */
+.panel-header-badge {
+    margin-left: auto;
+    margin-right: var(--s-2);
+}
+
 /* Empty-state placeholders rendered from JS (detection log, TAK list). */
 .panel-det-empty {
     color: var(--text-dim);
