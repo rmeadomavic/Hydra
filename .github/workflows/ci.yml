@@ -18,6 +18,34 @@ permissions:
   issues: write
 
 jobs:
+  static-checks:
+    # Fast checks that don't need the full Python dep stack. Runs in parallel
+    # with `test`. Catches the kinds of drift that unit tests can't see:
+    # config.ini.factory ↔ config_schema.py, Lua syntax on the Pixhawk OSD
+    # script, shell syntax on deploy/setup scripts.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Config consistency (config.ini.factory ↔ SCHEMA)
+        run: python scripts/check_config_consistency.py
+
+      - name: Lua syntax (hydra_osd.lua)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y lua5.3
+          find scripts -name "*.lua" -print0 | xargs -0 -r -n1 luac5.3 -p
+
+      - name: Shell syntax (shellcheck on scripts/*.sh)
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: "./scripts"
+          severity: error
+
   test:
     runs-on: ubuntu-latest
     steps:
