@@ -346,32 +346,60 @@
     // CSP-safe image fallbacks (replaces inline onerror= in base.html so the
     // topbar still degrades gracefully when logo assets 404, but the CSP
     // script-src policy stays strict — no 'unsafe-inline' required).
+    //
+    // Must run synchronously at script load, not inside DOMContentLoaded:
+    // the <img> tags are already parsed by the time this script executes
+    // (it lives at the bottom of <body>) and a fast 404 from a missing
+    // static asset can fire the error event before DOMContentLoaded. If
+    // the listener is attached inside that callback, the fallback never
+    // runs and the topbar keeps a broken-image icon.
+    //
+    // Handles two cases:
+    //   1. Error already happened before bind (img.complete && naturalWidth===0)
+    //      → run the fallback synchronously.
+    //   2. Error fires later → event handler catches it.
+    function applyShieldFallback(shield) {
+        if (shield.dataset.fallback) {
+            shield.outerHTML = shield.dataset.fallback;
+        }
+    }
+    function applyOgtFallback(ogt) {
+        ogt.style.display = 'none';
+    }
+    function imageAlreadyFailed(img) {
+        // complete === true + naturalWidth === 0 means the browser has
+        // finished trying and got nothing (404, DNS fail, etc.).
+        return img.complete && img.naturalWidth === 0;
+    }
     function bindImageFallbacks() {
         const shield = document.getElementById('tb-shield');
         if (shield) {
-            shield.addEventListener('error', function onShieldError() {
-                shield.removeEventListener('error', onShieldError);
-                if (shield.dataset.fallback) {
-                    shield.outerHTML = shield.dataset.fallback;
-                }
-            });
+            if (imageAlreadyFailed(shield)) {
+                applyShieldFallback(shield);
+            } else {
+                shield.addEventListener('error', function onShieldError() {
+                    shield.removeEventListener('error', onShieldError);
+                    applyShieldFallback(shield);
+                });
+            }
         }
         const ogt = document.getElementById('tb-ogt');
         if (ogt) {
-            ogt.addEventListener('error', function onOgtError() {
-                ogt.removeEventListener('error', onOgtError);
-                ogt.style.display = 'none';
-            });
+            if (imageAlreadyFailed(ogt)) {
+                applyOgtFallback(ogt);
+            } else {
+                ogt.addEventListener('error', function onOgtError() {
+                    ogt.removeEventListener('error', onOgtError);
+                    applyOgtFallback(ogt);
+                });
+            }
         }
     }
+    bindImageFallbacks();
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function() {
-            bindImageFallbacks();
-            init();
-        });
+        document.addEventListener('DOMContentLoaded', init);
     } else {
-        bindImageFallbacks();
         init();
     }
 })();
