@@ -409,6 +409,7 @@
                 <div class="ops-sidebar-section" id="ops-rf-section">
                     <div class="ops-sidebar-header">
                         <span>RF HUNT</span>
+                        <span class="rf-source-pill" id="ops-rf-source-pill" hidden>REPLAY</span>
                         <span class="ops-card-badge" id="ops-rf-state-badge">N/A</span>
                     </div>
                     <div class="ops-card-body">
@@ -429,6 +430,37 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Kismet device feed — populated from /api/rf/devices -->
+                <div class="ops-sidebar-section rf-device-section" id="ops-rf-devices-section" hidden>
+                    <div class="ops-sidebar-header">
+                        <span>KISMET FEED</span>
+                        <span class="ops-card-badge mono" id="ops-rf-devices-count">0</span>
+                    </div>
+                    <div class="rf-device-list" id="ops-rf-device-list" role="list"
+                         aria-label="Detected RF devices — click to set as hunt target">
+                    </div>
+                </div>
+
+                <!-- State transition timeline — populated from /api/rf/events -->
+                <div class="ops-sidebar-section rf-events-section" id="ops-rf-events-section" hidden>
+                    <div class="ops-sidebar-header">
+                        <span>HUNT TIMELINE</span>
+                    </div>
+                    <div class="rf-event-timeline" id="ops-rf-events" role="list"
+                         aria-label="Hunt state transitions">
+                    </div>
+                </div>
+
+                <!-- Ambient spectrum — populated from /api/rf/ambient_scan -->
+                <div class="ops-sidebar-section rf-ambient-section" id="ops-rf-ambient-section" hidden>
+                    <div class="ops-sidebar-header">
+                        <span>AMBIENT SPECTRUM</span>
+                    </div>
+                    <div class="rf-ambient-bars" id="ops-rf-ambient"
+                         aria-label="Recent ambient RF samples"></div>
+                </div>
+
                 <div class="ops-tab-empty" id="ops-rf-empty" style="display:none;">No RF activity</div>
             </div>
 

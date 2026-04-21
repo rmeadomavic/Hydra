@@ -28,6 +28,7 @@ import time
 sys.path.insert(0, ".")
 
 from hydra_detect.rf.hunt import HuntState, RFHuntController
+from hydra_detect.rf.replay_source import KismetReplaySource
 from hydra_detect.rf.rtl_power_client import RtlPowerClient
 
 # ANSI
@@ -136,6 +137,17 @@ def main():
                         help="Search area in metres (default: 50)")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Show debug logging")
+    parser.add_argument("--replay", type=str, default=None,
+                        help="Path to a Kismet JSONL replay fixture. When set, "
+                             "the hunt runs against canned data instead of "
+                             "RTL-SDR — useful for tabletop demos without "
+                             "hardware.")
+    parser.add_argument("--mode", choices=["wifi", "sdr"], default=None,
+                        help="Hunt mode (default: sdr for --freq, wifi for "
+                             "--replay)")
+    parser.add_argument("--bssid", type=str, default=None,
+                        help="Target BSSID for wifi/replay mode "
+                             "(default: AA:BB:CC:DE:AD:01 in replay mode)")
     args = parser.parse_args()
 
     if args.verbose:
@@ -143,25 +155,49 @@ def main():
     else:
         logging.basicConfig(level=logging.WARNING)
 
+    replay_mode = bool(args.replay)
+    default_bssid = "AA:BB:CC:DE:AD:01"
+    hunt_mode = args.mode or ("wifi" if replay_mode else "sdr")
+    hunt_bssid = args.bssid or (default_bssid if replay_mode else None)
+
     print(f"{BOLD}=== Hydra RF Hunt Demo ==={RST}")
-    print(f"Target: {args.freq:.0f} MHz")
+    if replay_mode:
+        print(f"Source: replay fixture {args.replay}")
+        if hunt_mode == "wifi":
+            print(f"Target: BSSID {hunt_bssid}")
+        else:
+            print(f"Target: {args.freq:.1f} MHz (SDR mode)")
+    else:
+        print(f"Source: RTL-SDR live")
+        print(f"Target: {args.freq:.0f} MHz")
     print(f"Thresholds: search→homing @ {args.threshold:+.0f} dB, converge @ {args.converge:+.0f} dB")
     print(f"Pattern: {args.pattern}, area: {args.area:.0f}m")
     print()
 
-    # Check RTL-SDR
-    print("[1/3] Checking RTL-SDR...")
-    client = RtlPowerClient(tolerance_mhz=5.0, step_khz=100.0)
-    if not client.check_connection():
-        print(f"  {RED}FAILED{RST} — RTL-SDR not available")
-        sys.exit(1)
-
-    # Quick baseline scan
-    baseline = client._scan_peak(args.freq)
-    if baseline is not None:
-        print(f"  RTL-SDR OK — baseline {args.freq:.0f} MHz: {baseline:+.1f} dB")
+    # Data source
+    if replay_mode:
+        print("[1/3] Loading replay fixture...")
+        try:
+            client = KismetReplaySource(args.replay, loop=True, speed=1.0)
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            print(f"  {RED}FAILED{RST} — {exc}")
+            sys.exit(1)
+        print(
+            f"  Replay OK — {client.device_count} devices, "
+            f"{client.sample_count} samples, "
+            f"{client.duration:.0f}s"
+        )
     else:
-        print(f"  RTL-SDR OK — no baseline reading")
+        print("[1/3] Checking RTL-SDR...")
+        client = RtlPowerClient(tolerance_mhz=5.0, step_khz=100.0)
+        if not client.check_connection():
+            print(f"  {RED}FAILED{RST} — RTL-SDR not available")
+            sys.exit(1)
+        baseline = client._scan_peak(args.freq)
+        if baseline is not None:
+            print(f"  RTL-SDR OK — baseline {args.freq:.0f} MHz: {baseline:+.1f} dB")
+        else:
+            print("  RTL-SDR OK — no baseline reading")
     print()
 
     # Simulated vehicle
@@ -179,11 +215,14 @@ def main():
     def on_state_change(state: HuntState):
         states_seen.append((time.monotonic() - t0, state))
 
+    # Replay polls cheap canned data (~500µs), so poll faster than rtl_power.
+    poll_interval = 0.5 if replay_mode else 2.0
     ctrl = RFHuntController(
         mav,
-        mode="sdr",
+        mode=hunt_mode,
+        target_bssid=hunt_bssid,
         target_freq_mhz=args.freq,
-        kismet_host="http://unused",  # won't be used
+        kismet_host="http://unused",  # won't be used — injected client is used
         search_pattern=args.pattern,
         search_area_m=args.area,
         search_spacing_m=max(args.area / 5, 5.0),
@@ -193,13 +232,11 @@ def main():
         rssi_window=5,
         gradient_step_m=5.0,
         gradient_rotation_deg=45.0,
-        poll_interval_sec=2.0,  # rtl_power takes ~1-2s per scan
+        poll_interval_sec=poll_interval,
         arrival_tolerance_m=3.0,
         on_state_change=on_state_change,
+        client=client,
     )
-
-    # Replace the Kismet client with our rtl_power client
-    ctrl._kismet = client
 
     result = ctrl.start()
     if not result:

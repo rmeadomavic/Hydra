@@ -410,6 +410,27 @@ ticker. Shape:
  "max_rssi": -42}
 ```
 
+### `GET /api/rf/devices`
+**Auth:** none · Current Kismet device feed, normalized. Payload:
+`{mode: "live"|"replay"|"unavailable",
+ devices: [{bssid, ssid, rssi, channel, freq_mhz, manuf,
+            first_seen, last_seen, lat, lon, is_target}, ...]}`.
+Replay fixtures are wired up when `[rf_homing] replay_path` is set
+and the live Kismet API is unreachable — tabletop demos work with
+no hardware.
+
+### `GET /api/rf/events`
+**Auth:** none · State-transition ring (≤50 entries) for the
+dashboard hunt timeline. Each entry:
+`{t, from, to, samples, elapsed_prev_sec}`.
+
+### `POST /api/rf/target`
+**Auth:** bearer · One-click hunt target — used by the device-feed
+table. Body: `{mode?: "wifi"|"sdr", bssid?: str, freq_mhz?: float,
+confirm: bool}`. Either `bssid` or `freq_mhz` is required;
+`confirm=true` is mandatory (prevents accidental hunts). Reuses the
+same validation + controller rebuild path as `POST /api/rf/start`.
+
 ### `POST /api/rf/start`
 **Auth:** bearer · Body: `{mode, target_bssid, target_freq_mhz,
 search_pattern, search_area_m, search_spacing_m, search_alt_m,

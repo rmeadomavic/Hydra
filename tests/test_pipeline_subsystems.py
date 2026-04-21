@@ -62,8 +62,11 @@ def test_control_adapter_exposes_expected_callbacks():
         _cfg=configparser.ConfigParser(),
         _get_rf_status=lambda: {},
         _get_rf_rssi_history=lambda: [],
+        _get_rf_devices=lambda: {"mode": "unavailable", "devices": []},
+        _get_rf_events=lambda: [],
         _handle_rf_start=lambda _p: True,
         _handle_rf_stop=lambda: None,
+        _handle_rf_target=lambda _p: True,
         _handle_set_mode_command=lambda _m: True,
         _handle_alert_classes_change=lambda _c: None,
         _detector=SimpleNamespace(get_class_names=lambda: []),
@@ -156,8 +159,13 @@ def test_pipeline_contract_adapter_callbacks_keep_command_behavior():
     cb_owner._cfg = configparser.ConfigParser()
     cb_owner._get_rf_status = MagicMock(return_value={})
     cb_owner._get_rf_rssi_history = MagicMock(return_value=[])
+    cb_owner._get_rf_devices = MagicMock(
+        return_value={"mode": "unavailable", "devices": []},
+    )
+    cb_owner._get_rf_events = MagicMock(return_value=[])
     cb_owner._handle_rf_start = MagicMock(return_value=True)
     cb_owner._handle_rf_stop = MagicMock()
+    cb_owner._handle_rf_target = MagicMock(return_value=True)
     cb_owner._handle_set_mode_command = MagicMock(return_value=True)
     cb_owner._handle_alert_classes_change = MagicMock()
     cb_owner._detector = SimpleNamespace(get_class_names=lambda: [])
@@ -211,8 +219,11 @@ def test_pipeline_contract_adapter_callbacks_keep_command_behavior():
         "on_model_switch": cb_owner._handle_model_switch,
         "get_rf_status": cb_owner._get_rf_status,
         "get_rf_rssi_history": cb_owner._get_rf_rssi_history,
+        "get_rf_devices": cb_owner._get_rf_devices,
+        "get_rf_events": cb_owner._get_rf_events,
         "on_rf_start": cb_owner._handle_rf_start,
         "on_rf_stop": cb_owner._handle_rf_stop,
+        "on_rf_target": cb_owner._handle_rf_target,
         "on_set_mode_command": cb_owner._handle_set_mode_command,
         "on_alert_classes_change": cb_owner._handle_alert_classes_change,
         "get_class_names": cb_owner._detector.get_class_names,

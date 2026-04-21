@@ -289,6 +289,15 @@ class TAKOutput:
             self._send_cot(data)
             self._last_emit[track.track_id] = now
 
+    def emit_cot(self, data: bytes) -> None:
+        """Send a pre-built CoT payload through this output (thread-safe).
+
+        Public wrapper around ``_send_cot`` so external components —
+        notably ``RfTakEmitter`` — can push CoT events without touching
+        protected methods. A no-op when the output is not running.
+        """
+        self._send_cot(data)
+
     def _send_cot(self, data: bytes) -> None:
         """Send CoT XML to all configured destinations."""
         if self._sock is None:

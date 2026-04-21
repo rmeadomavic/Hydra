@@ -114,6 +114,10 @@ class RFHuntController:
         # Geofence callbacks (from autonomous controller)
         geofence_check: Callable[[float, float], bool] | None = None,
         geofence_clip: Callable[[float, float], tuple[float, float]] | None = None,
+        # RF data source — inject to replace the default KismetClient.
+        # Any object implementing the KismetDataSource protocol works
+        # (see hydra_detect.rf.replay_source).
+        client: object | None = None,
     ):
         self._mavlink = mavlink
         self._mode = mode
@@ -140,9 +144,12 @@ class RFHuntController:
         self._CONSECUTIVE_NONE_LOST = _CONSECUTIVE_NONE_LOST
         self._kismet_restart_pending = False  # guard against concurrent restarts
 
-        self._kismet = KismetClient(
-            host=kismet_host, user=kismet_user, password=kismet_pass,
-        )
+        if client is not None:
+            self._kismet = client
+        else:
+            self._kismet = KismetClient(
+                host=kismet_host, user=kismet_user, password=kismet_pass,
+            )
         self._filter = RSSIFilter(window_size=rssi_window)
         self._navigator = GradientNavigator(
             step_m=gradient_step_m,
@@ -162,6 +169,9 @@ class RFHuntController:
         # Lock for state reads from other threads (web UI, etc.)
         self._lock = threading.Lock()
         self._rssi_history: deque[dict] = deque(maxlen=300)
+        self._state_events: deque[dict] = deque(maxlen=50)
+        self._state_entered_at: float = time.time()
+        self._state_entered_samples: int = 0
 
     # -- Public API --------------------------------------------------------
 
@@ -207,6 +217,8 @@ class RFHuntController:
                 "samples": sample_count,
                 "wp_progress": f"{self._wp_index}/{len(self._waypoints)}",
                 "gps_required": self._gps_required,
+                "rssi_threshold": self._rssi_threshold,
+                "rssi_converge": self._rssi_converge,
             }
 
     def start(self) -> bool:
@@ -292,9 +304,20 @@ class RFHuntController:
     # -- Internal state machine --------------------------------------------
 
     def _set_state(self, new_state: HuntState) -> None:
+        now = time.time()
         with self._lock:
             old = self._state
             self._state = new_state
+            if old != new_state:
+                elapsed = max(0.0, now - self._state_entered_at)
+                self._state_events.append({
+                    "t": round(now, 3),
+                    "from": old.value,
+                    "to": new_state.value,
+                    "samples": self._navigator.get_sample_count(),
+                    "elapsed_prev_sec": round(elapsed, 2),
+                })
+                self._state_entered_at = now
         if old != new_state:
             logger.info("RF Hunt: %s → %s", old.value, new_state.value)
             if self._on_state_change:
@@ -302,6 +325,11 @@ class RFHuntController:
                     self._on_state_change(new_state)
                 except Exception as exc:
                     logger.warning("State change callback error: %s", exc)
+
+    def get_state_events(self) -> list[dict]:
+        """Return the state-transition ring (thread-safe, ≤50 entries)."""
+        with self._lock:
+            return list(self._state_events)
 
     def _run_loop(self) -> None:
         """Main hunt loop — runs in background thread."""

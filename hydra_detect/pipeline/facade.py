@@ -21,6 +21,8 @@ from ..servo_tracker import ServoTracker
 from ..camera import Camera, list_video_sources
 from ..rf.hunt import RFHuntController
 from ..rf.kismet_manager import KismetManager
+from ..rf.replay_source import KismetReplaySource
+from ..rf.tak_emitter import RfTakEmitter
 from ..detection_logger import DetectionLogger
 from ..event_logger import EventLogger
 from ..model_manifest import (
@@ -526,6 +528,8 @@ class Pipeline:
         # RF homing controller
         self._rf_hunt: RFHuntController | None = None
         self._kismet_manager: KismetManager | None = None
+        self._rf_replay_active: bool = False
+        self._rf_tak_emitter: RfTakEmitter | None = None
         if self._cfg.getboolean("rf_homing", "enabled", fallback=False):
             if self._mavlink is not None:
                 kismet_host = self._cfg.get(
@@ -559,13 +563,18 @@ class Pipeline:
                         "rf_homing", "kismet_auto_spawn", fallback=False
                     ),
                 )
-                if self._kismet_manager.start():
+                live_ok = self._kismet_manager.start()
+                replay_client = None
+                if not live_ok:
+                    replay_client = self._try_build_replay_source()
+                if live_ok or replay_client is not None:
                     # Pass geofence callbacks if autonomous controller is available
                     geofence_check = None
                     geofence_clip = None
                     if self._autonomous is not None:
                         geofence_check = self._autonomous.check_geofence
                         geofence_clip = self._autonomous.clip_to_geofence
+                    self._rf_replay_active = replay_client is not None
                     self._rf_hunt = _get_rf_hunt_controller_cls()(
                         self._mavlink,
                         mode=self._cfg.get(
@@ -625,12 +634,13 @@ class Pipeline:
                             "rf_homing", "arrival_tolerance_m",
                             fallback=3.0,
                         ),
-                        kismet_manager=self._kismet_manager,
+                        kismet_manager=self._kismet_manager if live_ok else None,
                         geofence_check=geofence_check,
                         geofence_clip=geofence_clip,
+                        client=replay_client,
                     )
                     logger.info(
-                        "RF homing configured: mode=%s target=%s",
+                        "RF homing configured: mode=%s target=%s source=%s",
                         self._cfg.get("rf_homing", "mode", fallback="wifi"),
                         self._cfg.get(
                             "rf_homing", "target_bssid", fallback=""
@@ -638,9 +648,12 @@ class Pipeline:
                             f"{self._cfg.getfloat('rf_homing', 'target_freq_mhz', fallback=915.0)}"
                             "MHz"
                         ),
+                        "replay" if self._rf_replay_active else "live",
                     )
                 else:
-                    logger.warning("Kismet failed to start — RF homing disabled")
+                    logger.warning(
+                        "Kismet unreachable and no replay fixture — RF homing disabled"
+                    )
                     self._kismet_manager = None
             else:
                 logger.warning("RF homing requires MAVLink — skipping")
@@ -1147,6 +1160,32 @@ class Pipeline:
             else:
                 logger.warning("TAK output failed to start — continuing without")
                 self._tak = None
+
+        # Start RF→TAK emitter if enabled and both TAK + RF are up.
+        if (
+            self._tak is not None
+            and self._rf_hunt is not None
+            and self._cfg.get("rf_homing", "tak_export_mode", fallback="off") != "off"
+        ):
+            self._rf_tak_emitter = RfTakEmitter(
+                self._tak,
+                get_devices=self._get_rf_devices,
+                get_self_position=lambda: (
+                    self._mavlink.get_lat_lon() if self._mavlink else (None, None, None)
+                ),
+                callsign=self._cfg.get("tak", "callsign", fallback="HYDRA-1"),
+                mode=self._cfg.get("rf_homing", "tak_export_mode", fallback="off"),
+                strong_dbm=self._cfg.getfloat(
+                    "rf_homing", "tak_export_strong_dbm", fallback=-60.0,
+                ),
+            )
+            if self._rf_tak_emitter.start():
+                logger.info(
+                    "RF→TAK emitter started (mode=%s)",
+                    self._rf_tak_emitter.mode,
+                )
+            else:
+                self._rf_tak_emitter = None
 
         # Start MAVLink-based CoT relay
         if self._mav_relay is not None:
@@ -2343,17 +2382,113 @@ class Pipeline:
     # ------------------------------------------------------------------
     # RF Hunt handlers (web UI)
     # ------------------------------------------------------------------
+    def _try_build_replay_source(self) -> KismetReplaySource | None:
+        """Build a Kismet replay source if one is configured and readable.
+
+        Returns None when the config has no replay_path, the file is missing,
+        or the fixture fails to parse. Callers use this as the tabletop
+        fallback when the live Kismet API is unreachable.
+        """
+        replay_path = self._cfg.get("rf_homing", "replay_path", fallback="").strip()
+        if not replay_path:
+            return None
+        try:
+            source = KismetReplaySource(
+                replay_path,
+                loop=self._cfg.getboolean("rf_homing", "replay_loop", fallback=True),
+                speed=self._cfg.getfloat("rf_homing", "replay_speed", fallback=1.0),
+            )
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            logger.warning(
+                "RF replay fixture unavailable (%s) — %s", replay_path, exc,
+            )
+            return None
+        logger.info(
+            "RF replay source active: %s (%d devices, %.1fs)",
+            replay_path, source.device_count, source.duration,
+        )
+        return source
+
     def _get_rf_status(self) -> dict:
         """Return RF hunt status for the web API."""
         if self._rf_hunt is not None:
-            return self._rf_hunt.get_status()
-        return {"state": "unavailable"}
+            status = dict(self._rf_hunt.get_status())
+            status["source"] = "replay" if self._rf_replay_active else "live"
+            status["converge_flash_ms"] = self._cfg.getint(
+                "rf_homing", "converge_flash_ms", fallback=2500,
+            )
+            return status
+        return {"state": "unavailable", "source": "none"}
 
     def _get_rf_rssi_history(self) -> list[dict]:
         """Return RSSI history for the web API."""
         if self._rf_hunt is not None:
             return self._rf_hunt.get_rssi_history()
         return []
+
+    def _get_rf_devices(self) -> dict:
+        """Return the current Kismet device list with ``is_target`` flags.
+
+        Shape: ``{"mode": "live"|"replay"|"unavailable", "devices": [...]}``.
+        Device dicts match ``KismetReplaySource.list_devices`` /
+        ``KismetClient.list_devices``. Empty list when RF homing is off.
+        """
+        if self._rf_hunt is None:
+            return {"mode": "unavailable", "devices": []}
+        client = getattr(self._rf_hunt, "_kismet", None)
+        if client is None or not hasattr(client, "list_devices"):
+            return {"mode": "unavailable", "devices": []}
+        try:
+            devices = client.list_devices(max_age_sec=10.0)
+        except Exception as exc:  # defensive — never take the pipeline down
+            logger.warning("list_devices failed: %s", exc)
+            devices = []
+        status = self._rf_hunt.get_status()
+        target_bssid = (status.get("target") or "").upper()
+        target_freq = None
+        if status.get("mode") == "sdr":
+            try:
+                target_freq = float(str(status.get("target", ""))
+                                    .replace("MHz", "").strip())
+            except ValueError:
+                target_freq = None
+        for dev in devices:
+            if target_bssid and dev.get("bssid", "") == target_bssid:
+                dev["is_target"] = True
+            elif (
+                target_freq is not None
+                and dev.get("freq_mhz") is not None
+                and abs(dev["freq_mhz"] - target_freq) < 0.5
+            ):
+                dev["is_target"] = True
+            else:
+                dev["is_target"] = False
+        return {
+            "mode": "replay" if self._rf_replay_active else "live",
+            "devices": devices,
+        }
+
+    def _get_rf_events(self) -> list[dict]:
+        """Return the RF hunt state transition ring for the web API."""
+        if self._rf_hunt is not None:
+            return self._rf_hunt.get_state_events()
+        return []
+
+    def _handle_rf_target(self, params: dict) -> bool:
+        """Set the hunt target and kick off a hunt from a device-feed click.
+
+        Thin wrapper over ``_handle_rf_start`` that pre-fills ``mode`` and
+        ``target_bssid``/``target_freq_mhz`` from the supplied params.
+        """
+        if not isinstance(params, dict):
+            return False
+        body = dict(params)
+        body.setdefault("mode", "wifi" if body.get("bssid") else "sdr")
+        if body.get("bssid"):
+            body["target_bssid"] = body["bssid"]
+        if body.get("freq_mhz") is not None:
+            body["target_freq_mhz"] = body["freq_mhz"]
+        return self._handle_rf_start(body)
 
     def _handle_rf_start(self, params: dict) -> bool:
         """Start (or restart) an RF hunt from the web UI."""
@@ -2369,7 +2504,8 @@ class Pipeline:
         if self._rf_hunt is not None:
             self._rf_hunt.stop()
 
-        # Auto-start Kismet if no manager exists
+        # Ensure a usable RF data source — live Kismet preferred, replay fallback.
+        replay_client = None
         if self._kismet_manager is None:
             self._kismet_manager = KismetManager(
                 source=self._cfg.get("rf_homing", "kismet_source", fallback="rtl433-0"),
@@ -2388,10 +2524,21 @@ class Pipeline:
                 auto_spawn=self._cfg.getboolean("rf_homing", "kismet_auto_spawn", fallback=False),
             )
             if not self._kismet_manager.start():
-                logger.error("Kismet auto-start failed — RF hunt aborted")
+                replay_client = self._try_build_replay_source()
+                if replay_client is None:
+                    logger.error("Kismet auto-start failed and no replay — RF hunt aborted")
+                    self._kismet_manager = None
+                    return False
+                logger.info("Kismet unavailable — RF hunt using replay fixture")
                 self._kismet_manager = None
-                return False
-            logger.info("Kismet auto-started for RF hunt")
+            else:
+                logger.info("Kismet auto-started for RF hunt")
+        elif not self._kismet_manager.is_healthy():
+            replay_client = self._try_build_replay_source()
+            if replay_client is not None:
+                logger.info("Kismet unhealthy — RF hunt using replay fixture")
+
+        self._rf_replay_active = replay_client is not None
 
         # Build a new controller from the web-submitted params
         self._rf_hunt = _get_rf_hunt_controller_cls()(
@@ -2421,6 +2568,7 @@ class Pipeline:
             ),
             kismet_manager=self._kismet_manager,
             gps_required=self._cfg.getboolean("rf_homing", "gps_required", fallback=False),
+            client=replay_client,
         )
         return self._rf_hunt.start()
 
@@ -2701,6 +2849,8 @@ class Pipeline:
         logger.info("Shutting down ...")
         if self._approach is not None:
             self._approach.abort()
+        if self._rf_tak_emitter is not None:
+            self._rf_tak_emitter.stop()
         if self._rf_hunt is not None:
             self._rf_hunt.stop()
         if self._kismet_manager is not None:
