@@ -45,6 +45,24 @@ const HydraDemo = (() => {
         resetFeedImg();
         startStatsPoll();
         startPeersPoll();
+        updateTakMetaOnce();
+    }
+
+    // One-shot fetch to set the mini-TAK header meta (multicast group:port)
+    // from the live TAK status. Previously hardcoded to a fake TAK-server
+    // hostname which would confuse any operator asking what it meant.
+    async function updateTakMetaOnce() {
+        const el = document.getElementById('demo-takmini-meta');
+        if (!el) return;
+        try {
+            const resp = await fetch('/api/tak/status', { credentials: 'same-origin' });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const mcast = data && typeof data.multicast === 'string' ? data.multicast : '';
+            if (mcast) el.textContent = mcast + ' · multicast';
+        } catch (err) {
+            // Swallow — the hardcoded 239.2.3.1:6969 label is a fine fallback.
+        }
     }
 
     function onLeave() {
