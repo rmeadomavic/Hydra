@@ -630,6 +630,39 @@ body.view-config #view-config {
     margin-top: var(--s-2);
 }
 
+/* Empty-state placeholders rendered from JS (detection log, TAK list). */
+.panel-det-empty {
+    color: var(--text-dim);
+    font-size: var(--font-sm);
+    padding: var(--s-2);
+    text-align: center;
+}
+.panel-tak-target-empty {
+    color: var(--text-dim);
+    font-size: var(--font-xs);
+    padding: 2px 0;
+}
+
+/* TAK unicast target list rows. */
+.panel-tak-target-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 0;
+}
+.panel-tak-target-addr {
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    flex: 1;
+}
+.panel-tak-target-del {
+    color: var(--danger);
+    border-color: var(--danger);
+    padding: 0 4px;
+    min-width: 0;
+    line-height: 1.2;
+}
+
 .btn-sm {
     font-size: var(--font-xs) !important;
     padding: 3px 8px !important;
