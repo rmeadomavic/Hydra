@@ -14,8 +14,10 @@ if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
   PIP_LOG="${TMPDIR:-/tmp}/hydra-session-start-pip.log"
   : > "$PIP_LOG"
 
-  # ultralytics and supervision pull heavy transitive deps — install without deps
-  # then install the rest from requirements.txt excluding those + opencv
+  # Mirror the CI install order in .github/workflows/ci.yml. ultralytics and
+  # supervision pull heavy transitive deps (torch, etc.) — install without deps,
+  # then install everything else from requirements.txt excluding those plus
+  # opencv-python (the headless build is used in CI/Docker/web sessions).
   if ! pip install --no-deps ultralytics supervision >>"$PIP_LOG" 2>&1; then
     echo "WARN: pip install ultralytics/supervision failed — see $PIP_LOG" >&2
   fi
@@ -23,7 +25,9 @@ if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
   if ! pip install -r /tmp/reqs.txt >>"$PIP_LOG" 2>&1; then
     echo "WARN: pip install -r /tmp/reqs.txt failed — see $PIP_LOG" >&2
   fi
-  if ! pip install opencv-python-headless httpx pytest flake8 mypy >>"$PIP_LOG" 2>&1; then
+  # Dev/test extras — httpx for fastapi.TestClient, pyyaml matches CI's install
+  # list, mypy powers the PostToolUse lint hook.
+  if ! pip install opencv-python-headless httpx pytest flake8 mypy pyyaml >>"$PIP_LOG" 2>&1; then
     echo "WARN: pip install test deps failed — see $PIP_LOG" >&2
   fi
 
