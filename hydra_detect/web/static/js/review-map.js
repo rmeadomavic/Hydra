@@ -439,6 +439,27 @@ if (geojsonBtn) geojsonBtn.addEventListener('click', exportGeoJSON);
 const waypointBtn = document.getElementById('btn-export-waypoints');
 if (waypointBtn) waypointBtn.addEventListener('click', exportWaypoints);
 
+// Reset filters — restore min-confidence to 0 and re-enable every
+// discovered class so the instructor can recover from over-filtering
+// without re-loading the log.
+const resetBtn = document.getElementById('btn-reset-filters');
+if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+        const slider = document.getElementById('confSlider');
+        const confVal = document.getElementById('confValue');
+        if (slider) slider.value = '0';
+        if (confVal) confVal.textContent = '0.00';
+        const discovered = new Set(
+            allDetections.map(d => d.label).filter(Boolean)
+        );
+        activeClasses = new Set(discovered);
+        document.querySelectorAll('#classFilters .class-tag').forEach(tag => {
+            tag.classList.add('active');
+        });
+        renderMap();
+    });
+}
+
 // --- Init ---
 loadLogList();
 loadEventLogList();
