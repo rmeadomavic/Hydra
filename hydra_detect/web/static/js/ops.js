@@ -1625,6 +1625,16 @@ const HydraOps = (() => {
             });
         }
 
+        // Quick action: Beep — apiPost handles error toasts itself
+        var beepBtn = document.getElementById('ops-btn-beep');
+        if (beepBtn) {
+            beepBtn.addEventListener('click', function () {
+                HydraApp.apiPost('/api/vehicle/beep', { tune: 'alert' }).then(function (r) {
+                    if (r) HydraApp.showToast('Beep sent', 'success');
+                });
+            });
+        }
+
         // Approach: Abort
         var approachAbortBtn = document.getElementById('ops-btn-approach-abort');
         if (approachAbortBtn) {
