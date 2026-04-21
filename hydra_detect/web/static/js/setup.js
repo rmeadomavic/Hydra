@@ -100,6 +100,47 @@
         }
     }
 
+    // On wizard re-run (not first boot), load existing config.ini values
+    // so the form reflects the current state instead of forcing a full
+    // re-entry. First-boot defaults stay as-is because /api/config/full
+    // simply returns those same defaults.
+    async function loadExistingConfig() {
+        try {
+            var resp = await fetch('/api/config/full');
+            if (!resp.ok) return;
+            var cfg = await resp.json();
+            // Camera / serial — select matching option if it's already in the list
+            if (cfg.camera && cfg.camera.source) {
+                var src = String(cfg.camera.source);
+                var camOpts = Array.from(cameraSelect.options);
+                var match = camOpts.find(function(o) { return o.value === src; });
+                if (match) match.selected = true;
+            }
+            if (cfg.mavlink && cfg.mavlink.connection_string) {
+                var conn = String(cfg.mavlink.connection_string);
+                var serOpts = Array.from(serialSelect.options);
+                var serMatch = serOpts.find(function(o) { return o.value === conn; });
+                if (serMatch) serMatch.selected = true;
+            }
+            var tak = cfg.tak || {};
+            if (tak.callsign && !callsignInput.value) {
+                callsignInput.value = tak.callsign;
+                updateCallsignPreview();
+            }
+            if (takEnabledInput && typeof tak.enabled === 'string') {
+                takEnabledInput.checked = (tak.enabled.toLowerCase() === 'true');
+            }
+            if (takHostInput && tak.advertise_host) {
+                takHostInput.value = tak.advertise_host;
+            }
+            if (takAllowedInput && tak.allowed_callsigns) {
+                takAllowedInput.value = tak.allowed_callsigns;
+            }
+        } catch (err) {
+            // Silent — first boot has no config to load, that is fine.
+        }
+    }
+
     // Save configuration
     saveBtn.addEventListener('click', async function() {
         saveBtn.disabled = true;
@@ -142,5 +183,8 @@
         }
     });
 
-    loadDevices();
+    (async function init() {
+        await loadDevices();
+        await loadExistingConfig();
+    })();
 })();
