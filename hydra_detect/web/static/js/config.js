@@ -320,6 +320,10 @@ const HydraOperations = (() => {
         });
         addClick('ctrl-alert-apply', () => applyAlertClasses());
 
+        // Open-vocab prompts (YOLO-World / NanoOWL)
+        addClick('ctrl-prompts-apply', () => applyPrompts());
+        loadPrompts();
+
         // RF Hunt
         addChange('ctrl-rf-mode', () => rfModeChanged());
         addClick('ctrl-btn-rf-start', () => rfStart());
@@ -1219,6 +1223,37 @@ const HydraOperations = (() => {
             if (profSel) profSel.value = '';
             const descEl = document.getElementById('ctrl-profile-desc');
             if (descEl) descEl.textContent = '';
+        }
+    }
+
+    async function loadPrompts() {
+        const input = document.getElementById('ctrl-prompts-input');
+        if (!input) return;
+        const cfg = await HydraApp.apiGet('/api/config');
+        if (cfg && Array.isArray(cfg.prompts)) {
+            input.value = cfg.prompts.join(', ');
+        }
+    }
+
+    async function applyPrompts() {
+        const input = document.getElementById('ctrl-prompts-input');
+        if (!input) return;
+        const prompts = input.value
+            .split(',')
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0);
+        if (prompts.length === 0) {
+            HydraApp.showToast('Enter at least one prompt', 'error');
+            return;
+        }
+        if (prompts.length > 20) {
+            HydraApp.showToast('Max 20 prompts allowed', 'error');
+            return;
+        }
+        const result = await HydraApp.apiPost('/api/config/prompts', { prompts: prompts });
+        if (result) {
+            HydraApp.showToast('Prompts updated (' + prompts.length + ')', 'success');
+            input.value = prompts.join(', ');
         }
     }
 

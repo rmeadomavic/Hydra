@@ -212,6 +212,41 @@ const HydraSettings = (() => {
             if (importFile) importFile.click();
         });
         if (importFile) importFile.addEventListener('change', handleImportFile);
+
+        const logoutBtn = document.getElementById('settings-logout');
+        if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
+        initSessionBlock();
+    }
+
+    async function initSessionBlock() {
+        const block = document.getElementById('settings-session-block');
+        if (!block) return;
+        try {
+            const resp = await fetch('/auth/status', { credentials: 'same-origin' });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            if (data && data.password_enabled) {
+                block.style.display = '';
+            }
+        } catch (err) {
+            // Silent — auth status is optional UX gate
+        }
+    }
+
+    async function handleLogout() {
+        try {
+            const resp = await fetch('/auth/logout', {
+                method: 'POST',
+                credentials: 'same-origin',
+            });
+            if (resp.ok) {
+                window.location.href = '/';
+                return;
+            }
+            HydraApp.showToast('Logout failed (' + resp.status + ')', 'error');
+        } catch (err) {
+            HydraApp.showToast('Logout failed — network error', 'error');
+        }
     }
 
     async function handleRestart() {
