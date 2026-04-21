@@ -179,6 +179,49 @@ class TAKOutput:
         with self._data_lock:
             return [{"host": h, "port": p} for h, p in self._unicast_targets]
 
+    def send_test_beacon(self) -> dict:
+        """Force an immediate self-SA emit and report the result.
+
+        Used by the TAK tab's "Test Broadcast" button so operators can
+        verify end-to-end wiring before a field sortie without having to
+        wait on the 5 s SA cadence. Returns a dict with:
+            success (bool), reason (str), callsign, destinations (list[str]).
+        """
+        if not self.is_running():
+            return {
+                "success": False,
+                "reason": "TAK output is not running",
+                "callsign": self._callsign,
+                "destinations": [],
+            }
+        lat, lon, _ = self._mav.get_lat_lon()
+        if lat is None or lon is None:
+            return {
+                "success": False,
+                "reason": "No GPS fix — self-SA needs a position",
+                "callsign": self._callsign,
+                "destinations": [],
+            }
+        try:
+            self._send_self_sa()
+        except OSError as e:
+            return {
+                "success": False,
+                "reason": f"Socket error: {e}",
+                "callsign": self._callsign,
+                "destinations": [],
+            }
+        destinations = [f"mcast://{self._mcast_group}:{self._mcast_port}"]
+        with self._data_lock:
+            for host, port in self._unicast_targets:
+                destinations.append(f"udp://{host}:{port}")
+        return {
+            "success": True,
+            "reason": "Self-SA emitted",
+            "callsign": self._callsign,
+            "destinations": destinations,
+        }
+
     # ------------------------------------------------------------------
     # Sender thread
     # ------------------------------------------------------------------

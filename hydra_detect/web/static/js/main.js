@@ -343,9 +343,35 @@
 
     window.HydraApp = hydraApp;
 
+    // CSP-safe image fallbacks (replaces inline onerror= in base.html so the
+    // topbar still degrades gracefully when logo assets 404, but the CSP
+    // script-src policy stays strict — no 'unsafe-inline' required).
+    function bindImageFallbacks() {
+        const shield = document.getElementById('tb-shield');
+        if (shield) {
+            shield.addEventListener('error', function onShieldError() {
+                shield.removeEventListener('error', onShieldError);
+                if (shield.dataset.fallback) {
+                    shield.outerHTML = shield.dataset.fallback;
+                }
+            });
+        }
+        const ogt = document.getElementById('tb-ogt');
+        if (ogt) {
+            ogt.addEventListener('error', function onOgtError() {
+                ogt.removeEventListener('error', onOgtError);
+                ogt.style.display = 'none';
+            });
+        }
+    }
+
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+        document.addEventListener('DOMContentLoaded', function() {
+            bindImageFallbacks();
+            init();
+        });
     } else {
+        bindImageFallbacks();
         init();
     }
 })();

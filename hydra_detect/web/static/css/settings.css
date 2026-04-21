@@ -201,6 +201,30 @@
     margin-left: 4px;
 }
 
+/* Persistent help text rendered below each field from schema description.
+   Spans both grid columns so it reads as a caption under the input. */
+.settings-field-help {
+    grid-column: 1 / -1;
+    font-family: var(--font-sans, 'Barlow', sans-serif);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    line-height: 1.4;
+    margin-top: 2px;
+    padding-left: 0;
+}
+
+/* Apply button — highlight when there are unsaved changes so students can
+   tell at a glance whether they have pending edits. */
+.btn.btn-green.has-unsaved {
+    box-shadow: 0 0 0 2px var(--warning, #c8a94a), 0 0 12px rgba(200, 169, 74, 0.35);
+    animation: settings-apply-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes settings-apply-pulse {
+    0%, 100% { box-shadow: 0 0 0 2px var(--warning, #c8a94a), 0 0 12px rgba(200, 169, 74, 0.35); }
+    50%      { box-shadow: 0 0 0 2px var(--warning, #c8a94a), 0 0 20px rgba(200, 169, 74, 0.55); }
+}
+
 .settings-field input,
 .settings-field select,
 .settings-field textarea {

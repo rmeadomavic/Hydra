@@ -63,6 +63,32 @@ body.view-tak #mjpeg-stream {
     color: var(--text-secondary);
     margin-left: auto;
 }
+/* Test-broadcast action — sits at the right edge of the map header so
+   operators can verify TAK wiring without leaving the view. */
+.tak-map-action {
+    background: transparent;
+    border: 1px solid var(--border-default);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 3px 10px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+}
+.tak-map-action:hover:not(:disabled) {
+    background: var(--bg-panel);
+    border-color: var(--olive-muted);
+    color: var(--text-primary);
+}
+.tak-map-action:disabled,
+.tak-map-action.is-busy {
+    opacity: 0.6;
+    cursor: wait;
+}
 .tak-map-canvas {
     flex: 1;
     min-height: 300px;

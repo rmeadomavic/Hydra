@@ -26,8 +26,9 @@ const HydraSettings = (() => {
         'app_log_file', 'gps_required', 'kismet_auto_spawn',
     ];
 
-    // Password fields
-    const PASSWORD_FIELDS = ['api_token', 'kismet_pass'];
+    // Password / secret fields — rendered as type=password so the value is
+    // not visible over an instructor's shoulder during a demo.
+    const PASSWORD_FIELDS = ['api_token', 'kismet_pass', 'command_hmac_secret'];
 
     // Dropdown fields — populated from API endpoints
     const DROPDOWN_FIELDS = {
@@ -526,9 +527,51 @@ const HydraSettings = (() => {
 
             field.appendChild(label);
             field.appendChild(input);
+
+            // Render schema description as persistent help text so it is
+            // visible without hovering — important for touch devices and
+            // for students who don't know the tooltip exists.
+            if (spec && spec.description) {
+                const help = document.createElement('div');
+                help.className = 'settings-field-help';
+                help.textContent = spec.description;
+                field.appendChild(help);
+            }
+
             form.appendChild(field);
         });
+
+        updateApplyButton();
     }
+
+    // Reflect hasUnsavedChanges on the Apply button so students know there
+    // is something to save. Re-applied on every input event via delegation.
+    function updateApplyButton() {
+        const btn = document.getElementById('settings-apply');
+        if (!btn) return;
+        if (hasUnsavedChanges) {
+            btn.classList.add('has-unsaved');
+            btn.textContent = 'Apply Changes *';
+        } else {
+            btn.classList.remove('has-unsaved');
+            btn.textContent = 'Apply Changes';
+        }
+    }
+
+    // Delegated listener — every input/change/click on the form flips the
+    // indicator. Individual field builders also set hasUnsavedChanges for
+    // correctness; this just keeps the button in sync.
+    document.addEventListener('input', function(e) {
+        if (e.target.closest && e.target.closest('#settings-form')) {
+            updateApplyButton();
+        }
+    });
+    document.addEventListener('click', function(e) {
+        if (e.target.classList && e.target.classList.contains('toggle-switch')) {
+            // Let the toggle handler flip first, then sync.
+            requestAnimationFrame(updateApplyButton);
+        }
+    });
 
     async function handleApply() {
         if (!configData) return;
@@ -567,6 +610,7 @@ const HydraSettings = (() => {
         const result = await HydraApp.apiPost('/api/config/full', updates);
         if (result) {
             hasUnsavedChanges = false;
+            updateApplyButton();
             HydraApp.showToast('Configuration saved', 'success');
 
             // Show restart notice if needed

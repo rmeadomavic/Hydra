@@ -95,6 +95,50 @@ const HydraTak = (() => {
         startTypeCountsPoll();
         startPeersPoll();
         startAuditPoll();
+        bindTestBroadcastBtn();
+    }
+
+    // Test Broadcast — forces a self-SA emit so operators can verify
+    // the wiring to ATAK before a sortie. Idempotent; safe to click
+    // repeatedly. Bound on every onEnter so the button stays live
+    // when the view re-mounts.
+    let testBroadcastBound = false;
+    function bindTestBroadcastBtn() {
+        if (testBroadcastBound) return;
+        const btn = document.getElementById('tak-test-broadcast');
+        if (!btn) return;
+        btn.addEventListener('click', async function() {
+            if (btn.disabled) return;
+            btn.disabled = true;
+            btn.classList.add('is-busy');
+            const original = btn.textContent;
+            btn.textContent = 'Sending...';
+            try {
+                const resp = await fetch('/api/tak/test_broadcast', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok && data.success) {
+                    const dests = Array.isArray(data.destinations) ? data.destinations : [];
+                    const label = dests.length === 1
+                        ? dests[0]
+                        : dests.length + ' destinations';
+                    HydraApp.showToast('TAK beacon sent -> ' + label, 'success');
+                } else {
+                    const reason = (data && data.reason) || ('HTTP ' + resp.status);
+                    HydraApp.showToast('TAK beacon failed: ' + reason, 'error');
+                }
+            } catch (err) {
+                HydraApp.showToast('TAK beacon failed: network error', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('is-busy');
+                btn.textContent = original;
+            }
+        });
+        testBroadcastBound = true;
     }
 
     function onLeave() {

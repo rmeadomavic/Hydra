@@ -4,11 +4,16 @@
     var cameraSelect = document.getElementById('setup-camera');
     var serialSelect = document.getElementById('setup-serial');
     var saveBtn = document.getElementById('setup-save');
+    var skipBtn = document.getElementById('setup-skip');
     var statusEl = document.getElementById('setup-status');
     var callsignInput = document.getElementById('setup-callsign');
     var callsignPreview = document.getElementById('callsign-preview');
     var teamInput = document.getElementById('setup-team');
     var vehicleSelect = document.getElementById('setup-vehicle');
+    var takEnabledInput = document.getElementById('setup-tak-enabled');
+    var takHostInput = document.getElementById('setup-tak-advertise-host');
+    var takHostHint = document.getElementById('advertise-host-hint');
+    var takAllowedInput = document.getElementById('setup-tak-allowed-callsigns');
 
     function updateCallsignPreview() {
         var cs = callsignInput.value.trim();
@@ -29,13 +34,18 @@
     callsignInput.addEventListener('input', updateCallsignPreview);
     updateCallsignPreview();
 
+    // CSP-safe skip handler (replaces inline onclick).
+    if (skipBtn) {
+        skipBtn.addEventListener('click', function() { window.location = '/'; });
+    }
+
     function clearSelect(sel) {
         while (sel.firstChild) {
             sel.removeChild(sel.firstChild);
         }
     }
 
-    // Populate device dropdowns on load
+    // Populate device dropdowns + LAN IP hint on load
     async function loadDevices() {
         statusEl.textContent = 'Detecting devices...';
         statusEl.className = 'setup-status setup-loading';
@@ -63,11 +73,23 @@
                     opt.textContent = port.name;
                     serialSelect.appendChild(opt);
                 });
-                // Pre-select ttyTHS1 if present
                 var tths1 = Array.from(serialSelect.options).find(
                     function(o) { return o.value === '/dev/ttyTHS1'; }
                 );
                 if (tths1) tths1.selected = true;
+            }
+
+            // Pre-fill advertise host with detected LAN IP
+            if (takHostInput && data.lan_ip) {
+                takHostInput.placeholder = data.lan_ip;
+                if (!takHostInput.value) {
+                    takHostInput.value = data.lan_ip;
+                }
+                if (takHostHint) {
+                    takHostHint.textContent =
+                        'Auto-detected: ' + data.lan_ip +
+                        '. Used for RTSP video links shown in ATAK markers. Override if wrong.';
+                }
             }
 
             statusEl.textContent = '';
@@ -87,9 +109,12 @@
         var payload = {
             camera_source: cameraSelect.value,
             serial_port: serialSelect.value,
-            vehicle_type: document.getElementById('setup-vehicle').value,
-            team_number: document.getElementById('setup-team').value.trim(),
-            callsign: document.getElementById('setup-callsign').value.trim(),
+            vehicle_type: vehicleSelect.value,
+            team_number: teamInput.value.trim(),
+            callsign: callsignInput.value.trim(),
+            tak_enabled: takEnabledInput ? takEnabledInput.checked : undefined,
+            tak_advertise_host: takHostInput ? takHostInput.value.trim() : '',
+            tak_allowed_callsigns: takAllowedInput ? takAllowedInput.value.trim() : '',
         };
 
         try {
