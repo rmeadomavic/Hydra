@@ -477,3 +477,102 @@ class TestFallbackAlignment:
             "Pipeline fallback / schema default mismatches:\n"
             + "\n".join(mismatches)
         )
+
+
+# ---------------------------------------------------------------------------
+# Property-based tests via hypothesis
+# ---------------------------------------------------------------------------
+
+from hypothesis import HealthCheck, given, settings, strategies as st  # noqa: E402
+
+
+# Deterministic + fast settings so CI doesn't flake / slow.  30 examples is
+# plenty for these simple coercion properties; each case is <1ms.
+_hyp = settings(
+    max_examples=30,
+    deadline=1000,
+    derandomize=True,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+
+
+class TestPropertyBased:
+    """Strategy-driven sweeps across coercion / range / enum rules."""
+
+    @given(conf=st.floats(min_value=0.0, max_value=1.0, allow_nan=False,
+                          allow_infinity=False))
+    @_hyp
+    def test_yolo_confidence_in_range_validates(self, conf):
+        cfg = _valid_config()
+        cfg.set("detector", "yolo_confidence", str(conf))
+        result = validate_config(cfg)
+        assert not any("yolo_confidence" in e for e in result.errors), (
+            f"conf={conf} should be valid but errors={result.errors}"
+        )
+
+    @given(conf=st.floats(min_value=1.01, max_value=1e6, allow_nan=False,
+                          allow_infinity=False))
+    @_hyp
+    def test_yolo_confidence_above_range_fails(self, conf):
+        cfg = _valid_config()
+        cfg.set("detector", "yolo_confidence", str(conf))
+        result = validate_config(cfg)
+        assert any("yolo_confidence" in e for e in result.errors)
+
+    @given(conf=st.floats(min_value=-1e6, max_value=-0.01, allow_nan=False,
+                          allow_infinity=False))
+    @_hyp
+    def test_yolo_confidence_negative_fails(self, conf):
+        cfg = _valid_config()
+        cfg.set("detector", "yolo_confidence", str(conf))
+        result = validate_config(cfg)
+        assert any("yolo_confidence" in e for e in result.errors)
+
+    @given(val=st.sampled_from([
+        "true", "True", "TRUE", "1", "yes", "on", "Yes", "ON",
+        "false", "False", "FALSE", "0", "no", "off", "No", "OFF",
+    ]))
+    @_hyp
+    def test_bool_variants_all_valid(self, val):
+        cfg = _valid_config()
+        cfg.set("mavlink", "enabled", val)
+        result = validate_config(cfg)
+        assert not any(
+            "enabled" in e and "true or false" in e for e in result.errors
+        ), f"bool '{val}' should be valid"
+
+    @given(val=st.text(min_size=1, max_size=20).filter(
+        lambda s: s.lower() not in (
+            "true", "false", "yes", "no", "1", "0", "on", "off",
+        ) and s.strip() != ""
+    ))
+    @_hyp
+    def test_arbitrary_strings_reject_as_bool(self, val):
+        cfg = _valid_config()
+        cfg.set("mavlink", "enabled", val)
+        result = validate_config(cfg)
+        assert any(
+            "enabled" in e and "true or false" in e for e in result.errors
+        ), f"'{val}' should fail bool validation"
+
+    @given(src=st.sampled_from(["auto", "usb", "rtsp", "file", "v4l2", "analog"]))
+    @_hyp
+    def test_source_type_enum_valid(self, src):
+        cfg = _valid_config()
+        cfg.set("camera", "source_type", src)
+        result = validate_config(cfg)
+        assert not any("source_type" in e for e in result.errors)
+
+    @given(src=st.text(min_size=1, max_size=20).filter(
+        lambda s: s.lower() not in (
+            "auto", "usb", "rtsp", "file", "v4l2", "analog",
+        )
+    ))
+    @_hyp
+    def test_source_type_enum_invalid_strings_rejected(self, src):
+        cfg = _valid_config()
+        cfg.set("camera", "source_type", src)
+        result = validate_config(cfg)
+        assert any("source_type" in e for e in result.errors), (
+            f"'{src}' should be rejected as invalid source_type"
+        )

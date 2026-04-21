@@ -246,3 +246,158 @@ class TestVehicleMode:
 
         mav._update_vehicle_mode(heartbeat)
         assert mav.get_vehicle_mode() is None
+
+
+# ---------------------------------------------------------------------------
+# Outbound command helpers — send_velocity_ned, command_guided_to,
+# estimate_target_position, set_servo, flash_servo, send_raw_message
+# ---------------------------------------------------------------------------
+
+class TestSendVelocityNed:
+    def test_sends_set_position_target_local_ned(self):
+        mav = _make_mavlink_io()
+        mav._mav.target_system = 1
+        mav._mav.target_component = 1
+
+        ok = mav.send_velocity_ned(1.0, 0.5, 0.2, 15.0)
+        assert ok is True
+        mav._mav.mav.set_position_target_local_ned_send.assert_called_once()
+        args = mav._mav.mav.set_position_target_local_ned_send.call_args[0]
+        # (time_boot_ms, tgt_sys, tgt_comp, frame, type_mask,
+        #  x, y, z, vx, vy, vz, afx, afy, afz, yaw, yaw_rate)
+        assert args[8] == 1.0  # vx
+        assert args[9] == 0.5  # vy
+        assert args[10] == 0.2  # vz
+
+    def test_returns_false_when_disconnected(self):
+        mav = _make_mavlink_io()
+        mav._mav = None
+        assert mav.send_velocity_ned(1.0, 0.0, 0.0, 0.0) is False
+
+    def test_exception_swallowed(self):
+        mav = _make_mavlink_io()
+        mav._mav.mav.set_position_target_local_ned_send.side_effect = RuntimeError("x")
+        assert mav.send_velocity_ned(1.0, 0.0, 0.0, 0.0) is False
+
+
+class TestCommandGuidedTo:
+    def test_returns_false_when_disconnected(self):
+        mav = _make_mavlink_io()
+        mav._mav = None
+        assert mav.command_guided_to(34.0, -118.0, alt=50.0) is False
+
+    def test_returns_false_when_guided_not_in_mode_map(self):
+        mav = _make_mavlink_io()
+        mav._mav.mode_mapping.return_value = {"LOITER": 5}
+        assert mav.command_guided_to(34.0, -118.0, alt=50.0) is False
+
+    def test_alt_none_without_gps_returns_false(self):
+        mav = _make_mavlink_io()
+        mav._mav.mode_mapping.return_value = {"GUIDED": 4}
+        # No GPS fix cached
+        mav._last_global_position = None
+        assert mav.command_guided_to(34.0, -118.0) is False
+
+    def test_happy_path_with_explicit_alt(self):
+        mav = _make_mavlink_io()
+        mav._mav.mode_mapping.return_value = {"GUIDED": 4}
+        mav._mav.target_system = 1
+        mav._mav.target_component = 1
+        assert mav.command_guided_to(34.0, -118.0, alt=50.0) is True
+        mav._mav.set_mode_apm.assert_called_with(4)
+        mav._mav.mav.set_position_target_global_int_send.assert_called_once()
+
+
+class TestEstimateTargetPosition:
+    def test_returns_none_without_gps(self):
+        mav = _make_mavlink_io()
+        mav._last_global_position = None
+        mav._last_vfr_hud = None
+        assert mav.estimate_target_position(0.0, 20.0, 60.0) is None
+
+    def test_projects_waypoint(self):
+        mav = _make_mavlink_io()
+        # Stub get_lat_lon and get_heading_deg to known values
+        mav.get_lat_lon = MagicMock(return_value=(34.05, -118.25, 100.0))
+        mav.get_heading_deg = MagicMock(return_value=0.0)  # facing north
+        # Target at image centre (error_x=0) → waypoint should be directly north
+        result = mav.estimate_target_position(0.0, 100.0, 60.0)
+        assert result is not None
+        tlat, tlon = result
+        assert tlat > 34.05  # north of current
+        assert abs(tlon - (-118.25)) < 1e-4  # same longitude (facing due north)
+
+
+class TestSetServo:
+    def test_clamps_pwm_range(self):
+        mav = _make_mavlink_io()
+        mav._mav.target_system = 1
+        mav._mav.target_component = 1
+        mav.set_servo(6, 5000)  # > 2500 → clamp to 2500
+        args = mav._mav.mav.command_long_send.call_args[0]
+        # args: (tgt_sys, tgt_comp, cmd, confirmation, p1=channel, p2=pwm, ...)
+        assert args[5] == 2500
+
+    def test_disconnected_noop(self):
+        mav = _make_mavlink_io()
+        mav._mav = None
+        # Should not raise
+        mav.set_servo(6, 1500)
+
+    def test_exception_swallowed(self):
+        mav = _make_mavlink_io()
+        mav._mav.mav.command_long_send.side_effect = RuntimeError("x")
+        # Should not raise
+        mav.set_servo(6, 1500)
+
+
+class TestCommandDoChangeSpeed:
+    def test_clamps_speed(self):
+        mav = _make_mavlink_io()
+        mav._mav.target_system = 1
+        mav._mav.target_component = 1
+        mav.command_do_change_speed(999.0)
+        args = mav._mav.mav.command_long_send.call_args[0]
+        # p2 is speed
+        assert args[5] <= 100.0
+
+    def test_disconnected_returns_false(self):
+        mav = _make_mavlink_io()
+        mav._mav = None
+        assert mav.command_do_change_speed(5.0) is False
+
+
+class TestSendRawMessage:
+    def test_send_disconnected(self):
+        mav = _make_mavlink_io()
+        mav._mav = None
+        assert mav.send_raw_message(MagicMock()) is False
+
+    def test_send_happy_path(self):
+        mav = _make_mavlink_io()
+        assert mav.send_raw_message(MagicMock()) is True
+        mav._mav.mav.send.assert_called_once()
+
+    def test_send_exception_returns_false(self):
+        mav = _make_mavlink_io()
+        mav._mav.mav.send.side_effect = RuntimeError("broken pipe")
+        assert mav.send_raw_message(MagicMock()) is False
+
+
+class TestSendParamSet:
+    def test_disconnected_returns_false(self):
+        mav = _make_mavlink_io()
+        mav._mav = None
+        assert mav.send_param_set("SR0_RAW_SENS", 2.0) is False
+
+    def test_happy_path(self):
+        mav = _make_mavlink_io()
+        mav._mav.target_system = 1
+        mav._mav.target_component = 1
+        assert mav.send_param_set("SR0_RAW_SENS", 2.0) is True
+        mav._mav.mav.param_set_send.assert_called_once()
+
+    def test_exception_returns_false(self):
+        mav = _make_mavlink_io()
+        mav._mav.mav.param_set_send.side_effect = RuntimeError("x")
+        assert mav.send_param_set("FOO", 1.0) is False

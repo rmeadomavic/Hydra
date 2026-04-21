@@ -11,9 +11,9 @@ SERVICE    ?= hydra-detect
 CONTAINER  ?= hydra-detect
 SMOKE_HOST ?= http://127.0.0.1:8080
 
-# Quick subset: skip the slow integration wiring + explicit "integration" names.
+# Quick subset: skip the slow integration wiring + explicit "integration"/"slow" names.
 FAST_IGNORES := --ignore=tests/test_integration_wiring.py
-FAST_KEXPR   := -k "not integration"
+FAST_KEXPR   := -k "not integration and not slow"
 
 # Endpoints probed by `make smoke`. Format: <path>:<json-key-to-grep>.
 # Only object-returning GET routes (array responses like /api/tracks have no
@@ -34,12 +34,13 @@ SMOKE_PROBES := \
   /api/config/full:camera \
   /api/stream/quality:quality
 
-.PHONY: help test test-all lint build up logs shell clean smoke dev dev-down
+.PHONY: help test test-all test-cov lint build up logs shell clean smoke dev dev-down
 
 help:
 	@echo "Hydra Detect — make targets"
-	@echo "  test      Fast pytest subset (skips integration-wiring)"
+	@echo "  test      Fast pytest subset (skips integration-wiring + slow)"
 	@echo "  test-all  Full pytest suite (verbose)"
+	@echo "  test-cov  Fast subset with coverage report on hydra_detect/"
 	@echo "  lint      flake8 on hydra_detect/ + tests/ (+ mypy if installed)"
 	@echo "  build     docker build -t $(IMAGE) ."
 	@echo "  up        sudo systemctl restart $(SERVICE)"
@@ -55,6 +56,10 @@ test:
 
 test-all:
 	$(PYTEST) tests/ -v
+
+test-cov:
+	$(PYTEST) tests/ -q --tb=short $(FAST_IGNORES) $(FAST_KEXPR) \
+	  --cov=hydra_detect --cov-report=term-missing --cov-report=xml
 
 lint:
 	$(FLAKE8) hydra_detect/ tests/ --count --show-source --statistics

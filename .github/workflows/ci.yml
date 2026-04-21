@@ -5,6 +5,13 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel in-progress runs on the same ref — claude/** branches fire both
+# `push` AND `pull_request` events which otherwise duplicate (and race)
+# the same job.  Keep the newer run; cancel the older.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
@@ -28,15 +35,28 @@ jobs:
           pip install --no-deps ultralytics supervision
           grep -v "opencv-python\|ultralytics\|supervision" requirements.txt > /tmp/reqs.txt
           pip install -r /tmp/reqs.txt
-          pip install opencv-python-headless httpx pytest flake8 pyyaml
+          pip install opencv-python-headless
+          pip install -r requirements-dev.txt
 
       - name: Lint
         run: |
           make lint
           python scripts/lint_no_duplicate_init_assignments.py hydra_detect/pipeline/facade.py
 
-      - name: Test
-        run: make test
+      - name: Test (with coverage)
+        run: |
+          python -m pytest tests/ -q --tb=short \
+            --ignore=tests/test_integration_wiring.py \
+            -k "not integration and not slow" \
+            --cov=hydra_detect --cov-report=term --cov-report=xml
+
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: warn
 
       - name: Comment on PR
         if: always() && github.event_name == 'pull_request'
