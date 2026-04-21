@@ -345,6 +345,7 @@ class TestServoTrackerIntegration:
         p._rtsp = None
         p._mavlink_video = None
         p._tak = None
+        p._mav_relay = None
         p._tak_input = None
         p._camera = MagicMock()
         p._detector = MagicMock()

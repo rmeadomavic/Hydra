@@ -871,6 +871,17 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             default="",
             description="HMAC secret for TAK command authentication",
         ),
+        "mode": FieldSpec(
+            FieldType.ENUM,
+            choices=["direct", "relay", "both"],
+            default="direct",
+            description=(
+                "CoT publishing path: direct = Jetson → TAK over UDP (current "
+                "behaviour); relay = encode detections as ADSB_VEHICLE over "
+                "MAVLink for the ground station to republish; both = send via "
+                "both paths (ATAK dedupes by UID)."
+            ),
+        ),
     },
     "approach": {
         "follow_speed_min": FieldSpec(
