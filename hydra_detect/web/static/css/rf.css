@@ -1,0 +1,284 @@
+/* RF Hunt — device feed, timeline, ambient bars, converge flash.
+ *
+ * Tokens from variables.css. No hardcoded colors / radii / spacing.
+ * All metrics use JetBrains Mono; all labels use Barlow Condensed uppercase.
+ */
+
+/* ── Source pill (LIVE / REPLAY) ─────────────────────────────────────── */
+.rf-source-pill {
+    display: inline-block;
+    padding: 2px var(--s-2);
+    margin-right: var(--s-2);
+    border-radius: var(--radius, 2px);
+    font-family: "Barlow Condensed", var(--font-sans);
+    font-size: var(--font-xs, 10px);
+    font-weight: 700;
+    letter-spacing: var(--ls-condensed, 0.08em);
+    text-transform: uppercase;
+    color: var(--olive-primary);
+    background: rgba(56, 87, 35, 0.18);
+    border: 1px solid var(--olive-primary);
+}
+.rf-source-pill[data-mode="live"] {
+    color: var(--text-primary);
+    border-color: var(--text-dim);
+    background: transparent;
+}
+.rf-source-pill[data-mode="replay"] {
+    color: var(--warning, #eab308);
+    border-color: var(--warning, #eab308);
+    background: rgba(234, 179, 8, 0.12);
+}
+
+/* ── Device feed list ────────────────────────────────────────────────── */
+.rf-device-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-1, 4px);
+    max-height: 260px;
+    overflow-y: auto;
+}
+.rf-device-row {
+    display: grid;
+    grid-template-columns: 60px 1fr 52px;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-1) var(--s-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius, 2px);
+    background: var(--card-bg, #161616);
+    cursor: pointer;
+    transition: background 0.1s, border-color 0.1s;
+}
+.rf-device-row:hover {
+    background: rgba(56, 87, 35, 0.15);
+    border-color: var(--olive-primary);
+}
+.rf-device-row:focus-visible {
+    outline: 2px solid var(--olive-primary);
+    outline-offset: 1px;
+}
+.rf-device-row.is-target {
+    border-color: var(--warning, #eab308);
+    background: rgba(234, 179, 8, 0.1);
+}
+.rf-device-row.is-target .rf-device-ssid::after {
+    content: " ★";
+    color: var(--warning, #eab308);
+}
+
+.rf-device-rssi {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.rf-device-rssi-value {
+    font-family: "JetBrains Mono", var(--font-mono);
+    font-size: var(--font-sm, 11px);
+    font-weight: 500;
+    color: var(--text-data, #d4d4d4);
+}
+.rf-signal-bar {
+    width: 100%;
+    height: 4px;
+    border-radius: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+.rf-signal-bar-fill {
+    height: 100%;
+    transition: width 0.25s ease;
+}
+.rf-signal-bar-fill[data-strength="strong"] {
+    background: var(--olive-primary);
+}
+.rf-signal-bar-fill[data-strength="medium"] {
+    background: var(--warning, #eab308);
+}
+.rf-signal-bar-fill[data-strength="weak"] {
+    background: var(--danger, #c53030);
+}
+
+.rf-device-body {
+    min-width: 0;
+}
+.rf-device-ssid {
+    font-family: "Barlow", var(--font-sans);
+    font-size: var(--font-sm, 11px);
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.rf-device-ssid.is-hidden {
+    color: var(--text-dim);
+    font-style: italic;
+}
+.rf-device-meta {
+    font-family: "JetBrains Mono", var(--font-mono);
+    font-size: var(--font-xs, 10px);
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rf-device-age {
+    font-family: "JetBrains Mono", var(--font-mono);
+    font-size: var(--font-xs, 10px);
+    color: var(--text-dim);
+    text-align: right;
+}
+
+/* ── Hunt timeline ───────────────────────────────────────────────────── */
+.rf-event-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-1);
+    max-height: 200px;
+    overflow-y: auto;
+}
+.rf-event-row {
+    display: grid;
+    grid-template-columns: 80px 1fr 52px;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-1) var(--s-2);
+    border-left: 2px solid var(--olive-muted, #666);
+    background: var(--card-bg, #161616);
+    font-family: "JetBrains Mono", var(--font-mono);
+    font-size: var(--font-xs, 10px);
+}
+.rf-event-row.state-converged { border-left-color: var(--olive-primary); }
+.rf-event-row.state-homing { border-left-color: var(--warning, #eab308); }
+.rf-event-row.state-searching { border-left-color: #4a7c2e; }
+.rf-event-row.state-lost,
+.rf-event-row.state-aborted { border-left-color: var(--danger, #c53030); }
+
+.rf-event-time {
+    color: var(--text-dim);
+}
+.rf-event-label {
+    color: var(--text-primary);
+    font-family: "Barlow Condensed", var(--font-sans);
+    font-weight: 600;
+    letter-spacing: var(--ls-condensed, 0.08em);
+    text-transform: uppercase;
+}
+.rf-event-label .rf-event-arrow {
+    color: var(--text-dim);
+    padding: 0 var(--s-1);
+}
+.rf-event-elapsed {
+    color: var(--text-data);
+    text-align: right;
+}
+
+/* ── Ambient spectrum bars ────────────────────────────────────────────── */
+.rf-ambient-bars {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: var(--s-1) 0;
+    min-height: 64px;
+    align-items: flex-end;
+}
+.rf-ambient-bar {
+    flex: 1 1 18px;
+    min-width: 12px;
+    max-width: 32px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+.rf-ambient-bar-fill {
+    width: 100%;
+    background: var(--olive-primary);
+    transition: height 0.25s ease;
+    border-radius: 1px 1px 0 0;
+}
+.rf-ambient-bar-label {
+    font-family: "JetBrains Mono", var(--font-mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+/* ── Converged full-viewport flash ────────────────────────────────────── */
+.rf-converge-flash {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9000;
+    box-shadow: inset 0 0 0 0 rgba(56, 87, 35, 0);
+    transition: box-shadow 0.15s ease;
+}
+.rf-converge-flash.active {
+    animation: rf-converge-pulse var(--rf-flash-ms, 2500ms) ease-out 1;
+}
+@keyframes rf-converge-pulse {
+    0% {
+        box-shadow:
+            inset 0 0 0 0px rgba(56, 87, 35, 0.0),
+            0 0 0 0 rgba(56, 87, 35, 0.0);
+    }
+    10% {
+        box-shadow:
+            inset 0 0 120px 8px rgba(56, 87, 35, 0.85),
+            inset 0 0 0 4px var(--olive-primary, #385723);
+    }
+    55% {
+        box-shadow:
+            inset 0 0 80px 6px rgba(56, 87, 35, 0.55),
+            inset 0 0 0 3px var(--olive-primary, #385723);
+    }
+    100% {
+        box-shadow:
+            inset 0 0 0 0px rgba(56, 87, 35, 0.0),
+            inset 0 0 0 0 rgba(56, 87, 35, 0.0);
+    }
+}
+
+/* ── Leaflet map overlay: RF best-position star + samples ─────────────── */
+.hydra-rf-best {
+    pointer-events: none;
+}
+.hydra-rf-best-star {
+    font-size: 20px;
+    line-height: 20px;
+    color: var(--warning, #eab308);
+    text-shadow:
+        0 0 4px rgba(234, 179, 8, 0.9),
+        0 0 8px rgba(234, 179, 8, 0.5);
+    text-align: center;
+    font-weight: 900;
+}
+
+/* ── RSSI chart (config view) ─────────────────────────────────────────── */
+.rf-rssi-chart {
+    position: relative;
+    width: 100%;
+    height: 120px;
+    background: var(--card-bg, #161616);
+    border-radius: var(--radius, 2px);
+    overflow: hidden;
+}
+.rf-rssi-chart svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+.rf-rssi-chart-axis {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    pointer-events: none;
+    font-family: "JetBrains Mono", var(--font-mono);
+    font-size: 9px;
+    color: var(--text-dim);
+}

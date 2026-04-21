@@ -50,6 +50,9 @@ const HydraOps = (() => {
         initTabState();
         wireEventHandlers();
         startVideoPolling();
+        if (window.HydraRfHunt && typeof window.HydraRfHunt.onOpsEnter === 'function') {
+            window.HydraRfHunt.onOpsEnter();
+        }
         updateTimer = setInterval(updateHUD, 500);
         // Slower 1Hz tick for FlightHUD + Cockpit polls — keeps FPS overhead
         // negligible while still feeling alive in the demo.
@@ -84,6 +87,9 @@ const HydraOps = (() => {
         if (takTimer) {
             clearInterval(takTimer);
             takTimer = null;
+        }
+        if (window.HydraRfHunt && typeof window.HydraRfHunt.onOpsLeave === 'function') {
+            window.HydraRfHunt.onOpsLeave();
         }
         stopVideoPolling();
         hideContextMenu();
@@ -955,6 +961,10 @@ const HydraOps = (() => {
         else if (tabId === 'events') {
             updateSidebarDetLog(HydraApp.state.detections);
             refreshAuditLog();
+        }
+        // Let the RF module throttle its polling to match tab visibility.
+        if (window.HydraRfHunt && typeof window.HydraRfHunt.setRfTabActive === 'function') {
+            window.HydraRfHunt.setRfTabActive(tabId === 'rf');
         }
     }
 
@@ -2440,6 +2450,11 @@ const HydraOps = (() => {
                 if (titleEl) titleEl.textContent = 'TAK \u00B7 ' + callsign;
             },
         });
+        // Attach RF overlay so RSSI dots, breadcrumb trail, and
+        // best-position star render alongside TAK tracks.
+        if (_cockpitMapCtl && _cockpitMapCtl.map && window.HydraRfMap) {
+            window.HydraRfMap.attach(_cockpitMapCtl.map);
+        }
     }
 
     function renderCockpitSdr(data) {

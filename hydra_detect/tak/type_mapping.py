@@ -44,3 +44,24 @@ DEFAULT_COT_TYPE = "a-u-G"
 def get_cot_type(label: str) -> str:
     """Return the MIL-STD-2525 CoT type string for a YOLO class label."""
     return YOLO_TO_COT_TYPE.get(label, DEFAULT_COT_TYPE)
+
+
+# RF devices are reported as sensor emitters — ground unknown electronic warfare
+# symbol (a-u-G-U-U-E-S is approximated here; the affiliation stays "unknown"
+# since the hunt doesn't know intent). The target kind upgrades to a hostile
+# track when the operator has explicitly selected the device.
+RF_COT_TYPES: dict[str, str] = {
+    "wifi": "a-u-G-U-U-E-W",   # unknown ground EW WiFi source
+    "ble": "a-u-G-U-U-E",      # unknown ground EW
+    "rtl433": "a-u-G-U-U-E",   # unknown ground EW generic
+    "target": "a-h-G-U-U-E",   # hostile ground EW (operator-selected target)
+}
+
+
+def get_rf_cot_type(kind: str) -> str:
+    """Return the MIL-STD-2525 CoT type for an RF device kind.
+
+    ``kind`` values: ``"wifi"``, ``"ble"``, ``"rtl433"``, ``"target"``.
+    Unknown kinds fall back to the generic "unknown ground" symbol.
+    """
+    return RF_COT_TYPES.get(kind, DEFAULT_COT_TYPE)

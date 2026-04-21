@@ -613,6 +613,43 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             default=False,
             description="Auto-spawn Kismet server",
         ),
+        "replay_path": FieldSpec(
+            FieldType.STRING,
+            default="",
+            description="Kismet replay fixture path (JSONL). Used when live Kismet is unreachable.",
+        ),
+        "replay_loop": FieldSpec(
+            FieldType.BOOL,
+            default=True,
+            description="Loop the replay fixture when it runs out",
+        ),
+        "replay_speed": FieldSpec(
+            FieldType.FLOAT,
+            min_val=0.1,
+            max_val=10.0,
+            default=1.0,
+            description="Replay playback speed multiplier",
+        ),
+        "tak_export_mode": FieldSpec(
+            FieldType.ENUM,
+            choices=["off", "target", "strong", "all"],
+            default="off",
+            description="RF device CoT export mode",
+        ),
+        "tak_export_strong_dbm": FieldSpec(
+            FieldType.FLOAT,
+            min_val=-100.0,
+            max_val=-20.0,
+            default=-60.0,
+            description="RSSI threshold for 'strong' TAK export mode",
+        ),
+        "converge_flash_ms": FieldSpec(
+            FieldType.INT,
+            min_val=500,
+            max_val=10000,
+            default=2500,
+            description="Duration of dashboard converge flash in ms",
+        ),
     },
     "servo_tracking": {
         "enabled": FieldSpec(FieldType.BOOL, default=False, description="Enable servo tracking"),

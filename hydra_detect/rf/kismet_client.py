@@ -214,6 +214,110 @@ class KismetClient:
             logger.debug("Kismet SDR query error: %s", exc)
             return None
 
+    # -- Device enumeration -----------------------------------------------
+
+    def list_devices(self, max_age_sec: float = 10.0) -> list[dict]:
+        """Return every device Kismet has seen within ``max_age_sec``.
+
+        Returns a normalized list of dicts — the same shape produced by
+        ``KismetReplaySource.list_devices`` so the web layer can consume
+        either interchangeably. Fields::
+
+            bssid, ssid, rssi, channel, freq_mhz, manuf,
+            first_seen, last_seen, lat, lon
+
+        Missing optional fields are returned as ``None``. Stale devices
+        (``last_time`` older than ``max_age_sec``) are dropped.
+        """
+        if not self._ensure_auth():
+            return []
+        try:
+            r = self._session.get(
+                f"{self._host}/devices/views/all/devices.json",
+                params={
+                    "KISMET": '{"fields": ['
+                    '"kismet.device.base.macaddr",'
+                    '"kismet.device.base.commonname",'
+                    '"kismet.device.base.name",'
+                    '"kismet.device.base.signal/kismet.common.signal.last_signal",'
+                    '"kismet.device.base.frequency",'
+                    '"kismet.device.base.channel",'
+                    '"kismet.device.base.manuf",'
+                    '"kismet.device.base.first_time",'
+                    '"kismet.device.base.last_time",'
+                    '"kismet.device.base.location/kismet.common.location.avg_loc/'
+                    'kismet.common.location.geopoint"'
+                    ']}'
+                },
+                timeout=self._timeout,
+            )
+            if r.status_code != 200:
+                return []
+            devices = r.json()
+        except (requests.RequestException, ValueError) as exc:
+            logger.debug("Kismet list_devices error: %s", exc)
+            return []
+
+        stale_cutoff = time.time() - max_age_sec
+        out: list[dict] = []
+        for dev in devices:
+            last_time = dev.get("kismet.device.base.last_time", 0)
+            # last_time=0 means Kismet didn't provide it — keep the device.
+            if last_time and last_time < stale_cutoff:
+                continue
+            mac = dev.get("kismet.device.base.macaddr")
+            if not mac:
+                continue
+            signal = dev.get("kismet.device.base.signal", {})
+            rssi = signal.get("kismet.common.signal.last_signal")
+            if rssi is None or rssi == 0:
+                # Kismet emits 0 when it has never received a signal reading.
+                continue
+            freq_raw = dev.get("kismet.device.base.frequency", 0)
+            if freq_raw > 10_000:
+                freq_mhz: float | None = float(freq_raw) / 1e6
+            elif freq_raw:
+                freq_mhz = float(freq_raw)
+            else:
+                freq_mhz = None
+            ssid = (
+                dev.get("kismet.device.base.commonname")
+                or dev.get("kismet.device.base.name")
+                or None
+            )
+            if ssid == mac:
+                # Kismet falls back to MAC when no friendly name exists — treat
+                # that as "no SSID" so the UI can render it clearly.
+                ssid = None
+            # GPS: Kismet returns [lon, lat] in geopoint (GeoJSON order).
+            lat: float | None = None
+            lon: float | None = None
+            loc = dev.get("kismet.device.base.location", {}) or {}
+            avg = loc.get("kismet.common.location.avg_loc", {}) or {}
+            geopoint = avg.get("kismet.common.location.geopoint")
+            if isinstance(geopoint, list) and len(geopoint) >= 2:
+                try:
+                    lon = float(geopoint[0]) or None
+                    lat = float(geopoint[1]) or None
+                except (TypeError, ValueError):
+                    lat = lon = None
+            out.append({
+                "bssid": str(mac).upper(),
+                "ssid": ssid if ssid else None,
+                "rssi": float(rssi),
+                "channel": dev.get("kismet.device.base.channel") or None,
+                "freq_mhz": freq_mhz,
+                "manuf": dev.get("kismet.device.base.manuf") or None,
+                "first_seen": float(
+                    dev.get("kismet.device.base.first_time", 0) or 0.0
+                ),
+                "last_seen": float(last_time or 0.0),
+                "lat": lat,
+                "lon": lon,
+            })
+        out.sort(key=lambda d: d["rssi"], reverse=True)
+        return out
+
     # -- Unified getter ----------------------------------------------------
 
     def get_rssi(

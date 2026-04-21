@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="/static/css/tak.css">
     <link rel="stylesheet" href="/static/css/systems.css">
     <link rel="stylesheet" href="/static/css/autonomy.css">
+    <link rel="stylesheet" href="/static/css/rf.css">
     <!-- Leaflet (used by Cockpit TAK map on Ops + large map on TAK tab) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
@@ -182,6 +183,24 @@
         </div>
     </div>
 
+    <!-- ── RF Hunt Target Confirmation Modal ── -->
+    <div class="modal-overlay" id="rf-target-modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="rf-target-modal-title" tabindex="-1">
+            <h3 id="rf-target-modal-title" style="color: var(--olive-primary); margin-bottom: var(--s-3);">Set RF Hunt Target</h3>
+            <p style="margin-bottom: var(--s-2);">Target: <strong id="rf-target-label">--</strong></p>
+            <p style="font-size: var(--font-sm); color: var(--text-dim); margin-bottom: var(--s-4);">
+                Pipeline will switch to RF homing against this device. Active hunt will be replaced. Manual GCS override is always available.
+            </p>
+            <div style="display: flex; gap: var(--s-2); justify-content: flex-end;">
+                <button class="btn" id="rf-target-cancel">Cancel</button>
+                <button class="btn btn-primary" id="rf-target-confirm">Start Hunt</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Converged Flash Overlay (full-viewport border pulse) ── -->
+    <div class="rf-converge-flash" id="rf-converge-flash" aria-hidden="true"></div>
+
     <!-- ── Keybinds Help Overlay (press ?) ── -->
     <div id="keybinds-help" role="dialog" aria-modal="true" aria-labelledby="keybinds-help-title" style="display:none;">
         <div class="keybinds-card">
@@ -264,6 +283,8 @@
     <script src="/static/js/main.js"></script>
     <script src="/static/js/panels.js"></script>
     <script src="/static/js/tak-map.js"></script>
+    <script src="/static/js/rf-map-layer.js"></script>
+    <script src="/static/js/rf-hunt.js"></script>
     <script src="/static/js/ops.js"></script>
     <script src="/static/js/config.js"></script>
     <script src="/static/js/settings.js"></script>

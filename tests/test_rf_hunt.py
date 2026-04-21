@@ -394,3 +394,44 @@ class TestScanOnlyMode:
         ctrl._set_state(HuntState.SCANNING)
         ctrl._do_scan()
         assert len(ctrl.get_rssi_history()) == 0
+
+
+class TestStateEventRing:
+    """``get_state_events`` powers /api/rf/events — the dashboard timeline."""
+
+    def test_empty_by_default(self):
+        ctrl = _make_controller()
+        assert ctrl.get_state_events() == []
+
+    def test_records_transitions_with_shape(self):
+        ctrl = _make_controller()
+        ctrl._set_state(HuntState.SEARCHING)
+        ctrl._set_state(HuntState.HOMING)
+        events = ctrl.get_state_events()
+        assert len(events) == 2
+        e0 = events[0]
+        assert set(e0.keys()) == {
+            "t", "from", "to", "samples", "elapsed_prev_sec",
+        }
+        assert e0["from"] == "idle"
+        assert e0["to"] == "searching"
+        assert events[1]["from"] == "searching"
+        assert events[1]["to"] == "homing"
+
+    def test_same_state_not_recorded(self):
+        ctrl = _make_controller()
+        ctrl._set_state(HuntState.SEARCHING)
+        ctrl._set_state(HuntState.SEARCHING)  # no-op transition
+        assert len(ctrl.get_state_events()) == 1
+
+    def test_ring_capped_at_50(self):
+        ctrl = _make_controller()
+        # Alternate states so each _set_state is a real transition.
+        for i in range(60):
+            target = HuntState.SEARCHING if i % 2 == 0 else HuntState.HOMING
+            ctrl._set_state(target)
+        events = ctrl.get_state_events()
+        assert len(events) == 50
+        # Oldest entries are evicted — first surviving one should not be the
+        # very first transition.
+        assert events[0]["from"] != "idle"

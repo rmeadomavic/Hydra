@@ -33,6 +33,9 @@ const HydraOperations = (() => {
         if (!dropdownRefreshTimer) {
             dropdownRefreshTimer = setInterval(loadDropdowns, 30000);
         }
+        if (window.HydraRfHunt && typeof window.HydraRfHunt.onConfigEnter === 'function') {
+            window.HydraRfHunt.onConfigEnter();
+        }
     }
 
     function onLeave() {
@@ -43,6 +46,9 @@ const HydraOperations = (() => {
         if (dropdownRefreshTimer) {
             clearInterval(dropdownRefreshTimer);
             dropdownRefreshTimer = null;
+        }
+        if (window.HydraRfHunt && typeof window.HydraRfHunt.onConfigLeave === 'function') {
+            window.HydraRfHunt.onConfigLeave();
         }
     }
 

@@ -187,3 +187,50 @@ def build_video_feed(
     ET.SubElement(detail, "remarks").text = "Hydra Detect RTSP feed"
 
     return _to_bytes(event)
+
+
+def build_rf_device_marker(
+    uid: str,
+    callsign: str,
+    cot_type: str,
+    lat: float,
+    lon: float,
+    hae: float,
+    rssi_dbm: float,
+    ssid: str | None,
+    bssid: str | None,
+    freq_mhz: float | None,
+    stale_seconds: float = 60.0,
+) -> bytes:
+    """Build a CoT marker for an RF device seen by Kismet.
+
+    ``how="m-r"`` = machine-RF (sensor-derived bearing/position). ``ce``
+    widens to 300 m since the position is either the survey vehicle's own
+    GPS at detection time or a rough estimate — not a tight fix like a
+    camera detection.
+    """
+    event = _build_event(
+        uid=uid,
+        cot_type=cot_type,
+        how="m-r",
+        lat=lat, lon=lon, hae=hae,
+        ce="300", le="9999999",
+        stale_seconds=stale_seconds,
+    )
+    detail = event.find("detail")
+    assert detail is not None
+
+    contact = ET.SubElement(detail, "contact")
+    contact.set("callsign", callsign)
+
+    remarks = ET.SubElement(detail, "remarks")
+    parts = [f"Hydra RF: rssi={rssi_dbm:.0f} dBm"]
+    if ssid:
+        parts.append(f"ssid={ssid}")
+    if bssid:
+        parts.append(f"bssid={bssid}")
+    if freq_mhz is not None:
+        parts.append(f"freq={freq_mhz:.1f}MHz")
+    remarks.text = " ".join(parts)
+
+    return _to_bytes(event)

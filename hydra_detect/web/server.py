@@ -1825,6 +1825,112 @@ async def api_rf_rssi_history():
     return []
 
 
+@app.get("/api/rf/devices")
+async def api_rf_devices():
+    """Return the current Kismet device feed with ``is_target`` flags.
+
+    Auth-free read — powers the ops dashboard device table. Payload::
+
+        {"mode": "live"|"replay"|"unavailable",
+         "devices": [{bssid, ssid, rssi, channel, freq_mhz, manuf,
+                      first_seen, last_seen, lat, lon, is_target}, ...]}
+    """
+    cb = stream_state.get_callback("get_rf_devices")
+    if cb:
+        try:
+            return cb()
+        except Exception as exc:  # defensive — keep dashboard alive
+            logger.warning("get_rf_devices callback failed: %s", exc)
+    return {"mode": "unavailable", "devices": []}
+
+
+@app.get("/api/rf/events")
+async def api_rf_events():
+    """Return the RF hunt state-transition ring (last 50)."""
+    cb = stream_state.get_callback("get_rf_events")
+    if cb:
+        try:
+            return cb()
+        except Exception as exc:
+            logger.warning("get_rf_events callback failed: %s", exc)
+    return []
+
+
+@app.post("/api/rf/target")
+async def api_rf_target(
+    request: Request, authorization: Optional[str] = Header(None),
+):
+    """Set the hunt target from the device feed — one-click targeting.
+
+    Body: ``{mode?: "wifi"|"sdr", bssid?: str, freq_mhz?: float, confirm: bool}``
+
+    Either ``bssid`` or ``freq_mhz`` must be supplied. ``confirm`` must be
+    true — dashboard requires an explicit operator confirmation step.
+    """
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse(
+            {"error": "Invalid or missing JSON body"}, status_code=400,
+        )
+    if not body.get("confirm"):
+        return JSONResponse(
+            {"error": "confirm=true required to set hunt target"},
+            status_code=400,
+        )
+    bssid = (body.get("bssid") or "").strip()
+    freq_mhz = body.get("freq_mhz")
+    mode = body.get("mode")
+    if not bssid and freq_mhz is None:
+        return JSONResponse(
+            {"error": "bssid or freq_mhz required"}, status_code=400,
+        )
+    if mode and mode not in ("wifi", "sdr"):
+        return JSONResponse(
+            {"error": "mode must be 'wifi' or 'sdr'"}, status_code=400,
+        )
+    if bssid and not BSSID_RE.fullmatch(bssid):
+        return JSONResponse(
+            {"error": "bssid must be MAC format AA:BB:CC:DD:EE:FF"},
+            status_code=400,
+        )
+    if freq_mhz is not None:
+        try:
+            freq_mhz = float(freq_mhz)
+            if not (1.0 <= freq_mhz <= 6000.0):
+                return JSONResponse(
+                    {"error": "freq_mhz must be 1-6000"}, status_code=400,
+                )
+        except (TypeError, ValueError):
+            return JSONResponse(
+                {"error": "freq_mhz must be a number"}, status_code=400,
+            )
+    params: dict = {}
+    if mode:
+        params["mode"] = mode
+    if bssid:
+        params["bssid"] = bssid.upper()
+    if freq_mhz is not None:
+        params["freq_mhz"] = freq_mhz
+    cb = stream_state.get_callback("on_rf_target")
+    if cb:
+        ok = cb(params)
+        target_label = bssid or (f"{freq_mhz}MHz" if freq_mhz else "?")
+        if ok:
+            _audit(request, "rf_hunt_target", target=target_label)
+            return {"status": "ok", "message": "RF hunt target set"}
+        _audit(request, "rf_hunt_target", target=target_label, outcome="failed")
+        return JSONResponse(
+            {"error": "Failed to set RF hunt target"}, status_code=503,
+        )
+    _audit(request, "rf_hunt_target", outcome="unavailable")
+    return JSONResponse(
+        {"error": "RF homing not configured"}, status_code=503,
+    )
+
+
 @app.post("/api/rf/start")
 async def api_rf_start(request: Request, authorization: Optional[str] = Header(None)):
     """Start an RF hunt with the given parameters.
