@@ -43,12 +43,14 @@ def set_engagement_check(cb: Callable[[], bool]) -> None:
     _engagement_active_cb = cb
 
 
-# Fields that require a service restart to take effect
+# Fields that require a service restart to take effect.
+# Note: `detector.yolo_model` hot-swaps via `switch_model()` — intentionally
+# excluded. `yolo_imgsz` is included because it rebuilds the inference engine.
 RESTART_REQUIRED_FIELDS = {
     "web": {"host", "port"},
     "mavlink": {"connection_string", "baud", "source_system"},
     "camera": {"source", "width", "height"},
-    "detector": {"model", "device", "yolo_imgsz"},
+    "detector": {"yolo_imgsz"},
 }
 
 # Fields that must be redacted in GET responses

@@ -192,6 +192,30 @@ class TestConfigRestoreBackup:
         assert resp.status_code == 404
 
 
+class TestRestartRequiredFieldsConsistency:
+    """RESTART_REQUIRED_FIELDS must reference real schema keys — stale entries
+    silently became no-ops when fields were renamed (e.g. model → yolo_model)."""
+
+    def test_all_restart_fields_exist_in_schema(self):
+        from hydra_detect.config_schema import SCHEMA
+        from hydra_detect.web.config_api import RESTART_REQUIRED_FIELDS
+
+        stale = []
+        for section, fields in RESTART_REQUIRED_FIELDS.items():
+            schema_section = SCHEMA.get(section, {})
+            for key in fields:
+                if key not in schema_section:
+                    stale.append(f"{section}.{key}")
+        assert not stale, (
+            f"RESTART_REQUIRED_FIELDS references keys missing from SCHEMA: {stale}"
+        )
+
+    def test_yolo_model_not_restart_required(self):
+        """yolo_model hot-swaps via switch_model() — must not prompt restart."""
+        from hydra_detect.web.config_api import RESTART_REQUIRED_FIELDS
+        assert "yolo_model" not in RESTART_REQUIRED_FIELDS.get("detector", set())
+
+
 class TestConfigImportValidation:
     @pytest.mark.parametrize(
         ("payload", "field"),
