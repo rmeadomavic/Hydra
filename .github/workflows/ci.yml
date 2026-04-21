@@ -5,6 +5,13 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel in-progress runs on the same ref — claude/** branches fire both
+# `push` AND `pull_request` events which otherwise duplicate (and race)
+# the same job.  Keep the newer run; cancel the older.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
