@@ -612,6 +612,24 @@ body.view-config #view-config {
     margin-bottom: var(--s-1);
 }
 
+/* Reusable inline rows inside a panel-field. Replaces repeated
+   style="display:flex;align-items:center;gap:8px" wrappers. */
+.panel-row-inline {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+}
+.panel-row-inline-tight {
+    display: flex;
+    align-items: center;
+    gap: var(--s-1);
+}
+.panel-row-btns {
+    display: flex;
+    gap: var(--s-2);
+    margin-top: var(--s-2);
+}
+
 .btn-sm {
     font-size: var(--font-xs) !important;
     padding: 3px 8px !important;

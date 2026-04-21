@@ -44,6 +44,21 @@
         return !!apiToken;
     }
 
+    // In-page toast replaces native alert() so feedback matches the ops
+    // theme and doesn't block the operator with a modal on a tablet.
+    var toastEl = document.getElementById('action-toast');
+    var toastTimer = null;
+    function showToast(msg, type) {
+        if (!toastEl) return;
+        toastEl.textContent = msg;
+        toastEl.classList.toggle('error', type === 'error');
+        toastEl.classList.add('show');
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(function() {
+            toastEl.classList.remove('show');
+        }, 3500);
+    }
+
     function handleActionAuthFailure(resp) {
         if (resp && resp.status === 401 && resp.headers.get('x-login-required')) {
             window.location.href = '/login';
@@ -51,7 +66,7 @@
         }
         if (resp && (resp.status === 401 || resp.status === 403)) {
             if (!promptForToken()) {
-                alert('Authentication required for control actions.');
+                showToast('Authentication required for control actions.', 'error');
                 return 'stop';
             }
             return 'retry';
@@ -185,7 +200,42 @@
     }
 
     function doUnlock() {
-        apiPost('/api/target/unlock', {}).then(poll);
+        apiPost('/api/target/unlock', {}).then(function(result) {
+            if (result === null) {
+                showToast('Unlock failed — check connection or token.', 'error');
+            }
+            poll();
+        });
+    }
+
+    // Always-visible ABORT — cancels every approach mode and restores the
+    // pre-approach vehicle mode. POST /api/abort is unauthenticated by
+    // design so the operator can always reach it in an emergency.
+    var abortBtn = document.getElementById('control-abort');
+    if (abortBtn) {
+        abortBtn.addEventListener('click', function() {
+            // Visual feedback immediately — the fetch is fire-and-forget
+            // safety-wise; the dashboard + platform will reflect state.
+            abortBtn.classList.remove('header-abort-flash');
+            void abortBtn.offsetWidth;
+            abortBtn.classList.add('header-abort-flash');
+            fetch('/api/abort', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}),
+            })
+                .then(function(r) {
+                    if (r.ok) {
+                        showToast('ABORT sent — platform returning to safe state.');
+                    } else {
+                        showToast('ABORT request failed (HTTP ' + r.status + ').', 'error');
+                    }
+                })
+                .catch(function() {
+                    showToast('ABORT request failed — network error.', 'error');
+                })
+                .finally(function() { poll(); });
+        });
     }
 
     function getConfirmFocusable() {

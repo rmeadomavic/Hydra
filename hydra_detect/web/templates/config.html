@@ -34,13 +34,13 @@
         <div class="panel-body mock-panel-body">
             <div class="panel-field" id="ctrl-mission-name-field">
                 <label class="panel-field-label" for="ctrl-mission-name">Sortie Name</label>
-                <input type="text" id="ctrl-mission-name" placeholder="e.g., sortie-alpha" maxlength="100" style="width:100%; background:var(--bg-panel-alt); border:1px solid var(--border-default); color:var(--text-primary); padding:6px 8px; border-radius:4px; font-family:inherit; font-size:var(--font-sm);">
+                <input type="text" id="ctrl-mission-name" placeholder="e.g., sortie-alpha" maxlength="100">
             </div>
             <div class="panel-field" id="ctrl-mission-active-info" style="display:none;">
                 <span class="panel-stat-label">Active:</span>
                 <span class="panel-stat-value mono accent" id="ctrl-mission-active-name">--</span>
             </div>
-            <div style="display:flex;gap:8px;margin-top:8px;">
+            <div class="panel-row-btns">
                 <button class="btn btn-green" id="ctrl-btn-mission-start">Start Sortie</button>
                 <button class="btn btn-danger" id="ctrl-btn-mission-end" disabled>End Sortie</button>
             </div>
@@ -240,7 +240,7 @@
             </div>
             <div class="panel-field">
                 <label class="panel-field-label">RTSP Stream</label>
-                <div style="display:flex;align-items:center;gap:8px;">
+                <div class="panel-row-inline">
                     <div class="toggle-switch" id="ctrl-rtsp-toggle" title="Toggle RTSP stream"></div>
                     <span class="panel-sys-val mono" id="ctrl-rtsp-status">OFF</span>
                 </div>
@@ -248,7 +248,7 @@
             </div>
             <div class="panel-field">
                 <label class="panel-field-label">MAVLink Video</label>
-                <div style="display:flex;align-items:center;gap:8px;">
+                <div class="panel-row-inline">
                     <div class="toggle-switch" id="ctrl-mvid-toggle" title="Toggle MAVLink video thumbnails"></div>
                     <span class="panel-sys-val mono" id="ctrl-mvid-status">OFF</span>
                 </div>
@@ -267,7 +267,7 @@
             </div>
             <div class="panel-field">
                 <label class="panel-field-label">TAK/ATAK</label>
-                <div style="display:flex;align-items:center;gap:8px;">
+                <div class="panel-row-inline">
                     <div class="toggle-switch" id="ctrl-tak-toggle" title="Toggle TAK CoT output"></div>
                     <span class="panel-sys-val mono" id="ctrl-tak-status">OFF</span>
                 </div>
@@ -275,8 +275,8 @@
                 <div id="ctrl-tak-targets-section" style="margin-top:6px;display:none;">
                     <label class="panel-field-label" style="margin-top:4px;">Unicast Targets</label>
                     <div id="ctrl-tak-target-list" style="margin-bottom:4px;"></div>
-                    <div style="display:flex;gap:4px;align-items:center;">
-                        <input type="text" id="ctrl-tak-target-input" placeholder="192.168.1.100:6969" maxlength="260" style="flex:1;background:var(--bg-panel-alt);border:1px solid var(--border-default);color:var(--text-primary);padding:4px 6px;border-radius:4px;font-family:var(--font-mono);font-size:var(--font-xs);">
+                    <div class="panel-row-inline-tight">
+                        <input type="text" id="ctrl-tak-target-input" placeholder="192.168.1.100:6969" maxlength="260">
                         <button class="btn btn-sm btn-green" id="ctrl-tak-target-add">Add</button>
                     </div>
                 </div>

@@ -36,25 +36,56 @@ function getClassColor(label) {
     return classColorMap[label];
 }
 
+// Inline error banner (matches review.html styling). Replaces blocking
+// alert() and silent fetch failures so operators can see why a log
+// didn't load instead of staring at an empty map.
+let _reviewErrorTimer = null;
+function showReviewError(msg) {
+    const el = document.getElementById('review-error');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add('show');
+    if (_reviewErrorTimer) clearTimeout(_reviewErrorTimer);
+    _reviewErrorTimer = setTimeout(() => el.classList.remove('show'), 6000);
+}
+function clearReviewError() {
+    const el = document.getElementById('review-error');
+    if (el) el.classList.remove('show');
+}
+
 // --- Load log list ---
 async function loadLogList() {
-    const res = await fetch('/api/review/logs');
-    const data = await res.json();
     const sel = document.getElementById('logSelect');
-    sel.innerHTML = '<option value="">-- Select a log file --</option>';
-    for (const log of data.logs) {
-        const opt = document.createElement('option');
-        opt.value = log.filename;
-        opt.textContent = `${log.filename} (${log.size_kb} KB)`;
-        sel.appendChild(opt);
+    try {
+        const res = await fetch('/api/review/logs');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        sel.innerHTML = '<option value="">-- Select a log file --</option>';
+        for (const log of data.logs) {
+            const opt = document.createElement('option');
+            opt.value = log.filename;
+            opt.textContent = `${log.filename} (${log.size_kb} KB)`;
+            sel.appendChild(opt);
+        }
+    } catch (err) {
+        sel.innerHTML = '<option value="">-- No logs available --</option>';
+        showReviewError('Could not load log list: ' + err.message);
     }
 }
 
 // --- Load detections from log ---
 async function loadLog(filename) {
     if (!filename) return;
-    const res = await fetch(`/api/review/log/${filename}`);
-    const data = await res.json();
+    clearReviewError();
+    let data;
+    try {
+        const res = await fetch(`/api/review/log/${filename}`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        data = await res.json();
+    } catch (err) {
+        showReviewError('Failed to load log: ' + err.message);
+        return;
+    }
     allDetections = data.detections || [];
     classColorMap = {};
 
@@ -230,9 +261,16 @@ let eventMarkerLayer = L.layerGroup().addTo(map);
 let vehicleMarker = null;
 
 async function loadEventLogList() {
-    const res = await fetch('/api/review/logs');
-    const data = await res.json();
     const sel = document.getElementById('eventSelect');
+    let data;
+    try {
+        const res = await fetch('/api/review/logs');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        data = await res.json();
+    } catch (err) {
+        showReviewError('Could not load event log list: ' + err.message);
+        return;
+    }
     sel.textContent = '';
     const defOpt = document.createElement('option');
     defOpt.value = '';
@@ -248,8 +286,16 @@ async function loadEventLogList() {
 
 async function loadEventLog(filename) {
     if (!filename) return;
-    const res = await fetch(`/api/review/events/${encodeURIComponent(filename)}`);
-    const data = await res.json();
+    clearReviewError();
+    let data;
+    try {
+        const res = await fetch(`/api/review/events/${encodeURIComponent(filename)}`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        data = await res.json();
+    } catch (err) {
+        showReviewError('Failed to load event log: ' + err.message);
+        return;
+    }
     allEvents = data.events || [];
 
     document.getElementById('eventCount').textContent = allEvents.length;
@@ -368,7 +414,7 @@ function exportWaypoints() {
     const sel = document.getElementById('logSelect');
     const filename = sel ? sel.value : '';
     if (!filename) {
-        alert('Select a log file first.');
+        showReviewError('Select a log file first.');
         return;
     }
     window.location.href = '/api/review/waypoints/' + encodeURIComponent(filename);
