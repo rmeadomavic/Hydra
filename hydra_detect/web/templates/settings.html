@@ -12,6 +12,7 @@
     <button class="settings-section-btn" data-section="tak">TAK/ATAK</button>
     <button class="settings-section-btn" data-section="logging">Logging</button>
     <button class="settings-section-btn" data-section="system_logs">System Logs</button>
+    <button class="settings-section-btn" data-section="system_tools">System Tools</button>
 </nav>
 
 <div class="settings-content mock-tweaks-content" id="settings-content">
@@ -31,6 +32,12 @@
 
     <!-- Dynamic form container -->
     <div class="settings-form mock-tweaks-card" id="settings-form"></div>
+
+    <!-- System Tools — folded from former #systems tab. Sparkline metrics,
+         subsystems matrix, pre-flight checklist. Polled by HydraSystems. -->
+    <div class="settings-systems-panel" id="settings-systems-panel" style="display:none;">
+        {% include 'systems.html' %}
+    </div>
 
     <!-- System Log Viewer -->
     <div class="log-viewer-panel" id="log-viewer-panel" style="display:none;">

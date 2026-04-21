@@ -14,8 +14,8 @@ MAVLink, emits CoT to TAK, and serves an operator dashboard on port
 ## What ships
 
 - Detect → track → alert pipeline (≥5 FPS on Orin Nano, GPU-accelerated).
-- Six-tab operator dashboard: `#ops`, `#tak`, `#autonomy`, `#systems`,
-  `#config`, `#settings`.
+- Four-tab operator dashboard: `#ops`, `#tak`, `#config`, `#settings`.
+  Autonomy controls live inside Config; system diagnostics inside Settings.
 - Vehicle control modes: Follow, Drop, Strike, Pixel-Lock, plus an
   always-available instructor abort.
 - Five-gate autonomy stack (geofence / vehicle_mode / operator_lock /

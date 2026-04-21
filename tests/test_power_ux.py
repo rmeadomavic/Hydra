@@ -51,10 +51,15 @@ class TestKeybindsJsServed:
         body = client.get("/static/js/keybinds.js").text
         assert "INPUT" in body and "TEXTAREA" in body and "SELECT" in body
 
-    def test_keybinds_js_lists_six_views(self, client):
+    def test_keybinds_js_lists_top_level_views(self, client):
+        """After 6→4 streamline, only the surviving top-level tabs are
+        in the keybinds VIEW_ORDER. autonomy/systems were folded into
+        config/settings respectively."""
         body = client.get("/static/js/keybinds.js").text
-        for v in ("ops", "tak", "systems", "autonomy", "config", "settings"):
+        for v in ("ops", "tak", "config", "settings"):
             assert f"'{v}'" in body
+        for gone in ("'systems'", "'autonomy'"):
+            assert gone not in body, f"{gone} should be dropped from keybinds VIEW_ORDER"
 
     def test_keybinds_js_does_not_swallow_arrow_keys(self, client):
         body = client.get("/static/js/keybinds.js").text

@@ -62,31 +62,33 @@ def test_config_html_uses_mock_card_stack(config_html: str) -> None:
 
 def test_config_html_panels_carry_mock_panel_class(config_html: str) -> None:
     """Every .panel block is tagged mock-panel so config.css can style it."""
-    # 7 panels are defined in config.html (vehicle, target, pipeline, detection,
-    # rf, mission, log). Each panel + its header + body must carry a mock-*
-    # class so tests downstream can verify the mock vocabulary took effect.
-    assert config_html.count('class="panel mock-panel"') == 7
-    assert config_html.count("mock-panel-head") == 7
-    assert config_html.count("mock-panel-body") == 7
+    # 5 panels in the streamlined config.html (mission, detection, vehicle
+    # mode, rf, outputs). Telemetry / pipeline-stats / target / detection-log
+    # were dropped (live on Ops or the topbar). Each panel + its header +
+    # body must carry a mock-* class so tests downstream can verify the
+    # mock vocabulary took effect.
+    assert config_html.count('class="panel mock-panel"') == 5
+    assert config_html.count("mock-panel-head") == 5
+    assert config_html.count("mock-panel-body") == 5
 
 
 def test_config_html_titles_are_section_labels(config_html: str) -> None:
     """Panel titles wear the mock-section-label class (Barlow-Cond 0.18em)."""
     assert "mock-section-label" in config_html
-    assert config_html.count("panel-title mock-section-label") == 7
+    assert config_html.count("panel-title mock-section-label") == 5
 
 
 def test_config_html_preserves_dynamic_ids(config_html: str) -> None:
     """Auto-render + save handlers target specific IDs — keep them intact."""
     for marker in (
         "operations-panels",
-        "ctrl-mode-badge",
-        "ctrl-fps",
         "ctrl-thresh-slider",
         "ctrl-alert-class-list",
         "ctrl-rf-rssi-chart",
         "ctrl-mission-name",
-        "ctrl-det-log",
+        "ctrl-power-mode",
+        "ctrl-rtsp-toggle",
+        "ctrl-btn-loiter",
     ):
         assert f'id="{marker}"' in config_html, f"missing #{marker}"
 

@@ -3,8 +3,14 @@
 window.HydraModules = window.HydraModules || {};
 
 window.HydraModules.createViewRouter = function createViewRouter({ store, onViewLifecycle, onViewChanged }) {
-    const VALID_VIEWS = ['ops', 'config', 'settings', 'tak', 'systems', 'autonomy'];
-    const VIEW_ALIASES = { operations: 'config' };
+    const VALID_VIEWS = ['ops', 'config', 'settings', 'tak'];
+    // Autonomy and Systems were folded into Config and Settings respectively.
+    // Aliases keep old bookmarks (#autonomy, #systems) and external links working.
+    const VIEW_ALIASES = {
+        'operations': 'config',
+        'autonomy': 'config',
+        'systems': 'settings',
+    };
 
     function normalizeView(raw) {
         const hash = (raw || '').replace('#', '') || 'ops';

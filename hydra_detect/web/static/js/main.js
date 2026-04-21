@@ -141,13 +141,17 @@
             if (view === 'tak') HydraTak.onEnter();
             if (prev === 'tak') HydraTak.onLeave();
         }
+        // Systems folded into Settings — its panel is rendered inside the
+        // Settings view, so polling lifecycle follows that view.
         if (typeof HydraSystems !== 'undefined' && prev !== view) {
-            if (view === 'systems') HydraSystems.onEnter();
-            if (prev === 'systems') HydraSystems.onLeave();
+            if (view === 'settings') HydraSystems.onEnter();
+            if (prev === 'settings') HydraSystems.onLeave();
         }
+        // Autonomy folded into Config — its dashboard is included at the
+        // bottom of the Config view, so polling follows the Config lifecycle.
         if (typeof HydraAutonomy !== 'undefined' && prev !== view) {
-            if (view === 'autonomy') HydraAutonomy.onEnter();
-            if (prev === 'autonomy') HydraAutonomy.onLeave();
+            if (view === 'config') HydraAutonomy.onEnter();
+            if (prev === 'config') HydraAutonomy.onLeave();
         }
     }
 
@@ -275,11 +279,15 @@
         setTimeout(function() {
             var v = store.getState().currentView;
             if (v === 'ops' && typeof HydraOps !== 'undefined') HydraOps.onEnter();
-            else if (v === 'config' && typeof HydraOperations !== 'undefined') HydraOperations.onEnter();
-            else if (v === 'settings' && typeof HydraSettings !== 'undefined') HydraSettings.onEnter();
+            else if (v === 'config') {
+                if (typeof HydraOperations !== 'undefined') HydraOperations.onEnter();
+                if (typeof HydraAutonomy !== 'undefined') HydraAutonomy.onEnter();
+            }
+            else if (v === 'settings') {
+                if (typeof HydraSettings !== 'undefined') HydraSettings.onEnter();
+                if (typeof HydraSystems !== 'undefined') HydraSystems.onEnter();
+            }
             else if (v === 'tak' && typeof HydraTak !== 'undefined') HydraTak.onEnter();
-            else if (v === 'systems' && typeof HydraSystems !== 'undefined') HydraSystems.onEnter();
-            else if (v === 'autonomy' && typeof HydraAutonomy !== 'undefined') HydraAutonomy.onEnter();
             stream.resumeStream();
         }, 0);
         initBandwidthToggle();

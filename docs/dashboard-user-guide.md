@@ -2,9 +2,10 @@
 
 Everything an operator needs to run Hydra from the web dashboard. Open
 `http://<jetson-ip>:8080/` on a laptop or tablet on the same network.
-Six tabs along the top. URL hash controls which one is visible
-(`#ops`, `#tak`, `#autonomy`, `#systems`, `#config`, `#settings`).
-If you type no hash, you land on `#ops`.
+Four tabs along the top. URL hash controls which one is visible
+(`#ops`, `#tak`, `#config`, `#settings`). If you type no hash, you
+land on `#ops`. Old `#autonomy` and `#systems` URLs redirect to
+`#config` and `#settings` respectively (their content was folded in).
 
 All views share the top bar (brand + callsign) and the bottom footer
 (`UNCLASSIFIED` centered, `SORCC Payload Integrator` right). The
@@ -106,10 +107,11 @@ exponentially (1 s → 2 s → 4 s, cap 10 s).
 
 ---
 
-## `#autonomy` — Autonomy dashboard
+## Autonomy dashboard (inside `#config`)
 
-Safety-critical readout for the autonomous-strike pipeline. This tab
-shows what autonomy would have done; the actual mode switch is the
+Safety-critical readout for the autonomous-strike pipeline. Lives at
+the bottom of the Config tab now (formerly its own `#autonomy` tab).
+Shows what autonomy would have done; the actual mode switch is the
 only write surface in this view.
 
 ### Mode picker
@@ -167,9 +169,11 @@ Capped at 200 rows. Source: `/api/autonomy/status.log[]`.
 
 ---
 
-## `#systems` — Systems health
+## Systems health (inside `#settings` → System Tools)
 
-One-stop check for "is the Jetson okay right now". Polls `/api/stats`
+One-stop check for "is the Jetson okay right now". Lives in the
+Settings tab now (formerly its own `#systems` tab) — click the
+"System Tools" entry in the Settings left-nav. Polls `/api/stats`
 at 1 Hz; no other endpoints touched.
 
 ### Top metric grid (4 sparkline cards)
