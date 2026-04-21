@@ -779,7 +779,7 @@ class MAVLinkIO:
         """
         lat, lon, _ = self.get_lat_lon()
         heading = self.get_heading_deg()
-        if lat is None or heading is None:
+        if lat is None or lon is None or heading is None:
             return None
 
         # Compute target bearing: vehicle heading + camera offset

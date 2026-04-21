@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+import time
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -43,6 +44,9 @@ def _make_pipeline(**overrides) -> Pipeline:
     p._cam_lost = False
     p._CAM_FAIL_THRESHOLD = 2
     p._event_logger = MagicMock()
+    p._last_frame_time = time.monotonic()
+    p._paused = False
+    p._watchdog_max_stall_sec = 30.0
     return p
 
 
@@ -210,3 +214,57 @@ class TestCameraLossDetection:
         assert p._cam_fail_count == 1
         assert p._cam_lost is False
         p._mavlink.send_statustext.assert_not_called()
+
+    def test_watchdog_skips_stall_while_cam_lost(self):
+        """Watchdog must not force-exit while pipeline is in a known
+        camera-loss degraded state — otherwise a Jetson booted without a
+        camera enters a 30 s crash loop (issue #122)."""
+        p = _make_pipeline()
+        p._running = True
+        p._cam_lost = True
+        p._last_frame_time = time.monotonic() - 1000.0
+        p._watchdog_max_stall_sec = 0.01
+
+        def fake_sleep(_):
+            p._running = False  # run exactly one iteration
+
+        with patch("hydra_detect.pipeline.facade.time.sleep", side_effect=fake_sleep), \
+                patch("os._exit") as mock_exit:
+            p._watchdog_loop()
+
+        mock_exit.assert_not_called()
+
+    def test_watchdog_still_kills_real_stall(self):
+        """When camera is healthy, a real stall still triggers force-exit."""
+        p = _make_pipeline()
+        p._running = True
+        p._cam_lost = False
+        p._last_frame_time = time.monotonic() - 1000.0
+        p._watchdog_max_stall_sec = 0.01
+
+        def fake_sleep(_):
+            p._running = False
+
+        with patch("hydra_detect.pipeline.facade.time.sleep", side_effect=fake_sleep), \
+                patch("os._exit") as mock_exit:
+            p._watchdog_loop()
+
+        mock_exit.assert_called_once_with(1)
+
+    def test_restore_resets_watchdog_baseline(self):
+        """Camera restore must refresh _last_frame_time so watchdog doesn't
+        immediately kill the process after a long absence (issue #122)."""
+        p = _make_pipeline()
+        p._camera.read.return_value = None
+        p._check_camera_frame()
+        p._check_camera_frame()
+        assert p._cam_lost is True
+
+        # Simulate camera absent for a long time — watchdog baseline is stale.
+        p._last_frame_time = time.monotonic() - 1000.0
+
+        p._camera.read.return_value = _FAKE_FRAME
+        before = time.monotonic()
+        p._check_camera_frame()
+        # _last_frame_time must have been stamped fresh on restore.
+        assert p._last_frame_time >= before

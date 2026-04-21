@@ -5,6 +5,7 @@ from __future__ import annotations
 import configparser
 import os
 import stat
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -190,6 +191,94 @@ class TestConfigRestoreBackup:
         with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
             resp = client.post("/api/config/restore-backup")
         assert resp.status_code == 404
+
+
+class TestRestartRequiredFieldsConsistency:
+    """RESTART_REQUIRED_FIELDS must reference real schema keys — stale entries
+    silently became no-ops when fields were renamed (e.g. model → yolo_model)."""
+
+    def test_all_restart_fields_exist_in_schema(self):
+        from hydra_detect.config_schema import SCHEMA
+        from hydra_detect.web.config_api import RESTART_REQUIRED_FIELDS
+
+        stale = []
+        for section, fields in RESTART_REQUIRED_FIELDS.items():
+            schema_section = SCHEMA.get(section, {})
+            for key in fields:
+                if key not in schema_section:
+                    stale.append(f"{section}.{key}")
+        assert not stale, (
+            f"RESTART_REQUIRED_FIELDS references keys missing from SCHEMA: {stale}"
+        )
+
+    def test_yolo_model_not_restart_required(self):
+        """yolo_model hot-swaps via switch_model() — must not prompt restart."""
+        from hydra_detect.web.config_api import RESTART_REQUIRED_FIELDS
+        assert "yolo_model" not in RESTART_REQUIRED_FIELDS.get("detector", set())
+
+
+class TestRedactedFieldsConsistency:
+    """REDACTED_FIELDS must reference real schema keys — if a secret key is
+    renamed without updating this set, GET /api/config/full silently leaks."""
+
+    def test_all_redacted_fields_exist_in_schema(self):
+        from hydra_detect.config_schema import SCHEMA
+        from hydra_detect.web.config_api import REDACTED_FIELDS
+
+        stale = []
+        for section, fields in REDACTED_FIELDS.items():
+            schema_section = SCHEMA.get(section, {})
+            for key in fields:
+                if key not in schema_section:
+                    stale.append(f"{section}.{key}")
+        assert not stale, (
+            f"REDACTED_FIELDS references keys missing from SCHEMA: {stale}"
+        )
+
+
+class TestAtomicConfigWrite:
+    """Config writes must be crash-safe — a power cut mid-write must not
+    leave a partial config.ini (issue #60)."""
+
+    def test_write_uses_tmp_then_replace(self, client, tmp_config):
+        """Verify the write path calls os.replace with a .tmp source."""
+        import hydra_detect.web.config_api as cfg_api
+        calls = []
+        real_replace = os.replace
+
+        def tracked_replace(src, dst):
+            calls.append((str(src), str(dst)))
+            real_replace(src, dst)
+
+        with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config), \
+                patch.object(cfg_api.os, "replace", side_effect=tracked_replace):
+            resp = client.post("/api/config/full", json={"camera": {"fps": "25"}})
+
+        assert resp.status_code == 200
+        assert len(calls) == 1
+        src, dst = calls[0]
+        assert src.endswith(".tmp")
+        assert dst == str(tmp_config)
+
+    def test_orphan_tmp_cleaned_up_on_failure(self, client, tmp_config):
+        """If os.replace raises, the .tmp file must not persist."""
+        import hydra_detect.web.config_api as cfg_api
+        tmp_path = Path(str(tmp_config) + ".tmp")
+
+        def failing_replace(src, dst):
+            raise OSError("simulated rename failure")
+
+        with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config), \
+                patch.object(cfg_api.os, "replace", side_effect=failing_replace):
+            resp = client.post("/api/config/full", json={"camera": {"fps": "25"}})
+
+        # Write failed — original config must be untouched and .tmp gone.
+        assert resp.status_code in (500, 200)  # route may or may not surface error
+        assert not tmp_path.exists(), "orphan .tmp not cleaned up"
+        # Original file must still be readable and not half-written.
+        config = configparser.ConfigParser()
+        config.read(tmp_config)
+        assert "camera" in config
 
 
 class TestConfigImportValidation:
