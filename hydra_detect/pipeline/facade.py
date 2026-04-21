@@ -923,12 +923,13 @@ class Pipeline:
         # Wire config safety lock so safety-critical fields are frozen during engagement
         set_engagement_check(self._is_engagement_active)
 
-        if not self._camera.open():
-            logger.error("Failed to open camera — aborting.")
-            self._detector.unload()
-            sys.exit(1)
+        # Camera.open() always returns True — it starts a reconnect loop in
+        # the background if the device isn't present yet (issue #122). The
+        # pipeline enters degraded mode until frames start flowing.
+        self._camera.open()
 
-        # Push a placeholder frame so the MJPEG stream has something immediately
+        # Push a placeholder frame so the MJPEG stream has something immediately.
+        # May be None at boot if the camera isn't plugged in yet — that's fine.
         preview = self._camera.read()
         if preview is not None:
             stream_state.update_frame(preview)
@@ -1113,6 +1114,9 @@ class Pipeline:
         signal.signal(signal.SIGTERM, self._signal_handler)
 
         self._running = True
+        # Reset watchdog baseline so the cumulative init time isn't counted
+        # as a stall when the watchdog thread starts.
+        self._last_frame_time = time.monotonic()
         # Start watchdog thread (daemon — dies with main process)
         self._watchdog_thread = threading.Thread(
             target=self._watchdog_loop, daemon=True, name="watchdog"
@@ -1233,6 +1237,11 @@ class Pipeline:
             time.sleep(interval)
             if self._paused:
                 continue
+            # Known camera-loss is a degraded state, not a stall — operator
+            # is already notified via STATUSTEXT / preflight. Don't crash-loop
+            # while waiting for hardware (issue #122).
+            if self._cam_lost:
+                continue
             stall = time.monotonic() - self._last_frame_time
             if stall > self._watchdog_max_stall_sec:
                 logger.critical(
@@ -1260,6 +1269,9 @@ class Pipeline:
         if self._cam_lost:
             self._cam_lost = False
             self._cam_fail_count = 0
+            # Watchdog baseline — avoid immediate stall kill when the first
+            # detection after restore takes longer than max_stall_sec.
+            self._last_frame_time = time.monotonic()
             logger.info("Camera restored — exiting degraded mode.")
             self._event_logger.log_state_change("camera_restored")
             if self._mavlink is not None:

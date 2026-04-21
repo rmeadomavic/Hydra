@@ -306,7 +306,14 @@ class Camera:
         return str(self._source)
 
     def open(self) -> bool:
-        """Open the capture device and start the grab thread."""
+        """Open the capture device and start the grab thread.
+
+        If the device isn't available yet (e.g. unplugged at boot), the grab
+        thread is still started so it can reconnect in the background with
+        exponential backoff. Frames start flowing once the device appears.
+        Always returns True — a missing camera is a degraded runtime state,
+        not a hard failure (see issue #122).
+        """
         if self._source_type == "analog":
             # Configure V4L2 composite input before opening
             _configure_analog_input(self._device_path(), self._video_standard)
@@ -316,8 +323,18 @@ class Camera:
             self._cap = cv2.VideoCapture(self._source)
 
         if not self._cap.isOpened():
-            logger.error("Cannot open camera source: %s", self._source)
-            return False
+            logger.warning(
+                "Camera not found at %s — will keep retrying in the background. "
+                "Check USB connection, device path, or camera.source in config.ini.",
+                self._source,
+            )
+            self._cap.release()
+            self._cap = None
+            # Start grab thread anyway — it reconnects with backoff.
+            self._running = True
+            self._thread = threading.Thread(target=self._grab_loop, daemon=True)
+            self._thread.start()
+            return True
 
         self._configure_and_start()
 
@@ -373,6 +390,9 @@ class Camera:
                 logger.warning("Reconnecting camera in %.1fs ...", backoff)
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 30.0)
+                if self._cap is not None:
+                    # Release any lingering (unopened) capture before replacing
+                    self._cap.release()
                 if self._source_type == "analog":
                     _configure_analog_input(
                         self._device_path(), self._video_standard,
@@ -380,6 +400,12 @@ class Camera:
                     self._cap = cv2.VideoCapture(self._source, cv2.CAP_V4L2)
                 else:
                     self._cap = cv2.VideoCapture(self._source)
+                if self._cap.isOpened():
+                    # Apply resolution/fps after reconnect — otherwise camera
+                    # runs at default settings after a reconnect.
+                    self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
+                    self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+                    self._cap.set(cv2.CAP_PROP_FPS, self._fps)
                 continue
 
             ok, frame = self._cap.read()
