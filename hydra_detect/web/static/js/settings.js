@@ -314,6 +314,7 @@ const HydraSettings = (() => {
         const error = document.getElementById('settings-error');
         const restart = document.getElementById('settings-restart');
         const logPanel = document.getElementById('log-viewer-panel');
+        const systemsPanel = document.getElementById('settings-systems-panel');
         const actionsBar = document.querySelector('.settings-actions');
         const recoverySection = document.querySelector('.settings-recovery');
 
@@ -323,6 +324,7 @@ const HydraSettings = (() => {
         if (section === 'system_logs') {
             form.style.display = 'none';
             if (logPanel) logPanel.style.display = '';
+            if (systemsPanel) systemsPanel.style.display = 'none';
             if (actionsBar) actionsBar.style.display = 'none';
             if (recoverySection) recoverySection.style.display = 'none';
             if (warning) warning.style.display = 'none';
@@ -333,9 +335,25 @@ const HydraSettings = (() => {
             return;
         }
 
+        // System Tools — show the embedded systems dashboard (FPS / temps /
+        // RAM sparklines, subsystems matrix, pre-flight checklist).
+        if (section === 'system_tools') {
+            form.style.display = 'none';
+            if (logPanel) logPanel.style.display = 'none';
+            if (systemsPanel) systemsPanel.style.display = '';
+            if (actionsBar) actionsBar.style.display = 'none';
+            if (recoverySection) recoverySection.style.display = 'none';
+            if (warning) warning.style.display = 'none';
+            if (error) error.style.display = 'none';
+            if (restart) restart.style.display = 'none';
+            stopLogAutoRefresh();
+            return;
+        }
+
         // Normal config section — hide log viewer, show form + actions
         form.style.display = '';
         if (logPanel) logPanel.style.display = 'none';
+        if (systemsPanel) systemsPanel.style.display = 'none';
         if (actionsBar) actionsBar.style.display = '';
         if (recoverySection) recoverySection.style.display = '';
         stopLogAutoRefresh();

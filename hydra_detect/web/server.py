@@ -2109,8 +2109,9 @@ def _autonomy_default_snapshot(callsign: str) -> dict:
 async def api_autonomy_status():
     """Return autonomy gate + explainability snapshot.
 
-    Auth-free read (same precedent as /api/stats). Powers the #autonomy
-    dashboard view: mode picker, gate panel, and the rolling decision log.
+    Auth-free read (same precedent as /api/stats). Powers the autonomy
+    dashboard (now embedded inside #config): mode picker, gate panel,
+    and the rolling decision log.
     Returns an idle default shape when no controller is registered so the
     dashboard can render on a cold boot.
     """

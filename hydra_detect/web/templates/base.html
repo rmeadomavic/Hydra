@@ -47,8 +47,6 @@
         <nav class="tb-nav" role="navigation" aria-label="View navigation">
             <button class="topbar-tab active" data-view="ops" aria-label="Ops HUD view">Operator</button>
             <button class="topbar-tab" data-view="tak" aria-label="TAK view">TAK</button>
-            <button class="topbar-tab" data-view="autonomy" aria-label="Autonomy view">Autonomy</button>
-            <button class="topbar-tab" data-view="systems" aria-label="Systems view">Systems</button>
             <button class="topbar-tab" data-view="config" aria-label="Config view">Config</button>
             <button class="topbar-tab" data-view="settings" aria-label="Settings view">Settings</button>
         </nav>
@@ -139,16 +137,6 @@
         {% include 'tak.html' %}
     </div>
 
-    <!-- ── View: Systems ── -->
-    <div class="view view-systems" id="view-systems">
-        {% include 'systems.html' %}
-    </div>
-
-    <!-- ── View: Autonomy ── -->
-    <div class="view view-autonomy" id="view-autonomy">
-        {% include 'autonomy.html' %}
-    </div>
-
     <!-- ── Strike Confirmation Modal ── -->
     <div class="modal-overlay" id="strike-modal">
         <div class="modal" role="dialog" aria-modal="true" aria-labelledby="strike-modal-title" tabindex="-1">
@@ -205,10 +193,8 @@
                 <div class="keybinds-section-title">Views</div>
                 <div class="keybinds-row"><kbd class="keybinds-kbd">1</kbd><span class="keybinds-desc">Ops</span></div>
                 <div class="keybinds-row"><kbd class="keybinds-kbd">2</kbd><span class="keybinds-desc">TAK</span></div>
-                <div class="keybinds-row"><kbd class="keybinds-kbd">3</kbd><span class="keybinds-desc">Systems</span></div>
-                <div class="keybinds-row"><kbd class="keybinds-kbd">4</kbd><span class="keybinds-desc">Autonomy</span></div>
-                <div class="keybinds-row"><kbd class="keybinds-kbd">5</kbd><span class="keybinds-desc">Config</span></div>
-                <div class="keybinds-row"><kbd class="keybinds-kbd">6</kbd><span class="keybinds-desc">Settings</span></div>
+                <div class="keybinds-row"><kbd class="keybinds-kbd">3</kbd><span class="keybinds-desc">Config</span></div>
+                <div class="keybinds-row"><kbd class="keybinds-kbd">4</kbd><span class="keybinds-desc">Settings</span></div>
             </div>
             <div class="keybinds-section">
                 <div class="keybinds-section-title">Global</div>

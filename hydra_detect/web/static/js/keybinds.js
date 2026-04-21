@@ -6,7 +6,7 @@
  * Konami listener in easter.js keeps exclusive reign over those.
  *
  * Shortcuts:
- *   1..6       switch views (ops, tak, systems, autonomy, config, settings)
+ *   1..4       switch views (ops, tak, config, settings)
  *   ?          toggle the #keybinds-help overlay
  *   /          focus the current view's .view-search input (if any)
  *   Escape     close any open overlay (help, command palette, modals, preflight)
@@ -18,7 +18,7 @@
 'use strict';
 
 (function () {
-    const VIEW_ORDER = ['ops', 'tak', 'systems', 'autonomy', 'config', 'settings'];
+    const VIEW_ORDER = ['ops', 'tak', 'config', 'settings'];
 
     function isEditingTarget() {
         const ae = document.activeElement;
@@ -121,7 +121,7 @@
         if (isEditingTarget()) return;
         if (e.altKey || e.metaKey || e.ctrlKey) return;
 
-        if (e.key >= '1' && e.key <= '6') {
+        if (e.key >= '1' && e.key <= '4') {
             const idx = parseInt(e.key, 10) - 1;
             const view = VIEW_ORDER[idx];
             if (view) {
