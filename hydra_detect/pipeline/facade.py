@@ -2446,47 +2446,110 @@ class Pipeline:
         }
 
     def _handle_tak_toggle(self, enabled: bool) -> dict:
-        """Start or stop TAK CoT output at runtime."""
-        if enabled and self._tak is None:
+        """Start or stop TAK CoT output at runtime.
+
+        Honors ``[tak] mode`` so the toggle drives both the direct UDP sink
+        and the MAVLink relay sink. Disabling TAK in the UI must stop *every*
+        CoT path, otherwise detections keep transmitting over MAVLink.
+        """
+        tak_mode = self._cfg.get("tak", "mode", fallback="direct").lower()
+        want_direct = tak_mode in ("direct", "both")
+        want_relay = tak_mode in ("relay", "both")
+        emit_interval = self._cfg.getfloat("tak", "emit_interval", fallback=2.0)
+        hfov = self._cfg.getfloat("camera", "hfov_deg", fallback=60.0)
+
+        if enabled:
             if self._mavlink is None:
                 return {"status": "error", "message": "MAVLink not connected"}
-            rtsp_url = None
-            tak_host = self._cfg.get("tak", "advertise_host", fallback="").strip()
-            if tak_host and self._rtsp is not None and self._rtsp.running:
-                rtsp_url = f"rtsp://{tak_host}:{self._rtsp_port}{self._rtsp_mount}"
-            self._tak = TAKOutput(
-                mavlink_io=self._mavlink,
-                callsign=self._cfg.get("tak", "callsign", fallback="HYDRA-1"),
-                multicast_group=self._cfg.get("tak", "multicast_group", fallback="239.2.3.1"),
-                multicast_port=self._cfg.getint("tak", "multicast_port", fallback=6969),
-                emit_interval=self._cfg.getfloat("tak", "emit_interval", fallback=2.0),
-                sa_interval=self._cfg.getfloat("tak", "sa_interval", fallback=5.0),
-                stale_detection=self._cfg.getfloat("tak", "stale_detection", fallback=60.0),
-                stale_sa=self._cfg.getfloat("tak", "stale_sa", fallback=30.0),
-                camera_hfov_deg=self._cfg.getfloat("camera", "hfov_deg", fallback=60.0),
-                unicast_targets=self._cfg.get("tak", "unicast_targets", fallback=""),
-                rtsp_url=rtsp_url,
-            )
-            if self._tak.start():
-                return {"status": "ok", "running": True}
-            self._tak = None
-            return {"status": "error", "message": "Failed to start TAK output"}
-        elif not enabled and self._tak is not None:
+
+            if want_direct and self._tak is None:
+                rtsp_url = None
+                tak_host = self._cfg.get("tak", "advertise_host", fallback="").strip()
+                if tak_host and self._rtsp is not None and self._rtsp.running:
+                    rtsp_url = (
+                        f"rtsp://{tak_host}:{self._rtsp_port}{self._rtsp_mount}"
+                    )
+                self._tak = TAKOutput(
+                    mavlink_io=self._mavlink,
+                    callsign=self._cfg.get("tak", "callsign", fallback="HYDRA-1"),
+                    multicast_group=self._cfg.get(
+                        "tak", "multicast_group", fallback="239.2.3.1",
+                    ),
+                    multicast_port=self._cfg.getint(
+                        "tak", "multicast_port", fallback=6969,
+                    ),
+                    emit_interval=emit_interval,
+                    sa_interval=self._cfg.getfloat(
+                        "tak", "sa_interval", fallback=5.0,
+                    ),
+                    stale_detection=self._cfg.getfloat(
+                        "tak", "stale_detection", fallback=60.0,
+                    ),
+                    stale_sa=self._cfg.getfloat(
+                        "tak", "stale_sa", fallback=30.0,
+                    ),
+                    camera_hfov_deg=hfov,
+                    unicast_targets=self._cfg.get(
+                        "tak", "unicast_targets", fallback="",
+                    ),
+                    rtsp_url=rtsp_url,
+                )
+                if not self._tak.start():
+                    self._tak = None
+                    return {
+                        "status": "error",
+                        "message": "Failed to start TAK output",
+                    }
+
+            if want_relay and self._mav_relay is None:
+                self._mav_relay = MAVLinkRelayOutput(
+                    mavlink_io=self._mavlink,
+                    emit_interval=emit_interval,
+                    camera_hfov_deg=hfov,
+                )
+                if not self._mav_relay.start():
+                    self._mav_relay = None
+                    return {
+                        "status": "error",
+                        "message": "Failed to start TAK MAVLink relay",
+                    }
+
+            return {
+                "status": "ok",
+                "running": self._tak is not None or self._mav_relay is not None,
+            }
+
+        # enabled == False: stop every CoT path, regardless of mode.
+        if self._tak is not None:
             self._tak.stop()
             self._tak = None
-            return {"status": "ok", "running": False}
-        return {"status": "ok", "running": self._tak is not None}
+        if self._mav_relay is not None:
+            self._mav_relay.stop()
+            self._mav_relay = None
+        return {"status": "ok", "running": False}
 
     def _get_tak_status(self) -> dict:
         """Return TAK output status for the web API."""
         if self._tak is not None:
-            return self._tak.get_status()
-        return {
-            "enabled": self._cfg.getboolean("tak", "enabled", fallback=False),
-            "running": False,
-            "callsign": self._cfg.get("tak", "callsign", fallback="HYDRA-1"),
-            "events_sent": 0,
-        }
+            status = dict(self._tak.get_status())
+        else:
+            status = {
+                "enabled": self._cfg.getboolean("tak", "enabled", fallback=False),
+                "running": False,
+                "callsign": self._cfg.get("tak", "callsign", fallback="HYDRA-1"),
+                "events_sent": 0,
+            }
+        if self._mav_relay is not None:
+            relay_status = self._mav_relay.get_status()
+            status["relay_running"] = relay_status["enabled"]
+            status["relay_events_sent"] = relay_status["events_sent"]
+            if not status.get("running"):
+                status["running"] = relay_status["enabled"]
+        else:
+            status["relay_running"] = False
+            status["relay_events_sent"] = 0
+        status["mode"] = self._cfg.get("tak", "mode", fallback="direct")
+        return status
 
     def _play_tune(self, tune: str = "alert") -> bool:
         """Play a tune on the Pixhawk buzzer."""
