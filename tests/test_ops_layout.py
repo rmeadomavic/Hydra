@@ -69,12 +69,14 @@ class TestNewZoneElements:
 
     def test_cockpit_strip_three_cells(self):
         html = OPS_HTML.read_text()
+        # Cell 2 (TAK) migrated from SVG radar to Leaflet map in 2a8f48f —
+        # `ops-cockpit-tak-map` div is now the render target.
         for needle in (
             'id="ops-cockpit-servo"',
             'id="ops-cockpit-tak"',
             'id="ops-cockpit-sdr"',
             'id="ops-cockpit-servo-svg"',
-            'id="ops-cockpit-tak-svg"',
+            'id="ops-cockpit-tak-map"',
             'id="ops-cockpit-sdr-spectrum"',
             'id="ops-cockpit-sdr-list"',
         ):
@@ -82,9 +84,10 @@ class TestNewZoneElements:
 
     def test_outer_grid_uses_mock_template(self):
         css = OPS_CSS.read_text()
-        # Mock spec verbatim: `auto 1fr 360px` / `1fr 220px`
-        assert "grid-template-columns: auto 1fr 360px" in css
-        assert "grid-template-rows: 1fr 220px" in css
+        # Mock spec after a4effd8 widened bounds with minmax() to stop
+        # the grid blowing out on narrower viewports.
+        assert "grid-template-columns: auto minmax(0, 1fr) minmax(280px, 360px)" in css
+        assert "grid-template-rows: minmax(0, 1fr) 220px" in css
 
 
 # ── (b) ops.js exports updateFlightHud + updateCockpitStrip ──

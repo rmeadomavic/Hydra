@@ -7,8 +7,6 @@ daemon thread silently and the hot path would fill the queue to capacity.
 
 from __future__ import annotations
 
-import queue
-import threading
 import time
 from unittest.mock import patch
 
