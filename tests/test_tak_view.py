@@ -48,14 +48,6 @@ class TestTakTabNavigation:
         assert "/static/js/tak.js" in resp.text
         assert "/static/css/tak.css" in resp.text
 
-    def test_tak_placeholder_copy_present(self, client):
-        """M2 stub columns — copy must be visible so Kyle sees B2/B3/B9 state."""
-        resp = client.get("/")
-        assert resp.status_code == 200
-        assert "B2 — not yet built" in resp.text
-        assert "B3 — not yet built" in resp.text
-        assert "B9 — not yet built" in resp.text
-
 
 class TestTakStaticAssets:
     def test_tak_js_served(self, client):

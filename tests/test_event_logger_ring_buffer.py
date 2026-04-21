@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from hydra_detect.event_logger import EventLogger
 
 
