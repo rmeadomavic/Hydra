@@ -414,7 +414,9 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
         ),
         "dogleg_distance_m": FieldSpec(
             FieldType.FLOAT,
-            default=None,
+            min_val=10.0,
+            max_val=2000.0,
+            default=200.0,
             description="Dogleg maneuver distance meters",
         ),
         "dogleg_bearing": FieldSpec(
@@ -424,7 +426,9 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
         ),
         "dogleg_altitude_m": FieldSpec(
             FieldType.FLOAT,
-            default=None,
+            min_val=5.0,
+            max_val=400.0,
+            default=50.0,
             description="Dogleg maneuver altitude meters",
         ),
         "arm_channel": FieldSpec(
@@ -454,6 +458,24 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             max_val=16,
             default=0,
             description="RC channel for hardware arm switch (0 = disabled)",
+        ),
+        # These three keys are normally set per-vehicle via
+        # [vehicle.<name>] autonomous.post_*_mode overrides. Listed here so
+        # post-merge validation does not flag them as unknown keys.
+        "post_drop_mode": FieldSpec(
+            FieldType.STRING,
+            default="SMART_RTL",
+            description="Flight mode after an autonomous drop completes",
+        ),
+        "post_strike_mode": FieldSpec(
+            FieldType.STRING,
+            default="LOITER",
+            description="Flight mode after an autonomous strike completes",
+        ),
+        "post_action_mode": FieldSpec(
+            FieldType.STRING,
+            default="LOITER",
+            description="Flight mode after any autonomous action (fixed-wing)",
         ),
     },
     "rf_homing": {

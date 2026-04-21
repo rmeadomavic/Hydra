@@ -169,6 +169,19 @@ class AutonomousController:
         )
         self._self_position: dict[str, float] | None = None
 
+        # Fail-loud startup check: autonomous enabled with no usable geofence
+        # is a latent footgun. evaluate() already rejects in this state, but
+        # the operator only sees that on the dashboard once running — surface
+        # it at boot so misconfigs get noticed before arming.
+        if self.enabled and not self._has_valid_geofence():
+            logger.critical(
+                "SAFETY: autonomous.enabled=true but geofence is unset "
+                "(lat=%.6f, lon=%.6f, polygon_points=%d) — all autonomous "
+                "actions will be rejected until a geofence is configured",
+                self._geofence_lat, self._geofence_lon,
+                len(self._geofence_polygon),
+            )
+
     # -- Geofence checks ---------------------------------------------------
 
     def _has_valid_geofence(self) -> bool:

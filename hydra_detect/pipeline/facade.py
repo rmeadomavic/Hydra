@@ -323,30 +323,46 @@ class Pipeline:
                     pan_ch, strike_ch, self._servo_tracker.replaces_yaw,
                 )
 
-        # Validate servo channels against vehicle reserved channels
+        # Validate servo + light-bar channels against vehicle reserved channels
         self._servo_channel_error: str | None = None
-        if self._servo_tracker is not None and vehicle:
+        self._light_bar_channel_error: str | None = None
+        if vehicle:
             vehicle_section = f"vehicle.{vehicle}"
             reserved_raw = self._cfg.get(vehicle_section, "reserved_channels", fallback="")
             if reserved_raw.strip():
                 try:
                     reserved = {int(c.strip()) for c in reserved_raw.split(",") if c.strip()}
-                    conflicts = []
-                    if pan_ch in reserved:
-                        conflicts.append(f"pan channel {pan_ch}")
-                    if strike_ch in reserved:
-                        conflicts.append(f"strike channel {strike_ch}")
-                    if conflicts:
-                        conflict_msg = ", ".join(conflicts)
+
+                    if self._servo_tracker is not None:
+                        conflicts = []
+                        if pan_ch in reserved:
+                            conflicts.append(f"pan channel {pan_ch}")
+                        if strike_ch in reserved:
+                            conflicts.append(f"strike channel {strike_ch}")
+                        if conflicts:
+                            conflict_msg = ", ".join(conflicts)
+                            logger.critical(
+                                "SAFETY: %s conflicts with %s reserved channels %s — "
+                                "servo tracking DISABLED",
+                                conflict_msg, vehicle, reserved,
+                            )
+                            self._servo_tracker = None
+                            # Store error for pre-flight checklist
+                            self._servo_channel_error = (
+                                f"SAFETY: {conflict_msg} conflicts with {vehicle} "
+                                "reserved channels"
+                            )
+
+                    if self._light_bar_enabled and self._light_bar_channel in reserved:
                         logger.critical(
-                            "SAFETY: %s conflicts with %s reserved channels %s — "
-                            "servo tracking DISABLED",
-                            conflict_msg, vehicle, reserved,
+                            "SAFETY: light_bar channel %d conflicts with %s reserved "
+                            "channels %s — light bar DISABLED",
+                            self._light_bar_channel, vehicle, reserved,
                         )
-                        self._servo_tracker = None
-                        # Store error for pre-flight checklist
-                        self._servo_channel_error = (
-                            f"SAFETY: {conflict_msg} conflicts with {vehicle} reserved channels"
+                        self._light_bar_enabled = False
+                        self._light_bar_channel_error = (
+                            f"SAFETY: light_bar channel {self._light_bar_channel} "
+                            f"conflicts with {vehicle} reserved channels"
                         )
                 except ValueError:
                     logger.warning(

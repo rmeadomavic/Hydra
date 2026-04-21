@@ -199,6 +199,16 @@ class TAKInput:
             logger.warning(
                 "TAK commands disabled — no allowed callsigns configured"
             )
+        elif not self._hmac_secret:
+            # Allowlist without HMAC is spoofable over UDP multicast — callsign
+            # is a plain-text field in the CoT envelope. Fail-loud so the
+            # operator sees it at boot, not after the first spoofed strike.
+            logger.critical(
+                "SAFETY: TAK listen_commands=true with %d allowed callsigns "
+                "but command_hmac_secret is empty — inbound commands are "
+                "spoofable. Set command_hmac_secret or clear allowed_callsigns.",
+                len(self._allowed_callsigns),
+            )
 
         self._stop_event.clear()
         self._thread = threading.Thread(
