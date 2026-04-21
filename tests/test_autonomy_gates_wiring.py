@@ -59,6 +59,10 @@ def _make_tracks(*specs) -> TrackingResult:
 
 
 def _make_controller(**overrides) -> AutonomousController:
+    # Default to live mode — existing gate-wiring tests assert engage/strike
+    # behavior that only runs in live. Pass ``mode="dryrun"`` / ``mode="shadow"``
+    # to test the safety-gated paths.
+    mode = overrides.pop("mode", "live")
     defaults = dict(
         enabled=True,
         geofence_lat=35.0527,
@@ -73,7 +77,9 @@ def _make_controller(**overrides) -> AutonomousController:
         require_operator_lock=False,
     )
     defaults.update(overrides)
-    return AutonomousController(**defaults)
+    ctrl = AutonomousController(**defaults)
+    ctrl.set_mode(mode)
+    return ctrl
 
 
 def _gates(ctrl: AutonomousController) -> dict:
