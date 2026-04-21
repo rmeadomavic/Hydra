@@ -55,6 +55,17 @@ class ApproachConfig:
     abort_mode: str = "LOITER"  # Mode to switch to on abort
     waypoint_interval: float = 0.5  # Min seconds between waypoint sends
 
+    # Post-action mode transitions. Resolved from [autonomous] after the
+    # vehicle-profile merge, so [vehicle.drone] autonomous.post_drop_mode
+    # flows in automatically. Empty/None disables the transition (preserves
+    # prior behavior where the vehicle stayed in its current mode).
+    #
+    # Fixed-wing uses post_action_mode for both drop and strike; multirotor,
+    # rover, and USV use per-action keys. Pipeline picks the right one at
+    # init time and leaves the unused fields as None.
+    post_drop_mode: str | None = None
+    post_strike_mode: str | None = None  # Hook only — no auto-trigger yet.
+
 
 class ApproachController:
     """Manages Follow, Drop, and Strike approach modes.
@@ -459,6 +470,25 @@ class ApproachController:
                 threading.Thread(
                     target=_revert, daemon=True, name="drop-revert",
                 ).start()
+
+            # Post-drop flight mode transition. Happens even when drop_channel
+            # is 0 (simulated drop) so vehicle-profile post_drop_mode still
+            # fires for dry-run training. Runs after the servo fire so the
+            # audit log records release first, mode change second. set_mode
+            # swallows its own exceptions and returns bool.
+            post_mode = self._cfg.post_drop_mode
+            if post_mode:
+                if self._mavlink.set_mode(post_mode):
+                    logger.info("Post-drop mode transition: %s", post_mode)
+                    audit_log.info("POST_DROP_MODE: %s", post_mode)
+                else:
+                    logger.warning(
+                        "Post-drop set_mode(%s) rejected or disconnected",
+                        post_mode,
+                    )
+                with self._lock:
+                    self._mode = ApproachMode.IDLE
+                    self._running = False
 
     def _update_strike(self, track, fw: int, fh: int) -> None:
         """Update strike mode — continuous approach at max speed."""

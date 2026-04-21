@@ -77,6 +77,34 @@ def _build_detector(cfg: configparser.ConfigParser, models_dir: Path | None = No
     return build_detector(cfg, models_dir)
 
 
+def _resolve_post_action_mode(
+    cfg: configparser.ConfigParser,
+    vehicle_type: str | None,
+    action: str,
+) -> str | None:
+    """Resolve the configured post-action flight mode for drop/strike.
+
+    Fixed-wing collapses drop and strike under a single post_action_mode
+    (no hover-to-drop or terminal dive on FW). Other vehicle types use the
+    per-action keys. Returns None when the key is absent or empty, which
+    disables the post-action transition.
+
+    These keys arrive in [autonomous] after the vehicle-profile merge in
+    Pipeline.__init__ — e.g. [vehicle.drone] autonomous.post_drop_mode
+    becomes [autonomous] post_drop_mode before this runs.
+    """
+    if vehicle_type == "fw":
+        key = "post_action_mode"
+    elif action == "drop":
+        key = "post_drop_mode"
+    elif action == "strike":
+        key = "post_strike_mode"
+    else:
+        return None
+    val = cfg.get("autonomous", key, fallback="").strip()
+    return val or None
+
+
 class Pipeline:
     """Top-level orchestrator that ties all modules together."""
 
@@ -455,6 +483,13 @@ class Pipeline:
                     "approach", "abort_mode", fallback="LOITER"),
                 waypoint_interval=self._cfg.getfloat(
                     "approach", "waypoint_interval", fallback=0.5),
+                # Post-action mode hooks — resolved after the vehicle-profile
+                # merge. Fixed-wing unifies both actions under
+                # post_action_mode; other vehicles use per-action keys.
+                post_drop_mode=_resolve_post_action_mode(
+                    self._cfg, self._vehicle, "drop"),
+                post_strike_mode=_resolve_post_action_mode(
+                    self._cfg, self._vehicle, "strike"),
                 guidance_cfg=GuidanceConfig(
                     fwd_gain=self._cfg.getfloat("guidance", "fwd_gain", fallback=2.0),
                     lat_gain=self._cfg.getfloat("guidance", "lat_gain", fallback=1.5),

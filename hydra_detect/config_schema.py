@@ -1194,6 +1194,112 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
 }
 
 
+# Non-dotted keys allowed at the vehicle-profile level (not tied to a base
+# section). Everything else in [vehicle.<name>] must be a "section.option"
+# override so the pipeline's vehicle-merge pass can slot it into the right
+# section.
+_VEHICLE_LOCAL_KEYS = {"reserved_channels"}
+
+
+def _validate_scalar(
+    section: str,
+    key: str,
+    raw: str,
+    spec: FieldSpec,
+    result: ValidationResult,
+) -> None:
+    """Type-check a single raw value against its spec. Appends to result."""
+    try:
+        if spec.type == FieldType.BOOL:
+            if raw.lower() not in ("true", "false", "yes", "no", "1", "0", "on", "off"):
+                result.errors.append(
+                    f"[{section}] {key} must be true or false, got \"{raw}\""
+                )
+
+        elif spec.type == FieldType.INT:
+            val = int(raw)
+            if spec.min_val is not None and val < spec.min_val:
+                result.errors.append(
+                    f"[{section}] {key} must be at least {int(spec.min_val)}, got {val}"
+                )
+            if spec.max_val is not None and val > spec.max_val:
+                result.errors.append(
+                    f"[{section}] {key} must be at most {int(spec.max_val)}, got {val}"
+                )
+
+        elif spec.type == FieldType.FLOAT:
+            val_f = float(raw)
+            if spec.min_val is not None and val_f < spec.min_val:
+                result.errors.append(
+                    f"[{section}] {key} must be at least {spec.min_val}, got {val_f}"
+                )
+            if spec.max_val is not None and val_f > spec.max_val:
+                result.errors.append(
+                    f"[{section}] {key} must be at most {spec.max_val}, got {val_f}"
+                )
+
+        elif spec.type == FieldType.ENUM:
+            if spec.choices and raw.lower() not in [c.lower() for c in spec.choices]:
+                result.errors.append(
+                    f"[{section}] {key} must be one of {spec.choices}, got \"{raw}\""
+                )
+
+    except ValueError:
+        is_numeric = spec.type in (FieldType.INT, FieldType.FLOAT)
+        expected = "a number" if is_numeric else spec.type.value
+        result.errors.append(
+            f"[{section}] {key} must be {expected}, got \"{raw}\""
+        )
+
+
+def _validate_vehicle_sections(
+    cfg: configparser.ConfigParser, result: ValidationResult,
+) -> None:
+    """Validate [vehicle.*] sections via dotted-key lookup into base schemas.
+
+    A section like [vehicle.drone] with ``camera.source = /dev/video2`` gets
+    validated as if ``source`` were set in [camera]. Typos like
+    ``camara.source`` are flagged as unknown base sections; real-key typos
+    like ``camera.sauce`` are flagged against [camera]'s schema. Sections
+    already in SCHEMA (e.g. vehicle.fw) skip this pass — the main loop
+    covers them with explicit field specs.
+    """
+    for section in cfg.sections():
+        if not section.startswith("vehicle."):
+            continue
+        if section in SCHEMA:
+            continue
+
+        for key in cfg.options(section):
+            if "." not in key:
+                if key not in _VEHICLE_LOCAL_KEYS:
+                    result.warnings.append(
+                        f"[{section}] unknown key '{key}' — expected "
+                        "'section.option' override (e.g. 'camera.source')"
+                    )
+                continue
+
+            base_section, option = key.split(".", 1)
+            if base_section not in SCHEMA:
+                result.warnings.append(
+                    f"[{section}] override '{key}' — unknown base section "
+                    f"'{base_section}'"
+                )
+                continue
+
+            base_fields = SCHEMA[base_section]
+            if option not in base_fields:
+                result.warnings.append(
+                    f"[{section}] override '{key}' — no key '{option}' in "
+                    f"[{base_section}] schema"
+                )
+                continue
+
+            raw = cfg.get(section, key).strip()
+            if raw:
+                _validate_scalar(section, key, raw, base_fields[option], result)
+
+
 def validate_config(cfg: configparser.ConfigParser) -> ValidationResult:
     """Validate entire config against schema. Returns errors and warnings."""
     result = ValidationResult()
@@ -1218,48 +1324,7 @@ def validate_config(cfg: configparser.ConfigParser) -> ValidationResult:
             if not raw and not spec.required:
                 continue
 
-            # Type validation
-            try:
-                if spec.type == FieldType.BOOL:
-                    if raw.lower() not in ("true", "false", "yes", "no", "1", "0", "on", "off"):
-                        result.errors.append(
-                            f"[{section}] {key} must be true or false, got \"{raw}\""
-                        )
-
-                elif spec.type == FieldType.INT:
-                    val = int(raw)
-                    if spec.min_val is not None and val < spec.min_val:
-                        result.errors.append(
-                            f"[{section}] {key} must be at least {int(spec.min_val)}, got {val}"
-                        )
-                    if spec.max_val is not None and val > spec.max_val:
-                        result.errors.append(
-                            f"[{section}] {key} must be at most {int(spec.max_val)}, got {val}"
-                        )
-
-                elif spec.type == FieldType.FLOAT:
-                    val = float(raw)
-                    if spec.min_val is not None and val < spec.min_val:
-                        result.errors.append(
-                            f"[{section}] {key} must be at least {spec.min_val}, got {val}"
-                        )
-                    if spec.max_val is not None and val > spec.max_val:
-                        result.errors.append(
-                            f"[{section}] {key} must be at most {spec.max_val}, got {val}"
-                        )
-
-                elif spec.type == FieldType.ENUM:
-                    if spec.choices and raw.lower() not in [c.lower() for c in spec.choices]:
-                        result.errors.append(
-                            f"[{section}] {key} must be one of {spec.choices}, got \"{raw}\""
-                        )
-
-            except ValueError:
-                is_numeric = spec.type in (FieldType.INT, FieldType.FLOAT)
-                expected = "a number" if is_numeric else spec.type.value
-                result.errors.append(
-                    f"[{section}] {key} must be {expected}, got \"{raw}\""
-                )
+            _validate_scalar(section, key, raw, spec, result)
 
         # Check for unknown keys (typo detection)
         for key in cfg.options(section):
@@ -1267,5 +1332,8 @@ def validate_config(cfg: configparser.ConfigParser) -> ValidationResult:
                 result.warnings.append(
                     f"[{section}] unknown key '{key}' — possible typo?"
                 )
+
+    # Vehicle-profile sections: dotted overrides validated against base schema
+    _validate_vehicle_sections(cfg, result)
 
     return result
