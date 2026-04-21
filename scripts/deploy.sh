@@ -18,14 +18,14 @@ sudo docker build -t hydra-detect:latest .
 echo "=== Restarting service ==="
 sudo systemctl restart hydra-detect
 
-echo "=== Waiting for startup (20s) ==="
-sleep 20
+echo "=== Waiting for startup (35s — YOLO model load) ==="
+sleep 35
 
 echo "=== Verifying ==="
-HTTP=$(curl --max-time 3 -s -o /dev/null -w "%{http_code}" http://localhost:8080/stream.jpg)
+HTTP=$(curl --max-time 3 -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/health)
 if [ "$HTTP" = "200" ]; then
-    echo "DEPLOY OK — /stream.jpg returns 200"
+    echo "DEPLOY OK — /api/health returns 200"
 else
-    echo "DEPLOY WARNING — /stream.jpg returned $HTTP"
+    echo "DEPLOY WARNING — /api/health returned $HTTP"
     echo "Check: sudo docker logs hydra-detect --tail 30"
 fi
