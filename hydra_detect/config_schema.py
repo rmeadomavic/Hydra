@@ -92,7 +92,12 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             min_val=10.0,
             max_val=180.0,
             default=60.0,
-            description="Horizontal FOV degrees",
+            description=(
+                "Camera horizontal field of view in degrees. Wrong value "
+                "here causes bad target-position geo-estimates. Typical: "
+                "60 for USB webcams, 120 for FPV / analog cameras, "
+                "90 for wide-angle action cams."
+            ),
         ),
         "video_standard": FieldSpec(
             FieldType.ENUM,
@@ -120,12 +125,19 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             min_val=32,
             max_val=1280,
             default=640,
-            description="Inference resolution",
+            description=(
+                "Inference resolution in pixels. Lower = faster + less "
+                "accurate, higher = slower + more accurate. Multiples of 32 "
+                "only. Leave blank to let YOLO auto-select from the model."
+            ),
         ),
         "yolo_classes": FieldSpec(
             FieldType.STRING,
             default="",
-            description="Comma-separated class IDs to detect",
+            description=(
+                "Comma-separated class IDs to detect (e.g. '0,2,5'). "
+                "Leave blank to use every class the model was trained on."
+            ),
         ),
         "low_light_luminance": FieldSpec(
             FieldType.FLOAT,
@@ -141,7 +153,11 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             min_val=0.0,
             max_val=1.0,
             default=0.5,
-            description="Track confidence threshold",
+            description=(
+                "ByteTrack high-confidence threshold. Detections below "
+                "this still track but only if they match an existing track. "
+                "Must be >= detector.yolo_confidence or no new tracks form."
+            ),
         ),
         "track_buffer": FieldSpec(
             FieldType.INT,
@@ -163,7 +179,11 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
         "connection_string": FieldSpec(
             FieldType.STRING,
             default="/dev/ttyTHS1",
-            description="Serial port or UDP address",
+            description=(
+                "Serial port (e.g. /dev/ttyTHS1, /dev/ttyACM0) or UDP "
+                "endpoint (e.g. udp:127.0.0.1:14550, udpin:0.0.0.0:14550). "
+                "Check wiring with `ls /dev/tty*`."
+            ),
         ),
         "baud": FieldSpec(
             FieldType.INT,
