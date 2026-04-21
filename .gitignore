@@ -36,3 +36,10 @@ certs/
 
 # Local environment (secrets, IPs)
 .env.local
+
+# pytest-cov + hypothesis artifacts
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.hypothesis/
