@@ -97,7 +97,7 @@
 }
 
 .panel:hover {
-    border-color: var(--card-border-hover);
+    border-color: var(--border-hover);
 }
 
 .panel.sortable-ghost {
@@ -434,7 +434,7 @@
     text-transform: uppercase;
     letter-spacing: var(--ls-condensed);
     padding: 1px 5px;
-    border-radius: 999px;
+    border-radius: var(--radius);
     background: rgba(56, 87, 35, 0.35);
     color: var(--ogt-muted);
 }
@@ -682,7 +682,7 @@
 .panel-det-entry:last-child { border-bottom: none; }
 .panel-det-time { color: var(--text-dim); font-size: 0.55rem; }
 .panel-det-label { color: var(--ogt-muted); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.panel-det-conf { color: var(--text-secondary); text-align: right; min-width: 28px; }
+.panel-det-conf { color: var(--text-dim); text-align: right; min-width: 28px; }
 .panel-det-pos { color: var(--warning); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; display: inline-block; }
 
 /* ── Scrollbar for panels ── */
@@ -820,7 +820,7 @@
     align-items: center;
     justify-content: center;
     gap: var(--s-3);
-    color: var(--text-secondary);
+    color: var(--text-dim);
     font-size: var(--font-sm);
     background: var(--bg-panel);
 }

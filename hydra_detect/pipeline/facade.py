@@ -53,6 +53,7 @@ from ..web.server import (
     configure_web_password,
     run_server,
     set_tak_input,
+    set_tak_output,
     stream_state,
 )
 from .bootstrap import build_detector
@@ -650,6 +651,7 @@ class Pipeline:
                         ),
                         rtsp_url=rtsp_url,
                     )
+                    set_tak_output(self._tak)
                     logger.info(
                         "TAK/ATAK direct output configured: %s:%d callsign=%s",
                         mcast_group, mcast_port, callsign,
@@ -2461,7 +2463,6 @@ class Pipeline:
         if enabled:
             if self._mavlink is None:
                 return {"status": "error", "message": "MAVLink not connected"}
-
             if want_direct and self._tak is None:
                 rtsp_url = None
                 tak_host = self._cfg.get("tak", "advertise_host", fallback="").strip()
@@ -2500,6 +2501,7 @@ class Pipeline:
                         "status": "error",
                         "message": "Failed to start TAK output",
                     }
+                set_tak_output(self._tak)
 
             if want_relay and self._mav_relay is None:
                 self._mav_relay = MAVLinkRelayOutput(
@@ -2523,6 +2525,7 @@ class Pipeline:
         if self._tak is not None:
             self._tak.stop()
             self._tak = None
+            set_tak_output(None)
         if self._mav_relay is not None:
             self._mav_relay.stop()
             self._mav_relay = None

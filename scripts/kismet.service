@@ -6,7 +6,10 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/kismet -c rtl433-0 --no-ncurses
+# Source definitions live in /etc/kismet/kismet_site.conf (source=...).
+# Do not pass -c on the command line — Kismet ignores kismet_site.conf
+# sources when -c is present.
+ExecStart=/usr/bin/kismet --no-ncurses
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

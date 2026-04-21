@@ -445,10 +445,27 @@ class DetectionLogger:
                     except queue.Empty:
                         break
                     if remaining is not _STOP:
-                        self._process_work_item(remaining)
+                        self._safe_process(remaining)
                 break
 
+            self._safe_process(item)
+
+    def _safe_process(self, item: Dict[str, Any]) -> None:
+        """Run _process_work_item with a hard guard against any exception.
+
+        If a single work item raises, log the exception and continue. Losing
+        one frame is far better than killing the writer thread silently —
+        without this guard, an unhandled exception would exit _writer_loop
+        and subsequent detections would pile up in the queue until
+        put_nowait starts raising queue.Full.
+        """
+        try:
             self._process_work_item(item)
+        except Exception:
+            logger.exception(
+                "Detection logger work item failed — frame %s dropped",
+                item.get("frame_no"),
+            )
 
     def _process_work_item(self, item: Dict[str, Any]) -> None:
         """Write a single work item to disk (runs on the background thread)."""

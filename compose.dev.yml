@@ -1,0 +1,50 @@
+# compose.dev.yml — UI dev loop without rebuilds.
+#
+# Runs the FastAPI web server (uvicorn --reload) against a bind-mounted
+# copy of hydra_detect/ so edits to templates, static/, or server.py land
+# instantly. Uses the prod image (hydra-detect:latest) so no rebuild
+# happens here either — just `make build` once, then `make dev`.
+#
+# This does NOT run the detection pipeline — no camera, no YOLO, no
+# MAVLink. It's strictly a dashboard / API shell for UI work. The full
+# prod stack keeps running under systemd on :8080; this parallels on
+# :8081 so both can coexist.
+#
+# Swap back to prod: `make dev-down` then rely on the systemd service
+# (or `make up`). See docs/dev-loop.md for the full workflow.
+
+services:
+  hydra-dev:
+    image: hydra-detect:latest
+    container_name: hydra-dev
+    working_dir: /app
+    ports:
+      - "8081:8081"
+    volumes:
+      # Source bind — host edits land immediately.
+      - ./hydra_detect:/app/hydra_detect
+      # Config — read-only; the prod container already owns write access.
+      - ./config.ini:/app/config.ini:ro
+      # Models + output share the same host paths as prod so logs/exports
+      # land in the same place and you can review them from either stack.
+      - ./models:/models
+      - ./output_data:/data
+    environment:
+      PYTHONUNBUFFERED: "1"
+      HYDRA_DEV_MODE: "1"
+    # Override the prod CMD: run the FastAPI app directly under uvicorn
+    # with --reload. Template + static changes need no reload; .py edits
+    # under hydra_detect/ trigger an auto-restart via --reload-dir.
+    command:
+      - python3
+      - -m
+      - uvicorn
+      - hydra_detect.web.server:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8081"
+      - --reload
+      - --reload-dir
+      - /app/hydra_detect
+    restart: unless-stopped

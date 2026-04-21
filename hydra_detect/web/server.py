@@ -36,6 +36,30 @@ from hydra_detect.web.config_api import (
     validate_config_updates,
 )
 from hydra_detect.config_schema import SCHEMA as CONFIG_SCHEMA
+from hydra_detect.audit import (
+    attach_to_logger as _attach_audit,
+    get_default_sink as _get_audit_sink,
+)
+from hydra_detect.observability import (
+    attach_audit_counters as _attach_metrics_counters,
+    get_client_error_sink as _get_client_error_sink,
+    health_snapshot as _health_snapshot,
+    hydra_fps as _m_fps,
+    hydra_inference_ms as _m_inference_ms,
+    render_metrics as _render_metrics,
+)
+
+# Attach the audit ring handler to the `hydra.audit` logger exactly once.
+# Safe to import-time — idempotent + non-blocking.
+_attach_audit()
+_attach_metrics_counters()
+_audit_sink = _get_audit_sink()
+_client_error_sink = _get_client_error_sink()
+
+# Wire gauge providers to read live values from ``stream_state.stats`` on
+# every Prometheus scrape. Set once at import — provider closures are stable.
+_m_fps.set_provider(lambda: stream_state.get_stats().get("fps"))
+_m_inference_ms.set_provider(lambda: stream_state.get_stats().get("inference_ms"))
 
 logger = logging.getLogger(__name__)
 
@@ -313,6 +337,8 @@ _PUBLIC_PATH_PREFIXES = (
     "/api/health", "/api/preflight", "/api/abort",
     "/api/stats",      # instructor page polls peers cross-origin
     "/api/tracks",     # read-only dashboard data
+    "/api/metrics",    # Prometheus scrape
+    "/api/client_error",  # frontend error sink (same-origin, rate-limited)
     "/stream.jpg",     # snapshot polling (img.src, no cookie in some contexts)
     "/stream.mjpeg",   # MJPEG fallback
 )
@@ -619,6 +645,28 @@ stream_state = StreamState()
 # Powers GET /api/tak/commands (inbound GeoChat feed for dashboard).
 _tak_input_ref: Any = None
 
+# TAK output handle — powers /api/tak/peers (unicast targets) and
+# /api/tak/type_counts side-channels. Set via set_tak_output().
+_tak_output_ref: Any = None
+
+# Servo tracker handle — powers /api/servo/status. Set via
+# set_servo_tracker(). None => dashboard renders the idle state.
+_servo_tracker_ref: Any = None
+
+# RF ambient scan sink handle — powers /api/rf/ambient_scan. Set via
+# set_rf_ambient_scan(). None => dashboard renders the idle state.
+_rf_ambient_ref: Any = None
+
+# Autonomous controller handle — powers /api/autonomy/status and
+# /api/autonomy/mode. Set via set_autonomous_controller(). None =>
+# endpoint returns the idle/default shape so the dashboard renders.
+_autonomous_ref: Any = None
+
+# MAVLink I/O handle — powers flight-instrument fields (heading, airspeed,
+# altitude, vertical_speed) on /api/stats. Set via set_mavlink(). None =>
+# those fields default to None so the dashboard renders a dash.
+_mavlink_ref: Any = None
+
 
 def set_tak_input(tak_input: Any) -> None:
     """Register the TAKInput instance for the /api/tak/commands feed.
@@ -628,6 +676,50 @@ def set_tak_input(tak_input: Any) -> None:
     """
     global _tak_input_ref
     _tak_input_ref = tak_input
+
+
+def set_tak_output(tak_output: Any) -> None:
+    """Register the TAKOutput instance for peer/unicast roll-ups."""
+    global _tak_output_ref
+    _tak_output_ref = tak_output
+
+
+def set_mavlink(mav: Any) -> None:
+    """Register the MAVLinkIO instance that powers flight-instrument
+    fields on /api/stats. Pass None to detach."""
+    global _mavlink_ref
+    _mavlink_ref = mav
+
+
+def set_servo_tracker(servo: Any) -> None:
+    """Register a servo-state provider for /api/servo/status.
+
+    The provided object must expose ``get_api_status() -> dict``. Pass
+    None to detach (the endpoint will return the idle/disabled shape).
+    """
+    global _servo_tracker_ref
+    _servo_tracker_ref = servo
+
+
+def set_rf_ambient_scan(scanner: Any) -> None:
+    """Register an ambient-scan sink for /api/rf/ambient_scan.
+
+    The provided object must expose ``get_samples()`` returning a dict
+    with keys ``samples``, ``window_seconds``, ``max_rssi``.
+    """
+    global _rf_ambient_ref
+    _rf_ambient_ref = scanner
+
+
+def set_autonomous_controller(controller: Any) -> None:
+    """Register an AutonomousController for /api/autonomy/* endpoints.
+
+    The provided object must expose ``get_dashboard_snapshot(callsign=...)``
+    and ``set_mode(mode)``. Pass None to detach (endpoint falls back to
+    an idle-default shape so the dashboard still renders).
+    """
+    global _autonomous_ref
+    _autonomous_ref = controller
 
 
 # ── Routes ────────────────────────────────────────────────────────────
@@ -713,19 +805,122 @@ async def index(request: Request):
 
 @app.get("/api/health")
 async def api_health():
-    """Lightweight health check for Docker HEALTHCHECK / load balancers.
+    """Structured subsystem health.
 
-    Returns 200 if the pipeline is processing frames, 503 if stalled.
+    Returns::
+
+        {
+          "status": "ok"|"warn"|"fail",
+          "ts": <unix>,
+          "subsystems": { camera, mavlink, gps, detector, rtsp, tak, audit, disk:
+                          {"status": "ok"|"warn"|"fail", "detail": str} },
+
+          # Back-compat fields for Docker HEALTHCHECK + load balancers + older
+          # clients that checked ``healthy`` / ``fps`` / ``camera_ok``:
+          "healthy": bool, "camera_ok": bool, "fps": float,
+        }
+
+    HTTP 200 when overall ``status`` is ok or warn, 503 when ``fail``. (warn
+    is deliberately not a 5xx — it should not take a Jetson out of rotation.)
     """
     stats = stream_state.get_stats()
-    camera_ok = stats.get("camera_ok", True)
-    fps = stats.get("fps", 0.0)
-    healthy = camera_ok and fps > 0
-    status_code = 200 if healthy else 503
-    return JSONResponse(
-        {"healthy": healthy, "camera_ok": camera_ok, "fps": fps},
-        status_code=status_code,
+    snapshot = _health_snapshot(
+        stats=stats,
+        mavlink_ref=_mavlink_ref,
+        tak_output_ref=_tak_output_ref,
+        audit_sink=_audit_sink,
     )
+    status = snapshot.get("status", "ok")
+    camera_ok = bool(stats.get("camera_ok", True))
+    fps = float(stats.get("fps", 0.0))
+    legacy_healthy = camera_ok and fps > 0
+    body = dict(snapshot)
+    body["healthy"] = legacy_healthy
+    body["camera_ok"] = camera_ok
+    body["fps"] = fps
+    status_code = 503 if status == "fail" else (200 if legacy_healthy else 503)
+    return JSONResponse(body, status_code=status_code)
+
+
+@app.get("/api/metrics")
+async def api_metrics():
+    """Prometheus exposition — counters + gauges in 0.0.4 text format.
+
+    Auth-free by design — Prometheus scrapers are expected to fetch this
+    from the same subnet on a 15–60s interval. No sensitive data is
+    exposed; values are aggregates already surfaced elsewhere.
+    """
+    body = _render_metrics()
+    return Response(
+        content=body,
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
+
+
+# Rate limit for /api/client_error — per-remote-IP sliding window so a
+# runaway JS handler on one tablet can't drown the Jetson.
+_CLIENT_ERROR_WINDOW_SEC = 60.0
+_CLIENT_ERROR_MAX_PER_WINDOW = 50
+_client_error_hits: Dict[str, list[float]] = collections.defaultdict(list)
+_client_error_lock = threading.Lock()
+
+
+def _client_error_rate_limited(client_ip: str, now: float) -> bool:
+    """Return True when ``client_ip`` has exceeded the per-window cap."""
+    with _client_error_lock:
+        hits = [t for t in _client_error_hits.get(client_ip, [])
+                if now - t < _CLIENT_ERROR_WINDOW_SEC]
+        if len(hits) >= _CLIENT_ERROR_MAX_PER_WINDOW:
+            _client_error_hits[client_ip] = hits
+            return True
+        hits.append(now)
+        _client_error_hits[client_ip] = hits
+        return False
+
+
+@app.post("/api/client_error")
+async def api_client_error(request: Request):
+    """Frontend error sink.
+
+    Expected body (all fields optional, all coerced + clipped defensively)::
+
+        {"message": str, "source": str, "lineno": int, "colno": int,
+         "stack": str, "url": str, "timestamp": number}
+
+    Auth-free, same-origin only. Rate-limited to 50 reports / 60 s / IP.
+    """
+    body = await _parse_json(request)
+    if body is None or not isinstance(body, dict):
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
+
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    if _client_error_rate_limited(client_ip, now):
+        return JSONResponse({"error": "rate limited"}, status_code=429)
+
+    user_agent = request.headers.get("user-agent", "")[:512]
+    _client_error_sink.push(
+        message=body.get("message", ""),
+        source=body.get("source", ""),
+        lineno=body.get("lineno"),
+        colno=body.get("colno"),
+        stack=body.get("stack", ""),
+        url=body.get("url", ""),
+        client_ts=body.get("timestamp"),
+        remote_addr=client_ip,
+        user_agent=user_agent,
+    )
+    return {"status": "ok", "total": len(_client_error_sink)}
+
+
+@app.get("/api/client_error/recent")
+async def api_client_error_recent(limit: int = 50):
+    """Read back recent client errors (dashboard diagnostic use)."""
+    try:
+        n = int(limit)
+    except (TypeError, ValueError):
+        n = 50
+    return _client_error_sink.snapshot(limit=max(1, min(200, n)))
 
 
 @app.get("/api/preflight")
@@ -746,9 +941,45 @@ async def api_preflight():
 async def api_stats():
     """Return current pipeline statistics as JSON."""
     result = _cached_callback("stats", stream_state.get_stats)
-    if result is not None:
-        return result
-    return stream_state.stats.copy()  # fallback: return raw defaults
+    if result is None:
+        result = stream_state.stats.copy()  # fallback: return raw defaults
+    # Always project flight-instrument fields onto the response so the
+    # FlightHUD tapes render even before the pipeline plumbs them through.
+    return dict(result, **_flight_fields())
+
+
+def _flight_fields() -> Dict[str, Any]:
+    """Read heading/airspeed/altitude/vertical_speed from the MAVLink
+    handle, plus lat/lon/alt_agl for map rendering, falling back to
+    None when MAVLink is not registered or has no fix."""
+    defaults: Dict[str, Any] = {
+        "heading": None,
+        "airspeed": None,
+        "altitude": None,
+        "vertical_speed": None,
+        "lat": None,
+        "lon": None,
+        "alt_msl_m": None,
+    }
+    mav = _mavlink_ref
+    if mav is None:
+        return defaults
+    try:
+        data = mav.get_flight_data()
+    except Exception:
+        data = {}
+    if isinstance(data, dict):
+        for key in ("heading", "airspeed", "altitude", "vertical_speed"):
+            defaults[key] = data.get(key)
+    try:
+        lat, lon, alt = mav.get_lat_lon()
+    except Exception:
+        lat = lon = alt = None
+    if lat is not None and lon is not None:
+        defaults["lat"] = lat
+        defaults["lon"] = lon
+        defaults["alt_msl_m"] = alt
+    return defaults
 
 
 @app.get("/api/config")
@@ -969,6 +1200,172 @@ async def api_tak_commands(request: Request):
         "duplicate_callsign_alarm": bool(tak_in._duplicate_callsign),
         "limit": limit,
     })
+
+
+@app.get("/api/tak/type_counts")
+async def api_tak_type_counts(request: Request):
+    """Return an inbound CoT-type histogram over a bounded time window.
+
+    Auth-free read (same-origin bypass list alongside /api/tak/commands,
+    /api/stats, /api/tracks, /api/config/full, /api/stream/quality).
+
+    Query params:
+        window_seconds (int, default 900, capped at 3600): window over
+            which to aggregate the histogram.
+    """
+    tak_in = _tak_input_ref
+    try:
+        window = int(request.query_params.get("window_seconds", "900"))
+    except (TypeError, ValueError):
+        window = 900
+    window = max(1, min(3600, window))
+
+    if tak_in is None:
+        return JSONResponse({
+            "enabled": False,
+            "counts": {},
+            "total": 0,
+            "window_seconds": window,
+        })
+
+    hist = tak_in.get_type_counts(window_seconds=window)
+    return JSONResponse({"enabled": True, **hist})
+
+
+@app.get("/api/tak/peers")
+async def api_tak_peers():
+    """Return the current inbound TAK peer roster with security flags.
+
+    Auth-free read. Surfaces allowed_callsigns / hmac_enforced /
+    duplicate_callsign_alarm from TAKInput alongside the peer list and the
+    current unicast target set from TAKOutput — a single roll-up for the
+    TAK map panel and security chip.
+    """
+    tak_in = _tak_input_ref
+    tak_out = _tak_output_ref
+
+    if tak_out is not None:
+        unicast_targets = [
+            f"{t['host']}:{t['port']}" for t in tak_out.get_unicast_targets()
+        ]
+    else:
+        unicast_targets = []
+
+    if tak_in is None:
+        return JSONResponse({
+            "enabled": False,
+            "peers": [],
+            "unicast_targets": unicast_targets,
+            "hmac_enforced": False,
+            "duplicate_callsign_alarm": False,
+            "allowed_callsigns": [],
+        })
+
+    return JSONResponse({
+        "enabled": True,
+        "peers": tak_in.get_peers(),
+        "unicast_targets": unicast_targets,
+        "hmac_enforced": tak_in._hmac_secret is not None,
+        "duplicate_callsign_alarm": bool(tak_in._duplicate_callsign),
+        "allowed_callsigns": sorted(tak_in._allowed_callsigns),
+    })
+
+
+@app.get("/api/audit/summary")
+async def api_audit_summary(request: Request):
+    """Roll-up of recent audit events for the security panel.
+
+    Merges TAK command log, HMAC rejections, approach arm/abort, and
+    strike/drop events that are emitted through the ``hydra.audit``
+    logger into one windowed summary.
+
+    Auth-free read. Bounded ring of 500 most recent events.
+
+    Query params:
+        window_seconds (int, default 3600, capped at 86400): roll-up
+            window for the counts block.
+        recent (int, default 50, capped at 200): cap on recent_events.
+    """
+    try:
+        window = int(request.query_params.get("window_seconds", "3600"))
+    except (TypeError, ValueError):
+        window = 3600
+    window = max(1, min(86400, window))
+    try:
+        recent_limit = int(request.query_params.get("recent", "50"))
+    except (TypeError, ValueError):
+        recent_limit = 50
+    recent_limit = max(0, min(200, recent_limit))
+
+    return JSONResponse(
+        _audit_sink.summary(window_seconds=window, recent_limit=recent_limit)
+    )
+
+
+@app.get("/api/rf/ambient_scan")
+async def api_rf_ambient_scan():
+    """Return the most recent ambient RF samples for the SDR ticker.
+
+    Auth-free read. When no buffer is registered the response has
+    ``enabled=False`` and an empty sample set.
+    """
+    scanner = _rf_ambient_ref
+    if scanner is None:
+        return JSONResponse({
+            "enabled": False,
+            "samples": [],
+            "window_seconds": 60,
+            "max_rssi": None,
+        })
+    try:
+        snapshot = scanner.get_samples()
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning("rf_ambient.get_samples() failed: %s", exc)
+        return JSONResponse({
+            "enabled": False,
+            "samples": [],
+            "window_seconds": 60,
+            "max_rssi": None,
+        })
+    return JSONResponse({"enabled": True, **snapshot})
+
+
+@app.get("/api/servo/status")
+async def api_servo_status():
+    """Return the current pan/tilt servo state for the cockpit dial.
+
+    Auth-free read (same-origin bypass). When no controller is registered
+    the response has ``enabled=False`` and zeroed angles — the dashboard
+    renders that as an idle/off panel.
+    """
+    servo = _servo_tracker_ref
+    if servo is None:
+        return JSONResponse({
+            "enabled": False,
+            "pan_deg": 0.0,
+            "tilt_deg": 0.0,
+            "pan_limit_min": -90.0,
+            "pan_limit_max": 90.0,
+            "tilt_limit_min": -30.0,
+            "tilt_limit_max": 60.0,
+            "scanning": False,
+            "locked_track_id": None,
+        })
+    try:
+        return JSONResponse(servo.get_api_status())
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning("servo.get_api_status() failed: %s", exc)
+        return JSONResponse({
+            "enabled": False,
+            "pan_deg": 0.0,
+            "tilt_deg": 0.0,
+            "pan_limit_min": -90.0,
+            "pan_limit_max": 90.0,
+            "tilt_limit_min": -30.0,
+            "tilt_limit_max": 60.0,
+            "scanning": False,
+            "locked_track_id": None,
+        })
 
 
 @app.get("/api/target")
@@ -1667,6 +2064,99 @@ async def restart_pipeline(request: Request, authorization: Optional[str] = Head
         return {"status": "restarting"}
     _audit(request, "pipeline_restart", outcome="unavailable")
     return JSONResponse({"error": "restart not available"}, status_code=503)
+
+
+# ── Autonomy dashboard ────────────────────────────────────────────────
+
+_AUTONOMY_MODES = ("dryrun", "shadow", "live")
+
+
+def _autonomy_default_snapshot(callsign: str) -> dict:
+    """Idle/default status shape returned when no controller is registered."""
+    return {
+        "mode": "dryrun",
+        "enabled": False,
+        "callsign": callsign,
+        "geofence": {
+            "shape": "CIRCLE",
+            "radius_m": 0.0,
+            "center_lat": 0.0,
+            "center_lon": 0.0,
+            "polygon": "",
+        },
+        "self_position": None,
+        "criteria": {
+            "min_confidence": 0.85,
+            "min_track_frames": 5,
+            "strike_cooldown_sec": 30.0,
+            "gps_max_stale_sec": 2.0,
+            "require_operator_lock": True,
+            "allowed_vehicle_modes": "AUTO",
+            "allowed_classes": [],
+        },
+        "gates": [
+            {"id": "geofence", "state": "N/A", "detail": ""},
+            {"id": "vehicle_mode", "state": "N/A", "detail": ""},
+            {"id": "operator_lock", "state": "N/A", "detail": ""},
+            {"id": "gps_fresh", "state": "N/A", "detail": ""},
+            {"id": "cooldown", "state": "N/A", "detail": ""},
+        ],
+        "log": [],
+    }
+
+
+@app.get("/api/autonomy/status")
+async def api_autonomy_status():
+    """Return autonomy gate + explainability snapshot.
+
+    Auth-free read (same precedent as /api/stats). Powers the #autonomy
+    dashboard view: mode picker, gate panel, and the rolling decision log.
+    Returns an idle default shape when no controller is registered so the
+    dashboard can render on a cold boot.
+    """
+    callsign = str(stream_state.get_stats().get("callsign") or "HYDRA-1")
+    ctrl = _autonomous_ref
+    if ctrl is None:
+        return _autonomy_default_snapshot(callsign)
+    try:
+        return ctrl.get_dashboard_snapshot(callsign=callsign)
+    except Exception as exc:
+        logger.warning("autonomy snapshot failed: %s", exc)
+        return _autonomy_default_snapshot(callsign)
+
+
+@app.post("/api/autonomy/mode")
+async def api_autonomy_mode(
+    request: Request, authorization: Optional[str] = Header(None),
+):
+    """Set the autonomy mode. Body: {"mode": "dryrun" | "shadow" | "live"}.
+
+    Bearer auth required — this is a safety-critical write.
+    """
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
+    mode = body.get("mode")
+    if not isinstance(mode, str) or mode not in _AUTONOMY_MODES:
+        return JSONResponse(
+            {"error": f"mode must be one of {list(_AUTONOMY_MODES)}"},
+            status_code=400,
+        )
+    ctrl = _autonomous_ref
+    if ctrl is None:
+        _audit(request, "autonomy_mode", target=mode, outcome="unavailable")
+        return JSONResponse(
+            {"error": "autonomous controller not available"}, status_code=503,
+        )
+    try:
+        ctrl.set_mode(mode)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    _audit(request, "autonomy_mode", target=mode)
+    return {"status": "ok", "mode": mode}
 
 
 @app.post("/api/vehicle/beep")

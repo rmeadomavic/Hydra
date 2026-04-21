@@ -1,121 +1,516 @@
-<!-- Ops HUD View — full-width video with telemetry + quick actions overlay -->
+<!-- Ops HUD View — composite operator station per ops-station.jsx mock.
+     Outer grid: `auto 1fr 360px` × `1fr 220px`.
+     Col 1 (auto): mission rail — mission profile + MissionCard + pipeline
+                   + vehicle info (relocated per mock MissionRail block).
+     Col 2 row 1: video feed + 160px FlightHUD rail.
+     Col 2 row 2: Cockpit strip (260px ServoPanDial · 200px CockpitTakMap · 1fr CockpitSDR).
+     Col 3:       OpsSidebar — ApproachPanel above a 5-tab strip
+                  (TRACKS · RF · MAVLINK · TAK · EVENTS).
+-->
+<div class="ops-grid" id="ops-grid">
 
-<!-- Video Container with Canvas Overlay -->
-<div class="ops-video-container" id="ops-video-container">
-    <img id="ops-video-frame" class="ops-video-frame" alt="Live video feed">
-    <canvas id="ops-bbox-canvas" class="ops-bbox-canvas"></canvas>
+    <!-- LEFT: mission rail (mission + pipeline + vehicle — relocated from right sidebar) -->
+    <div class="ops-mission-rail-slot" id="ops-mission-rail-slot" aria-label="Sortie rail">
 
-    <!-- Stream Lost Badge -->
-    <div class="ops-hud-stream-lost" id="ops-hud-stream-lost" style="display:none;">
-        <span>STREAM LOST</span>
-    </div>
-
-    <!-- Lock Info Overlay (shown when target engaged) -->
-    <div class="ops-lock-overlay" id="ops-lock-overlay" style="display:none;">
-        <span class="ops-lock-icon">&#8853;</span>
-        <span class="ops-lock-label" id="ops-lock-label">--</span>
-        <span class="ops-lock-mode" id="ops-lock-mode">TRACK</span>
-        <span class="ops-lock-elapsed" id="ops-lock-elapsed"></span>
-    </div>
-
-    <!-- Telemetry Strip -->
-    <div class="ops-telemetry-strip" id="ops-telemetry-strip">
-        <div class="ops-telem-item">
-            <span class="ops-telem-label">MODE</span>
-            <span class="ops-telem-value" id="ops-telem-mode">--</span>
-        </div>
-        <div class="ops-telem-item">
-            <span class="ops-telem-label">BATT</span>
-            <span class="ops-telem-value" id="ops-telem-battery">--</span>
-        </div>
-        <div class="ops-telem-item">
-            <span class="ops-telem-label">SPD</span>
-            <span class="ops-telem-value" id="ops-telem-speed">--</span>
-        </div>
-        <div class="ops-telem-item">
-            <span class="ops-telem-label">ALT</span>
-            <span class="ops-telem-value" id="ops-telem-alt">--</span>
-        </div>
-        <div class="ops-telem-item">
-            <span class="ops-telem-label">HDG</span>
-            <span class="ops-telem-value" id="ops-telem-heading">--</span>
-        </div>
-        <div class="ops-telem-item">
-            <span class="ops-telem-label">GPS</span>
-            <span class="ops-telem-value" id="ops-telem-gps">--</span>
-        </div>
-    </div>
-
-    <!-- Quick Action Bar -->
-    <div class="ops-quick-actions" id="ops-quick-actions">
-        <button class="btn btn-danger ops-action-btn" id="ops-btn-abort" title="Emergency abort">ABORT</button>
-        <button class="btn ops-action-btn" id="ops-btn-loiter" title="Hold position">LOITER</button>
-        <button class="btn ops-action-btn" id="ops-btn-rtl" title="Return to launch">RTL</button>
-    </div>
-</div>
-
-<!-- HUD Sidebar (right 40%) -->
-<div class="ops-hud-sidebar" id="ops-hud-sidebar">
-    <!-- Track Summary -->
-    <div class="ops-sidebar-section">
-        <div class="ops-sidebar-header">TRACKS</div>
-        <div class="ops-track-list" id="ops-track-list">
-            <div class="ops-track-empty">No tracks</div>
-        </div>
-    </div>
-
-    <!-- Approach Status (hidden when approach.mode === idle) -->
-    <div class="ops-sidebar-section" id="ops-approach-section" style="display:none;">
-        <div class="ops-sidebar-header">APPROACH</div>
-        <div class="ops-approach-body">
-            <div class="panel-stat-grid panel-stat-grid-3">
-                <div class="panel-stat">
-                    <span class="panel-stat-label">Mode</span>
-                    <span class="panel-stat-value mono accent" id="ops-approach-mode">--</span>
+        <!-- Mission -->
+        <div class="ops-sidebar-section" id="ops-mission-section">
+            <div class="ops-sidebar-header">
+                <span>SORTIE</span>
+                <span class="ops-card-badge" id="ops-mission-badge">IDLE</span>
+            </div>
+            <div class="ops-card-body">
+                <div class="ops-card-row">
+                    <span class="ops-card-label">Name</span>
+                    <span class="ops-card-value mono" id="ops-mission-name">--</span>
                 </div>
-                <div class="panel-stat">
-                    <span class="panel-stat-label">Elapsed</span>
-                    <span class="panel-stat-value mono" id="ops-approach-elapsed">--</span>
+                <div class="ops-card-row">
+                    <span class="ops-card-label">Elapsed</span>
+                    <span class="ops-card-value mono" id="ops-mission-elapsed">--</span>
+                    <span class="ops-card-label">Detections</span>
+                    <span class="ops-card-value mono" id="ops-mission-dets">--</span>
                 </div>
-                <div class="panel-stat">
-                    <span class="panel-stat-label">Waypoints</span>
-                    <span class="panel-stat-value mono" id="ops-approach-wp">--</span>
+                <div class="ops-card-btns">
+                    <button class="btn btn-sm" id="ops-btn-mission-end" disabled title="End current sortie">End</button>
+                    <button class="btn btn-sm" id="ops-btn-mission-export" title="Export detection waypoints (QGC WPL 110)">Export WP</button>
                 </div>
             </div>
-            <div id="ops-approach-arm-status" style="display:none; margin-top:var(--gap-sm);">
-                <div class="panel-stat-grid">
+        </div>
+
+        <!-- Pipeline -->
+        <div class="ops-sidebar-section" id="ops-pipeline-section">
+            <div class="ops-sidebar-header">
+                <span>PIPELINE</span>
+                <span class="ops-card-badge" id="ops-pipeline-badge">RUN</span>
+            </div>
+            <div class="ops-card-body">
+                <div class="ops-card-row">
+                    <span class="ops-card-label">FPS</span>
+                    <span class="ops-card-value mono accent" id="ops-pipeline-fps">--</span>
+                    <span class="ops-card-label">Inf</span>
+                    <span class="ops-card-value mono" id="ops-pipeline-inf">--</span>
+                </div>
+                <div class="ops-card-btns">
+                    <button class="btn btn-sm" id="ops-btn-pipeline-pause" title="Pause the detection loop (does NOT restart Python or Docker)">Pause</button>
+                    <button class="btn btn-sm btn-danger" id="ops-btn-pipeline-stop" title="Stop the detection loop (does NOT restart Python or Docker)">Stop</button>
+                </div>
+                <div class="ops-card-note" id="ops-pipeline-note">Pause/Stop affects the detect loop only — the Python process and Docker container keep running.</div>
+            </div>
+        </div>
+
+        <!-- Vehicle -->
+        <div class="ops-sidebar-section">
+            <div class="ops-sidebar-header">PLATFORM</div>
+            <div class="ops-vehicle-info" id="ops-vehicle-info">
+                <div class="ops-info-row"><span class="ops-info-label">Mode</span><span class="ops-info-value" id="ops-info-mode">--</span></div>
+                <div class="ops-info-row"><span class="ops-info-label">Armed</span><span class="ops-info-value" id="ops-info-armed">--</span></div>
+                <div class="ops-info-row"><span class="ops-info-label">Battery</span><span class="ops-info-value" id="ops-info-battery">--</span></div>
+                <div class="ops-info-row"><span class="ops-info-label">Position</span><span class="ops-info-value" id="ops-info-position">--</span></div>
+            </div>
+        </div>
+
+        <!-- Minimap — relocated; the Cockpit TAK map is the primary map.
+             Kept here as a low-priority secondary indicator; ops.js still
+             draws into this canvas when present. -->
+        <div class="ops-sidebar-section ops-mission-rail-minimap">
+            <div class="ops-sidebar-header">MAP</div>
+            <div class="ops-minimap" id="ops-minimap">
+                <canvas id="ops-minimap-canvas" width="300" height="200"></canvas>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- CENTER TOP: video feed + FlightHUD rail -->
+    <div class="ops-center-top" id="ops-center-top">
+
+        <!-- Video Container with Canvas Overlay -->
+        <div class="ops-video-container" id="ops-video-container">
+            <img id="ops-video-frame" class="ops-video-frame" alt="Live video feed">
+            <canvas id="ops-bbox-canvas" class="ops-bbox-canvas"></canvas>
+
+            <!-- Stream Lost Badge -->
+            <div class="ops-hud-stream-lost" id="ops-hud-stream-lost" style="display:none;">
+                <span>STREAM LOST</span>
+            </div>
+
+            <!-- Lock Info Overlay (shown when target engaged) -->
+            <div class="ops-lock-overlay" id="ops-lock-overlay" style="display:none;">
+                <span class="ops-lock-icon">&#8853;</span>
+                <span class="ops-lock-label" id="ops-lock-label">--</span>
+                <span class="ops-lock-mode" id="ops-lock-mode">TRACK</span>
+                <span class="ops-lock-elapsed" id="ops-lock-elapsed"></span>
+            </div>
+
+            <!-- Telemetry Strip -->
+            <div class="ops-telemetry-strip" id="ops-telemetry-strip">
+                <div class="ops-telem-item">
+                    <span class="ops-telem-label">MODE</span>
+                    <span class="ops-telem-value" id="ops-telem-mode">--</span>
+                </div>
+                <div class="ops-telem-item">
+                    <span class="ops-telem-label">BATT</span>
+                    <span class="ops-telem-value" id="ops-telem-battery">--</span>
+                </div>
+                <div class="ops-telem-item">
+                    <span class="ops-telem-label">SPD</span>
+                    <span class="ops-telem-value" id="ops-telem-speed">--</span>
+                </div>
+                <div class="ops-telem-item">
+                    <span class="ops-telem-label">ALT</span>
+                    <span class="ops-telem-value" id="ops-telem-alt">--</span>
+                </div>
+                <div class="ops-telem-item">
+                    <span class="ops-telem-label">HDG</span>
+                    <span class="ops-telem-value" id="ops-telem-heading">--</span>
+                </div>
+                <div class="ops-telem-item">
+                    <span class="ops-telem-label">GPS</span>
+                    <span class="ops-telem-value" id="ops-telem-gps">--</span>
+                </div>
+            </div>
+
+            <!-- Quick Action Bar -->
+            <div class="ops-quick-actions" id="ops-quick-actions">
+                <button class="btn btn-danger ops-action-btn" id="ops-btn-abort" title="Emergency abort">ABORT</button>
+                <button class="btn ops-action-btn" id="ops-btn-loiter" title="Hold position">LOITER</button>
+                <button class="btn ops-action-btn" id="ops-btn-rtl" title="Return to launch">RTL</button>
+            </div>
+        </div>
+
+        <!-- 160px FlightHUD rail to the right of video -->
+        <aside class="flight-hud" id="ops-flight-hud" aria-label="Flight HUD">
+            <header class="flight-hud-header">
+                <span class="flight-hud-title">FLIGHT HUD</span>
+                <select class="flight-hud-layout-picker" id="flight-hud-layout-picker"
+                        title="Switch HUD layout (writes config.web.hud_layout)">
+                    <option value="classic">classic</option>
+                    <option value="operator">operator</option>
+                    <option value="graphs">graphs</option>
+                    <option value="hybrid">hybrid</option>
+                </select>
+            </header>
+
+            <!-- HDG tape (always shown for classic + hybrid; hidden for operator/graphs) -->
+            <div class="flight-hud-hdg" id="ops-fhud-hdg-wrap">
+                <div class="flight-hud-hdg-label">HDG</div>
+                <svg class="flight-hud-hdg-svg" id="ops-fhud-hdg-svg" viewBox="0 0 160 38"
+                     preserveAspectRatio="none" aria-hidden="true"></svg>
+                <svg class="flight-hud-hdg-pointer" width="14" height="8" viewBox="0 0 14 8" aria-hidden="true">
+                    <polygon points="0,0 14,0 7,8" fill="var(--olive-muted)"></polygon>
+                </svg>
+                <div class="flight-hud-hdg-readout" id="ops-fhud-hdg-readout">--</div>
+            </div>
+
+            <!-- VTapes row (SPD + ALT) for classic only -->
+            <div class="flight-hud-vtapes" id="ops-fhud-vtapes">
+                <div class="flight-hud-vtape" id="ops-fhud-spd-tape">
+                    <div class="flight-hud-vtape-label">SPD</div>
+                    <div class="flight-hud-vtape-body">
+                        <svg class="flight-hud-vtape-svg" id="ops-fhud-spd-svg" viewBox="0 0 60 120"
+                             preserveAspectRatio="none" aria-hidden="true"></svg>
+                        <div class="flight-hud-vtape-bracket">
+                            <span class="flight-hud-vtape-value" id="ops-fhud-spd-value">--</span>
+                        </div>
+                    </div>
+                    <div class="flight-hud-vtape-unit">m/s</div>
+                </div>
+                <div class="flight-hud-vtape" id="ops-fhud-alt-tape">
+                    <div class="flight-hud-vtape-label">ALT</div>
+                    <div class="flight-hud-vtape-body">
+                        <svg class="flight-hud-vtape-svg" id="ops-fhud-alt-svg" viewBox="0 0 60 120"
+                             preserveAspectRatio="none" aria-hidden="true"></svg>
+                        <div class="flight-hud-vtape-bracket">
+                            <span class="flight-hud-vtape-value" id="ops-fhud-alt-value">--</span>
+                        </div>
+                    </div>
+                    <div class="flight-hud-vtape-unit">m</div>
+                </div>
+            </div>
+
+            <!-- ReadoutCards (operator + hybrid layouts) -->
+            <div class="flight-hud-readouts" id="ops-fhud-readouts">
+                <article class="flight-hud-card" id="ops-fhud-card-batt" data-tone="info">
+                    <div class="flight-hud-card-label">Battery</div>
+                    <div class="flight-hud-card-row">
+                        <span class="flight-hud-card-big" id="ops-fhud-card-batt-big">--</span>
+                        <span class="flight-hud-card-sub" id="ops-fhud-card-batt-sub">no sensor</span>
+                    </div>
+                </article>
+                <article class="flight-hud-card" id="ops-fhud-card-link" data-tone="info">
+                    <div class="flight-hud-card-label">Link · 900 MHz</div>
+                    <div class="flight-hud-card-row">
+                        <span class="flight-hud-card-big" id="ops-fhud-card-link-big">--</span>
+                        <span class="flight-hud-card-sub" id="ops-fhud-card-link-sub">--</span>
+                    </div>
+                </article>
+                <article class="flight-hud-card" id="ops-fhud-card-pos" data-tone="info">
+                    <div class="flight-hud-card-label">Position</div>
+                    <div class="flight-hud-card-row">
+                        <span class="flight-hud-card-big" id="ops-fhud-card-pos-big">--</span>
+                        <span class="flight-hud-card-sub" id="ops-fhud-card-pos-sub">--</span>
+                    </div>
+                </article>
+                <article class="flight-hud-card" id="ops-fhud-card-gps" data-tone="info">
+                    <div class="flight-hud-card-label">GPS</div>
+                    <div class="flight-hud-card-row">
+                        <span class="flight-hud-card-big" id="ops-fhud-card-gps-big">--</span>
+                        <span class="flight-hud-card-sub" id="ops-fhud-card-gps-sub">--</span>
+                    </div>
+                </article>
+            </div>
+
+            <!-- Gimbal block — always rendered; opacity drops without lock -->
+            <div class="flight-hud-gimbal" id="ops-fhud-gimbal">
+                <div class="flight-hud-gimbal-header">
+                    <span class="flight-hud-gimbal-label">Gimbal</span>
+                    <span class="flight-hud-gimbal-mode" id="ops-fhud-gimbal-mode">STOW</span>
+                </div>
+                <svg class="flight-hud-gimbal-svg" id="ops-fhud-gimbal-svg" viewBox="0 0 140 60"
+                     preserveAspectRatio="none" aria-hidden="true"></svg>
+                <div class="flight-hud-gimbal-row">
+                    <span>PAN <span class="flight-hud-gimbal-val" id="ops-fhud-gimbal-pan">--</span></span>
+                    <span>TILT <span class="flight-hud-gimbal-val" id="ops-fhud-gimbal-tilt">--</span></span>
+                </div>
+            </div>
+
+            <!-- Target block — dim when no lock -->
+            <div class="flight-hud-target" id="ops-fhud-target">
+                <div class="flight-hud-target-label">Target</div>
+                <div class="flight-hud-target-rows" id="ops-fhud-target-rows">
+                    <div class="flight-hud-target-empty" id="ops-fhud-target-empty">no lock</div>
+                </div>
+            </div>
+
+            <!-- Status strip (classic only) -->
+            <div class="flight-hud-status" id="ops-fhud-status">
+                <div class="flight-hud-status-left">
+                    <span class="flight-hud-status-dot"></span>
+                    <span class="flight-hud-status-text" id="ops-fhud-status-link">LINK --</span>
+                </div>
+                <div class="flight-hud-status-right" id="ops-fhud-status-batt">--</div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- CENTER BOTTOM: cockpit strip (3 cells, 220px tall) -->
+    <div class="cockpit-strip" id="ops-cockpit-strip">
+
+        <!-- Cell 1: Servo / pan dial -->
+        <section class="cockpit-cell cockpit-cell-servo" id="ops-cockpit-servo">
+            <div class="cockpit-watermark">DEMO VIZ · derived data</div>
+            <header class="cockpit-cell-header">
+                <span class="cockpit-cell-dot"></span>
+                <span class="cockpit-cell-title" id="ops-cockpit-servo-title">Yaw</span>
+                <span class="cockpit-cell-pill" id="ops-cockpit-servo-pill">SCAN</span>
+            </header>
+            <svg class="cockpit-servo-svg" id="ops-cockpit-servo-svg" viewBox="0 0 200 110"
+                 preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+            <div class="cockpit-servo-row">
+                <div class="cockpit-servo-cell">
+                    <div class="cockpit-servo-cell-label">PAN</div>
+                    <div class="cockpit-servo-cell-value" id="ops-cockpit-servo-pan">--</div>
+                </div>
+                <div class="cockpit-servo-cell">
+                    <div class="cockpit-servo-cell-label">TILT</div>
+                    <div class="cockpit-servo-cell-value" id="ops-cockpit-servo-tilt">--</div>
+                </div>
+                <div class="cockpit-servo-cell">
+                    <div class="cockpit-servo-cell-label" id="ops-cockpit-servo-rate-label">PWM</div>
+                    <div class="cockpit-servo-cell-value" id="ops-cockpit-servo-rate">--</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Cell 2: Cockpit TAK map (Leaflet) -->
+        <section class="cockpit-cell cockpit-cell-tak" id="ops-cockpit-tak"
+                 title="Click to expand TAK map">
+            <header class="cockpit-cell-header cockpit-tak-header">
+                <span class="cockpit-cell-dot"></span>
+                <span class="cockpit-cell-title" id="ops-cockpit-tak-title">TAK · HYDRA-1</span>
+                <span class="cockpit-cell-pill cockpit-pill-live">LIVE</span>
+            </header>
+            <div class="cockpit-tak-canvas">
+                <div class="cockpit-tak-map" id="ops-cockpit-tak-map"></div>
+                <div class="cockpit-tak-expand">click &#8689;</div>
+            </div>
+        </section>
+
+        <!-- Cell 3: SDR sniffer (horizontal) -->
+        <section class="cockpit-cell cockpit-cell-sdr" id="ops-cockpit-sdr">
+            <div class="cockpit-watermark">DEMO VIZ · derived data</div>
+            <div class="cockpit-sdr-left">
+                <header class="cockpit-cell-header">
+                    <span class="cockpit-cell-dot"></span>
+                    <span class="cockpit-cell-title">SDR Sniffer</span>
+                </header>
+                <div class="cockpit-sdr-sub">Kismet · RTL-SDR</div>
+                <svg class="cockpit-sdr-spectrum" id="ops-cockpit-sdr-spectrum" viewBox="0 0 200 34"
+                     preserveAspectRatio="none" aria-hidden="true"></svg>
+                <div class="cockpit-sdr-bands">
+                    <span>2.4G</span><span>5G</span><span>BLE</span>
+                </div>
+                <div class="cockpit-sdr-stats">
+                    <span><b id="ops-cockpit-sdr-dev">--</b> dev</span>
+                    <span><b id="ops-cockpit-sdr-new">--</b> new</span>
+                    <span><b id="ops-cockpit-sdr-drone">--</b> drone</span>
+                </div>
+            </div>
+            <div class="cockpit-sdr-right">
+                <div class="cockpit-sdr-list-header">
+                    <span>TYPE</span><span>NAME</span><span>MAC</span>
+                    <span class="cockpit-sdr-right-align">VENDOR</span>
+                    <span class="cockpit-sdr-right-align">dBm</span>
+                </div>
+                <div class="cockpit-sdr-list" id="ops-cockpit-sdr-list">
+                    <div class="cockpit-sdr-empty">scanning…</div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- RIGHT: OpsSidebar — ApproachPanel above 5-tab strip per mock lines 1446-1627 -->
+    <div class="ops-hud-sidebar" id="ops-hud-sidebar">
+
+        <!-- ApproachPanel — lives ABOVE the tab strip (mock spec) -->
+        <div class="ops-sidebar-section" id="ops-approach-section" style="display:none;">
+            <div class="ops-sidebar-header">APPROACH</div>
+            <div class="ops-approach-body">
+                <div class="panel-stat-grid panel-stat-grid-3">
                     <div class="panel-stat">
-                        <span class="panel-stat-label">SW ARM</span>
-                        <span class="panel-stat-value mono" id="ops-approach-sw-arm">SAFE</span>
+                        <span class="panel-stat-label">Mode</span>
+                        <span class="panel-stat-value mono accent" id="ops-approach-mode">--</span>
                     </div>
                     <div class="panel-stat">
-                        <span class="panel-stat-label">HW ARM</span>
-                        <span class="panel-stat-value mono" id="ops-approach-hw-arm">N/A</span>
+                        <span class="panel-stat-label">Elapsed</span>
+                        <span class="panel-stat-value mono" id="ops-approach-elapsed">--</span>
+                    </div>
+                    <div class="panel-stat">
+                        <span class="panel-stat-label">Waypoints</span>
+                        <span class="panel-stat-value mono" id="ops-approach-wp">--</span>
                     </div>
                 </div>
-            </div>
-            <div style="margin-top:var(--gap-sm);">
-                <button class="btn btn-danger" id="ops-btn-approach-abort" style="width:100%;">Abort Approach</button>
+                <div id="ops-approach-arm-status" style="display:none; margin-top:var(--s-2);">
+                    <div class="panel-stat-grid">
+                        <div class="panel-stat">
+                            <span class="panel-stat-label">SW ARM</span>
+                            <span class="panel-stat-value mono" id="ops-approach-sw-arm">SAFE</span>
+                        </div>
+                        <div class="panel-stat">
+                            <span class="panel-stat-label">HW ARM</span>
+                            <span class="panel-stat-value mono" id="ops-approach-hw-arm">N/A</span>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top:var(--s-2);">
+                    <button class="btn btn-danger" id="ops-btn-approach-abort" style="width:100%;">Abort Approach</button>
+                </div>
             </div>
         </div>
-    </div>
 
-    <!-- Minimap Placeholder -->
-    <div class="ops-sidebar-section">
-        <div class="ops-sidebar-header">MAP</div>
-        <div class="ops-minimap" id="ops-minimap">
-            <canvas id="ops-minimap-canvas" width="300" height="200"></canvas>
+        <!-- Tab strip: 5 buttons with live-count badges -->
+        <div class="ops-tabs" id="ops-tabs" role="tablist" aria-label="Operator station tabs">
+            <button class="ops-tab active" data-tab="tracks" role="tab" aria-selected="true" aria-controls="ops-tab-panel-tracks">
+                <span class="ops-tab-label">Tracks</span>
+                <span class="ops-tab-count" id="ops-tab-count-tracks">0</span>
+            </button>
+            <button class="ops-tab" data-tab="rf" role="tab" aria-selected="false" aria-controls="ops-tab-panel-rf">
+                <span class="ops-tab-label">RF</span>
+                <span class="ops-tab-count" id="ops-tab-count-rf"></span>
+            </button>
+            <button class="ops-tab" data-tab="mavlink" role="tab" aria-selected="false" aria-controls="ops-tab-panel-mavlink">
+                <span class="ops-tab-label">MAVLink</span>
+                <span class="ops-tab-count" id="ops-tab-count-mavlink"></span>
+            </button>
+            <button class="ops-tab" data-tab="tak" role="tab" aria-selected="false" aria-controls="ops-tab-panel-tak">
+                <span class="ops-tab-label">TAK</span>
+                <span class="ops-tab-count" id="ops-tab-count-tak"></span>
+            </button>
+            <button class="ops-tab" data-tab="events" role="tab" aria-selected="false" aria-controls="ops-tab-panel-events">
+                <span class="ops-tab-label">Events</span>
+                <span class="ops-tab-count" id="ops-tab-count-events">0</span>
+            </button>
         </div>
-    </div>
 
-    <!-- Vehicle Info -->
-    <div class="ops-sidebar-section">
-        <div class="ops-sidebar-header">VEHICLE</div>
-        <div class="ops-vehicle-info" id="ops-vehicle-info">
-            <div class="ops-info-row"><span class="ops-info-label">Mode</span><span class="ops-info-value" id="ops-info-mode">--</span></div>
-            <div class="ops-info-row"><span class="ops-info-label">Armed</span><span class="ops-info-value" id="ops-info-armed">--</span></div>
-            <div class="ops-info-row"><span class="ops-info-label">Battery</span><span class="ops-info-value" id="ops-info-battery">--</span></div>
-            <div class="ops-info-row"><span class="ops-info-label">Position</span><span class="ops-info-value" id="ops-info-position">--</span></div>
+        <!-- Scrollable tab body — exactly one panel visible at a time -->
+        <div class="ops-tab-body" id="ops-tab-body">
+
+            <!-- TRACKS panel -->
+            <div class="ops-tab-panel active" id="ops-tab-panel-tracks" data-tab="tracks"
+                 role="tabpanel" aria-labelledby="ops-tab-tracks">
+                <div class="ops-track-list" id="ops-track-list">
+                    <div class="ops-track-empty">No tracks</div>
+                </div>
+            </div>
+
+            <!-- RF panel -->
+            <div class="ops-tab-panel" id="ops-tab-panel-rf" data-tab="rf"
+                 role="tabpanel" aria-labelledby="ops-tab-rf" hidden>
+                <div class="ops-sidebar-section" id="ops-rf-section">
+                    <div class="ops-sidebar-header">
+                        <span>RF HUNT</span>
+                        <span class="ops-card-badge" id="ops-rf-state-badge">N/A</span>
+                    </div>
+                    <div class="ops-card-body">
+                        <div class="ops-card-row">
+                            <span class="ops-card-label">RSSI</span>
+                            <span class="ops-card-value mono" id="ops-rf-rssi">--</span>
+                            <span class="ops-card-best" id="ops-rf-best" title="Best RSSI so far">&#9733; --</span>
+                        </div>
+                        <div class="ops-rf-bar">
+                            <div class="ops-rf-bar-fill" id="ops-rf-bar-fill"></div>
+                        </div>
+                        <div class="ops-rf-spark" id="ops-rf-spark"></div>
+                        <div class="ops-card-row ops-card-row-dim">
+                            <span class="ops-card-label">Samples</span>
+                            <span class="ops-card-value mono" id="ops-rf-samples">--</span>
+                            <span class="ops-card-label">WP</span>
+                            <span class="ops-card-value mono" id="ops-rf-wp">--</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="ops-tab-empty" id="ops-rf-empty" style="display:none;">No RF activity</div>
+            </div>
+
+            <!-- MAVLINK panel -->
+            <div class="ops-tab-panel" id="ops-tab-panel-mavlink" data-tab="mavlink"
+                 role="tabpanel" aria-labelledby="ops-tab-mavlink" hidden>
+                <div class="ops-mavlink-strip">
+                    <div class="ops-mavlink-metric">
+                        <div class="ops-mavlink-label">Pipeline FPS</div>
+                        <div class="ops-mavlink-value-row">
+                            <span class="ops-mavlink-value mono" id="ops-tab-mav-fps">--</span>
+                            <span class="ops-mavlink-sub">min 5.0</span>
+                        </div>
+                    </div>
+                    <div class="ops-mavlink-metric">
+                        <div class="ops-mavlink-label">MAV Latency</div>
+                        <div class="ops-mavlink-value-row">
+                            <span class="ops-mavlink-value mono" id="ops-tab-mav-latency">--</span>
+                            <span class="ops-mavlink-sub">ms</span>
+                        </div>
+                        <div class="ops-mavlink-port" id="ops-tab-mav-port">/dev/ttyTHS1 · 921600</div>
+                    </div>
+                </div>
+                <div class="ops-mavlink-log" id="ops-tab-mav-log">
+                    <div class="ops-tab-empty">No MAVLink traffic</div>
+                </div>
+            </div>
+
+            <!-- TAK panel -->
+            <div class="ops-tab-panel" id="ops-tab-panel-tak" data-tab="tak"
+                 role="tabpanel" aria-labelledby="ops-tab-tak" hidden>
+                <div class="ops-tak-rows" id="ops-tab-tak-rows">
+                    <div class="ops-tak-row">
+                        <span class="ops-card-label">Callsign</span>
+                        <span class="ops-card-value mono accent" id="ops-tab-tak-callsign">HYDRA-1</span>
+                    </div>
+                    <div class="ops-tak-row">
+                        <span class="ops-card-label">Multicast</span>
+                        <span class="ops-card-value mono" id="ops-tab-tak-multicast">239.2.3.1:6969</span>
+                    </div>
+                    <div class="ops-tak-row">
+                        <span class="ops-card-label">Peers</span>
+                        <span class="ops-card-value mono accent" id="ops-tab-tak-peers">--</span>
+                    </div>
+                    <div class="ops-tak-row">
+                        <span class="ops-card-label">Inbound</span>
+                        <span class="ops-card-value mono" id="ops-tab-tak-inbound">--</span>
+                    </div>
+                </div>
+                <div class="ops-tak-commands" id="ops-tab-tak-commands">
+                    <div class="ops-tab-empty">No inbound commands</div>
+                </div>
+            </div>
+
+            <!-- EVENTS panel — detection log + audit events -->
+            <div class="ops-tab-panel" id="ops-tab-panel-events" data-tab="events"
+                 role="tabpanel" aria-labelledby="ops-tab-events" hidden>
+                <div class="ops-sidebar-section" id="ops-detlog-section">
+                    <div class="ops-detlog-filter" id="ops-detlog-filter">
+                        <label class="ops-detlog-filter-row" for="ops-detlog-class">
+                            <span class="ops-detlog-filter-label">Class</span>
+                            <select id="ops-detlog-class" class="ops-detlog-filter-select" aria-label="Filter detections by class">
+                                <option value="">All</option>
+                            </select>
+                        </label>
+                        <label class="ops-detlog-filter-row" for="ops-detlog-conf">
+                            <span class="ops-detlog-filter-label">Min conf</span>
+                            <input type="range" id="ops-detlog-conf" class="ops-detlog-filter-range"
+                                   min="0" max="1" step="0.05" value="0"
+                                   aria-label="Minimum detection confidence">
+                            <span class="ops-detlog-filter-value" id="ops-detlog-conf-value">0%</span>
+                        </label>
+                        <button type="button" id="ops-detlog-clear" class="ops-detlog-filter-clear">clear</button>
+                    </div>
+                    <div class="ops-detlog" id="ops-detlog">
+                        <div class="ops-detlog-empty">No detections yet</div>
+                    </div>
+                </div>
+                <div class="ops-audit-log" id="ops-tab-events-audit">
+                    <div class="ops-tab-empty">No audit events</div>
+                </div>
+            </div>
+
         </div>
     </div>
 </div>

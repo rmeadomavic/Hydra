@@ -1,0 +1,513 @@
+/* ── Ops HUD Sidebar — OpsSidebar = ApproachPanel + 5-tab strip ── */
+
+/* Header now supports a right-aligned state badge */
+.ops-sidebar-header {
+    justify-content: space-between;
+}
+
+/* Tab strip (mock: ops-station.jsx:1453-1482).
+   borderBottom 1px #1a1a1a, background #0c0c0c, buttons flex:1 padding 10px 6px.
+   Active tab: rgba(56,87,35,0.15) bg, 2px #A6BC92 bottom border, #EFF5EB text.
+   Inactive: #888 text. Font Barlow Condensed 700 12px 0.1em uppercase.
+   Count badge: JetBrains Mono 10px #666. */
+.ops-tabs {
+    display: flex;
+    border-bottom: 1px solid #1a1a1a;
+    background: #0c0c0c;
+    flex-shrink: 0;
+}
+
+.ops-tab {
+    flex: 1;
+    padding: 10px 6px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #888;
+    font-family: var(--font-cond);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border-radius: 0;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+
+.ops-tab:hover:not(.active) {
+    color: var(--text-primary);
+}
+
+.ops-tab.active {
+    background: rgba(56, 87, 35, 0.15);
+    border-bottom: 2px solid var(--olive-muted);
+    color: var(--ogt-light);
+}
+
+.ops-tab-count {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: #666;
+    font-weight: 400;
+}
+
+.ops-tab-count:empty {
+    display: none;
+}
+
+/* Scrollable tab body */
+.ops-tab-body {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.ops-tab-panel {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.ops-tab-panel[hidden] {
+    display: none;
+}
+
+/* Centered empty-state hint (matches mock "no active tracks" / "No RF activity") */
+.ops-tab-empty {
+    padding: var(--s-4) var(--s-3);
+    text-align: center;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+}
+
+/* MAVLink panel — telemetry strip + TX/RX log rows */
+.ops-mavlink-strip {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--s-3);
+    padding: var(--s-3);
+    border-bottom: 1px solid #1a1a1a;
+    background: #0c0c0c;
+    flex-shrink: 0;
+}
+
+.ops-mavlink-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.ops-mavlink-label {
+    font-family: var(--font-cond);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #666;
+}
+
+.ops-mavlink-value-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.ops-mavlink-value {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    color: var(--ogt-light);
+    font-weight: 700;
+}
+
+.ops-mavlink-sub {
+    font-size: 10px;
+    color: #555;
+}
+
+.ops-mavlink-port {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: #555;
+    margin-top: 4px;
+}
+
+.ops-mavlink-log {
+    flex: 1;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 10px;
+}
+
+.ops-mavlink-log-row {
+    padding: 4px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    border-left: 2px solid transparent;
+}
+
+.ops-mavlink-log-row.is-cmd {
+    border-left-color: var(--olive-muted);
+    background: rgba(56, 87, 35, 0.06);
+}
+
+.ops-mavlink-log-row.is-status {
+    border-left-color: #FF9F1C;
+}
+
+.ops-mavlink-log-head {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.ops-mavlink-log-time {
+    color: #555;
+    min-width: 52px;
+}
+
+.ops-mavlink-log-dir {
+    font-weight: 700;
+    min-width: 20px;
+}
+
+.ops-mavlink-log-dir.is-tx {
+    color: var(--olive-muted);
+}
+
+.ops-mavlink-log-dir.is-rx {
+    color: #93c5fd;
+}
+
+.ops-mavlink-log-msg {
+    color: #d4d4d4;
+}
+
+.ops-mavlink-log-msg.is-cmd {
+    color: var(--ogt-light);
+    font-weight: 700;
+}
+
+.ops-mavlink-log-msg.is-status {
+    color: #FF9F1C;
+}
+
+.ops-mavlink-log-detail {
+    color: #666;
+    margin-top: 1px;
+    padding-left: 84px;
+    font-size: 9px;
+    line-height: 1.3;
+}
+
+/* TAK panel — compact mirror of peers + inbound commands */
+.ops-tak-rows {
+    padding: var(--s-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+    border-bottom: 1px solid #1a1a1a;
+    flex-shrink: 0;
+}
+
+.ops-tak-row {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    font-size: var(--font-xs);
+}
+
+.ops-tak-row .ops-card-label {
+    min-width: 80px;
+}
+
+.ops-tak-commands {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--s-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-1);
+}
+
+.ops-tak-command-row {
+    display: grid;
+    grid-template-columns: 60px 1fr auto;
+    gap: var(--s-1);
+    padding: 2px var(--s-1);
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    border-left: 2px solid var(--info);
+    background: rgba(147, 197, 253, 0.05);
+}
+
+.ops-tak-command-time {
+    color: var(--text-dim);
+}
+
+.ops-tak-command-callsign {
+    color: var(--text-primary);
+}
+
+.ops-tak-command-type {
+    color: var(--text-dim);
+    text-align: right;
+}
+
+/* Events panel — audit log appended below detection log */
+.ops-audit-log {
+    padding: var(--s-2);
+    border-top: 1px solid #1a1a1a;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.ops-audit-row {
+    display: grid;
+    grid-template-columns: 60px 1fr;
+    gap: var(--s-1);
+    padding: 2px var(--s-1);
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    border-left: 2px solid var(--warning);
+    background: rgba(234, 179, 8, 0.05);
+}
+
+.ops-audit-time {
+    color: var(--text-dim);
+}
+
+.ops-audit-text {
+    color: var(--text-primary);
+}
+
+/* Mission rail: condense minimap so it doesn't dominate the column */
+.ops-mission-rail-minimap .ops-minimap {
+    max-height: 140px;
+}
+
+.ops-card-badge {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    padding: 1px 6px;
+    border-radius: var(--radius);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
+}
+.ops-card-badge.on {
+    background: rgba(74, 124, 46, 0.25);
+    color: var(--ogt-light);
+}
+.ops-card-badge.warn {
+    background: rgba(234, 179, 8, 0.18);
+    color: #eab308;
+}
+.ops-card-badge.off {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-dim);
+}
+
+.ops-card-body {
+    padding: var(--s-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+}
+
+.ops-card-row {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    font-size: var(--font-xs);
+}
+.ops-card-row-dim {
+    color: var(--text-dim);
+}
+
+.ops-card-label {
+    font-family: var(--font-cond);
+    text-transform: uppercase;
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-dim);
+    font-size: var(--font-xs);
+}
+
+.ops-card-value {
+    color: var(--text-data);
+    font-family: var(--font-mono);
+    min-width: 40px;
+}
+.ops-card-value.accent {
+    color: var(--ogt-light);
+}
+
+.ops-card-best {
+    margin-left: auto;
+    color: var(--gold);
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+}
+
+.ops-card-btns {
+    display: flex;
+    gap: var(--s-2);
+}
+.ops-card-btns .btn {
+    flex: 1;
+}
+
+.ops-card-note {
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    line-height: 1.3;
+}
+
+/* RF — compact bar + sparkline */
+.ops-rf-bar {
+    position: relative;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+.ops-rf-bar-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 0%;
+    background: var(--olive-primary);
+    transition: width 0.3s ease, background 0.3s ease;
+}
+
+.ops-rf-spark {
+    height: 24px;
+    width: 100%;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    position: relative;
+    overflow: hidden;
+}
+.ops-rf-spark svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* Detection log — event-feed style */
+.ops-detlog {
+    max-height: 180px;
+    overflow-y: auto;
+    padding: var(--s-1);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.ops-detlog-empty {
+    color: var(--text-dim);
+    text-align: center;
+    padding: var(--s-3);
+    font-size: var(--font-xs);
+}
+
+.ops-detlog-entry {
+    display: grid;
+    grid-template-columns: 60px 1fr 40px;
+    gap: var(--s-1);
+    align-items: center;
+    padding: 2px var(--s-1);
+    font-size: var(--font-xs);
+    border-left: 2px solid var(--olive-primary);
+    background: rgba(56, 87, 35, 0.05);
+    border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.ops-detlog-time {
+    font-family: var(--font-mono);
+    color: var(--text-dim);
+}
+.ops-detlog-label {
+    color: var(--text-primary);
+}
+.ops-detlog-conf {
+    font-family: var(--font-mono);
+    color: var(--text-data);
+    text-align: right;
+}
+
+/* Detection log filter row */
+.ops-detlog-filter {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-1);
+    padding: var(--s-2);
+    border-bottom: 1px solid var(--border-dim, rgba(255, 255, 255, 0.06));
+}
+
+.ops-detlog-filter-row {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    font-size: var(--font-xs);
+}
+
+.ops-detlog-filter-label {
+    font-family: var(--font-cond);
+    text-transform: uppercase;
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-dim);
+    min-width: 52px;
+}
+
+.ops-detlog-filter-select {
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-primary);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius);
+    padding: 2px var(--s-1);
+}
+
+.ops-detlog-filter-range {
+    flex: 1;
+    accent-color: var(--olive-primary);
+}
+
+.ops-detlog-filter-value {
+    font-family: var(--font-mono);
+    color: var(--text-data);
+    min-width: 34px;
+    text-align: right;
+}
+
+.ops-detlog-filter-clear {
+    align-self: flex-end;
+    font-family: var(--font-cond);
+    text-transform: uppercase;
+    letter-spacing: var(--ls-condensed);
+    font-size: var(--font-xs);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-dim);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius);
+    padding: 2px var(--s-2);
+    cursor: pointer;
+}
+.ops-detlog-filter-clear:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+}

@@ -1,0 +1,445 @@
+/* ── FlightHUD rail — 160px column right of the video feed.
+ * Mirrors flight-hud.jsx layout/tokens. JetBrains Mono font; flat 2px
+ * radii; tokens-only colors. The rail is always 160px wide; bodies
+ * (HDG/VTapes/ReadoutCards/Status) toggle visibility based on
+ * `data-hud-layout` on the root element.
+ * ───────────────────────────────────────────────────────────── */
+
+.flight-hud {
+    width: 160px;
+    flex: 0 0 160px;
+    height: 100%;
+    min-height: 0;
+    background: linear-gradient(180deg, #060807, #040505);
+    border-left: 1px solid var(--border-default);
+    padding: 10px 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    overflow: auto;
+    box-sizing: border-box;
+}
+
+.flight-hud-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: #444;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.flight-hud-title {
+    color: #556;
+}
+
+/* Layout picker — token-only dropdown */
+.flight-hud-layout-picker {
+    background: #060807;
+    color: var(--olive-muted);
+    border: 1px solid #1a1f1a;
+    border-radius: var(--radius);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 1px 4px;
+    cursor: pointer;
+}
+
+.flight-hud-layout-picker:focus {
+    outline: 1px solid var(--olive-primary);
+}
+
+/* ── HDG tape ── */
+.flight-hud-hdg {
+    position: relative;
+    height: 38px;
+    background: #060807;
+    border: 1px solid #1a1f1a;
+    border-radius: var(--radius);
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.flight-hud-hdg-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.flight-hud-hdg-pointer {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.flight-hud-hdg-label {
+    position: absolute;
+    top: -1px;
+    left: 4px;
+    font-family: var(--font-cond);
+    font-size: 8px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #556;
+}
+
+.flight-hud-hdg-readout {
+    position: absolute;
+    bottom: -1px;
+    right: 4px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--olive-muted);
+}
+
+/* HDG center indicator (pure CSS, doesn't depend on data) */
+.flight-hud-hdg::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 1px;
+    height: 100%;
+    background: var(--olive-muted);
+    opacity: 0.8;
+}
+
+/* ── Vertical tapes (SPD + ALT) ── */
+.flight-hud-vtapes {
+    display: flex;
+    gap: 8px;
+    flex: 0 0 auto;
+    height: 180px;
+}
+
+.flight-hud-vtape {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+}
+
+.flight-hud-vtape-label {
+    font-family: var(--font-cond);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #556;
+}
+
+.flight-hud-vtape-body {
+    position: relative;
+    flex: 1;
+    background: #060807;
+    border: 1px solid #1a1f1a;
+    border-radius: var(--radius);
+    min-height: 120px;
+    overflow: hidden;
+}
+
+.flight-hud-vtape-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.flight-hud-vtape-bracket {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    transform: translateY(-50%);
+    height: 20px;
+    background: rgba(56, 87, 35, 0.18);
+    border-top: 1px solid var(--olive-muted);
+    border-bottom: 1px solid var(--olive-muted);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 4px;
+}
+
+.flight-hud-vtape-value {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.flight-hud-vtape-unit {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: #555;
+    text-align: right;
+}
+
+/* ── Readout cards (operator + hybrid) ── */
+.flight-hud-readouts {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.flight-hud-card {
+    background: #060807;
+    border: 1px solid #1a1f1a;
+    border-left: 2px solid var(--text-primary);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.flight-hud-card[data-tone="good"] {
+    border-color: #385723;
+    border-left-color: var(--olive-muted);
+}
+
+.flight-hud-card[data-tone="warn"] {
+    border-color: #b45309;
+    border-left-color: var(--warning);
+}
+
+.flight-hud-card[data-tone="bad"] {
+    border-color: #7f1d1d;
+    border-left-color: var(--danger);
+}
+
+.flight-hud-card[data-tone="dim"] {
+    border-color: var(--border-default);
+    border-left-color: #666;
+}
+
+.flight-hud-card[data-tone="info"] {
+    border-color: #1a1f1a;
+    border-left-color: var(--text-primary);
+}
+
+.flight-hud-card-label {
+    font-family: var(--font-cond);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #556;
+}
+
+.flight-hud-card-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.flight-hud-card-big {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+}
+
+.flight-hud-card[data-tone="good"] .flight-hud-card-big { color: var(--olive-muted); }
+.flight-hud-card[data-tone="warn"] .flight-hud-card-big { color: var(--warning); }
+.flight-hud-card[data-tone="bad"]  .flight-hud-card-big { color: var(--danger); }
+.flight-hud-card[data-tone="dim"]  .flight-hud-card-big { color: #666; }
+
+.flight-hud-card-sub {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: #777;
+    text-align: right;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Gimbal block ── */
+.flight-hud-gimbal {
+    border-top: 1px solid #1a1f1a;
+    padding-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.flight-hud-gimbal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+
+.flight-hud-gimbal-label {
+    font-family: var(--font-cond);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #556;
+}
+
+.flight-hud-gimbal-mode {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    color: #888;
+}
+
+.flight-hud-gimbal[data-mode="TRACK"] .flight-hud-gimbal-mode {
+    color: var(--olive-muted);
+}
+
+.flight-hud-gimbal[data-mode="STOW"] .flight-hud-gimbal-mode {
+    color: #555;
+}
+
+.flight-hud-gimbal-svg {
+    width: 100%;
+    height: 60px;
+    background: #060807;
+    border: 1px solid #1a1f1a;
+    border-radius: var(--radius);
+}
+
+.flight-hud-gimbal-row {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: #888;
+}
+
+.flight-hud-gimbal-val {
+    color: var(--text-primary);
+}
+
+/* ── Target block ── */
+.flight-hud-target {
+    border-top: 1px solid #1a1f1a;
+    padding-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    opacity: 0.3;
+}
+
+.flight-hud-target.locked {
+    opacity: 1;
+}
+
+.flight-hud-target-label {
+    font-family: var(--font-cond);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #555;
+}
+
+.flight-hud-target.locked .flight-hud-target-label {
+    color: var(--olive-muted);
+}
+
+.flight-hud-target-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.flight-hud-target-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: var(--font-mono);
+    font-size: 10px;
+}
+
+.flight-hud-target-row span:first-child {
+    color: #556;
+}
+
+.flight-hud-target-row span:last-child {
+    color: var(--text-primary);
+}
+
+.flight-hud-target-empty {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: #444;
+}
+
+/* ── Status strip (classic only) ── */
+.flight-hud-status {
+    border-top: 1px solid #1a1f1a;
+    padding-top: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.flight-hud-status-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.flight-hud-status-dot {
+    width: 6px;
+    height: 6px;
+    background: var(--olive-muted);
+    border-radius: 50%;
+}
+
+.flight-hud-status-text {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: #888;
+}
+
+.flight-hud-status-right {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--olive-muted);
+}
+
+.flight-hud-status-right.warn {
+    color: var(--warning);
+}
+
+/* ── Layout-driven visibility ──
+ * The picker writes data-hud-layout on .flight-hud root.
+ * Each layout shows a curated set of bodies; everything else is hidden.
+ */
+
+/* classic: HDG + VTapes + Status (+ Gimbal/Target persistent) */
+.flight-hud[data-hud-layout="classic"] .flight-hud-readouts { display: none; }
+
+/* operator: ReadoutCards only (no HDG/VTape/Status) */
+.flight-hud[data-hud-layout="operator"] .flight-hud-hdg,
+.flight-hud[data-hud-layout="operator"] .flight-hud-vtapes,
+.flight-hud[data-hud-layout="operator"] .flight-hud-status {
+    display: none;
+}
+
+/* graphs: ReadoutCards only (sparkline-ready container reuses cards) */
+.flight-hud[data-hud-layout="graphs"] .flight-hud-hdg,
+.flight-hud[data-hud-layout="graphs"] .flight-hud-vtapes,
+.flight-hud[data-hud-layout="graphs"] .flight-hud-status {
+    display: none;
+}
+
+/* hybrid: HDG + ReadoutCards (no VTape, no Status) */
+.flight-hud[data-hud-layout="hybrid"] .flight-hud-vtapes,
+.flight-hud[data-hud-layout="hybrid"] .flight-hud-status {
+    display: none;
+}

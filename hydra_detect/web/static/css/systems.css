@@ -1,0 +1,349 @@
+/* ── Systems View ──
+   Port of design_reference SystemsView. Mirrors tak.css's view-container
+   pattern (.view.view-tak) so the orchestrator can wire the .view-systems
+   body class without further CSS edits. */
+
+body.view-systems .view.view-systems {
+    display: flex;
+    flex-direction: column;
+}
+.view.view-systems {
+    position: fixed;
+    top: var(--topbar-height);
+    left: 0;
+    right: 0;
+    bottom: var(--footer-height);
+    z-index: 2;
+}
+body.view-systems #mjpeg-stream {
+    opacity: 0;
+    pointer-events: none;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+}
+
+/* Outer scroll container — mirrors `padding:16, overflow:auto` from JSX */
+.systems-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: var(--s-4);
+    background: var(--bg-void);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-3);
+}
+
+/* ── Card shell (shared by metric, subsystems, pre-flight) ── */
+.systems-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.systems-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-2);
+    padding: var(--s-2) var(--s-3);
+    border-top: 2px solid var(--olive-primary);
+    border-bottom: 1px solid var(--divider);
+    background: var(--bg-panel-alt);
+    min-height: 30px;
+}
+
+.systems-card-label {
+    font-family: var(--font-cond);
+    font-weight: 600;
+    font-size: var(--font-sm);
+    letter-spacing: var(--ls-condensed);
+    color: var(--ogt-muted);
+    text-transform: uppercase;
+}
+
+.systems-card-target {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    letter-spacing: var(--ls-mono);
+    white-space: nowrap;
+}
+
+.systems-card-body {
+    padding: var(--s-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+}
+.systems-card-body-flush {
+    padding: 0;
+}
+
+/* ── Top metric grid (4 cards) ── */
+.systems-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--s-3);
+}
+
+.systems-metric .systems-card-body {
+    padding: var(--s-3);
+    gap: var(--s-2);
+}
+
+.systems-metric-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--s-2);
+}
+
+.systems-metric-value {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 34px;
+    line-height: 1;
+    color: var(--ogt-muted);
+    letter-spacing: 0;
+}
+
+.systems-metric-unit {
+    font-family: var(--font-body);
+    font-size: var(--font-base);
+    color: var(--text-dim);
+}
+
+.systems-spacer {
+    flex: 1 1 auto;
+}
+
+.systems-metric-sub {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    letter-spacing: var(--ls-mono);
+}
+
+.systems-spark {
+    display: block;
+    width: 100%;
+    height: 44px;
+    color: var(--ogt-muted);
+}
+/* Sparkline color follows card tone — `currentColor` cascades into the SVG */
+.systems-tone-ok   .systems-spark { color: var(--ogt-muted); }
+.systems-tone-deg  .systems-spark { color: var(--warning); }
+.systems-tone-crit .systems-spark { color: var(--danger); }
+.systems-tone-dim  .systems-spark { color: var(--text-dim); }
+
+/* Metric card border picks up the tone too — subtle but reads at a glance */
+.systems-tone-deg.systems-card  { border-color: var(--warning); }
+.systems-tone-crit.systems-card { border-color: var(--danger); }
+
+/* ── Pills (tone variants) ── */
+.systems-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-1);
+    font-family: var(--font-cond);
+    font-weight: 600;
+    font-size: var(--font-xs);
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    padding: 2px var(--s-2);
+    border-radius: var(--radius);
+    border: 1px solid var(--border-default);
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+.systems-pill-ok {
+    background: rgba(56, 87, 35, 0.20);
+    border-color: var(--olive-primary);
+    color: var(--text-primary);
+}
+.systems-pill-deg, .systems-pill-warn {
+    background: rgba(234, 179, 8, 0.15);
+    border-color: var(--warning);
+    color: var(--warning);
+}
+.systems-pill-crit {
+    background: rgba(197, 48, 48, 0.15);
+    border-color: var(--danger);
+    color: var(--danger);
+}
+.systems-pill-dim {
+    background: transparent;
+    border-color: var(--border-default);
+    color: var(--text-dim);
+}
+
+/* ── Mid grid: subsystems (left) + pre-flight (right) ── */
+.systems-mid-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--s-3);
+}
+
+.systems-row {
+    display: grid;
+    grid-template-columns: 14px 160px 1fr 70px;
+    align-items: center;
+    gap: var(--s-3);
+    padding: var(--s-2) var(--s-3);
+    border-bottom: 1px solid var(--divider);
+}
+.systems-row:last-child {
+    border-bottom: none;
+}
+
+.systems-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    box-shadow: none;
+    justify-self: center;
+}
+.systems-dot-ok   { background: var(--ogt-muted); box-shadow: var(--glow-green); }
+.systems-dot-deg  { background: var(--warning); }
+.systems-dot-crit { background: var(--danger); box-shadow: var(--glow-danger); }
+.systems-dot-dim  { background: var(--text-dim); }
+
+.systems-row-name {
+    font-family: var(--font-cond);
+    font-size: var(--font-base);
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-primary);
+    text-transform: uppercase;
+}
+
+.systems-row-detail {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    letter-spacing: var(--ls-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Pre-flight checklist rows ── */
+.systems-check-row {
+    display: grid;
+    grid-template-columns: 20px 1fr auto;
+    align-items: center;
+    gap: var(--s-3);
+    padding: var(--s-2) var(--s-3);
+    border-bottom: 1px solid var(--divider);
+}
+.systems-check-row:last-child {
+    border-bottom: none;
+}
+
+.systems-check-glyph {
+    font-family: var(--font-mono);
+    font-size: var(--font-base);
+    color: var(--text-dim);
+    text-align: center;
+}
+.systems-check-glyph.systems-tone-ok   { color: var(--ogt-muted); }
+.systems-check-glyph.systems-tone-deg  { color: var(--warning); }
+.systems-check-glyph.systems-tone-crit { color: var(--danger); }
+
+.systems-check-label {
+    font-family: var(--font-cond);
+    font-size: var(--font-base);
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-primary);
+    text-transform: uppercase;
+}
+
+.systems-check-sub {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    letter-spacing: var(--ls-mono);
+    text-align: right;
+}
+
+/* ── Status strip (footer) ── */
+.systems-status-strip {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    padding: var(--s-2) var(--s-4);
+    background: var(--bg-panel);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    flex: 0 0 auto;
+}
+
+.systems-status-title {
+    font-family: var(--font-cond);
+    font-weight: 600;
+    font-size: var(--font-sm);
+    letter-spacing: var(--ls-condensed);
+    color: var(--text-primary);
+    text-transform: uppercase;
+}
+
+.systems-status-chip {
+    /* Pill base picks up via .systems-pill class added by JS */
+    font-family: var(--font-cond);
+    font-weight: 600;
+    font-size: var(--font-xs);
+    letter-spacing: var(--ls-condensed);
+    text-transform: uppercase;
+    padding: 2px var(--s-2);
+    border-radius: var(--radius);
+    border: 1px solid var(--border-default);
+    color: var(--text-dim);
+}
+
+.systems-status-text {
+    font-family: var(--font-body);
+    font-size: var(--font-sm);
+    color: var(--text-dim);
+}
+
+.systems-status-spacer {
+    flex: 1 1 auto;
+}
+
+.systems-status-meta {
+    font-family: var(--font-mono);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    letter-spacing: var(--ls-mono);
+}
+
+/* ── Responsive ── */
+@media (max-width: 1199px) {
+    .systems-metric-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .systems-mid-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 819px) {
+    .systems-metric-grid {
+        grid-template-columns: 1fr;
+    }
+    .systems-row {
+        grid-template-columns: 14px 1fr 60px;
+    }
+    .systems-row-detail {
+        grid-column: 1 / -1;
+    }
+    .systems-card-target {
+        display: none;
+    }
+}

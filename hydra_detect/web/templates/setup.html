@@ -17,7 +17,7 @@
             --card-bg: #1c1c1c;
             --border-default: #262626;
             --text-primary: #e8e8e8;
-            --text-secondary: #888;
+            --text-dim: #888;
             --danger: #c53030;
             --danger-bg: #2a1010;
             --success: #385723;
@@ -61,7 +61,7 @@
         }
         .setup-subtitle {
             font-size: 0.85rem;
-            color: var(--text-secondary);
+            color: var(--text-dim);
             margin-top: 4px;
         }
         .setup-form {
@@ -80,7 +80,7 @@
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.08em;
-            color: var(--text-secondary);
+            color: var(--text-dim);
         }
         .setup-field select,
         .setup-field input {
@@ -134,7 +134,7 @@
         }
         .btn-skip {
             background: transparent;
-            color: var(--text-secondary);
+            color: var(--text-dim);
             border: 1px solid var(--border-default);
             border-radius: 6px;
             padding: 10px 24px;
@@ -147,7 +147,7 @@
             transition: border-color 0.15s;
         }
         .btn-skip:hover {
-            border-color: var(--text-secondary);
+            border-color: var(--text-dim);
         }
         .setup-status {
             text-align: center;
@@ -161,7 +161,7 @@
             color: var(--ogt-muted);
         }
         .setup-loading {
-            color: var(--text-secondary);
+            color: var(--text-dim);
             font-style: italic;
         }
     </style>
@@ -193,7 +193,7 @@
             </div>
 
             <div class="setup-field">
-                <label for="setup-vehicle">Vehicle Type</label>
+                <label for="setup-vehicle">Platform Type</label>
                 <select id="setup-vehicle">
                     <option value="">-- Select --</option>
                     <option value="drone">Drone (Multirotor)</option>
@@ -211,7 +211,7 @@
                 <div class="setup-field">
                     <label for="setup-callsign">Callsign</label>
                     <input type="text" id="setup-callsign" placeholder="auto: HYDRA-{team}-{vehicle}" maxlength="50">
-                    <span style="font-size:0.7rem;color:var(--text-secondary)" id="callsign-preview"></span>
+                    <span style="font-size:0.7rem;color:var(--text-dim)" id="callsign-preview"></span>
                 </div>
             </div>
 

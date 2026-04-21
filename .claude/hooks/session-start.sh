@@ -8,12 +8,24 @@ cd "$CLAUDE_PROJECT_DIR" || exit 0
 
 # Install dependencies in remote/web sessions
 if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
+  # Log pip output to a file rather than discarding — silent failures here cause
+  # the session to start with deps half-installed and surface as confusing
+  # ImportError later.
+  PIP_LOG="${TMPDIR:-/tmp}/hydra-session-start-pip.log"
+  : > "$PIP_LOG"
+
   # ultralytics and supervision pull heavy transitive deps — install without deps
   # then install the rest from requirements.txt excluding those + opencv
-  pip install --no-deps ultralytics supervision 2>/dev/null
+  if ! pip install --no-deps ultralytics supervision >>"$PIP_LOG" 2>&1; then
+    echo "WARN: pip install ultralytics/supervision failed — see $PIP_LOG" >&2
+  fi
   grep -v "opencv-python\|ultralytics\|supervision" requirements.txt > /tmp/reqs.txt
-  pip install -r /tmp/reqs.txt 2>/dev/null
-  pip install opencv-python-headless httpx pytest flake8 mypy 2>/dev/null
+  if ! pip install -r /tmp/reqs.txt >>"$PIP_LOG" 2>&1; then
+    echo "WARN: pip install -r /tmp/reqs.txt failed — see $PIP_LOG" >&2
+  fi
+  if ! pip install opencv-python-headless httpx pytest flake8 mypy >>"$PIP_LOG" 2>&1; then
+    echo "WARN: pip install test deps failed — see $PIP_LOG" >&2
+  fi
 
   # Make hydra_detect importable for mypy/tests
   echo "export PYTHONPATH=\"$CLAUDE_PROJECT_DIR\"" >> "$CLAUDE_ENV_FILE"

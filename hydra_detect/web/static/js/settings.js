@@ -117,12 +117,27 @@ const HydraSettings = (() => {
         },
     };
 
+    // Theme is locked to Lattice. The picker UI and config plumbing
+    // were removed — keep a no-op applyTheme export so downstream
+    // callers don't blow up.
+    const THEME_CHOICES = ['lattice'];
+
+    function applyTheme(_theme) {
+        // Always force lattice; ignore incoming value.
+        document.documentElement.setAttribute('data-theme', 'lattice');
+    }
+
+    function initThemePicker() {
+        // No-op: picker removed from settings.html.
+    }
+
     function onEnter() {
         loadConfig();
         if (!initialized) {
             initNavHandlers();
             initActionHandlers();
             initLogViewer();
+            initThemePicker();
             initialized = true;
         }
         // Resume auto-refresh if returning to logs section
@@ -150,6 +165,8 @@ const HydraSettings = (() => {
             showError('Failed to load configuration');
             return;
         }
+        // Theme locked to lattice; ignore configData.web.theme.
+        applyTheme('lattice');
         // Defer render to next frame so the view's display:flex has applied
         // (prevents empty Camera tab on initial load when CSS transition
         // from display:none hasn't completed yet).
@@ -719,5 +736,23 @@ const HydraSettings = (() => {
         if (indicator) indicator.classList.remove('active');
     }
 
-    return { onEnter, onLeave };
+    // Eager theme apply — runs once at module load so the saved theme is in
+    // effect across every view, not just when the user opens Settings.
+    async function bootstrapTheme() {
+        try {
+            const cfg = await HydraApp.apiGet('/api/config/full');
+            if (cfg && cfg.web && cfg.web.theme) {
+                applyTheme(cfg.web.theme);
+            }
+        } catch (err) {
+            // Silent — theme is cosmetic; missing config must not break boot
+        }
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bootstrapTheme);
+    } else {
+        bootstrapTheme();
+    }
+
+    return { onEnter, onLeave, applyTheme, THEME_CHOICES };
 })();

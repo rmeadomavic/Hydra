@@ -1,0 +1,20 @@
+# Pre-commit for Hydra Detect. Hooks use `language: system` so they run
+# against the already-installed flake8 / python — no per-commit network.
+# One-time `pre-commit install` fetches the pre-commit-hooks repo; after
+# that, commits work offline.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        exclude: ^\.github/workflows/
+  - repo: local
+    hooks:
+      - id: flake8
+        name: flake8 (hydra_detect + tests)
+        entry: flake8
+        language: system
+        types: [python]
+        files: ^(hydra_detect|tests)/

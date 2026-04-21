@@ -113,6 +113,12 @@ class RtlPowerClient:
             return None
 
         peak: float | None = None
+        # Track whether the subprocess exited cleanly. If it didn't — for any
+        # reason including KeyboardInterrupt or SystemExit — the finally block
+        # kills the process group so the rtl-sdr dongle isn't held by an
+        # orphaned rtl_power. An `except Exception:` block would miss
+        # BaseException subclasses; try/finally catches everything.
+        proc_alive = True
         try:
             for line in proc.stdout:
                 parts = line.strip().split(",")
@@ -127,11 +133,12 @@ class RtlPowerClient:
                         continue
             # -1 flag means single sweep — process should exit on its own
             proc.wait(timeout=5)
+            proc_alive = False
         except subprocess.TimeoutExpired:
-            _kill_proc(proc)
-        except Exception:
-            _kill_proc(proc)
-            raise
+            pass  # proc_alive stays True; finally handles cleanup
+        finally:
+            if proc_alive:
+                _kill_proc(proc)
 
         if peak is not None:
             logger.debug("rtl_power scan %.0f MHz: peak %.1f dB", center_mhz, peak)

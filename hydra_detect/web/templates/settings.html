@@ -1,5 +1,6 @@
 <!-- Settings View — config.ini editor -->
-<nav class="settings-nav" id="settings-nav">
+<nav class="settings-nav mock-tweaks-nav" id="settings-nav">
+    <div class="mock-section-label settings-nav-label">Tweaks</div>
     <button class="settings-section-btn active" data-section="camera">Camera</button>
     <button class="settings-section-btn" data-section="detector">Detector</button>
     <button class="settings-section-btn" data-section="tracker">Tracker</button>
@@ -13,7 +14,12 @@
     <button class="settings-section-btn" data-section="system_logs">System Logs</button>
 </nav>
 
-<div class="settings-content" id="settings-content">
+<div class="settings-content mock-tweaks-content" id="settings-content">
+    <!-- Mock-style panel head — mirrors tweaks-panel .panel-head in design_reference -->
+    <div class="mock-panel-head settings-panel-head">
+        <span class="mock-panel-ttl">Settings</span>
+        <span class="mock-panel-sub">config.ini editor</span>
+    </div>
     <!-- Warning banner for autonomous section -->
     <div class="settings-warning" id="settings-warning" style="display:none;">
         ⚠ AUTONOMOUS STRIKE — Changes here affect autonomous engagement behavior.
@@ -24,7 +30,7 @@
     <div class="settings-error" id="settings-error" style="display:none;"></div>
 
     <!-- Dynamic form container -->
-    <div class="settings-form" id="settings-form"></div>
+    <div class="settings-form mock-tweaks-card" id="settings-form"></div>
 
     <!-- System Log Viewer -->
     <div class="log-viewer-panel" id="log-viewer-panel" style="display:none;">
@@ -72,7 +78,7 @@
 
     <!-- Recovery Tools — visually separated from normal settings -->
     <div class="settings-recovery">
-        <div class="settings-recovery-label">Recovery Tools</div>
+        <div class="settings-recovery-label mock-section-label">Recovery Tools</div>
         <div class="settings-recovery-actions">
             <button class="btn btn-recovery btn-danger-outline" id="settings-factory-reset" title="Restore factory default configuration">Factory Reset</button>
             <button class="btn btn-recovery" id="settings-export" title="Download current config as JSON">Export Config</button>
@@ -84,11 +90,11 @@
 
     <!-- Quick Links -->
     <div class="settings-recovery">
-        <div class="settings-recovery-label">Quick Links</div>
+        <div class="settings-recovery-label mock-section-label">Quick Links</div>
         <div class="settings-recovery-actions">
             <a class="btn btn-recovery" href="/control">Mobile Control</a>
             <a class="btn btn-recovery" href="/instructor">Instructor Overview</a>
-            <a class="btn btn-recovery" href="/review">Mission Review</a>
+            <a class="btn btn-recovery" href="/review">Sortie Review</a>
             <a class="btn btn-recovery" href="/setup">Setup Wizard</a>
         </div>
     </div>

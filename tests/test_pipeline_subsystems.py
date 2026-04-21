@@ -188,6 +188,72 @@ def test_pipeline_contract_adapter_callbacks_keep_command_behavior():
     cb_owner._play_tune = MagicMock()
 
     callbacks = PipelineControlAdapter(cb_owner).callbacks()
-    assert callbacks["on_target_lock"] is cb_owner._handle_target_lock
+
+    # Identity check for every direct method/attribute binding. If
+    # control.py rebinds a callback to the wrong handler (copy-paste
+    # rename, refactor regression), one of these fails specifically.
+    expected_bindings = {
+        "on_threshold_change": cb_owner._handle_threshold_change,
+        "on_loiter_command": cb_owner._handle_loiter_command,
+        "on_target_lock": cb_owner._handle_target_lock,
+        "on_target_unlock": cb_owner._handle_target_unlock,
+        "on_strike_command": cb_owner._handle_strike_command,
+        "get_recent_detections": cb_owner._det_logger.get_recent,
+        "get_active_tracks": cb_owner._get_active_tracks,
+        "on_stop_command": cb_owner._handle_stop_command,
+        "on_pause_command": cb_owner._handle_pause_command,
+        "on_resume_command": cb_owner._handle_resume_command,
+        "get_camera_sources": cb_owner._get_camera_sources,
+        "on_camera_switch": cb_owner._handle_camera_switch,
+        "on_set_power_mode": cb_owner._handle_set_power_mode,
+        "get_power_modes": cb_owner._get_power_modes,
+        "get_models": cb_owner._get_models,
+        "on_model_switch": cb_owner._handle_model_switch,
+        "get_rf_status": cb_owner._get_rf_status,
+        "get_rf_rssi_history": cb_owner._get_rf_rssi_history,
+        "on_rf_start": cb_owner._handle_rf_start,
+        "on_rf_stop": cb_owner._handle_rf_stop,
+        "on_set_mode_command": cb_owner._handle_set_mode_command,
+        "on_alert_classes_change": cb_owner._handle_alert_classes_change,
+        "get_class_names": cb_owner._detector.get_class_names,
+        "on_rtsp_toggle": cb_owner._handle_rtsp_toggle,
+        "get_rtsp_status": cb_owner._get_rtsp_status,
+        "on_mavlink_video_toggle": cb_owner._handle_mavlink_video_toggle,
+        "on_mavlink_video_tune": cb_owner._handle_mavlink_video_tune,
+        "get_mavlink_video_status": cb_owner._get_mavlink_video_status,
+        "on_tak_toggle": cb_owner._handle_tak_toggle,
+        "get_tak_status": cb_owner._get_tak_status,
+        "get_tak_targets": cb_owner._get_tak_targets,
+        "add_tak_target": cb_owner._add_tak_target,
+        "remove_tak_target": cb_owner._remove_tak_target,
+        "get_profiles": cb_owner._get_profiles,
+        "on_profile_switch": cb_owner._handle_profile_switch,
+        "get_preflight": cb_owner._get_preflight,
+        "on_restart_command": cb_owner._handle_restart_command,
+        "on_drop_command": cb_owner._handle_drop_command,
+        "on_follow_command": cb_owner._handle_follow_command,
+        "on_approach_strike_command": cb_owner._handle_approach_strike_command,
+        "on_pixel_lock_command": cb_owner._handle_pixel_lock_command,
+        "on_approach_abort": cb_owner._handle_approach_abort,
+        "get_approach_status": cb_owner._get_approach_status,
+        "on_mission_start": cb_owner._handle_mission_start,
+        "on_mission_end": cb_owner._handle_mission_end,
+        "get_events": cb_owner._get_events,
+        "get_event_status": cb_owner._event_logger.get_status,
+        "play_tune": cb_owner._play_tune,
+    }
+    for cb_name, expected in expected_bindings.items():
+        assert callbacks[cb_name] is expected, (
+            f"{cb_name} not bound to expected handler"
+        )
+
+    # Lambda-wrapped config getters can't use identity — verify behavior.
+    cb_owner._cfg.read_dict({
+        "logging": {"log_dir": "/tmp/logs", "image_dir": "/tmp/imgs"},
+    })
+    assert callbacks["get_log_dir"]() == "/tmp/logs"
+    assert callbacks["get_image_dir"]() == "/tmp/imgs"
+
+    # Spot-check that an invocation forwards args correctly.
     callbacks["on_strike_command"](12)
     cb_owner._handle_strike_command.assert_called_once_with(12)
