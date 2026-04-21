@@ -25,10 +25,18 @@ if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
   if ! pip install -r /tmp/reqs.txt >>"$PIP_LOG" 2>&1; then
     echo "WARN: pip install -r /tmp/reqs.txt failed — see $PIP_LOG" >&2
   fi
-  # Dev/test extras — httpx for fastapi.TestClient, pyyaml matches CI's install
-  # list, mypy powers the PostToolUse lint hook.
-  if ! pip install opencv-python-headless httpx pytest flake8 mypy pyyaml >>"$PIP_LOG" 2>&1; then
-    echo "WARN: pip install test deps failed — see $PIP_LOG" >&2
+  # Dev/test extras — mirror CI (.github/workflows/ci.yml): headless OpenCV for
+  # web sessions, then requirements-dev.txt for pinned pytest/hypothesis/flake8
+  # etc. mypy is added separately because it powers the PostToolUse lint hook
+  # but isn't a CI dep.
+  if ! pip install opencv-python-headless >>"$PIP_LOG" 2>&1; then
+    echo "WARN: pip install opencv-python-headless failed — see $PIP_LOG" >&2
+  fi
+  if ! pip install -r requirements-dev.txt >>"$PIP_LOG" 2>&1; then
+    echo "WARN: pip install -r requirements-dev.txt failed — see $PIP_LOG" >&2
+  fi
+  if ! pip install mypy >>"$PIP_LOG" 2>&1; then
+    echo "WARN: pip install mypy failed — see $PIP_LOG" >&2
   fi
 
   # Make hydra_detect importable for mypy/tests
