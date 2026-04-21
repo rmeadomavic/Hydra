@@ -413,8 +413,46 @@ class AutonomousController:
             self._record_decision(None, "", "defer", "no qualifying track")
             return
 
-        # All criteria met — initiate autonomous strike
+        # All criteria met — dispatch based on runtime autonomy mode.
+        # ``_mode`` is the operator-facing safety switch surfaced on the Autonomy
+        # view. It gates execution independently of ``self.enabled``:
+        #   - dryrun   evaluate + log, never touch lock_cb / strike_cb
+        #   - shadow   lock the track for operator review, never strike_cb
+        #   - live     full engage
+        # Without this branch, selecting DRYRUN in the UI would still fire real
+        # strikes — the mode picker would be cosmetic rather than protective.
+        mode = self.get_mode()
         pos_str = getattr(mavlink, "get_position_string", lambda: None)()
+        conf_detail = f"conf={best_track.confidence:.2f} frames={best_frames}"
+
+        if mode == "dryrun":
+            audit_log.info(
+                "AUTONOMY DRYRUN (no-op): track_id=%d label=%s %s vehicle_mode=%s position=%s",
+                best_track.track_id, best_track.label, conf_detail,
+                vehicle_mode, pos_str,
+            )
+            self._record_decision(
+                best_track.track_id, best_track.label, "passthrough",
+                f"dryrun (would engage) {conf_detail}",
+            )
+            return
+
+        if mode == "shadow":
+            audit_log.info(
+                "AUTONOMY SHADOW (lock only): track_id=%d label=%s %s vehicle_mode=%s position=%s",
+                best_track.track_id, best_track.label, conf_detail,
+                vehicle_mode, pos_str,
+            )
+            # Lock the track so operators see what the controller would target,
+            # but skip strike_cb — no kinetic action in shadow mode.
+            lock_cb(best_track.track_id, "shadow")
+            self._record_decision(
+                best_track.track_id, best_track.label, "passthrough",
+                f"shadow (locked, no strike) {conf_detail}",
+            )
+            return
+
+        # mode == "live" — actual autonomous strike
         audit_log.info(
             "AUTONOMOUS STRIKE INITIATED: track_id=%d label=%s confidence=%.3f "
             "frames=%d vehicle_mode=%s position=%s",
@@ -444,7 +482,7 @@ class AutonomousController:
             self._last_strike_time = now
             self._record_decision(
                 best_track.track_id, best_track.label, "engage",
-                f"conf={best_track.confidence:.2f} frames={best_frames}",
+                conf_detail,
             )
             audit_log.info(
                 "AUTONOMOUS STRIKE CONFIRMED: track_id=%d", best_track.track_id

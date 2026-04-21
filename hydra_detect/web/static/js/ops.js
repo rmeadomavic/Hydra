@@ -1922,12 +1922,20 @@ const HydraOps = (() => {
             });
         }
 
-        // Quick action: Beep — apiPost handles error toasts itself
+        // Quick action: Beep — apiPost handles transport error toasts; we still
+        // need to distinguish backend {status:"ok"} from {status:"failed"} (HTTP
+        // 200 with failed callback — operator would otherwise see "Beep sent"
+        // during degraded MAVLink even though the tune never went out).
         var beepBtn = document.getElementById('ops-btn-beep');
         if (beepBtn) {
             beepBtn.addEventListener('click', function () {
                 HydraApp.apiPost('/api/vehicle/beep', { tune: 'alert' }).then(function (r) {
-                    if (r) HydraApp.showToast('Beep sent', 'success');
+                    if (!r) return; // transport error already toasted by apiPost
+                    if (r.status === 'ok') {
+                        HydraApp.showToast('Beep sent', 'success');
+                    } else {
+                        HydraApp.showToast('Beep failed — MAVLink degraded', 'error');
+                    }
                 });
             });
         }

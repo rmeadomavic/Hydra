@@ -991,33 +991,44 @@ _POST_ENDPOINTS_TAKING_JSON = [
 
 
 class TestMalformedJsonFuzz:
-    """Every POST endpoint accepting a body must return 400 (not 500) on junk input."""
+    """Every POST endpoint accepting a body must reject junk input with a 4xx.
+
+    A lax ``< 500`` assertion would pass on a buggy endpoint that silently
+    accepts malformed JSON and returns 200 — exactly the regression this
+    fuzz is supposed to catch. Anchor the lower bound at 400 so success and
+    redirect responses fail the test.
+    """
 
     @pytest.mark.parametrize("path", _POST_ENDPOINTS_TAKING_JSON)
-    def test_malformed_json_returns_400(self, client, path):
+    def test_malformed_json_returns_4xx(self, client, path):
         resp = client.post(
             path,
             content=b"{not valid json",
             headers={"Content-Type": "application/json"},
         )
-        # 400 (malformed body) or 413 (oversize); never a 500
-        assert resp.status_code < 500, (
+        # 400 (malformed body), 401/403 (auth), 413 (oversize), 422 (schema).
+        # Never a 2xx/3xx (silent accept) and never a 5xx (crash).
+        assert 400 <= resp.status_code < 500, (
             f"{path} returned {resp.status_code} on malformed JSON"
         )
 
     @pytest.mark.parametrize("path", _POST_ENDPOINTS_TAKING_JSON)
-    def test_non_utf8_body_does_not_500(self, client, path):
+    def test_non_utf8_body_returns_4xx(self, client, path):
         resp = client.post(
             path,
             content=b"\xff\xfe\x00invalid-utf8",
             headers={"Content-Type": "application/json"},
         )
-        assert resp.status_code < 500
+        assert 400 <= resp.status_code < 500, (
+            f"{path} returned {resp.status_code} on non-UTF8 body"
+        )
 
     @pytest.mark.parametrize("path", _POST_ENDPOINTS_TAKING_JSON)
-    def test_empty_body_does_not_500(self, client, path):
+    def test_empty_body_returns_4xx(self, client, path):
         resp = client.post(path, content=b"", headers={"Content-Type": "application/json"})
-        assert resp.status_code < 500
+        assert 400 <= resp.status_code < 500, (
+            f"{path} returned {resp.status_code} on empty body"
+        )
 
 
 # ---------------------------------------------------------------------------

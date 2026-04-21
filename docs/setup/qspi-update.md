@@ -47,8 +47,20 @@ One JP 5.1.3 SD card handles all devices. After the first Jetson completes the U
 | Device | Steps | Time |
 |--------|-------|------|
 | Jetson #1 | Boot JP 5.1.3 → OOBE wizard → `apt install` updater → reboot → halt | ~10 min |
-| Jetson #2 | Boot JP 5.1.3 (skips OOBE) → `apt install` updater (cached) → reboot → halt | ~5 min |
+| Jetson #2 | Boot JP 5.1.3 (skips OOBE) → `apt install --reinstall` updater → reboot → halt | ~5 min |
 | Jetson #3+ | Same as #2 | ~5 min each |
+
+<Warning>
+On every device after #1 you must pass `--reinstall`. The package is already
+marked installed on the reused SD card, so plain `apt install` is a no-op and
+the post-install QSPI flash hook won't re-run — leaving factory QSPI intact.
+</Warning>
+
+```bash
+# Jetson #2+ — reuse the same JP 5.1.3 SD card
+sudo apt-get install --reinstall nvidia-l4t-jetson-orin-nano-qspi-updater
+sudo reboot
+```
 
 After QSPI update, swap in the golden image card and boot. Per-device customization: set callsign via the setup wizard at `/setup` or edit `config.ini` directly.
 

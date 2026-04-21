@@ -46,7 +46,14 @@ def _make_tracks(*specs) -> TrackingResult:
 
 
 def _make_controller(**overrides) -> AutonomousController:
-    """Build an AutonomousController with sensible test defaults."""
+    """Build an AutonomousController with sensible test defaults.
+
+    The production default mode is ``dryrun`` (safety default — fresh
+    controller will not fire strike_cb). Existing tests here exercise the
+    live strike path, so the helper promotes to ``live`` by default. Pass
+    ``mode="dryrun"`` or ``mode="shadow"`` to override.
+    """
+    mode = overrides.pop("mode", "live")
     defaults = dict(
         enabled=True,
         geofence_lat=34.05,
@@ -60,7 +67,9 @@ def _make_controller(**overrides) -> AutonomousController:
         require_operator_lock=False,  # tests override; production default is True
     )
     defaults.update(overrides)
-    return AutonomousController(**defaults)
+    ctrl = AutonomousController(**defaults)
+    ctrl.set_mode(mode)
+    return ctrl
 
 
 # ---------------------------------------------------------------------------
@@ -381,3 +390,110 @@ class TestEvaluate:
             ctrl.evaluate(tracks, mav, MagicMock(), strike_cb)
 
         strike_cb.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Runtime autonomy mode — safety-critical gate for strike_cb
+# ---------------------------------------------------------------------------
+
+class TestAutonomyModeGating:
+    """``_mode`` must gate execution, not just dashboard display.
+
+    Regression guard: before this gate was wired in, selecting DRYRUN on the
+    Autonomy view still allowed the full strike path to run because
+    ``evaluate()`` only checked ``self.enabled``. Operators would see a
+    non-LIVE label while actual strikes were firing.
+    """
+
+    def _qualify(self, ctrl, mav, lock_cb, strike_cb, frames=3):
+        tracks = _make_tracks((1, "mine", 0.92))
+        for _ in range(frames):
+            ctrl.evaluate(tracks, mav, lock_cb, strike_cb)
+
+    def test_default_mode_is_dryrun(self):
+        """Fresh controller must start in dryrun — safety default."""
+        ctrl = AutonomousController(
+            enabled=True,
+            geofence_lat=34.05, geofence_lon=-118.25, geofence_radius_m=500.0,
+            min_confidence=0.80, min_track_frames=3,
+            allowed_classes=["mine"],
+            allowed_vehicle_modes=["AUTO"],
+            require_operator_lock=False,
+        )
+        assert ctrl.get_mode() == "dryrun"
+
+    def test_dryrun_never_calls_strike_or_lock(self):
+        ctrl = _make_controller(mode="dryrun", min_track_frames=3)
+        mav = _make_mavlink()
+        lock_cb = MagicMock(return_value=True)
+        strike_cb = MagicMock(return_value=True)
+
+        self._qualify(ctrl, mav, lock_cb, strike_cb)
+
+        strike_cb.assert_not_called()
+        lock_cb.assert_not_called()
+
+    def test_dryrun_still_records_passthrough_decision(self):
+        ctrl = _make_controller(mode="dryrun", min_track_frames=3)
+        mav = _make_mavlink()
+        self._qualify(ctrl, mav, MagicMock(return_value=True), MagicMock(return_value=True))
+
+        snap = ctrl.get_dashboard_snapshot()
+        assert snap["log"], "decision log should record dryrun passthrough"
+        assert snap["log"][0]["action"] == "passthrough"
+        assert "dryrun" in snap["log"][0]["reason"]
+
+    def test_shadow_locks_but_does_not_strike(self):
+        ctrl = _make_controller(mode="shadow", min_track_frames=3)
+        mav = _make_mavlink()
+        lock_cb = MagicMock(return_value=True)
+        strike_cb = MagicMock(return_value=True)
+
+        self._qualify(ctrl, mav, lock_cb, strike_cb)
+
+        strike_cb.assert_not_called()
+        # Shadow tags the lock reason so downstream can distinguish it from
+        # a real strike lock.
+        lock_cb.assert_called_once_with(1, "shadow")
+
+    def test_shadow_records_passthrough_decision(self):
+        ctrl = _make_controller(mode="shadow", min_track_frames=3)
+        mav = _make_mavlink()
+        self._qualify(ctrl, mav, MagicMock(return_value=True), MagicMock(return_value=True))
+
+        snap = ctrl.get_dashboard_snapshot()
+        assert snap["log"][0]["action"] == "passthrough"
+        assert "shadow" in snap["log"][0]["reason"]
+
+    def test_live_strikes_normally(self):
+        ctrl = _make_controller(mode="live", min_track_frames=3)
+        mav = _make_mavlink()
+        lock_cb = MagicMock(return_value=True)
+        strike_cb = MagicMock(return_value=True)
+
+        self._qualify(ctrl, mav, lock_cb, strike_cb)
+
+        strike_cb.assert_called_once_with(1)
+        lock_cb.assert_called_once_with(1, "strike")
+
+    def test_switching_live_to_dryrun_halts_strikes(self):
+        """Operator flipping to dryrun mid-sortie must stop the strike path."""
+        ctrl = _make_controller(mode="live", min_track_frames=1, strike_cooldown_sec=0.0)
+        mav = _make_mavlink()
+        lock_cb = MagicMock(return_value=True)
+        strike_cb = MagicMock(return_value=True)
+        tracks = _make_tracks((1, "mine", 0.92))
+
+        ctrl.evaluate(tracks, mav, lock_cb, strike_cb)
+        assert strike_cb.call_count == 1
+
+        ctrl.set_mode("dryrun")
+        # Give a different track id to avoid the cooldown skip path
+        tracks2 = _make_tracks((2, "mine", 0.92))
+        ctrl.evaluate(tracks2, mav, lock_cb, strike_cb)
+        assert strike_cb.call_count == 1, "mode=dryrun must not fire strike_cb"
+
+    def test_set_mode_rejects_unknown_value(self):
+        ctrl = _make_controller(mode="live")
+        with pytest.raises(ValueError):
+            ctrl.set_mode("arm")

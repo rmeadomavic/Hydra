@@ -257,3 +257,48 @@ def test_pipeline_contract_adapter_callbacks_keep_command_behavior():
     # Spot-check that an invocation forwards args correctly.
     callbacks["on_strike_command"](12)
     cb_owner._handle_strike_command.assert_called_once_with(12)
+
+
+def test_facade_imports_and_invokes_set_autonomous_controller():
+    """Regression guard: pipeline facade MUST wire the live autonomous controller
+    into the web server, otherwise /api/autonomy/status returns the idle
+    placeholder and /api/autonomy/mode 503s in production — the whole mode
+    picker is cosmetic.
+
+    This is a structural check — constructing the full HydraPipeline requires
+    hardware + a config file. We assert on the source that both the import
+    and the registration call exist in the expected code paths.
+    """
+    import ast
+    import inspect
+
+    from hydra_detect.pipeline import facade
+
+    src = inspect.getsource(facade)
+    tree = ast.parse(src)
+
+    # 1. Import must be present
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "..web.server":
+            imported.update(a.name for a in node.names)
+    # Relative imports read as just "web.server" in some AST versions — look
+    # for any import bringing `set_autonomous_controller` into module scope.
+    if "set_autonomous_controller" not in imported:
+        assert "from ..web.server import" in src or "from hydra_detect.web.server import" in src
+        assert "set_autonomous_controller" in src, (
+            "facade.py must import set_autonomous_controller"
+        )
+
+    # 2. A call site must exist — both register (on autonomous-enabled branch)
+    #    and unregister (on shutdown). Count the call occurrences.
+    call_count = src.count("set_autonomous_controller(")
+    assert call_count >= 2, (
+        f"expected ≥2 call sites (register + unregister), found {call_count}"
+    )
+    assert "set_autonomous_controller(self._autonomous)" in src, (
+        "must register the live controller on startup"
+    )
+    assert "set_autonomous_controller(None)" in src, (
+        "must unregister on shutdown to avoid stale snapshots after pipeline stop"
+    )

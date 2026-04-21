@@ -52,6 +52,7 @@ from ..web.server import (
     configure_auth,
     configure_web_password,
     run_server,
+    set_autonomous_controller,
     set_tak_input,
     set_tak_output,
     stream_state,
@@ -413,6 +414,10 @@ class Pipeline:
                 self._cfg.getint("autonomous", "min_track_frames", fallback=5),
                 classes_raw or "NONE (fail-closed)",
             )
+            # Register with the web server so /api/autonomy/{status,mode}
+            # reach the live controller. Without this the endpoints fall back
+            # to the idle placeholder and the mode picker returns 503.
+            set_autonomous_controller(self._autonomous)
 
         # Approach controller (Follow / Drop / Strike)
         self._approach: ApproachController | None = None
@@ -2660,6 +2665,8 @@ class Pipeline:
         if self._tak_input is not None:
             self._tak_input.stop()
             set_tak_input(None)
+        if self._autonomous is not None:
+            set_autonomous_controller(None)
         if self._servo_tracker is not None:
             self._servo_tracker.safe()
         self._camera.close()
