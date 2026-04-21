@@ -72,7 +72,7 @@
 
         if (alertFeed.length === 0) {
             const placeholder = document.createElement('div');
-            placeholder.style.cssText = 'color:#888;font-size:12px;';
+            placeholder.className = 'alert-feed-placeholder';
             placeholder.textContent = 'No alerts yet';
             el.appendChild(placeholder);
             return;
@@ -176,7 +176,12 @@
 
     async function abortVehicle(host) {
         try {
-            const resp = await fetch('http://' + host + ':8080/api/abort', {method: 'POST'});
+            // 5 s timeout — an unreachable platform must fail fast so the
+            // instructor can move on during a fleet-wide emergency.
+            const resp = await fetch('http://' + host + ':8080/api/abort', {
+                method: 'POST',
+                signal: AbortSignal.timeout(5000),
+            });
             if (resp.ok) {
                 addAlert(vehicleState[host] ? (vehicleState[host].callsign || host) : host, 'ABORT sent by range control');
             } else {
