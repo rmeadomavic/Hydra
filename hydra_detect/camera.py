@@ -7,7 +7,6 @@ import logging
 import shutil
 import subprocess
 import threading
-import time
 from typing import Optional
 
 import cv2
@@ -297,6 +296,9 @@ class Camera:
         self._lock = threading.Lock()
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        # Signalled by close() to interrupt the reconnect-backoff sleep —
+        # otherwise shutdown blocks for up to 30 s during reconnect.
+        self._stop_evt = threading.Event()
 
     # ------------------------------------------------------------------
     def _device_path(self) -> str:
@@ -357,9 +359,12 @@ class Camera:
     def close(self) -> None:
         """Stop capture and release resources."""
         self._running = False
+        # Wake the grab thread if it's sleeping inside the reconnect backoff.
+        self._stop_evt.set()
         if self._thread is not None:
-            # Timeout must exceed max backoff (30s) to avoid racing with the grab thread
-            self._thread.join(timeout=35.0)
+            # Short timeout is now sufficient — the stop event interrupts
+            # backoff sleeps immediately.
+            self._thread.join(timeout=5.0)
         if self._cap is not None:
             self._cap.release()
         logger.info("Camera closed.")
@@ -388,7 +393,9 @@ class Camera:
         while self._running:
             if self._cap is None or not self._cap.isOpened():
                 logger.warning("Reconnecting camera in %.1fs ...", backoff)
-                time.sleep(backoff)
+                # Use Event.wait so close() can interrupt the backoff sleep.
+                if self._stop_evt.wait(timeout=backoff):
+                    break
                 backoff = min(backoff * 2, 30.0)
                 if self._cap is not None:
                     # Release any lingering (unopened) capture before replacing
@@ -432,11 +439,13 @@ class Camera:
 
         # Stop current capture
         self._running = False
+        self._stop_evt.set()
         if self._thread is not None:
-            # Timeout must exceed max backoff (30s) to avoid racing with the grab thread
-            self._thread.join(timeout=35.0)
+            self._thread.join(timeout=5.0)
         if self._cap is not None:
             self._cap.release()
+        # Reset the stop event so the new grab thread can sleep in backoff.
+        self._stop_evt.clear()
 
         # Try new source
         self._source = new_source
