@@ -536,16 +536,45 @@ const HydraRfHunt = (() => {
 
     // ── Target confirmation modal ─────────────────────────────────────
 
+    // Valid 48-bit MAC in AA:BB:CC:DD:EE:FF form — mirrors BSSID_RE on the
+    // server. Non-MAC identifiers (e.g. "SDR:915.3" in the replay fixture)
+    // must route through the SDR target path instead.
+    const BSSID_RE = /^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$/i;
+
     function openTargetModal(dataset) {
-        const bssid = (dataset && dataset.bssid) || '';
-        const freq = (dataset && dataset.freq) || '';
+        const rawBssid = (dataset && dataset.bssid) || '';
+        const rawFreq = (dataset && dataset.freq) || '';
         const ssid = (dataset && dataset.ssid) || '';
-        const label = ssid ? (ssid + ' (' + bssid + ')') :
-            (bssid || (freq ? freq + ' MHz' : '--'));
+        const parsedFreq = rawFreq ? parseFloat(rawFreq) : NaN;
+        const hasValidMac = BSSID_RE.test(rawBssid);
+        const hasFreq = !isNaN(parsedFreq);
+
+        let mode;
+        let bssid = null;
+        let freq = null;
+        if (hasValidMac) {
+            mode = 'wifi';
+            bssid = rawBssid.toUpperCase();
+        } else if (hasFreq) {
+            mode = 'sdr';
+            freq = parsedFreq;
+        } else {
+            // Nothing targetable on this row — abort.
+            if (typeof window.showToast === 'function') {
+                window.showToast(
+                    'Cannot target device: no MAC address or frequency',
+                    'error',
+                );
+            }
+            return;
+        }
+
+        const idLabel = bssid || (freq != null ? freq.toFixed(1) + ' MHz' : '--');
+        const label = ssid ? (ssid + ' (' + idLabel + ')') : idLabel;
         pendingTarget = {
             bssid: bssid,
-            freq_mhz: freq ? parseFloat(freq) : null,
-            mode: bssid ? 'wifi' : 'sdr',
+            freq_mhz: freq,
+            mode: mode,
             label: label,
         };
         const modal = document.getElementById('rf-target-modal');

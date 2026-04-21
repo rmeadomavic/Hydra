@@ -228,9 +228,11 @@ class KismetReplaySource:
     def _now_replay(self) -> float:
         """Return current playback time in fixture seconds.
 
-        Starts the clock on first call. When ``loop=False`` and the fixture
-        has played out, returns ``duration`` forever (all lookups will miss
-        the freshness window and return None).
+        Starts the clock on first call. With ``loop=True`` the result wraps
+        at ``duration``. With ``loop=False`` the clock keeps advancing past
+        ``duration`` so freshness checks naturally age the final sample out
+        — a non-looping fixture that has played past its end should go
+        silent, not pin the last sample indefinitely.
         """
         with self._lock:
             if self._t_start is None:
@@ -241,7 +243,7 @@ class KismetReplaySource:
                 return 0.0
             if self._loop:
                 return elapsed % self._duration
-            return min(elapsed, self._duration)
+            return elapsed
 
     # -- KismetDataSource surface -----------------------------------------
 

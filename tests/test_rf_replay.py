@@ -154,14 +154,26 @@ def test_replay_loops_when_configured(tmp_path):
 
 def test_replay_without_loop_returns_last_sample_then_nothing(tmp_path):
     source = KismetReplaySource(_simple_fixture(tmp_path), loop=False, speed=1.0)
+    # First, read just past the last sample while still inside the freshness
+    # window — last sample should still be visible.
+    with patch(
+        "hydra_detect.rf.replay_source.time.monotonic",
+        _fake_monotonic([100.0, 112.0]),
+    ):
+        source.get_wifi_rssi("AA:BB:CC:DE:AD:01")  # pin clock
+        # 12 s past t_start, no loop → replay clock = 12 s. Last sample at
+        # t=10 has age = 2 s → fresh.
+        assert source.get_wifi_rssi("AA:BB:CC:DE:AD:01") == -40.0
+    # Now run the clock well past the freshness window. A non-looping replay
+    # that has played out should go silent — not pin the last sample forever.
+    source2 = KismetReplaySource(_simple_fixture(tmp_path), loop=False, speed=1.0)
     with patch(
         "hydra_detect.rf.replay_source.time.monotonic",
         _fake_monotonic([100.0, 150.0]),
     ):
-        source.get_wifi_rssi("AA:BB:CC:DE:AD:01")  # pin clock
-        # 50 s past end with no loop → clock clamps at duration (10 s).
-        # Sample at t=10 is fresh, so it still reads -40 dBm.
-        assert source.get_wifi_rssi("AA:BB:CC:DE:AD:01") == -40.0
+        source2.get_wifi_rssi("AA:BB:CC:DE:AD:01")  # pin clock
+        # 50 s past t_start, last sample at t=10 → age 40 s > 10 s window.
+        assert source2.get_wifi_rssi("AA:BB:CC:DE:AD:01") is None
 
 
 # -- Protocol / interface parity --------------------------------------------
