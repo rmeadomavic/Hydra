@@ -170,20 +170,29 @@ def write_config(updates: dict[str, dict[str, str]]) -> dict[str, Any]:
     if path.exists():
         shutil.copy2(path, bak_path)
 
-    # Write config with file locking.
-    # NOTE: os.replace() / os.rename() fail on Docker bind mounts (EXDEV —
-    # cross-device link).  Instead, lock-then-write directly to the target.
+    # Atomic write: write-to-.tmp → fsync → os.replace. The .tmp sits in the
+    # same directory as the target so both paths share a filesystem — no
+    # EXDEV risk, even on Docker bind mounts. A power cut before os.replace
+    # leaves the original file untouched; an orphan .tmp is cleaned up below.
+    tmp_path = Path(str(path) + ".tmp")
     lock_fd = os.open(str(path), os.O_RDWR | os.O_CREAT)
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
-        with open(path, "w") as f:
+        with open(tmp_path, "w") as f:
             config.write(f)
             f.flush()
             os.fsync(f.fileno())
+        os.replace(tmp_path, path)
         logger.info("Config written to %s (%d fields updated)", path, len(updated))
     finally:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         os.close(lock_fd)
+        # Clean up orphan .tmp if os.replace never ran (exception path).
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
     return {
         "updated": updated, "restart_required": restart_needed,
