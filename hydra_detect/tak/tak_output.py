@@ -210,7 +210,7 @@ class TAKOutput:
 
     def _send_self_sa(self) -> None:
         lat, lon, alt = self._mav.get_lat_lon()
-        if lat is None:
+        if lat is None or lon is None:
             return
         heading = self._mav.get_heading_deg()
         telem = self._mav.get_telemetry()
@@ -228,7 +228,7 @@ class TAKOutput:
 
     def _send_video_feed(self) -> None:
         lat, lon, alt = self._mav.get_lat_lon()
-        if lat is None:
+        if lat is None or lon is None:
             return
         data = build_video_feed(
             uid=f"{self._callsign}-VIDEO",
