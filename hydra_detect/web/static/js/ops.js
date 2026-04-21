@@ -874,7 +874,7 @@ const HydraOps = (() => {
         card.appendChild(title);
 
         var desc = document.createElement('div');
-        desc.style.cssText = 'font-family: var(--font-mono); font-size: var(--font-sm); color: var(--text-dim); margin-bottom: var(--s-3);';
+        desc.className = 'ops-confirm-desc';
         desc.textContent = 'Target #' + trackId + ' ' + trackLabel;
         card.appendChild(desc);
 
@@ -893,8 +893,7 @@ const HydraOps = (() => {
         if (action === 'strike') {
             confirmBtn.className = 'btn btn-danger';
         } else {
-            confirmBtn.className = 'btn';
-            confirmBtn.style.cssText = 'background: var(--warning); color: #fff;';
+            confirmBtn.className = 'btn btn-confirm-drop';
         }
         confirmBtn.textContent = action === 'strike' ? 'STRIKE' : 'DROP';
         confirmBtn.addEventListener('click', function () {
