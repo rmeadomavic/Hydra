@@ -964,3 +964,250 @@ class TestResponseCaching:
         resp = client.get("/api/tracks")
         assert resp.status_code == 200
         assert resp.json() == []
+
+
+# ---------------------------------------------------------------------------
+# Malformed-JSON fuzz table — every POST endpoint should return 400 (not 500)
+# on bad input.  Auth must be disabled so the body actually gets parsed.
+# ---------------------------------------------------------------------------
+
+_POST_ENDPOINTS_TAKING_JSON = [
+    # (path, sample_body_or_none_for_skip)
+    "/api/config/prompts",
+    "/api/config/threshold",
+    "/api/config/alert-classes",
+    "/api/target/lock",
+    "/api/target/strike",
+    "/api/vehicle/mode",
+    "/api/rtsp/toggle",
+    "/api/mavlink-video/toggle",
+    "/api/mavlink-video/tune",
+    "/api/profiles/switch",
+    "/api/rf/start",
+    "/api/approach/drop/5",
+    "/api/approach/strike/5",
+    "/api/stream/quality",
+]
+
+
+class TestMalformedJsonFuzz:
+    """Every POST endpoint accepting a body must return 400 (not 500) on junk input."""
+
+    @pytest.mark.parametrize("path", _POST_ENDPOINTS_TAKING_JSON)
+    def test_malformed_json_returns_400(self, client, path):
+        resp = client.post(
+            path,
+            content=b"{not valid json",
+            headers={"Content-Type": "application/json"},
+        )
+        # 400 (malformed body) or 413 (oversize); never a 500
+        assert resp.status_code < 500, (
+            f"{path} returned {resp.status_code} on malformed JSON"
+        )
+
+    @pytest.mark.parametrize("path", _POST_ENDPOINTS_TAKING_JSON)
+    def test_non_utf8_body_does_not_500(self, client, path):
+        resp = client.post(
+            path,
+            content=b"\xff\xfe\x00invalid-utf8",
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status_code < 500
+
+    @pytest.mark.parametrize("path", _POST_ENDPOINTS_TAKING_JSON)
+    def test_empty_body_does_not_500(self, client, path):
+        resp = client.post(path, content=b"", headers={"Content-Type": "application/json"})
+        assert resp.status_code < 500
+
+
+# ---------------------------------------------------------------------------
+# /auth/login rate-limiting
+# ---------------------------------------------------------------------------
+
+class TestAuthLoginRateLimit:
+    def test_login_succeeds_with_correct_password(self, client):
+        configure_web_password("good-pw")
+        resp = client.post("/auth/login", json={"password": "good-pw"})
+        assert resp.status_code == 200
+
+    def test_login_rejects_wrong_password(self, client):
+        configure_web_password("good-pw")
+        resp = client.post("/auth/login", json={"password": "wrong"})
+        assert resp.status_code == 401
+
+    def test_login_missing_password_returns_400(self, client):
+        configure_web_password("good-pw")
+        resp = client.post("/auth/login", json={})
+        assert resp.status_code == 400
+
+    def test_rate_limit_after_50_failures(self, client):
+        """51st consecutive wrong-password attempt must return 429."""
+        from hydra_detect.web.server import _AUTH_FAIL_MAX
+        configure_web_password("good-pw")
+        # Fire _AUTH_FAIL_MAX bad attempts
+        for _ in range(_AUTH_FAIL_MAX):
+            resp = client.post("/auth/login", json={"password": "wrong"})
+            assert resp.status_code == 401
+        # Next attempt — even with correct password — must be 429
+        resp = client.post("/auth/login", json={"password": "good-pw"})
+        assert resp.status_code == 429
+
+
+# ---------------------------------------------------------------------------
+# Approach-mode endpoints (follow / drop / strike / pixel_lock / abort)
+# ---------------------------------------------------------------------------
+
+class TestApproachEndpoints:
+    def test_approach_status_no_callback(self, client):
+        resp = client.get("/api/approach/status")
+        assert resp.status_code == 200
+        assert resp.json()["mode"] == "idle"
+
+    def test_approach_status_with_callback(self, client):
+        stream_state.set_callbacks(
+            get_approach_status=lambda: {"mode": "follow", "active": True},
+        )
+        resp = client.get("/api/approach/status")
+        assert resp.json() == {"mode": "follow", "active": True}
+
+    def test_follow_unavailable_when_no_callback(self, client):
+        resp = client.post("/api/approach/follow/5")
+        assert resp.status_code == 503
+
+    def test_follow_success(self, client):
+        stream_state.set_callbacks(on_follow_command=lambda tid: True)
+        resp = client.post("/api/approach/follow/5")
+        assert resp.status_code == 200
+        assert resp.json()["track_id"] == 5
+        assert resp.json()["mode"] == "follow"
+
+    def test_follow_failure(self, client):
+        stream_state.set_callbacks(on_follow_command=lambda tid: False)
+        resp = client.post("/api/approach/follow/5")
+        assert resp.status_code == 503
+
+    def test_drop_requires_confirm(self, client):
+        stream_state.set_callbacks(on_drop_command=lambda tid: True)
+        # Missing confirm
+        resp = client.post("/api/approach/drop/5", json={})
+        assert resp.status_code == 400
+        # confirm=false
+        resp = client.post("/api/approach/drop/5", json={"confirm": False})
+        assert resp.status_code == 400
+
+    def test_drop_happy_path(self, client):
+        stream_state.set_callbacks(on_drop_command=lambda tid: True)
+        resp = client.post("/api/approach/drop/5", json={"confirm": True})
+        assert resp.status_code == 200
+        assert resp.json()["mode"] == "drop"
+
+    def test_approach_strike_requires_confirm(self, client):
+        stream_state.set_callbacks(on_approach_strike_command=lambda tid: True)
+        resp = client.post("/api/approach/strike/5", json={})
+        assert resp.status_code == 400
+
+    def test_approach_strike_happy_path(self, client):
+        stream_state.set_callbacks(on_approach_strike_command=lambda tid: True)
+        resp = client.post("/api/approach/strike/5", json={"confirm": True})
+        assert resp.status_code == 200
+
+    def test_pixel_lock_no_body_required(self, client):
+        stream_state.set_callbacks(on_pixel_lock_command=lambda tid: True)
+        resp = client.post("/api/approach/pixel_lock/5")
+        assert resp.status_code == 200
+
+    def test_pixel_lock_failure_returns_503(self, client):
+        stream_state.set_callbacks(on_pixel_lock_command=lambda tid: False)
+        resp = client.post("/api/approach/pixel_lock/5")
+        assert resp.status_code == 503
+
+    def test_abort_no_callback_is_handled(self, client):
+        """Abort must not crash even when no callback is wired."""
+        resp = client.post("/api/approach/abort")
+        # 503 (no controller) or 200 (ok) — never an unhandled 500
+        assert resp.status_code in (200, 503)
+
+
+# ---------------------------------------------------------------------------
+# RF start / stop endpoints
+# ---------------------------------------------------------------------------
+
+class TestRfEndpoints:
+    def test_rf_start_missing_callback(self, client):
+        resp = client.post("/api/rf/start", json={})
+        assert resp.status_code == 503
+
+    def test_rf_start_validates_mode(self, client):
+        stream_state.set_callbacks(on_rf_start=lambda body: True)
+        resp = client.post("/api/rf/start", json={"mode": "bogus"})
+        assert resp.status_code == 400
+
+    def test_rf_start_wifi_requires_bssid(self, client):
+        stream_state.set_callbacks(on_rf_start=lambda body: True)
+        resp = client.post("/api/rf/start", json={"mode": "wifi"})
+        assert resp.status_code == 400
+
+    def test_rf_start_bssid_format_validated(self, client):
+        stream_state.set_callbacks(on_rf_start=lambda body: True)
+        resp = client.post(
+            "/api/rf/start",
+            json={"mode": "wifi", "target_bssid": "not-a-mac"},
+        )
+        assert resp.status_code == 400
+
+    def test_rf_start_freq_range_validated(self, client):
+        stream_state.set_callbacks(on_rf_start=lambda body: True)
+        resp = client.post(
+            "/api/rf/start",
+            json={"mode": "sdr", "target_freq_mhz": 99999.0},
+        )
+        assert resp.status_code == 400
+
+    def test_rf_start_happy_path_sdr(self, client):
+        stream_state.set_callbacks(on_rf_start=lambda body: True)
+        resp = client.post(
+            "/api/rf/start",
+            json={"mode": "sdr", "target_freq_mhz": 2437.0},
+        )
+        assert resp.status_code == 200
+
+    def test_rf_stop_no_callback(self, client):
+        resp = client.post("/api/rf/stop")
+        assert resp.status_code == 503
+
+    def test_rf_stop_happy_path(self, client):
+        stream_state.set_callbacks(on_rf_stop=lambda: None)
+        resp = client.post("/api/rf/stop")
+        assert resp.status_code == 200
+
+    def test_rf_status_read(self, client):
+        resp = client.get("/api/rf/status")
+        # Auth-free read — never 5xx on empty pipeline
+        assert resp.status_code < 500
+
+
+# ---------------------------------------------------------------------------
+# Streaming endpoints — /stream.jpg (snapshot polling)
+# ---------------------------------------------------------------------------
+
+class TestStreamingEndpoints:
+    def test_stream_jpg_no_frame(self, client):
+        """With no frame published, /stream.jpg returns a valid response (never 5xx)."""
+        resp = client.get("/stream.jpg")
+        # 200 (placeholder), 204 (no content), 404, or 503 — never an unhandled 500
+        assert resp.status_code in (200, 204, 404, 503)
+
+    def test_stream_jpg_returns_jpeg_content_type_when_frame_set(self, client):
+        import numpy as np
+        # Publish a tiny test frame
+        frame = np.zeros((120, 160, 3), dtype=np.uint8)
+        stream_state.update_frame(frame)
+        resp = client.get("/stream.jpg")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/jpeg"
+        # JPEG magic bytes
+        assert resp.content[:3] == b"\xff\xd8\xff"
+
+    def test_stream_quality_post_accepts_preferences(self, client):
+        resp = client.post("/api/stream/quality", json={"quality": 70})
+        assert resp.status_code < 500

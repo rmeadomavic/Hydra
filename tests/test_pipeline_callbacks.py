@@ -489,3 +489,140 @@ class TestProfileSwitch:
         p._active_profile = "some-profile"
         p._handle_alert_classes_change(["person"])
         assert p._active_profile is None
+
+
+# ---------------------------------------------------------------------------
+# Approach-mode handlers (drop, follow, pixel_lock, strike, abort)
+# ---------------------------------------------------------------------------
+
+from hydra_detect.approach import ApproachMode  # noqa: E402
+
+
+def _pipeline_with_approach(track_id: int = 3, mode=ApproachMode.IDLE) -> Pipeline:
+    """Build a pipeline with a mocked approach controller + mavlink + one track."""
+    p = _make_pipeline()
+    p._mavlink = MagicMock()
+    p._mavlink.estimate_target_position.return_value = (34.05, -118.25)
+    p._mavlink.command_guided_to.return_value = True
+    p._approach = MagicMock()
+    p._approach.mode = mode
+    p._approach.start_drop.return_value = True
+    p._approach.start_follow.return_value = True
+    p._approach.start_strike.return_value = True
+    p._approach.start_pixel_lock.return_value = True
+    p._camera.source_type = "digital"
+    p._drop_distance_m = 3.0
+    p._last_track_result = _sample_track(track_id=track_id)
+    return p
+
+
+class TestDropCommand:
+    def test_drop_happy_path(self):
+        p = _pipeline_with_approach(track_id=3)
+        assert p._handle_drop_command(3) is True
+        p._approach.start_drop.assert_called_once_with(3, 34.05, -118.25)
+        assert p._locked_track_id == 3
+        assert p._lock_mode == "drop"
+
+    def test_drop_no_approach_controller(self):
+        p = _make_pipeline()
+        p._approach = None
+        assert p._handle_drop_command(3) is False
+
+    def test_drop_already_active_rejected(self):
+        p = _pipeline_with_approach(mode=ApproachMode.FOLLOW)
+        assert p._handle_drop_command(3) is False
+        p._approach.start_drop.assert_not_called()
+
+    def test_drop_no_track(self):
+        p = _pipeline_with_approach()
+        p._last_track_result = None
+        assert p._handle_drop_command(3) is False
+
+    def test_drop_track_not_found(self):
+        p = _pipeline_with_approach(track_id=3)
+        assert p._handle_drop_command(999) is False
+
+    def test_drop_no_gps_rollback(self):
+        p = _pipeline_with_approach(track_id=3)
+        p._mavlink.estimate_target_position.return_value = None
+        assert p._handle_drop_command(3) is False
+        assert p._locked_track_id is None
+
+    def test_drop_start_failure_rolls_back_lock(self):
+        p = _pipeline_with_approach(track_id=3)
+        p._approach.start_drop.return_value = False
+        assert p._handle_drop_command(3) is False
+        assert p._locked_track_id is None
+
+
+class TestFollowCommand:
+    def test_follow_happy_path(self):
+        p = _pipeline_with_approach(track_id=3)
+        assert p._handle_follow_command(3) is True
+        p._approach.start_follow.assert_called_once_with(3)
+        assert p._lock_mode == "follow"
+
+    def test_follow_no_approach_controller(self):
+        p = _make_pipeline()
+        p._approach = None
+        assert p._handle_follow_command(3) is False
+
+    def test_follow_already_active(self):
+        p = _pipeline_with_approach(mode=ApproachMode.DROP)
+        assert p._handle_follow_command(3) is False
+
+    def test_follow_track_not_found(self):
+        p = _pipeline_with_approach(track_id=3)
+        assert p._handle_follow_command(999) is False
+
+    def test_follow_start_failure_rolls_back_lock(self):
+        p = _pipeline_with_approach(track_id=3)
+        p._approach.start_follow.return_value = False
+        assert p._handle_follow_command(3) is False
+        assert p._locked_track_id is None
+
+
+class TestPixelLockCommand:
+    def test_pixel_lock_happy_path(self):
+        p = _pipeline_with_approach(track_id=3)
+        assert p._handle_pixel_lock_command(3) is True
+        p._approach.start_pixel_lock.assert_called_once_with(3)
+        assert p._lock_mode == "pixel_lock"
+
+    def test_pixel_lock_already_active(self):
+        p = _pipeline_with_approach(mode=ApproachMode.FOLLOW)
+        assert p._handle_pixel_lock_command(3) is False
+
+    def test_pixel_lock_start_failure_rolls_back(self):
+        p = _pipeline_with_approach(track_id=3)
+        p._approach.start_pixel_lock.return_value = False
+        assert p._handle_pixel_lock_command(3) is False
+        assert p._locked_track_id is None
+
+    def test_pixel_lock_event_logged(self):
+        p = _pipeline_with_approach(track_id=3)
+        p._handle_pixel_lock_command(3)
+        p._event_logger.log_action.assert_any_call(
+            "pixel_lock", {"track_id": 3, "label": "person"},
+        )
+
+
+class TestApproachAbort:
+    def test_abort_calls_controller_and_unlocks(self):
+        p = _pipeline_with_approach(track_id=3, mode=ApproachMode.FOLLOW)
+        p._locked_track_id = 3
+        p._lock_mode = "follow"
+        p._handle_approach_abort()
+        # abort() may be invoked via both the explicit call and the unlock path
+        assert p._approach.abort.called
+        assert p._locked_track_id is None
+
+    def test_abort_no_controller_still_unlocks(self):
+        p = _make_pipeline()
+        p._approach = None
+        p._locked_track_id = 3
+        p._lock_mode = "follow"
+        # Should not raise
+        p._handle_approach_abort()
+        assert p._locked_track_id is None
