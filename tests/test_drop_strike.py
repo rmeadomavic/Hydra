@@ -113,6 +113,52 @@ class TestDropMode:
         ctrl.update(None, 640, 480)
         assert ctrl.drop_complete is False
 
+    def test_post_drop_mode_transitions_on_release(self):
+        """When post_drop_mode is set, set_mode is called and controller idles."""
+        ctrl, mav = _make_controller(
+            drop_distance_m=5.0, post_drop_mode="SMART_RTL",
+        )
+        ctrl.start_drop(1, 34.05, -118.25)
+
+        mav.get_lat_lon.return_value = (34.05, -118.25, 10.0)
+        mav.set_mode.reset_mock()
+        ctrl.update(None, 640, 480)
+
+        mav.set_mode.assert_called_once_with("SMART_RTL")
+        assert ctrl.drop_complete is True
+        assert ctrl.mode == ApproachMode.IDLE
+
+    def test_no_post_drop_mode_keeps_controller_in_drop(self):
+        """Without post_drop_mode the controller preserves prior behavior."""
+        ctrl, mav = _make_controller(drop_distance_m=5.0)
+        ctrl.start_drop(1, 34.05, -118.25)
+
+        mav.get_lat_lon.return_value = (34.05, -118.25, 10.0)
+        mav.set_mode.reset_mock()
+        ctrl.update(None, 640, 480)
+
+        mav.set_mode.assert_not_called()
+        assert ctrl.drop_complete is True
+        assert ctrl.mode == ApproachMode.DROP
+
+    def test_post_drop_mode_rejected_still_idles(self):
+        """Autopilot rejecting the mode doesn't leave the controller wedged in DROP."""
+        ctrl, mav = _make_controller(
+            drop_distance_m=5.0, post_drop_mode="INVALID_MODE",
+        )
+        ctrl.start_drop(1, 34.05, -118.25)
+
+        mav.get_lat_lon.return_value = (34.05, -118.25, 10.0)
+        mav.set_mode.return_value = False
+        ctrl.update(None, 640, 480)
+
+        mav.set_mode.assert_called_once_with("INVALID_MODE")
+        assert ctrl.drop_complete is True
+        # Operator's intent was to leave DROP — idle locally even if the
+        # autopilot rejected the requested mode. A stuck-in-DROP controller
+        # would keep trying to fire the already-released servo.
+        assert ctrl.mode == ApproachMode.IDLE
+
 
 # ---------------------------------------------------------------------------
 # Strike mode

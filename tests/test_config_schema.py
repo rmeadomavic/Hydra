@@ -480,6 +480,83 @@ class TestFallbackAlignment:
 
 
 # ---------------------------------------------------------------------------
+# Vehicle-profile prefix-aware validation
+# ---------------------------------------------------------------------------
+
+class TestVehicleSectionValidation:
+    """[vehicle.*] sections validate dotted overrides against base schema."""
+
+    def _base(self) -> configparser.ConfigParser:
+        cfg = _valid_config()
+        return cfg
+
+    def test_valid_dotted_override_accepted(self):
+        cfg = self._base()
+        cfg.add_section("vehicle.drone")
+        cfg.set("vehicle.drone", "camera.source", "/dev/video2")
+        cfg.set("vehicle.drone", "camera.fps", "15")
+        cfg.set("vehicle.drone", "reserved_channels", "1,2,3,4")
+        result = validate_config(cfg)
+        assert result.ok, f"unexpected errors: {result.errors}"
+        # No warnings about the three keys above
+        bad = [w for w in result.warnings if "[vehicle.drone]" in w]
+        assert not bad, f"unexpected warnings: {bad}"
+
+    def test_unknown_base_section_warns(self):
+        cfg = self._base()
+        cfg.add_section("vehicle.drone")
+        cfg.set("vehicle.drone", "camara.source", "/dev/video2")  # typo
+        result = validate_config(cfg)
+        matched = [w for w in result.warnings if "camara.source" in w]
+        assert matched, f"expected warning for typo; got {result.warnings}"
+        assert "unknown base section" in matched[0]
+
+    def test_unknown_key_in_base_section_warns(self):
+        cfg = self._base()
+        cfg.add_section("vehicle.drone")
+        cfg.set("vehicle.drone", "camera.sauce", "/dev/video2")  # typo
+        result = validate_config(cfg)
+        matched = [w for w in result.warnings if "camera.sauce" in w]
+        assert matched, f"expected warning for key typo; got {result.warnings}"
+        assert "no key 'sauce'" in matched[0]
+
+    def test_non_dotted_unknown_key_warns(self):
+        cfg = self._base()
+        cfg.add_section("vehicle.drone")
+        cfg.set("vehicle.drone", "mystery_key", "42")
+        result = validate_config(cfg)
+        matched = [w for w in result.warnings if "mystery_key" in w]
+        assert matched, f"expected warning; got {result.warnings}"
+
+    def test_reserved_channels_accepted_as_local_key(self):
+        cfg = self._base()
+        cfg.add_section("vehicle.drone")
+        cfg.set("vehicle.drone", "reserved_channels", "1,2,3,4")
+        result = validate_config(cfg)
+        matched = [w for w in result.warnings
+                   if "reserved_channels" in w and "[vehicle.drone]" in w]
+        assert not matched, f"reserved_channels should not warn; got {matched}"
+
+    def test_out_of_range_override_errors(self):
+        cfg = self._base()
+        cfg.add_section("vehicle.drone")
+        cfg.set("vehicle.drone", "camera.width", "99999")  # > max 3840
+        result = validate_config(cfg)
+        matched = [e for e in result.errors
+                   if "[vehicle.drone]" in e and "camera.width" in e]
+        assert matched, f"expected error; got {result.errors}"
+
+    def test_vehicle_fw_still_uses_main_validator(self):
+        """vehicle.fw has explicit schema — _validate_vehicle_sections skips it."""
+        cfg = self._base()
+        cfg.add_section("vehicle.fw")
+        cfg.set("vehicle.fw", "autonomous.post_action_mode", "LOITER")
+        cfg.set("vehicle.fw", "autonomous.min_track_frames", "2")
+        result = validate_config(cfg)
+        assert result.ok, f"unexpected errors: {result.errors}"
+
+
+# ---------------------------------------------------------------------------
 # Property-based tests via hypothesis
 # ---------------------------------------------------------------------------
 
