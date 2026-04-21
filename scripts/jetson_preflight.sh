@@ -94,10 +94,16 @@ fi
 
 check_cmd v4l2-ctl "v4l2-ctl is installed (v4l-utils, needed for analog cameras)"
 
-if [ -e /dev/ttyACM0 ] || [ -e /dev/ttyUSB0 ]; then
-  ok "Telemetry serial device present"
+SERIAL_FOUND=""
+for dev in /dev/ttyTHS1 /dev/ttyTHS2 /dev/ttyACM0 /dev/ttyUSB0; do
+  if [ -e "$dev" ]; then
+    SERIAL_FOUND="${SERIAL_FOUND:+$SERIAL_FOUND, }$dev"
+  fi
+done
+if [ -n "$SERIAL_FOUND" ]; then
+  ok "Telemetry serial device present: $SERIAL_FOUND"
 else
-  warn "No telemetry serial device found (/dev/ttyACM0 or /dev/ttyUSB0)"
+  warn "No telemetry serial device found (checked /dev/ttyTHS1, /dev/ttyTHS2, /dev/ttyACM0, /dev/ttyUSB0)"
 fi
 
 if id -nG | grep -qw dialout; then
@@ -122,6 +128,87 @@ if [ -d "$MODEL_DIR" ] && ls "$MODEL_DIR"/*.pt "$MODEL_DIR"/*.engine "$MODEL_DIR
   ok "Model files found in models/"
 else
   warn "No model files found in models/. Download one: wget -P models https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8s.pt"
+fi
+
+# Verify fail-safe defaults are set in config.ini (checklist sec 12)
+if [ -r config.ini ]; then
+  fail_safe_ok=1
+  for key in "autonomous.enabled" "rf_homing.enabled"; do
+    section="${key%%.*}"
+    setting="${key#*.}"
+    val="$(awk -v s="[$section]" -v k="$setting" '
+      $0==s {in_s=1; next}
+      /^\[/ {in_s=0}
+      in_s && $0 ~ "^[[:space:]]*"k"[[:space:]]*=" {
+        sub(/^[^=]*=[[:space:]]*/, "")
+        sub(/[[:space:]]*$/, "")
+        print
+        exit
+      }' config.ini 2>/dev/null)"
+    if [ "$val" = "false" ] || [ "$val" = "False" ] || [ "$val" = "0" ] || [ "$val" = "no" ]; then
+      ok "Fail-safe default: [$section] $setting = $val"
+    else
+      warn "Fail-safe default: [$section] $setting = '$val' (expected false)"
+      fail_safe_ok=0
+    fi
+  done
+  drop_ch="$(awk '/^\[drop\]/{in_s=1; next} /^\[/{in_s=0} in_s && /^[[:space:]]*servo_channel[[:space:]]*=/ {sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]*$/, ""); print; exit}' config.ini 2>/dev/null)"
+  if [ "$drop_ch" = "0" ]; then
+    ok "Fail-safe default: [drop] servo_channel = 0 (disabled)"
+  else
+    warn "Fail-safe default: [drop] servo_channel = '$drop_ch' (expected 0 if drop disarmed)"
+  fi
+fi
+
+# RTL-SDR dongle (only relevant if RF hunt enabled)
+if command -v rtl_test >/dev/null 2>&1; then
+  if rtl_test -t 2>&1 | grep -qiE "found.*device|tuner"; then
+    ok "RTL-SDR dongle detected"
+  else
+    warn "rtl_test installed but no RTL-SDR dongle responded (skip if not using RF hunt)"
+  fi
+else
+  warn "rtl_test not installed (skip if not using RF hunt; otherwise: sudo apt install rtl-sdr)"
+fi
+
+# Kismet service (only relevant if RF hunt enabled)
+if command -v systemctl >/dev/null 2>&1; then
+  kismet_state="$(systemctl is-active kismet 2>/dev/null || true)"
+  case "$kismet_state" in
+    active) ok "kismet service is active" ;;
+    inactive|failed) warn "kismet service is $kismet_state (skip if not using RF hunt)" ;;
+    *) warn "kismet service status: ${kismet_state:-unknown} (skip if not using RF hunt)" ;;
+  esac
+fi
+
+# Disk space — fail under 1 GB on /, warn under 5 GB
+root_free_kb="$(df --output=avail / 2>/dev/null | tail -1 | tr -d ' ')"
+if [ -n "$root_free_kb" ]; then
+  root_free_gb=$((root_free_kb / 1024 / 1024))
+  if [ "$root_free_kb" -lt 1048576 ]; then
+    fail "Root filesystem free: ${root_free_gb} GB (< 1 GB — clear space before deploy)"
+  elif [ "$root_free_kb" -lt 5242880 ]; then
+    warn "Root filesystem free: ${root_free_gb} GB (< 5 GB recommended)"
+  else
+    ok "Root filesystem free: ${root_free_gb} GB"
+  fi
+fi
+if [ -d output_data ]; then
+  out_free_kb="$(df --output=avail output_data 2>/dev/null | tail -1 | tr -d ' ')"
+  if [ -n "$out_free_kb" ] && [ "$out_free_kb" -lt 1048576 ]; then
+    warn "output_data/ filesystem free: $((out_free_kb / 1024)) MB (< 1 GB — logs may fill quickly)"
+  fi
+fi
+
+# /api/health probe (only if service is already running and curl is available)
+if command -v curl >/dev/null 2>&1; then
+  health_code="$(curl --max-time 2 -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/health 2>/dev/null || true)"
+  health_code="${health_code:-000}"
+  case "$health_code" in
+    200) ok "/api/health responding (200)" ;;
+    000) ;; # service not running — silent (preflight is pre-deploy)
+    *) warn "/api/health returned $health_code (service running but unhealthy?)" ;;
+  esac
 fi
 
 echo
