@@ -92,7 +92,12 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
         ),
     },
     "detector": {
-        "yolo_model": FieldSpec(FieldType.STRING, required=True, description="YOLO model filename"),
+        "yolo_model": FieldSpec(
+            FieldType.STRING,
+            required=True,
+            default="yolov8n.pt",
+            description="YOLO model filename",
+        ),
         "yolo_confidence": FieldSpec(
             FieldType.FLOAT,
             min_val=0.0,
