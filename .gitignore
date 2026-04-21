@@ -34,5 +34,8 @@ certs/
 # Claude Code / Superpowers
 .superpowers/
 
+# Evo experiment workspace
+.evo/
+
 # Local environment (secrets, IPs)
 .env.local
