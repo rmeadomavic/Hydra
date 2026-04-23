@@ -102,3 +102,144 @@ jobs:
               repo: context.repo.repo,
               body: body
             });
+
+  adversarial-required:
+    # Soft status check: flags PRs that touch physics/control/safety paths
+    # without an attached three-round adversarial report. Not a required
+    # check on day one — the team opts in after report quality is trusted.
+    # This job is the single source of truth for ADVERSARIAL_PATHS; the
+    # SKILL and README reference it rather than maintaining a duplicate list.
+    # See docs/adversarial/README.md for the discipline.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect touched adversarial paths
+        id: detect
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # Fail loud if base is unreachable (rebase + force-push on the base
+          # branch can leave base.sha absent even after fetch-depth=0).
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            git fetch --no-tags origin "${BASE_SHA}" || true
+          fi
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            echo "::error::base.sha ${BASE_SHA} not reachable — cannot compute diff"
+            exit 2
+          fi
+          # --no-renames so that renaming a safety-critical file to a new path
+          # does not bypass detection (pre-rename path still counted).
+          CHANGED=$(git diff --no-renames --name-only "${BASE_SHA}" "${HEAD_SHA}")
+          # ADVERSARIAL_PATHS. Match is anchored: a path P matches a changed
+          # file F iff F == P (exact) or F starts with P + "/" (directory).
+          # Update this list when safety-critical modules are added.
+          PATHS=$(cat <<'EOF'
+          hydra_detect/pipeline/
+          hydra_detect/autonomous.py
+          hydra_detect/approach.py
+          hydra_detect/guidance.py
+          hydra_detect/mavlink_io.py
+          hydra_detect/rf/hunt.py
+          hydra_detect/rf/navigator.py
+          hydra_detect/rf/signal.py
+          hydra_detect/servo_tracker.py
+          hydra_detect/dogleg_rtl.py
+          hydra_detect/geo_tracking.py
+          hydra_detect/web/server.py
+          hydra_detect/tak/tak_input.py
+          EOF
+          )
+          HITS=""
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            while IFS= read -r p; do
+              [ -z "$p" ] && continue
+              # Directory prefix match or exact-file match.
+              case "$p" in
+                */) case "$f" in "$p"*) HITS+="$f"$'\n'; break ;; esac ;;
+                *)  [ "$f" = "$p" ] && { HITS+="$f"$'\n'; break; } ;;
+              esac
+            done <<< "$PATHS"
+          done <<< "$CHANGED"
+          HITS=$(printf '%s' "$HITS" | sed '/^$/d' | sort -u || true)
+          if [ -n "$HITS" ]; then
+            echo "touched=true" >> "$GITHUB_OUTPUT"
+            # Write hits to $GITHUB_ENV (not $GITHUB_OUTPUT) so later steps
+            # read via env, avoiding shell-injection via ${{ }} template
+            # interpolation of attacker-controlled filenames.
+            {
+              echo 'HITS<<HITS_EOF'
+              echo "$HITS"
+              echo 'HITS_EOF'
+            } >> "$GITHUB_ENV"
+          else
+            echo "touched=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for adversarial report
+        if: steps.detect.outputs.touched == 'true'
+        id: report
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          REPORT="docs/adversarial/${PR_NUMBER}.md"
+          FOUND="false"
+          REASON=""
+          # Require committed report file only. PR-body grep was removed: the
+          # previous regex matched the PR template text itself and unanchored
+          # denial phrases, making the gate trivially pass.
+          if [ ! -f "$REPORT" ]; then
+            REASON="no file at $REPORT"
+          else
+            # Minimum size proves the file is not a touch-to-pass stub.
+            SIZE=$(wc -c < "$REPORT")
+            if [ "$SIZE" -lt 500 ]; then
+              REASON="report $REPORT is ${SIZE} bytes (< 500); likely empty stub"
+            elif ! grep -Eq '^## +Round 3' "$REPORT"; then
+              # Must contain a Round 3 heading; proves all three rounds ran,
+              # not just a copy of another PR's partial output.
+              REASON="report $REPORT missing '## Round 3' heading"
+            else
+              FOUND="true"
+              echo "Report present: $REPORT (${SIZE} bytes)"
+            fi
+          fi
+          echo "found=$FOUND" >> "$GITHUB_OUTPUT"
+          if [ "$FOUND" != "true" ]; then
+            echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report missing (soft fail)
+        if: steps.detect.outputs.touched == 'true' && steps.report.outputs.found != 'true'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REASON: ${{ steps.report.outputs.reason }}
+        run: |
+          set -euo pipefail
+          echo "::warning::This PR touches safety-critical paths without a valid adversarial report."
+          echo "Reason: ${REASON}"
+          echo ""
+          echo "Touched paths:"
+          printf '%s\n' "${HITS}"
+          echo ""
+          echo "To clear this check:"
+          echo "  1. Run /adversarial locally against this branch."
+          echo "  2. Commit the report to docs/adversarial/${PR_NUMBER}.md"
+          echo "     (must be > 500 bytes and contain a '## Round 3' heading)."
+          echo "See docs/adversarial/README.md for the discipline."
+          exit 1
+
+      - name: Report present
+        if: steps.detect.outputs.touched == 'true' && steps.report.outputs.found == 'true'
+        run: echo "Adversarial report detected — PR meets the soft gate."
+
+      - name: No adversarial paths touched
+        if: steps.detect.outputs.touched != 'true'
+        run: echo "No safety-critical paths touched — adversarial report not required."
