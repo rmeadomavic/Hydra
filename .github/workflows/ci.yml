@@ -102,3 +102,93 @@ jobs:
               repo: context.repo.repo,
               body: body
             });
+
+  adversarial-required:
+    # Soft status check: flags PRs that touch physics/control/safety paths
+    # without an attached three-round adversarial report. Not a required
+    # check on day one — the team opts in after report quality is trusted.
+    # See docs/adversarial/README.md for the path list and the discipline.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect touched adversarial paths
+        id: detect
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          PATHS=$(cat <<'EOF'
+          hydra_detect/pipeline.py
+          hydra_detect/pipeline/
+          hydra_detect/autonomous.py
+          hydra_detect/approach.py
+          hydra_detect/guidance.py
+          hydra_detect/mavlink_io.py
+          hydra_detect/rf/hunt.py
+          hydra_detect/rf/navigator.py
+          hydra_detect/rf/signal.py
+          hydra_detect/servo_tracker.py
+          hydra_detect/dogleg_rtl.py
+          hydra_detect/geo_tracking.py
+          EOF
+          )
+          CHANGED=$(git diff --name-only "$BASE" "$HEAD")
+          HITS=""
+          while IFS= read -r p; do
+            [ -z "$p" ] && continue
+            MATCH=$(printf '%s\n' "$CHANGED" | grep -F "$p" || true)
+            if [ -n "$MATCH" ]; then
+              HITS+=$'\n'"$MATCH"
+            fi
+          done <<< "$PATHS"
+          HITS=$(printf '%s\n' "$HITS" | sed '/^$/d' | sort -u || true)
+          if [ -n "$HITS" ]; then
+            echo "touched=true" >> "$GITHUB_OUTPUT"
+            {
+              echo 'hits<<HITS_EOF'
+              echo "$HITS"
+              echo 'HITS_EOF'
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "touched=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for adversarial report
+        if: steps.detect.outputs.touched == 'true'
+        id: report
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          FOUND="false"
+          if [ -f "docs/adversarial/${PR_NUMBER}.md" ]; then
+            FOUND="true"
+            echo "Report committed at docs/adversarial/${PR_NUMBER}.md"
+          elif printf '%s' "$PR_BODY" | grep -Eiq 'adversarial[- ]?(report|analysis)|/tmp/reports/adversarial_|docs/adversarial/'; then
+            FOUND="true"
+            echo "Report referenced in PR body."
+          fi
+          echo "found=$FOUND" >> "$GITHUB_OUTPUT"
+
+      - name: Report missing (soft fail)
+        if: steps.detect.outputs.touched == 'true' && steps.report.outputs.found != 'true'
+        run: |
+          echo "::warning::This PR touches safety-critical paths without an adversarial report."
+          echo "Touched paths:"
+          printf '%s\n' "${{ steps.detect.outputs.hits }}"
+          echo ""
+          echo "Run /adversarial locally and commit the report to docs/adversarial/<PR#>.md,"
+          echo "or link the /tmp/reports/adversarial_*.md output in the PR body."
+          echo "See docs/adversarial/README.md for the discipline."
+          exit 1
+
+      - name: Report present
+        if: steps.detect.outputs.touched == 'true' && steps.report.outputs.found == 'true'
+        run: echo "Adversarial report detected — PR meets the soft gate."
+
+      - name: No adversarial paths touched
+        if: steps.detect.outputs.touched != 'true'
+        run: echo "No safety-critical paths touched — adversarial report not required."
