@@ -48,48 +48,53 @@ function loadOpsHarness() {
   const apiCalls = [];
   let apiResponse = { status: 'ok' };
 
-  global.window = {
-    HydraModules: {},
-    location: { hash: '' },
-    addEventListener: () => {},
-    devicePixelRatio: 1,
-  };
-  global.sessionStorage = { getItem: () => '', setItem: () => {} };
-  global.document = {
-    body: { classList: { remove: () => {}, add: () => {} } },
-    querySelectorAll: () => [],
-    querySelector: () => null,
-    addEventListener: () => {},
-    getElementById(id) {
-      if (!elements.has(id)) elements.set(id, makeEl(id));
-      return elements.get(id);
+  const context = {
+    window: {
+      HydraModules: {},
+      location: { hash: '' },
+      addEventListener: () => {},
+      devicePixelRatio: 1,
     },
-    activeElement: null,
-    contains: () => true,
-    hidden: false,
-    fullscreenElement: null,
-    exitFullscreen: () => {},
-  };
-  global.setInterval = () => 0;
-  global.clearInterval = () => {};
-  global.setTimeout = () => 0;
-
-  global.HydraApp = {
-    state: { stats: {}, target: {}, tracks: [] },
-    apiPost: async (url, body) => {
-      apiCalls.push({ url, body });
-      return apiResponse;
+    sessionStorage: { getItem: () => '', setItem: () => {} },
+    document: {
+      body: { classList: { remove: () => {}, add: () => {} } },
+      querySelectorAll: () => [],
+      querySelector: () => null,
+      addEventListener: () => {},
+      getElementById(id) {
+        if (!elements.has(id)) elements.set(id, makeEl(id));
+        return elements.get(id);
+      },
+      activeElement: null,
+      contains: () => true,
+      hidden: false,
+      fullscreenElement: null,
+      exitFullscreen: () => {},
     },
-    showToast: (msg, type) => { toasts.push({ msg, type }); },
-    openModal: () => {},
-    closeModal: () => {},
+    setInterval: () => 0,
+    clearInterval: () => {},
+    setTimeout: () => 0,
+    clearTimeout: () => {},
+    HydraApp: {
+      state: { stats: {}, target: {}, tracks: [] },
+      apiPost: async (url, body) => {
+        apiCalls.push({ url, body });
+        return apiResponse;
+      },
+      showToast: (msg, type) => { toasts.push({ msg, type }); },
+      openModal: () => {},
+      closeModal: () => {},
+    },
   };
+  context.globalThis = context;
+  context.global = context;
+  vm.createContext(context);
 
   const code = fs.readFileSync('hydra_detect/web/static/js/ops.js', 'utf8');
-  vm.runInThisContext(code, { filename: 'ops.js' });
+  vm.runInContext(`${code}\nglobalThis.__HydraOps = HydraOps;`, context, { filename: 'ops.js' });
 
   return {
-    HydraOps: global.HydraOps,
+    HydraOps: context.__HydraOps,
     elements,
     toasts,
     apiCalls,
@@ -110,6 +115,12 @@ test('updateApproachPanel hides section when approach.mode === "idle"', () => {
   assert.equal(h.getEl('ops-approach-section').style.display, 'none');
 });
 
+test('updateApproachPanel treats uppercase/whitespace IDLE mode as hidden', () => {
+  const h = loadOpsHarness();
+  h.HydraOps.updateApproachPanel({ approach: { mode: '  IDLE  ' } });
+  assert.equal(h.getEl('ops-approach-section').style.display, 'none');
+});
+
 test('updateApproachPanel with follow active shows section, hides arm sub-panel', () => {
   const h = loadOpsHarness();
   h.HydraOps.updateApproachPanel({
@@ -120,6 +131,21 @@ test('updateApproachPanel with follow active shows section, hides arm sub-panel'
   assert.equal(h.getEl('ops-approach-elapsed').textContent, '12s');
   assert.equal(h.getEl('ops-approach-wp').textContent, '3');
   assert.equal(h.getEl('ops-approach-arm-status').style.display, 'none');
+});
+
+test('updateApproachPanel normalizes mode text and strike state casing', () => {
+  const h = loadOpsHarness();
+  h.HydraOps.updateApproachPanel({
+    approach: {
+      mode: ' Strike ',
+      software_arm: false,
+      hardware_arm_status: false,
+    },
+  });
+  assert.equal(h.getEl('ops-approach-mode').textContent, 'STRIKE');
+  assert.equal(h.getEl('ops-approach-arm-status').style.display, 'block');
+  assert.equal(h.getEl('ops-approach-sw-arm').textContent, 'SAFE');
+  assert.equal(h.getEl('ops-approach-hw-arm').textContent, 'SAFE');
 });
 
 test('updateApproachPanel strike + SW armed + HW null → N/A with dim', () => {
