@@ -1450,7 +1450,8 @@ const HydraOps = (() => {
         var approach = stats && stats.approach;
         var section = document.getElementById('ops-approach-section');
         if (!section) return;
-        if (!approach || typeof approach.mode !== 'string' || approach.mode === 'idle') {
+        var mode = (approach && typeof approach.mode === 'string') ? approach.mode.trim().toLowerCase() : '';
+        if (!approach || !mode || mode === 'idle') {
             section.style.display = 'none';
             return;
         }
@@ -1460,13 +1461,13 @@ const HydraOps = (() => {
         var modeEl = document.getElementById('ops-approach-mode');
         var elapsedEl = document.getElementById('ops-approach-elapsed');
         var wpEl = document.getElementById('ops-approach-wp');
-        if (modeEl) modeEl.textContent = approach.mode.toUpperCase();
+        if (modeEl) modeEl.textContent = mode.toUpperCase();
         if (elapsedEl) elapsedEl.textContent = (approach.elapsed_sec || 0) + 's';
         if (wpEl) wpEl.textContent = approach.waypoints_sent || 0;
 
         var armPanel = document.getElementById('ops-approach-arm-status');
         if (armPanel) {
-            if (approach.mode === 'strike') {
+            if (mode === 'strike') {
                 armPanel.style.display = 'block';
                 var swArm = document.getElementById('ops-approach-sw-arm');
                 var hwArm = document.getElementById('ops-approach-hw-arm');
