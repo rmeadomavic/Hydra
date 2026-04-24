@@ -337,6 +337,7 @@ _PUBLIC_PATH_PREFIXES = (
     "/api/health", "/api/preflight", "/api/abort",
     "/api/stats",      # instructor page polls peers cross-origin
     "/api/tracks",     # read-only dashboard data
+    "/api/mode",       # operating mode — dashboard polls; POST still auth-checked
     "/api/metrics",    # Prometheus scrape
     "/api/client_error",  # frontend error sink (same-origin, rate-limited)
     "/stream.jpg",     # snapshot polling (img.src, no cookie in some contexts)
@@ -3215,6 +3216,9 @@ async def api_setup_save(request: Request, authorization: Optional[str] = Header
 
     return {"status": "saved", "callsign": callsign, **result}
 
+
+# ── Operating mode router ────────────────────────────────────────────
+from hydra_detect.web.mode_api import router as _mode_router; app.include_router(_mode_router)  # noqa: E402,E501
 
 # ── Server launcher ──────────────────────────────────────────────────
 
