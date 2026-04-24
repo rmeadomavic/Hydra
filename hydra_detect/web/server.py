@@ -161,7 +161,7 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 _api_token: Optional[str] = None
 _require_auth_for_control: bool = False
 
-# Morale features flag — off by default for field images
+# Morale features flag; off by default for field images
 _morale_features_enabled: bool = False
 
 # Rate limiting for auth failures — per-IP, sliding window
@@ -200,10 +200,10 @@ def configure_auth(
 
 
 def configure_morale_features(enabled: bool) -> None:
-    """Enable or disable dev-era morale features for this server instance.
+    """Set the morale-features flag for this server instance.
 
-    Off by default so field images ship without beep/easter-egg exposure.
-    Call this from pipeline startup after reading [ui] morale_features_enabled.
+    Off by default; field images ship without beep/easter-egg routes.
+    Call from pipeline startup after reading [ui] morale_features_enabled.
     """
     global _morale_features_enabled
     _morale_features_enabled = bool(enabled)
@@ -2294,8 +2294,7 @@ async def api_vehicle_beep(request: Request):
 
     Gated by [ui] morale_features_enabled. Returns 404 on field images.
     Valid tune names: alert, success, warning, error, charles, startup.
-    Or pass a raw QBASIC tune string. The underlying play_tune machinery
-    is preserved — only the endpoint is gated.
+    Or pass a raw QBASIC tune string (up to 100 chars).
     """
     if not _morale_features_enabled:
         return JSONResponse(status_code=404, content={"detail": "Not Found"})

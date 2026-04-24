@@ -1072,7 +1072,7 @@ class Pipeline:
             tls_on = self._cfg.getboolean("web", "tls_enabled", fallback=False)
             configure_web_password(web_password or None, session_timeout, tls_on)
 
-            # Morale features — off by default; field images ship with this false
+            # Morale features; off by default on field images
             morale_on = self._cfg.getboolean("ui", "morale_features_enabled", fallback=False)
             configure_morale_features(morale_on)
 
