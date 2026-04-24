@@ -1,4 +1,4 @@
-"""Tests for instructor overview page, mission tagging, battery state, and abort."""
+"""Tests for Fleet View page, mission tagging, battery state, and abort."""
 
 from __future__ import annotations
 
@@ -55,22 +55,33 @@ def client():
 
 
 # ---------------------------------------------------------------------------
-# Instructor page
+# Fleet View page
 # ---------------------------------------------------------------------------
 
 
 class TestInstructorPage:
-    def test_instructor_page_returns_200(self, client):
-        resp = client.get("/instructor")
+    def test_fleet_page_returns_200(self, client):
+        resp = client.get("/fleet")
         assert resp.status_code == 200
-        assert "SORCC INSTRUCTOR OVERVIEW" in resp.text
+        assert "HYDRA FLEET VIEW" in resp.text
 
-    def test_instructor_page_csp_relaxed(self, client):
-        resp = client.get("/instructor")
+    def test_instructor_redirects_to_fleet(self, client):
+        resp = client.get("/instructor", follow_redirects=False)
+        assert resp.status_code == 307
+        assert resp.headers["location"] == "/fleet"
+
+    def test_fleet_page_csp_relaxed(self, client):
+        resp = client.get("/fleet")
         csp = resp.headers.get("Content-Security-Policy", "")
         assert "connect-src *" in csp
 
-    def test_non_instructor_page_csp_strict(self, client):
+    def test_instructor_redirect_csp_relaxed(self, client):
+        # The 307 itself should also get the relaxed CSP since it matches /instructor
+        resp = client.get("/instructor", follow_redirects=False)
+        csp = resp.headers.get("Content-Security-Policy", "")
+        assert "connect-src *" in csp
+
+    def test_non_fleet_page_csp_strict(self, client):
         resp = client.get("/api/stats")
         csp = resp.headers.get("Content-Security-Policy", "")
         assert "connect-src 'self'" in csp
@@ -212,7 +223,7 @@ class TestBatteryInStats:
         assert data["battery_pct"] is None
 
     def test_callsign_in_stats(self, client):
-        """Callsign appears in stats API for instructor page to read."""
+        """Callsign appears in stats API for Fleet View to read."""
         stream_state.update_stats(callsign="ENFORCER-1")
         resp = client.get("/api/stats")
         assert resp.json()["callsign"] == "ENFORCER-1"
