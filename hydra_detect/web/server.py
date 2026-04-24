@@ -161,6 +161,9 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 _api_token: Optional[str] = None
 _require_auth_for_control: bool = False
 
+# Morale features flag — off by default for field images
+_morale_features_enabled: bool = False
+
 # Rate limiting for auth failures — per-IP, sliding window
 _AUTH_FAIL_WINDOW = 60  # seconds
 _AUTH_FAIL_MAX = 50  # max failures per window before lockout
@@ -194,6 +197,17 @@ def configure_auth(
         logger.info("API token auth enabled for control endpoints.")
     else:
         logger.info("API token auth disabled (no token configured).")
+
+
+def configure_morale_features(enabled: bool) -> None:
+    """Enable or disable dev-era morale features for this server instance.
+
+    Off by default so field images ship without beep/easter-egg exposure.
+    Call this from pipeline startup after reading [ui] morale_features_enabled.
+    """
+    global _morale_features_enabled
+    _morale_features_enabled = bool(enabled)
+    logger.info("Morale features %s.", "enabled" if enabled else "disabled")
 
 
 def _check_auth(
@@ -805,7 +819,10 @@ async def auth_status(request: Request):
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Serve the operator dashboard SPA."""
-    return templates.TemplateResponse(request, "base.html")
+    return templates.TemplateResponse(
+        request, "base.html",
+        {"morale_features_enabled": _morale_features_enabled},
+    )
 
 
 @app.get("/api/health")
@@ -2275,10 +2292,13 @@ async def api_autonomy_mode(
 async def api_vehicle_beep(request: Request):
     """Play a tune on the Pixhawk buzzer. Body: {"tune": "alert"}
 
-    No auth required — this is a fun/debug feature, not a control action.
+    Gated by [ui] morale_features_enabled. Returns 404 on field images.
     Valid tune names: alert, success, warning, error, charles, startup.
-    Or pass a raw QBASIC tune string.
+    Or pass a raw QBASIC tune string. The underlying play_tune machinery
+    is preserved — only the endpoint is gated.
     """
+    if not _morale_features_enabled:
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
     body = await _parse_json(request)
     if body is None:
         return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)

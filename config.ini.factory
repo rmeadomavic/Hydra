@@ -205,6 +205,12 @@ target_bbox_ratio = 0.15
 lost_track_timeout_s = 2.0
 min_altitude_m = 5.0
 
+[ui]
+; morale_features_enabled: set true only on dev/demo units. Field images ship
+; with this off. Affects: vehicle beep endpoint, Konami sentience screen,
+; power-user easter egg.
+morale_features_enabled = false
+
 ; ---------------------------------------------------------------------------
 ; Storage rotation — per-category file retention and disk-free gates.
 ; Run scripts/storage_rotation.py --dry-run to preview, --apply to delete.
