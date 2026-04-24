@@ -1,5 +1,8 @@
 """Config schema migration runner.
 
+Runs pending migrations N->N+1 against config.ini. Atomic write via
+tempfile+fsync+rename. Backs up the config before any change.
+
 Usage (from __main__.py before pipeline start)::
 
     from hydra_detect.config_migrate import run_migrations, MigrationError
@@ -8,12 +11,12 @@ Usage (from __main__.py before pipeline start)::
         result = run_migrations(config_path)
         if result.applied:
             logger.info(
-                "Config migrated %d→%d — applied: %s — backup: %s",
+                "Config migrated v%d -> v%d | applied: %s | backup: %s",
                 result.from_version, result.to_version,
                 result.applied, result.backup_path,
             )
     except MigrationError as exc:
-        logger.critical("Config migration failed: %s — refusing to start", exc)
+        logger.critical("Config migration failed; refusing to start: %s", exc)
         sys.exit(1)
 
 Migration files live in hydra_detect/migrations/ and are named NNN_description.py.
@@ -22,9 +25,8 @@ Each must export:
     to_version: int
     def migrate(cfg: configparser.ConfigParser) -> None: ...
 
-The runner loads them, sorts by from_version, and applies all pending steps in
-sequence to reach CURRENT_SCHEMA_VERSION. Failures raise MigrationError;
-the config file is left untouched on any error (no partial writes).
+The runner loads them in from_version order and applies all pending steps to reach
+CURRENT_SCHEMA_VERSION. MigrationError leaves the config file untouched.
 """
 
 from __future__ import annotations
@@ -44,7 +46,7 @@ logger = logging.getLogger(__name__)
 # Bump this when adding a new migration file.
 CURRENT_SCHEMA_VERSION: int = 1
 
-# Migration modules directory — monkeypatched in tests to point at fixtures.
+# Migration modules directory (monkeypatched in tests to point at fixtures).
 _MIGRATIONS_DIR: Path = Path(__file__).parent / "migrations"
 
 
@@ -218,7 +220,7 @@ def run_migrations(config_path: Path) -> MigrationResult:
 
     if current_version >= CURRENT_SCHEMA_VERSION:
         logger.debug(
-            "Config schema already at v%d — no migrations needed",
+            "Config schema at v%d; no migrations needed",
             current_version,
         )
         return result

@@ -15,16 +15,11 @@ logger = logging.getLogger(__name__)
 
 
 def _run_boot_migrations(config_path: str) -> None:
-    """Apply any pending config schema migrations before the pipeline starts.
+    """Run pending config schema migrations before Pipeline() is constructed.
 
-    Called once at boot, after logging is initialised but before Pipeline()
-    is constructed. Placement rationale: migrations must run before any code
-    reads config values, and the pipeline constructor reads them. Running
-    after basicConfig() ensures migration log output goes to the same handler.
-
-    On success: logs what was applied and the backup path.
-    On MigrationError: logs at CRITICAL level and exits non-zero. The pipeline
-    must not start with a failed migration because the config state is unknown.
+    Runs after basicConfig() (so migration logs go to the same handler) but
+    before cfg.read() (so the pipeline sees the migrated file). Exits nonzero
+    on MigrationError; a failed migration leaves config state unknown.
     """
     from .config_migrate import MigrationError, run_migrations
 
@@ -32,7 +27,7 @@ def _run_boot_migrations(config_path: str) -> None:
         result = run_migrations(Path(config_path))
     except MigrationError as exc:
         logger.critical(
-            "CONFIG MIGRATION FAILED — refusing to start pipeline: %s", exc
+            "Config migration failed; refusing to start pipeline: %s", exc
         )
         sys.exit(1)
 
@@ -46,7 +41,7 @@ def _run_boot_migrations(config_path: str) -> None:
         )
     else:
         logger.debug(
-            "Config schema at v%d — no migrations needed", result.to_version
+            "Config schema at v%d; no migrations needed", result.to_version
         )
 
 
