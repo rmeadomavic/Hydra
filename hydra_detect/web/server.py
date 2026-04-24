@@ -2956,13 +2956,11 @@ async def _generate_mjpeg():
 
 @app.get("/api/config/effective")
 async def api_get_effective_config():
-    """Return the effective (post-profile-merge) configuration state.
+    """Return the effective (post-profile-merge) config state.
 
-    Includes the active vehicle profile name and the runtime config values
-    that reflect any [vehicle.<name>] overrides applied at startup.
-
-    No auth required — read-only, no sensitive data beyond what /api/config
-    already exposes.
+    Returns the active vehicle profile name and runtime config values
+    reflecting any [vehicle.<name>] overrides applied at startup.
+    No auth required; read-only.
     """
     rc = stream_state.get_runtime_config()
     return {

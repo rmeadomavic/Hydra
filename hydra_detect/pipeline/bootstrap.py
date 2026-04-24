@@ -53,7 +53,7 @@ class PipelineBootstrap:
                     cfg.set(section, option, value)
             else:
                 logger.warning(
-                    "Vehicle profile '%s' unknown — no overrides applied "
+                    "Vehicle profile '%s' unknown; no overrides applied "
                     "(no [%s] section in config.ini)",
                     vehicle,
                     vehicle_section,

@@ -1,5 +1,5 @@
 [Unit]
-Description=Hydra Detect v2.0 — Autonomous MAVLink Detection Service
+Description=Hydra Detect v2.0: Autonomous MAVLink Detection Service
 After=network.target docker.service kismet.service
 Requires=docker.service
 

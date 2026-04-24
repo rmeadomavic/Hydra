@@ -145,7 +145,7 @@ class Pipeline:
                         )
             else:
                 logger.warning(
-                    "Vehicle profile '%s' unknown — no overrides applied "
+                    "Vehicle profile '%s' unknown; no overrides applied "
                     "(no [%s] section in config.ini)",
                     vehicle, vehicle_section,
                 )
@@ -1079,8 +1079,8 @@ class Pipeline:
                 ),
                 "alert_classes": list(self._alert_classes) if self._alert_classes else [],
                 "active_profile": None,
-                # Active vehicle profile — set from --vehicle / HYDRA_VEHICLE at startup.
-                # None means no platform profile was applied; base config.ini is used as-is.
+                # Active vehicle profile (set from --vehicle / HYDRA_VEHICLE at startup).
+                # None means no profile was applied; base config.ini is used as-is.
                 "vehicle_profile": self._vehicle,
             })
 
