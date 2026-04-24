@@ -12,7 +12,7 @@ import logging
 import os
 import shutil
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import NamedTuple
 
@@ -143,10 +143,34 @@ def _clamp_retention(value: int, floor: int, ceiling: int, key: str) -> int:
     return value
 
 
+def _effective_floor(cfg: configparser.ConfigParser) -> int:
+    """Read retention_floor_days from config, enforce minimum of 1.
+
+    Operators can set floor to 0 in config to bypass the safety belt entirely;
+    clamp to 1 so the belt always holds.
+    """
+    floor = _get_storage_int(cfg, "retention_floor_days", 7)
+    if floor < 1:
+        logger.warning(
+            "Config: retention_floor_days = %d below minimum of 1. Clamped to 1.",
+            floor,
+        )
+        floor = 1
+    return floor
+
+
 def _resolve_retention(cfg: configparser.ConfigParser) -> dict[str, int]:
     """Return clamped retention days per category."""
-    floor = _get_storage_int(cfg, "retention_floor_days", 7)
+    floor = _effective_floor(cfg)
     ceiling = _get_storage_int(cfg, "retention_ceiling_days", 730)
+
+    if floor > ceiling:
+        logger.warning(
+            "Config: retention_floor_days (%d) > retention_ceiling_days (%d). "
+            "Raising ceiling to floor to keep retention bounded.",
+            floor, ceiling,
+        )
+        ceiling = floor
 
     defaults = {
         "detection_logs": 365,
@@ -201,9 +225,25 @@ def plan_cleanup(
     Returns:
         CleanupPlan with files grouped by category and safety skip counts.
     """
-    floor_days = _get_storage_int(cfg, "retention_floor_days", 7)
-    retention = _resolve_retention(cfg)
     plan = CleanupPlan()
+
+    # Clock-forward guard. If `now` is significantly ahead of wall time
+    # (NTP overcorrect after power loss, RTC battery dead, etc.) then
+    # floor_cutoff is also future-large and the floor check passes for
+    # every real file. Refuse to plan in that case. One bad clock jump
+    # would otherwise delete the entire mission archive in one run.
+    wall_now = datetime.now(timezone.utc)
+    now_compare = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+    if now_compare > wall_now + timedelta(minutes=5):
+        logger.error(
+            "Storage rotation: clock-forward guard tripped. "
+            "now=%s exceeds wall=%s by >5 minutes. Refusing to plan cleanup.",
+            now_compare.isoformat(), wall_now.isoformat(),
+        )
+        return plan
+
+    floor_days = _effective_floor(cfg)
+    retention = _resolve_retention(cfg)
 
     for category, subdir_name in CATEGORY_DIRS.items():
         days = retention[category]
