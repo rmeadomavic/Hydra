@@ -1,7 +1,7 @@
 'use strict';
 
 (function() {
-    let endpoints = JSON.parse(localStorage.getItem('hydra-instructor-endpoints') || '[]');
+    let endpoints = JSON.parse(localStorage.getItem('hydra-fleet-endpoints') || localStorage.getItem('hydra-instructor-endpoints') || '[]');
     let vehicleState = {};
     let alertFeed = [];
     const MAX_ALERTS = 50;
@@ -28,7 +28,7 @@
     function saveEndpoints() {
         const raw = document.getElementById('endpoints-input').value;
         endpoints = raw.split(',').map(s => s.trim()).filter(Boolean);
-        localStorage.setItem('hydra-instructor-endpoints', JSON.stringify(endpoints));
+        localStorage.setItem('hydra-fleet-endpoints', JSON.stringify(endpoints));
         pollAll();
     }
 
@@ -178,7 +178,7 @@
         try {
             const resp = await fetch('http://' + host + ':8080/api/abort', {method: 'POST'});
             if (resp.ok) {
-                addAlert(vehicleState[host] ? (vehicleState[host].callsign || host) : host, 'ABORT sent by instructor');
+                addAlert(vehicleState[host] ? (vehicleState[host].callsign || host) : host, 'ABORT sent by range control');
             } else {
                 addAlert(host, 'ABORT failed — HTTP ' + resp.status);
             }
