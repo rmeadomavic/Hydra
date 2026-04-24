@@ -150,6 +150,13 @@ def main():
     )
     args = parser.parse_args()
 
+    # Normalize empty string to None. When systemd expands an unset
+    # environment variable, HYDRA_VEHICLE arrives as "" rather than
+    # unset, which would otherwise propagate an empty profile through
+    # to /api/config/effective and facade.py._vehicle.
+    if args.vehicle == "":
+        args.vehicle = None
+
     # Pre-load config so we can apply --sim and --camera-source overrides
     # before Pipeline.__init__ reads the values.
     cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
