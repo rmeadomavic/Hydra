@@ -451,7 +451,7 @@ def get_default_file_sink(
 
     Returns ``None`` when the section exists and ``enabled=false``.
     A missing section yields a sink with the schema defaults, matching
-    the ``enabled=true`` default — students ship with durable audit on.
+    the ``enabled=true`` default — platforms ship with durable audit on.
     """
     if config is None or not config.has_section("audit"):
         return FileJSONLSink()
