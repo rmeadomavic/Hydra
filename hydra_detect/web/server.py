@@ -36,6 +36,7 @@ from hydra_detect.web.config_api import (
     validate_config_updates,
 )
 from hydra_detect.config_schema import SCHEMA as CONFIG_SCHEMA
+from hydra_detect.web.capability_api import router as _capability_router
 from hydra_detect.audit import (
     attach_to_logger as _attach_audit,
     get_default_sink as _get_audit_sink,
@@ -67,6 +68,9 @@ TEMPLATE_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="Hydra Detect v2.0", version="2.0.0")
+
+# ── Capability status API (issue #146) ───────────────────────────────────────
+app.include_router(_capability_router)
 
 # CORS: restrict cross-origin to instructor-relevant paths only.
 # The instructor page polls /api/stats and /api/abort on peer Hydra
@@ -3104,6 +3108,14 @@ async def api_config_import(request: Request, authorization: str | None = Header
     except Exception as e:
         logger.error("Failed to import config: %s", e)
         return JSONResponse({"error": f"Failed to import configuration: {e}"}, status_code=500)
+
+
+# ── Capability Status Page (issue #146) ──────────────────────────────
+
+@app.get("/capabilities", response_class=HTMLResponse)
+async def capabilities_page(request: Request):
+    """Serve the capability status page — subsystem readiness at a glance."""
+    return templates.TemplateResponse(request, "capabilities.html")
 
 
 # ── Setup Wizard ─────────────────────────────────────────────────────
