@@ -1,0 +1,11 @@
+[Unit]
+Description=Hydra storage rotation — daily cleanup timer
+Documentation=file:/opt/hydra/scripts/README-storage.md
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target

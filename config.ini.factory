@@ -206,6 +206,22 @@ lost_track_timeout_s = 2.0
 min_altitude_m = 5.0
 
 ; ---------------------------------------------------------------------------
+; Storage rotation — per-category file retention and disk-free gates.
+; Run scripts/storage_rotation.py --dry-run to preview, --apply to delete.
+; ---------------------------------------------------------------------------
+
+[storage]
+retention_detection_logs_days = 365
+retention_mission_bundles_days = 90
+retention_video_crops_days = 30
+retention_tak_audit_days = 90
+retention_feedback_crops_days = 90
+disk_warn_pct = 15
+disk_block_pct = 5
+retention_floor_days = 7
+retention_ceiling_days = 730
+
+; ---------------------------------------------------------------------------
 ; Vehicle profiles — override base sections via --vehicle <name> or HYDRA_VEHICLE
 ; Keys use "section.option" format to override the matching base section.
 ; ---------------------------------------------------------------------------

@@ -1,0 +1,20 @@
+[Unit]
+Description=Hydra storage rotation — apply per-category file retention
+Documentation=file:/opt/hydra/scripts/README-storage.md
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=sorcc
+Group=sorcc
+WorkingDirectory=/opt/hydra
+ExecStart=/usr/bin/python3 /opt/hydra/scripts/storage_rotation.py \
+    --config /opt/hydra/config.ini \
+    --data /opt/hydra/output_data \
+    --apply
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hydra-storage-rotation
+
+[Install]
+WantedBy=multi-user.target
