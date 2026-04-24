@@ -1,7 +1,7 @@
 # Hydra Detect — Jetson Orin Nano Setup Guide (Docker)
 
 This guide walks through installing Hydra Detect from GitHub onto a fresh
-NVIDIA Jetson Orin Nano using Docker. Written for students and instructors
+NVIDIA Jetson Orin Nano using Docker. Written for operators and maintainers
 to reproduce the setup.
 
 For initial JetPack flashing and OS setup, see

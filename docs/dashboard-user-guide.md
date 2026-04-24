@@ -251,7 +251,7 @@ while a mission is active. Unfreeze by ending the mission first.
 
 ## Hidden features
 
-Short section for operators and instructors who like to find things.
+Short section for operators who like to find things.
 
 ### Konami code — sentience sequence
 

@@ -5,7 +5,7 @@ sidebarTitle: "Docker install"
 icon: "docker"
 ---
 
-This guide walks through installing Hydra Detect on a fresh NVIDIA Jetson Orin Nano using Docker. Written for students and instructors to reproduce the setup.
+This guide walks through installing Hydra Detect on a fresh NVIDIA Jetson Orin Nano using Docker. Written for operators and maintainers reproducing the setup.
 
 For initial JetPack flashing and OS setup, see [Jetson flash](/setup/jetson-flash) first.
 

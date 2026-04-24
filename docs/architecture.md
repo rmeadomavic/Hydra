@@ -170,7 +170,7 @@ frontend has no branches.
 
 - `/api/abort` is unauthenticated and tries RTL → LOITER → HOLD in
   order. Any callback exception is caught; the endpoint must return a
-  response so the instructor knows whether the abort landed.
+  response so range control knows whether the abort landed.
 - Approach controllers always restore `_pre_approach_mode` on abort,
   not a hardcoded LOITER.
 - Autonomy snapshots return an idle default on any exception — the

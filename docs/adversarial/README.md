@@ -33,7 +33,7 @@ status, not a required merge gate). To clear the check:
 Flip to a required check in branch protection once the team observes,
 for at least five consecutive PRs that touch ADVERSARIAL_PATHS, that R3
 surfaces at least one finding the human review missed. Owner for that
-transition: the lead instructor. Revocation: same person, if false-
+transition: the fleet lead. Revocation: same person, if false-
 positive rate exceeds one per PR over a two-week window.
 
 ## How to run

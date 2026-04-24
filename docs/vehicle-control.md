@@ -147,7 +147,7 @@ Abort immediately safes all channels and switches the vehicle to a safe mode. Th
 
 1. **Dashboard**: abort button in the Operations tab
 2. **TAK**: send `HYDRA UNLOCK` via GeoChat (or custom CoT `a-x-hydra-u`)
-3. **API**: `POST /api/approach/abort` (authenticated) or `POST /api/abort` (unauthenticated, instructor override)
+3. **API**: `POST /api/approach/abort` (authenticated) or `POST /api/abort` (unauthenticated, safety override)
 
 On abort:
 - Approach controller returns to IDLE
@@ -157,7 +157,7 @@ On abort:
 - Event is logged to the audit trail
 
 > [!WARNING]
-> The `POST /api/abort` endpoint is intentionally unauthenticated. This is the instructor safety override. Any device on the network can abort any vehicle.
+> The `POST /api/abort` endpoint is intentionally unauthenticated. Any device on the network can abort any vehicle. This is the safety override — range control must be able to abort without configuring tokens first.
 
 ## Vehicle Compatibility
 

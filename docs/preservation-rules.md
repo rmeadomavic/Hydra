@@ -41,13 +41,13 @@ Kyle is running an overnight Phase 2 rebuild. The following are confirmed hidden
 
 - **Title**: `HYDRA DETECT — SORCC` in `base.html:6`.
 - **Footer**: `UNCLASSIFIED` center + `SORCC Payload Integrator` right + dynamic callsign left.
-- **SORCC SVG badge** top-left on base/login/setup/instructor pages. Palette (post-migration names):
+- **SORCC SVG badge** top-left on base/login/setup/fleet pages. Palette (post-migration names):
   - `#385723` → `--olive-primary`
   - `#A6BC92` → `--ogt-muted` (kept name per token-migration ambiguity ruling)
   - `#EFF5EB` → `--ogt-light`
 - **Callsign swap**: `main.js:36-42` rewrites `document.title` and topbar brand to `${callsign} — SORCC` on first `/api/stats` response. Preserve in any topbar rewrite.
 - **Callsign-duplicate toast** in `main.js:45-48` — multi-team collision warning. Preserve.
-- **Default callsign** `HYDRA-1` (`config.ini:198`); student-team format `HYDRA-{team}-{vehicle}`.
+- **Default callsign** `HYDRA-1` (`config.ini:198`); team format `HYDRA-{team}-{vehicle}`.
 - **Sim GPS fallback** `35.0527, -79.4927` (Fort Bragg vicinity, `__main__.py:27,31`). Deliberate SOF training choice.
 - **TAK port `6969`** — matches ATAK default multicast. Leave as-is.
 

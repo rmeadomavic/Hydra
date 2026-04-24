@@ -1,11 +1,11 @@
 # Hydra Week 4 Field Validation Test Plan
 
-**Timeline:** Week 3 starts March 31. Students hit Hydra Week 4 (~April 7).
-**Window:** 9 days for instructor validation before student use.
+**Timeline:** Week 3 starts March 31. Operators on Hydra Week 4 (~April 7).
+**Window:** 9 days for maintainer validation before field use.
 
 ## Phase 1 — Bench Test (March 31 - April 2)
 
-Solo, indoors. Validate every student-facing feature works before going to the field.
+Solo, indoors. Validate every operator-facing feature works before going to the field.
 
 ### 1.1 Boot and Auto-Start
 - [ ] Power on Jetson cold — Hydra starts automatically via systemd/Docker
@@ -111,7 +111,7 @@ Solo, indoors. Validate every student-facing feature works before going to the f
 ## Phase 3 — Multi-Vehicle Stress Test (April 4-6)
 
 **Platforms:** 2-3 Jetsons simultaneously (USV + UGV, or USV + UGV + drone)
-**Personnel:** All 3 instructors.
+**Personnel:** All 3 maintainers.
 
 ### 3.1 Multi-Instance Identity
 - [ ] Each Jetson has unique callsign (HYDRA-1-USV, HYDRA-2-UGV, etc.)
@@ -125,10 +125,10 @@ Solo, indoors. Validate every student-facing feature works before going to the f
 - [ ] Group command `HYDRA-ALL UNLOCK` (if implemented) — all vehicles respond
 - [ ] Duplicate callsign warning if two Jetsons have same callsign
 
-### 3.3 Instructor Overview (if implemented)
-- [ ] /instructor page shows all active Jetsons
+### 3.3 Fleet View (if implemented)
+- [ ] /fleet page shows all active Jetsons
 - [ ] Status cards update in real-time
-- [ ] Abort button on instructor page stops specific vehicle
+- [ ] Abort button on Fleet View stops specific vehicle
 - [ ] Works from phone over mesh/Tailscale
 
 ### 3.4 Network
@@ -139,7 +139,7 @@ Solo, indoors. Validate every student-facing feature works before going to the f
 
 ### 3.5 Platform-Specific
 - [ ] UGV (Stampede): Follow mode with person target (if implemented)
-  - Student walks, truck follows
+  - Operator walks, truck follows
   - Verify speed control (slow when close, faster when far)
   - Verify abort stops vehicle
 - [ ] USV (Enforcer): Follow mode with kayak target (if implemented)
@@ -147,7 +147,7 @@ Solo, indoors. Validate every student-facing feature works before going to the f
 - [ ] Drone (if available): Detection during hover and orbit
   - Verify TAK markers have correct GPS
 
-## Pre-Student Checklist (April 6)
+## Pre-Deployment Checklist (April 6)
 
 Before Week 4 begins, confirm:
 - [ ] All Jetsons auto-boot into operational dashboard
@@ -161,19 +161,19 @@ Before Week 4 begins, confirm:
 - [ ] ATAK shows TAK markers from all vehicles
 - [ ] At least one backup Jetson imaged and ready
 - [ ] WiFi AP tested at expected operating range
-- [ ] Tailscale VPN active on all Jetsons and instructor devices
+- [ ] Tailscale VPN active on all Jetsons and operator devices
 
 ## Known Risks
 - First field use of v2.0 — expect unexpected failures
 - WiFi range may limit dashboard usefulness at distance
 - USB camera reliability under vibration is untested
 - Battery runtime under Hydra load is unknown — measure during Phase 2
-- Student error modes unknown until Week 4 — document everything they break
+- Operator error modes unknown until Week 4 — document everything that breaks
 
 ## Post-Test Debrief Template
 For each phase, record:
 1. What worked as expected
 2. What failed and how it was fixed
-3. What students will definitely break
-4. What needs to change before student use
+3. What operators will likely break
+4. What needs to change before next deployment
 5. New issues to file

@@ -1,7 +1,7 @@
 # TAK/ATAK Testing Guide for Hydra Detect
 
 How to test Hydra's CoT output at every level — from desk verification to
-full mesh deployment with student tablets.
+full mesh deployment with operator tablets.
 
 ---
 
@@ -14,7 +14,7 @@ full mesh deployment with student tablets.
 | 3 | Personal mobile | ATAK-CIV on Android phone | Same WiFi |
 | 4 | iOS alternative | iTAK on iPhone/iPad | Same WiFi |
 | 5 | Mesh integration | ATAK tablets on OpenMANET | Mesh WiFi AP |
-| 6 | Course deployment | ATAK on student devices | FreeTAKServer relay |
+| 6 | Field deployment | ATAK on operator devices | FreeTAKServer relay |
 
 ---
 
@@ -251,18 +251,18 @@ CoT will work the same way — it uses the same multicast group and port.
 
 ---
 
-## Phase 6: Course Deployment with FreeTAKServer
+## Phase 6: Field Deployment with FreeTAKServer
 
-For a training course with many students, **FreeTAKServer (FTS) as a TCP
-relay** is more reliable than multicast. Students connect ATAK → FTS via TCP,
+For a multi-platform deployment, **FreeTAKServer (FTS) as a TCP
+relay** is more reliable than multicast. Operators connect ATAK → FTS via TCP,
 Hydra sends CoT → FTS, FTS relays to all clients.
 
-### Why FTS for courses
+### Why FTS for field deployments
 
 - Eliminates multicast headaches (AP isolation, WiFi sleep, IGMP)
-- Students connect via TCP — works across subnets, VPNs, cellular
-- FTS provides a web dashboard for the instructor to monitor
-- Data persistence — mission playback after the exercise
+- Operators connect via TCP — works across subnets, VPNs, cellular
+- FTS provides a web dashboard for the fleet lead to monitor
+- Data persistence — sortie playback after the exercise
 
 ### Quick FTS setup (on a laptop or RPi — not the Jetson)
 
@@ -286,7 +286,7 @@ FTS listens on:
 
 ### Connect ATAK to FTS
 
-On each student's ATAK:
+On each operator's ATAK:
 1. Settings → Network Preferences → TAK Servers → Add
 2. Address: `<FTS-IP>`, Port: `8087`, Protocol: TCP
 3. No certificates needed for unencrypted mode
@@ -345,8 +345,8 @@ REST API endpoint to POST CoT events directly.
 - [ ] Detection latency acceptable (< 5 seconds from detection to marker)
 - [ ] Mesh multicast flooding enabled if IGMP isn't working
 
-### Course deployment (Phase 6)
+### Field deployment (Phase 6)
 - [ ] FreeTAKServer running and accepting connections
-- [ ] All student ATAK devices connected to FTS
-- [ ] Instructor can see all clients on FTS web dashboard
-- [ ] Hydra detections visible on all student devices simultaneously
+- [ ] All operator ATAK devices connected to FTS
+- [ ] Fleet lead can see all clients on FTS web dashboard
+- [ ] Hydra detections visible on all operator devices simultaneously

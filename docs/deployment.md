@@ -173,13 +173,13 @@ Set in `[tak] callsign` or via the setup wizard. The callsign is used in TAK mar
 
 When the callsign differs from `HYDRA-1`, log directories are namespaced: `output_data/HYDRA-2-DRONE/logs/`.
 
-### Instructor Page
+### Fleet View
 
-The instructor page at `/instructor` on any Hydra instance shows all vehicles on one screen. It polls `GET /api/stats` from each configured Jetson IP. Each card shows callsign, FPS, track count, and an abort button.
+The Fleet View at `/fleet` on any Hydra instance shows all vehicles on one screen. It polls `GET /api/stats` from each configured Jetson IP. Each card shows callsign, FPS, track count, and an abort button.
 
-The abort button calls `POST /api/abort` on the target Jetson. This endpoint is unauthenticated by design.
+The abort button calls `POST /api/abort` on the target Jetson. This endpoint is unauthenticated by design — range control must be able to abort without configuring tokens.
 
-CORS headers on `/api/stats` and `/api/abort` allow cross-origin access from the instructor page.
+CORS headers on `/api/stats` and `/api/abort` allow cross-origin access from the Fleet View. `/instructor` redirects to `/fleet`.
 
 ### Code Sync
 

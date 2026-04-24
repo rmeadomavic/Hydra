@@ -96,8 +96,8 @@ Hydra/
         operations.html               # Operator dashboard (detections, controls)
         settings.html                 # Settings panel (camera, model, config)
         control.html                  # Mobile operator control page
-        instructor.html               # Multi-vehicle instructor overview
-        review.html                   # Post-mission review map (standalone)
+        instructor.html               # Multi-vehicle Fleet View
+        review.html                   # Post-sortie review map (standalone)
         setup.html                    # First-boot setup wizard
       static/                         # CSS, JS, and image assets
 
@@ -117,7 +117,7 @@ Hydra/
     test_drop_strike.py               # Drop and strike modes
     test_event_logger.py              # Event timeline logger
     test_geo_tracking.py              # Geo-tracking message generation
-    test_instructor_ops.py            # Instructor page and abort
+    test_instructor_ops.py            # Fleet View and abort
     test_log_endpoint.py              # /api/logs endpoint
     test_map_replay.py                # Map replay event parsing
     test_mavlink_commands.py          # MAVLink vehicle commands

@@ -130,7 +130,7 @@ these commits. Their state is unchanged from the prior baseline.
   callback crash falls through to the next mode, and if every mode
   fails or MAVLink is disconnected the endpoint still returns a 503
   JSON error. Endpoint is in `_PUBLIC_PATH_PREFIXES` (server.py:337)
-  so auth never blocks an instructor abort.
+  so auth never blocks a range-control abort.
 
 ### 7. Autonomy dry-run + inhibit toggleable at runtime — PASS (with UI gap)
 

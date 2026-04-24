@@ -1,6 +1,6 @@
 ---
 title: "Remote Access (Tailscale)"
-description: "Set up Tailscale SSH so instructors and students can manage Jetsons remotely without a monitor."
+description: "Set up Tailscale SSH so operators and maintainers can manage Jetsons remotely without a monitor."
 sidebarTitle: "Remote access"
 icon: "globe"
 keywords:
@@ -46,7 +46,7 @@ Open the URL in a browser on any device to authenticate the Jetson to your Tails
 sudo bash scripts/setup_tailscale.sh --authkey tskey-auth-xxxxx --hostname hydra-jetson-03
 ```
 
-This skips the interactive login step. Useful for setting up a classroom of Jetsons in one session.
+This skips the interactive login step. Useful for setting up a fleet of Jetsons in one session.
 </Tip>
 
 </Step>

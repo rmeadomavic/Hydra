@@ -40,7 +40,7 @@ accessible from any node on the mesh.
 4G USB modem + SIM card on the Jetson, with Tailscale overlay for secure
 remote access.
 
-**When to use:** Remote ops, multi-site exercises, instructor monitoring from
+**When to use:** Remote ops, multi-site exercises, fleet lead monitoring from
 a different location, demo from HQ.
 
 **Hardware:** SUNGOOYUE 4G LTE USB dongle (Qualcomm chipset, USB ID
