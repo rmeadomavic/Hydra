@@ -6,7 +6,7 @@ Simulates vehicle movement based on waypoint commands so you can see the full
 IDLE → SEARCHING → HOMING → CONVERGED state machine in action.
 
 Usage:
-    # Hunt 915 MHz CRSF (students flying nearby)
+    # Hunt 915 MHz CRSF (other platforms nearby)
     python scripts/rf_hunt_demo.py --freq 915
 
     # Hunt 433 MHz SiK radio
