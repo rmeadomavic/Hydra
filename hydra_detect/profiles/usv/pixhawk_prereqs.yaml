@@ -1,0 +1,79 @@
+profile: usv
+firmware: ArduRover
+
+# ArduRover USV (Bonzai Enforcer 48") Pixhawk prerequisites for Hydra Detect.
+# ArduRover runs both ground and surface vehicles; FRAME_CLASS=2 selects boat mode.
+# Required = Hydra will not function correctly without these.
+# Recommended = strong operational best practice.
+
+required:
+  - name: FRAME_CLASS
+    expected: 2
+    reason: >
+      Value 2 = Boat frame. Without this, ArduRover treats the platform as a
+      wheeled skid-steer rover and applies incorrect steering geometry and
+      failsafe behavior. The Enforcer will not track correctly in any mode.
+
+  - name: FENCE_ENABLE
+    expected: 1
+    reason: >
+      Geofence required for any autonomous behavior. Critical on water — a
+      boat that exits the operating area cannot be physically stopped the way
+      a rover can. RTL on breach is the only recovery.
+
+  - name: SERIAL2_PROTOCOL
+    expected: 2
+    reason: >
+      Companion computer port (TELEM2) must be MAVLink2 for Hydra connectivity.
+
+  - name: SERIAL2_BAUD
+    expected: 921
+    reason: >
+      921600 baud. Lower rates cause message drops; the Enforcer's RF link
+      is already a latency bottleneck — don't add serial lag.
+
+# Stream rates — minimum Hz on companion port (SERIAL2).
+stream_rates:
+  SR1_POSITION: 5
+  SR1_EXTRA1: 4
+  SR1_EXTRA2: 2
+  SR1_RAW_SENS: 2
+
+recommended:
+  - name: BATT_FS_LOW_ACT
+    expected: 2
+    reason: >
+      RTL on low battery. On water this is critical — a dead boat drifts.
+      Value 2 = RTL. Value 1 = Hold (stays in place, still dangerous).
+
+  - name: FENCE_ACTION
+    expected: 1
+    reason: >
+      RTL when fence breached. Report-only (value 0) provides no recovery
+      on water where there's no physical barrier to stop drift.
+
+  - name: FENCE_MARGIN
+    expected: 2
+    reason: >
+      2-meter breach margin. Boats have more momentum than rovers; the margin
+      gives the autopilot time to arrest heading before hard-land escalation.
+
+  - name: FS_GCS_ENABLE
+    expected: 2
+    reason: >
+      Enable GCS heartbeat failsafe. Loss of Hydra MAVLink on water means
+      the boat is operating without situational awareness — should RTL.
+
+  - name: PILOT_STEER_TYPE
+    expected: 1
+    reason: >
+      Value 1 = two-paddle steering (separate throttle + rudder channels).
+      Ensures the RC pilot can override Hydra commands cleanly. Value 0
+      (skid steer) is incorrect for a single-thruster + rudder boat.
+
+# Servo/relay function assignments for engagement modes.
+# Operator-configurable at mission time — not validated by preflight.
+# On the Enforcer, AUX channels are typically used for:
+#   SERVO9_FUNCTION = 0  (GPIO relay — Hydra-controlled payload drop)
+#   SERVO10_FUNCTION = 0 (GPIO relay — arm activation, if equipped)
+# Set these in config.ini [drop] section.

@@ -1,0 +1,68 @@
+profile: ugv
+firmware: ArduRover
+
+# ArduRover UGV (Traxxas Stampede) Pixhawk prerequisites for Hydra Detect.
+# Required = Hydra will not function correctly without these.
+# Recommended = strong operational best practice, but Hydra will still run.
+
+required:
+  - name: FENCE_ENABLE
+    expected: 1
+    reason: >
+      Geofence required for any autonomous behavior. Without it the rover can
+      drive beyond the operating area with no automatic recovery.
+
+  - name: SERIAL2_PROTOCOL
+    expected: 2
+    reason: >
+      Companion computer port (TELEM2) must be set to MAVLink2. MAVLink1
+      (value 1) works but loses long-parameter and signed-message support.
+
+  - name: SERIAL2_BAUD
+    expected: 921
+    reason: >
+      921600 baud required for Hydra's heartbeat + param + command traffic.
+      Lower rates cause message drops under load (57 and 115 are too slow).
+
+# Stream rates — values are minimum Hz on SERIAL2 (companion computer port).
+# SR1 maps to TELEM2 when the companion is on SERIAL2 with SRx overrides.
+# If your setup uses SR2 instead (SERIAL2 with no SRx remap), adjust accordingly.
+stream_rates:
+  SR1_POSITION: 5
+  SR1_EXTRA1: 4
+  SR1_EXTRA2: 2
+  SR1_RAW_SENS: 2
+
+recommended:
+  - name: BATT_FS_LOW_ACT
+    expected: 2
+    reason: >
+      RTL on low battery. Without this, the rover will continue running until
+      the battery dies and loses comms with no automatic recovery.
+
+  - name: FENCE_ACTION
+    expected: 1
+    reason: >
+      RTL when fence breached. Value 0 (report only) means the rover ignores
+      the fence boundary — defeat the purpose of having a fence.
+
+  - name: FENCE_MARGIN
+    expected: 2
+    reason: >
+      2-meter breach margin before escalation to LAND. Prevents hard stops at
+      the exact fence boundary; gives the mission controller time to respond.
+
+  - name: FS_GCS_ENABLE
+    expected: 2
+    reason: >
+      Enable GCS heartbeat failsafe. If the Hydra companion loses MAVLink
+      the rover should RTL rather than freeze in place.
+
+# Servo/relay function assignments for engagement modes.
+# These are operator-set at mission time; Hydra reads them but does not
+# require specific values for DROP/ARM/STRIKE actions.
+# Document your setup in config.ini [drop] section.
+#
+# Typical SORCC UGV setup (not validated by preflight):
+#   SERVO9_FUNCTION = 0  (GPIO — controlled by Hydra relay)
+#   RELAY_PIN = 13       (matches Pixhawk 6C AUX1)
