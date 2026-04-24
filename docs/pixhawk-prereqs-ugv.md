@@ -1,4 +1,4 @@
-# Pixhawk Prerequisites — UGV (ArduRover)
+# Pixhawk Prerequisites: UGV (ArduRover)
 
 Platform: Traxxas Stampede running ArduRover on Pixhawk 6C.
 
@@ -9,8 +9,7 @@ these params live against your flight controller.
 
 ## Required Parameters
 
-These must be set correctly before running Hydra. Wrong values here cause silent failures —
-the system will appear to work but autonomous behavior will not function safely.
+These must be set correctly before running Hydra. Wrong values cause silent failures: the system starts but autonomous behavior will not work safely.
 
 | Parameter | Expected | Why |
 |---|---|---|
@@ -54,7 +53,7 @@ use `SR1_*`. Match these to whatever SRx index corresponds to the companion port
 
 ## Failsafe Expectations
 
-- **RC Loss:** Set `FS_THR_ENABLE = 1`. The rover should return to launch (RTL) or hold in place — do not set to disabled.
+- **RC Loss:** Set `FS_THR_ENABLE = 1`. RTL or hold on RC loss. Do not disable.
 - **GCS Loss:** `FS_GCS_ENABLE = 2` (see recommended above). RTL after 5 seconds of missed heartbeats.
 - **Battery:** `BATT_FS_LOW_ACT = 2` triggers RTL at low voltage. `BATT_FS_CRT_ACT = 1` (Hold) or `2` (RTL) for critical.
 - **Geofence:** `FENCE_ACTION = 1` (RTL) on breach. Confirm `FENCE_RADIUS` and `FENCE_ALT_MAX` match your operating area.
@@ -64,7 +63,7 @@ use `SR1_*`. Match these to whatever SRx index corresponds to the companion port
 ## Servo / Relay Assignments
 
 Engagement actions (drop, arm) are operator-configured at mission time. Hydra reads
-these from `config.ini [drop]` — it does not require or validate specific servo assignments.
+these from `config.ini [drop]`. The preflight does not require or validate specific servo assignments.
 
 The preflight does not check servo functions because they are valid only during armed
 operation and vary by loadout. Document your team's setup here for reference:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-pixhawk_preflight.py — Validate live ArduPilot params against a profile manifest.
+pixhawk_preflight.py: Validate live ArduPilot params against a profile manifest.
 
 Usage:
     python scripts/pixhawk_preflight.py --profile ugv --conn /dev/ttyACM0
@@ -242,7 +242,7 @@ def _fmt(value: float | None) -> str:
 def format_report(profile: str, firmware: str, results: list[PreflightResult]) -> str:
     """Format a human-readable preflight report string."""
     lines = []
-    lines.append(f"PIXHAWK PREFLIGHT — profile={profile} firmware={firmware}")
+    lines.append(f"PIXHAWK PREFLIGHT  profile={profile}  firmware={firmware}")
     lines.append("-" * 48)
     for r in results:
         lines.append(f"[{r.status:<4}] {r.message}")

@@ -1,4 +1,4 @@
-# Pixhawk Prerequisites — USV (ArduRover, Boat Mode)
+# Pixhawk Prerequisites: USV (ArduRover, Boat Mode)
 
 Platform: Bonzai Enforcer 48" running ArduRover in boat frame mode on Pixhawk 6C.
 
@@ -10,15 +10,14 @@ these params live against your flight controller.
 ## Required Parameters
 
 These must be set correctly before running Hydra. The USV profile is stricter than
-the UGV profile because a boat on water has no brakes — wrong params can result in
-an unrecoverable situation.
+the UGV profile because a boat on water has no brakes. Wrong params can result in an unrecoverable situation.
 
 | Parameter | Expected | Why |
 |---|---|---|
 | `FRAME_CLASS` | `2` | Value 2 = Boat frame. ArduRover defaults to wheeled skid-steer (value 1). Without this, steering geometry is wrong and failsafe behavior is incorrect for a single-thruster + rudder platform. |
-| `FENCE_ENABLE` | `1` | Geofence required for any autonomous behavior. Critical on water — a boat that exits the operating area cannot be physically stopped. |
+| `FENCE_ENABLE` | `1` | Geofence required for any autonomous behavior. Critical on water: a boat that exits the operating area cannot be physically stopped. |
 | `SERIAL2_PROTOCOL` | `2` | Companion computer port (TELEM2) must be MAVLink2 for Hydra connectivity. |
-| `SERIAL2_BAUD` | `921` | 921600 baud. The Enforcer's RF link is already a latency bottleneck — don't add serial lag from a slow baud rate. |
+| `SERIAL2_BAUD` | `921` | 921600 baud. The Enforcer's RF link is already a latency bottleneck. Don't add serial lag from a slow baud rate. |
 
 ---
 
@@ -26,10 +25,10 @@ an unrecoverable situation.
 
 | Parameter | Recommended | Why |
 |---|---|---|
-| `BATT_FS_LOW_ACT` | `2` | RTL on low battery. On water this is critical — a dead boat drifts. Value 2 = RTL. Value 1 = Hold (stays in place, still dangerous). |
+| `BATT_FS_LOW_ACT` | `2` | RTL on low battery. On water a dead boat drifts. Value 2 = RTL. Value 1 = Hold (stays in place, still dangerous). |
 | `FENCE_ACTION` | `1` | RTL when fence is breached. Report-only (value 0) provides no recovery on water where there's no physical barrier to stop drift. |
 | `FENCE_MARGIN` | `2` | 2-meter breach margin. Boats have more momentum than rovers; the margin gives the autopilot time to arrest heading before hard-land escalation. |
-| `FS_GCS_ENABLE` | `2` | GCS heartbeat failsafe. Loss of Hydra MAVLink on water means the boat is operating without situational awareness — should RTL. |
+| `FS_GCS_ENABLE` | `2` | GCS heartbeat failsafe. Loss of Hydra MAVLink on water means the boat has no situational awareness. Should RTL. |
 | `PILOT_STEER_TYPE` | `1` | Two-paddle steering (separate throttle + rudder channels). Ensures the RC pilot can override Hydra commands cleanly. Value 0 (skid steer) is incorrect for a single-thruster + rudder boat. |
 
 ---
@@ -52,7 +51,7 @@ actual companion port mapping (see UGV doc for indexing notes).
 
 - **RC Loss:** Confirm `FS_THR_ENABLE = 1`. On water, losing RC with no failsafe means the boat runs free until the battery dies.
 - **GCS Loss:** `FS_GCS_ENABLE = 2` triggers RTL after missed heartbeats. This fires if the Jetson or its WiFi drops.
-- **Battery:** `BATT_FS_LOW_ACT = 2`. On water, RTL is the only safe response to low battery — the boat cannot be walked back.
+- **Battery:** `BATT_FS_LOW_ACT = 2`. RTL on low battery. On water the boat cannot be walked back.
 - **Geofence:** `FENCE_ACTION = 1` (RTL). Set `FENCE_RADIUS` to the radius of the operating waterway. `FENCE_ALT_MAX` is not applicable for surface vehicles but should be set to a safe value (e.g. 10m) to prevent false triggers from GPS altitude noise.
 
 ---
@@ -76,7 +75,7 @@ Set `[drop] relay_pin` in `config.ini` to match.
 ## Notes
 
 - `FRAME_CLASS = 2` is the most commonly missed param for USV setups. Mission Planner
-  sometimes shows the vehicle type as "Rover" even when FRAME_CLASS is wrong — verify
+  sometimes shows the vehicle type as "Rover" even when FRAME_CLASS is wrong. Verify
   in the Full Parameter List, not the vehicle type selector.
 - Verify `FRAME_TYPE` as well. For the Enforcer (single thruster, rudder steering):
   `FRAME_TYPE` should be the value appropriate for your propulsion layout. Check the
