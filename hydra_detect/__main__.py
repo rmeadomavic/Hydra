@@ -6,11 +6,48 @@ import argparse
 import configparser
 import logging
 import os
+import sys
 from pathlib import Path
 
 from .pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
+
+
+def _run_boot_migrations(config_path: str) -> None:
+    """Apply any pending config schema migrations before the pipeline starts.
+
+    Called once at boot, after logging is initialised but before Pipeline()
+    is constructed. Placement rationale: migrations must run before any code
+    reads config values, and the pipeline constructor reads them. Running
+    after basicConfig() ensures migration log output goes to the same handler.
+
+    On success: logs what was applied and the backup path.
+    On MigrationError: logs at CRITICAL level and exits non-zero. The pipeline
+    must not start with a failed migration because the config state is unknown.
+    """
+    from .config_migrate import MigrationError, run_migrations
+
+    try:
+        result = run_migrations(Path(config_path))
+    except MigrationError as exc:
+        logger.critical(
+            "CONFIG MIGRATION FAILED — refusing to start pipeline: %s", exc
+        )
+        sys.exit(1)
+
+    if result.applied:
+        logger.info(
+            "Config migrated v%d → v%d | applied: %s | backup: %s",
+            result.from_version,
+            result.to_version,
+            result.applied,
+            result.backup_path,
+        )
+    else:
+        logger.debug(
+            "Config schema at v%d — no migrations needed", result.to_version
+        )
 
 
 def _apply_sim_overrides(cfg: configparser.ConfigParser) -> None:
@@ -149,6 +186,10 @@ def main():
         help="Override camera source (e.g., 0 for webcam, path to video file)",
     )
     args = parser.parse_args()
+
+    # Run config schema migrations before anything reads config values.
+    # Must happen before cfg.read() so the pipeline sees the migrated file.
+    _run_boot_migrations(args.config)
 
     # Normalize empty string to None. When systemd expands an unset
     # environment variable, HYDRA_VEHICLE arrives as "" rather than
