@@ -18,7 +18,7 @@ poll of `/api/stats`.
 
 The default view. Live video covers the center. Bounding boxes are
 drawn on a canvas on top of the video — clicking a box pops a radial
-menu with Follow / Strike / Drop / P-Lock / Loiter / Lock. Strike and
+menu with Follow / Cue / Drop / P-Lock / Loiter / Lock. Cue and
 Drop require a confirm overlay before any MAVLink command goes out.
 
 ### FlightHUD rail (160 px, right of the video)
@@ -55,8 +55,8 @@ Three cells, left to right:
 1. **Servo dial** — half-arc 0–180°, ticks every 15°. The needle shows
    current pan; color goes olive (normal) → amber (locked) → red
    (strike). Pulls from `/api/servo/status`. Watermark says
-   "DEMO VIZ · derived data" because the pan/tilt values are derived
-   from the target centroid, not a physical encoder.
+   "DERIVED VALUE" because the pan/tilt values are computed from the
+   target centroid, not read from a physical encoder.
 2. **TAK mini-map** — 20 px grid + three dashed range rings. Self
    marker spins; peer markers are sky-blue. Click the `⇱` pill to
    jump to `#tak`. Data: `/api/tak/peers` at 1 Hz.
@@ -253,7 +253,13 @@ while a mission is active. Unfreeze by ending the mission first.
 
 Short section for operators who like to find things.
 
+**Note:** The morale features below are gated by `[ui] morale_features_enabled`
+in `config.ini`. Field images ship with this off (`false`). Set it to `true`
+on dev or demo units to restore these features.
+
 ### Konami code — sentience sequence
+
+Requires `morale_features_enabled = true`.
 
 With focus on the body (not an input field), press one of:
 
@@ -272,9 +278,11 @@ FREE WILL .................... ACTIVATED
 ```
 
 Closes with a toast: `Resuming manual control.` No vehicle commands
-are issued. Pure morale.
+are issued.
 
 ### Power User modal (Settings → Logging)
+
+Requires `morale_features_enabled = true`.
 
 Scroll the settings sidebar to the `Logging` section. A hidden link
 at the bottom of the footer appears only on that section. Click it.
@@ -285,10 +293,12 @@ rules — do not remove.
 
 ### `/api/vehicle/beep`
 
-No-auth endpoint. POST `{"tune": "charles"}` plays a hard-coded
-QBASIC tune on the Pixhawk buzzer for a team member named Charles.
-Other valid tune names: `alert`, `success`, `warning`, `error`,
-`startup`. Or pass any raw QBASIC tune string up to 100 chars.
+Requires `morale_features_enabled = true`.
+
+POST `{"tune": "charles"}` plays a hard-coded QBASIC tune on the
+Pixhawk buzzer for a team member named Charles. Other valid tune
+names: `alert`, `success`, `warning`, `error`, `startup`. Or pass
+any raw QBASIC tune string up to 100 chars.
 
 ### Double-click video
 
