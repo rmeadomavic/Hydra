@@ -218,6 +218,15 @@ min_altitude_m = 5.0
 ; alerts.priority_labels = person,vehicle
 ; tak.callsign = HYDRA-UGV
 
+[telemetry]
+; Phone-home health telemetry — DEFAULT OFF.
+; Unit sends nothing unless enabled = true AND collector_url is set.
+; No GPS, video, crops, or operator identifying info is ever included.
+enabled = false
+collector_url =
+api_token =
+opt_out = false
+
 [vehicle.fw]
 autonomous.post_action_mode = LOITER
 autonomous.min_track_frames = 2

@@ -1202,6 +1202,28 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             description="Minimum consecutive track frames before autonomous action (fixed-wing)",
         ),
     },
+    "telemetry": {
+        "enabled": FieldSpec(
+            FieldType.BOOL,
+            default=False,
+            description="Enable phone-home health telemetry (default OFF)",
+        ),
+        "collector_url": FieldSpec(
+            FieldType.STRING,
+            default="",
+            description="Collector endpoint URL (required when enabled = true)",
+        ),
+        "api_token": FieldSpec(
+            FieldType.STRING,
+            default="",
+            description="Bearer token for collector authentication",
+        ),
+        "opt_out": FieldSpec(
+            FieldType.BOOL,
+            default=False,
+            description="Operator opt-out flag — overrides enabled",
+        ),
+    },
     "audit": {
         "enabled": FieldSpec(
             FieldType.BOOL,

@@ -1,0 +1,14 @@
+[Unit]
+Description=Hydra phone-home health telemetry
+Documentation=file:///home/sorcc/Hydra/scripts/README-phone-home.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/sorcc/Hydra
+ExecStart=/usr/bin/python3 /home/sorcc/Hydra/scripts/phone_home.py --config /home/sorcc/Hydra/config.ini
+StandardOutput=journal
+StandardError=journal
+# Non-zero exit is non-fatal — phone-home failure must not block other services.
+SuccessExitStatus=0 1 2

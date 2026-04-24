@@ -1,0 +1,12 @@
+[Unit]
+Description=Hydra phone-home telemetry — daily timer
+Documentation=file:///home/sorcc/Hydra/scripts/README-phone-home.md
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=24h
+RandomizedDelaySec=3600
+Persistent=true
+
+[Install]
+WantedBy=timers.target
