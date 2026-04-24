@@ -74,17 +74,29 @@ def snapshot_if_healthy(
         logger.debug("snapshot_if_healthy: health check returned False — no snapshot")
         return False
 
+    # Strip [identity] before snapshotting. The LKG must never hold
+    # credentials. If it did, restore_lkg would silently roll back the
+    # active API token and password hash to the snapshot-time values,
+    # which can give stale credentials an extra life.
+    had_identity = cfg.has_section("identity")
+    if had_identity:
+        cfg.remove_section("identity")
+
     tmp_path = Path(str(lkg) + ".tmp")
     try:
-        shutil.copy2(config_path, tmp_path)
-        # fsync for durability — best-effort (some filesystems ignore it).
-        try:
-            with open(tmp_path, "r+b") as f:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            cfg.write(f)
+            f.flush()
+            # fsync for durability. Best-effort; some filesystems ignore it.
+            try:
                 os.fsync(f.fileno())
-        except OSError:
-            pass  # non-fatal; os.replace still gives atomicity
+            except OSError:
+                pass
         os.replace(tmp_path, lkg)
-        logger.info("LKG snapshot written to %s", lkg)
+        if had_identity:
+            logger.info("LKG snapshot written to %s ([identity] stripped)", lkg)
+        else:
+            logger.info("LKG snapshot written to %s", lkg)
         return True
     except OSError as exc:
         logger.warning("snapshot_if_healthy: write failed: %s", exc)
