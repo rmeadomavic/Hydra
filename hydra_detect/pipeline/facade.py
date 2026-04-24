@@ -144,8 +144,9 @@ class Pipeline:
                             key,
                         )
             else:
-                logger.error(
-                    "Vehicle profile %r not found (no [%s] section in config)",
+                logger.warning(
+                    "Vehicle profile '%s' unknown — no overrides applied "
+                    "(no [%s] section in config.ini)",
                     vehicle, vehicle_section,
                 )
 
@@ -1078,6 +1079,9 @@ class Pipeline:
                 ),
                 "alert_classes": list(self._alert_classes) if self._alert_classes else [],
                 "active_profile": None,
+                # Active vehicle profile — set from --vehicle / HYDRA_VEHICLE at startup.
+                # None means no platform profile was applied; base config.ini is used as-is.
+                "vehicle_profile": self._vehicle,
             })
 
             # Apply default mission profile if configured
@@ -1592,6 +1596,8 @@ class Pipeline:
                     "camera_ok": not self._cam_lost,
                     "callsign": self._callsign,
                     "mission_name": self._mission_name,
+                    # Active platform profile — drives the PLT chip in the topbar.
+                    "platform": self._vehicle,
                 }
                 # Expose duplicate callsign flag from TAK input
                 if self._tak_input is not None:
