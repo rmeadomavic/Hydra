@@ -46,3 +46,6 @@ certs/
 coverage.xml
 htmlcov/
 .hypothesis/
+
+# Sub-agent worktrees from local /spawn-style workflows
+.claude/worktrees/
