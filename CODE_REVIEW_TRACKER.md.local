@@ -1,0 +1,344 @@
+# Hydra Detect — Codebase Review Tracker
+
+Started: 2026-04-04
+Total: ~8,100 LOC across 23 application modules + 2,900 LOC tests
+
+---
+
+## Latest session — 2026-04-20 02:00–05:00 (autonomous)
+
+Triggered by `/ultrareview` against main, then ~3 hr of autonomous tracker work across two wake-up windows.
+
+**Main-branch review (PRs #120 + #121, commits 27e6e0e..f2538af):** ship-as-is verdict from code-reviewer agent. Three Low findings cross-listed below as Findings A-D.
+
+**Chunks reviewed this session:** 3 (Detection), 5 (Display & OSD), 6 (Logging & Export), 7 (RF Hunting), 8 (RF Support), 10 (Config & Deploy — infra core). **5.5 of 10 chunks now done.** Total LOC reviewed: ~4,000.
+
+**Findings at ≥ 75 confidence (4 Medium + 1 High):**
+- Finding 1 (Chunk 6, Medium) — `event_logger.get_recent_events` holds lock during disk read → blocks pipeline write path on dashboard polls.
+- Finding 2 (Chunk 6, Medium) — `detection_logger._writer_loop` lacks try/except around `_process_work_item`; one bad item kills the writer thread silently.
+- Finding 3 (Chunk 8, Medium) — `rtl_power_client._scan_peak` skips process-group cleanup on KeyboardInterrupt/SystemExit (CLAUDE.md explicitly prohibits this pattern).
+- Finding 4 (Chunk 7, Medium) — `hunt._do_search` strands the vehicle when a waypoint is outside geofence and no `_clip_to_geofence` callback is wired. Silent failure looks identical to "no signal found."
+- Finding 5 (Chunk 10, **High**) — `scripts/deploy.sh` defaults to `claude/fix-hydra-video-stream-7CDH6`, a merged+deleted branch. Running `./scripts/deploy.sh` with no args fails outright with "Couldn't find remote ref." One-line fix: default to `main` to match `hydra_sync.sh`.
+
+**Local commits, NOT pushed (Kyle to review):**
+- `fix/session-start-pip-errors` (41429b6) — surfaces silent pip failures in `.claude/hooks/session-start.sh`. Bash-only, zero runtime impact.
+- `test/expand-pipeline-callback-contract` (9da59c4) — expands `test_pipeline_subsystems.py` test #6 to assert all 48 callback bindings instead of one. Test-only addition. Smoke-tested outside pytest (no cv2 on the dev host); CI will validate.
+
+**Tracker maintenance applied:**
+- Chunk 1 row updated post-PR #120 — `pipeline.py` is now an 8-line shim; real code in `pipeline/facade.py` + 4 sibling modules. LOC bumped from 1,477 to ~3,200.
+- Chunk 6 scope expanded to include `event_logger.py` and `verify_log.py` (related modules added since 2026-04-04).
+- Chunk 8 scope expanded to include `rssi_protocol.py` and `rtl_power_client.py` (added since 2026-04-04).
+
+**Untracked files in repo root (left untouched):**
+- `CODE_REVIEW_TRACKER.md.local` — this file. Personal scratch (`.local` convention = gitignored).
+- `: full rewrite - tone, accuracy, dedup legacy .md files"` — 3,446 bytes, ASCII text. Looks like a stalled docs-rewrite plan paired with the `hydra-docs-rewrite/` directory. Has real content; left for Kyle to triage.
+
+**Remaining chunks:** 1 (Safety Critical, ~3,200 LOC — needs parallel sub-agents per tracker rules), 2 (Vehicle Comms, 878 — also safety-critical, needs parallel sub-agents), 4 (Web Dashboard, ~2,900 with config_api), 9 (Tests, 2,872), 10 setup-scripts tail (~1,100, lower priority).
+
+---
+
+## How to Use This Document
+
+Hand this to a Claude Code session and say:
+
+```
+Read CODE_REVIEW_TRACKER.md and review chunk N. Read every file in the chunk,
+check against the Review Criteria below, and report issues. Update the tracker
+when done.
+```
+
+**Per-chunk process:**
+1. Read all files in the chunk
+2. Check each file against the Review Criteria (thread safety, memory, fail-safe, etc.)
+3. For safety-critical chunks (1-2), use 3-5 parallel agents — each agent reviews from a different angle (thread safety, memory bounds, error handling, input validation, CLAUDE.md compliance)
+4. Score each finding 0-100 on confidence it's a real issue (not a false positive)
+5. Only report issues scoring >= 75
+6. Update this tracker: set Status to "Done", Date to today, Issues to the count found
+7. Append detailed findings to the Issues Log at the bottom
+
+**Severity levels:**
+- **Critical:** Safety issue — vehicle could behave unsafely, data loss, security bypass
+- **High:** Bug that will hit in practice — race condition, resource leak, crash path
+- **Medium:** Code quality issue that increases risk — missing validation, unclear error handling
+- **Low:** Style, documentation, minor improvement
+
+**What NOT to flag:**
+- Pre-existing issues in code you weren't asked to review
+- Things a linter/typechecker would catch (flake8, mypy handle these)
+- Style preferences not called out in CLAUDE.md
+- Missing test coverage (unless for safety-critical paths)
+
+## Review Chunks
+
+| # | Chunk | Files | LOC | Status | Date | Issues |
+|---|-------|-------|-----|--------|------|--------|
+| 1 | Safety Critical | pipeline/facade.py, pipeline/{bootstrap,control,runtime,integrations}.py, camera.py, tracker.py | ~3,200 | Not started | | |
+| 2 | Vehicle Comms | mavlink_io.py, autonomous.py | 878 | Not started | | |
+| 3 | Detection | detectors/base.py, yolo_detector.py | 208 | Done | 2026-04-20 | 0 |
+| 4 | Web Dashboard | web/server.py | 753 | Not started | | |
+| 5 | Display & OSD | osd.py, overlay.py, msp_displayport.py | 816 | Done | 2026-04-20 | 0 |
+| 6 | Logging & Export | detection_logger.py, review_export.py, event_logger.py, verify_log.py | 1,132 | Done | 2026-04-20 | 2 |
+| 7 | RF Hunting | rf/hunt.py, rf/navigator.py, rf/search.py | 907 | Done | 2026-04-20 | 1 |
+| 8 | RF Support | rf/signal.py, rf/kismet_client.py, rf/rssi_protocol.py, rf/rtl_power_client.py | 454 | Done | 2026-04-20 | 1 |
+| 9 | Tests | all tests/ files | 2,872 | Not started | | |
+| 10 | Config & Deploy | config.ini, Dockerfile, scripts/, CLAUDE.md | ~2,612 | Partial (infra core only) | 2026-04-20 | 1 |
+
+## Review Criteria (from CLAUDE.md)
+
+- Thread safety (threading.Lock, no blocking I/O in hot path)
+- Memory bounds (4-8 GB Jetson shared RAM)
+- Main loop sustains >= 5 FPS
+- Fail-safe behavior (graceful degradation, not crashes)
+- Input validation at system boundaries
+- Bearer token auth on control endpoints
+- All tunables in config.ini
+- Python 3.10+ type hints, dataclasses
+
+## Orphan Branches (need manual review)
+
+- `claude/compare-config-frameworks-3FuSP` — no PR
+- `claude/implement-todo-item-KrrRT` — no PR
+- `feat/follow-mode-approach-controller` — PR #83 closed (not merged)
+
+## Issues Log
+
+<!-- Append issues here as each chunk is reviewed -->
+
+### Chunk 3 — Detection (2026-04-20)
+
+Reviewed: `detectors/__init__.py` (12), `detectors/base.py` (68), `detectors/yolo_detector.py` (140). Total 220 LOC.
+
+**Result: 0 findings at >= 75 confidence.**
+
+Notes (below-threshold, recorded for context — not actionable):
+- `YOLODetector.switch_model()` reassigns `self._model` without a lock while pipeline thread may be mid-`detect()`. Python reference counting keeps the old model alive on the predict stack until the call returns, so this is benign in practice. No crash path; no add-lock needed.
+- Mixed type-hint style: `List[Detection]` (line 7 import / line 23 param) alongside `list[int]` (lines 94, 105). Cosmetic — `from __future__ import annotations` makes both string-only at runtime. CLAUDE.md doesn't mandate one form.
+- `load()` doesn't catch `YOLO(model_path)` failures. This is correct — startup model-load failures should fail loud, not be swallowed. `switch_model()` correctly catches Exception and preserves the prior model.
+- Memory: per-frame allocation bounded by detection count (typically 10-50). No caches. `xyxy.cpu().numpy()` is a small GPU→CPU transfer (boxes only, not feature maps), well below the CLAUDE.md hot-loop concern.
+
+Cross-chunk concern flagged for Chunk 4: `switch_model()` is called from `POST /api/model/switch` — verify auth + path validation upstream when reviewing web/server.py.
+
+Tracker maintenance: Chunk 1 row updated post-PR #120 — `pipeline.py` is now an 8-line compatibility shim; the real code is in `pipeline/facade.py` (2565 lines) plus `bootstrap.py`, `control.py`, `runtime.py`, `integrations.py`.
+
+### Chunk 8 — RF Support (2026-04-20)
+
+Reviewed: `rf/signal.py` (54), `rf/kismet_client.py` (235), `rf/rssi_protocol.py` (27), `rf/rtl_power_client.py` (138). Total 454 LOC. Tracker scope expanded: `rssi_protocol.py` and `rtl_power_client.py` were added since the original tracker was written (2026-04-04).
+
+**Result: 1 finding at >= 75 confidence.**
+
+**Finding 1 — Medium (confidence 78). `hydra_detect/rf/rtl_power_client.py:115-134` (`_scan_peak`) skips process cleanup on `KeyboardInterrupt` / `SystemExit`.**
+
+The cleanup block uses `except Exception:` which doesn't catch `BaseException` subclasses. If the operator Ctrl-Cs the pipeline mid-scan, or if systemd signals the process during a `_scan_peak` call, the `rtl_power` subprocess is orphaned in its own process group. CLAUDE.md flags this exact pattern as a project rule:
+
+> "When spawning external processes (rtl_power, Kismet, etc.), always implement proper cleanup with `try/finally` or `atexit` handlers to prevent orphaned processes."
+
+The whole reason `_kill_proc` does `os.killpg(pgid, SIGKILL)` is that rtl_power ignores SIGTERM mid-scan — so leaving it orphaned means the dongle stays held and the next scan fails with "device busy" until the orphan is reaped manually.
+
+Fix: convert the inner block to `try/finally`, or add `except BaseException: _kill_proc(proc); raise` after the existing handlers. The latter preserves current control flow:
+
+```python
+try:
+    for line in proc.stdout:
+        ...
+    proc.wait(timeout=5)
+except subprocess.TimeoutExpired:
+    _kill_proc(proc)
+except BaseException:
+    _kill_proc(proc)
+    raise
+```
+
+NOT fixed autonomously — flagging for Kyle. Small change but in safety-critical cleanup code; he should decide whether to land directly or pair with a regression test that simulates SIGINT mid-scan.
+
+Notes (below threshold):
+- `KismetClient._ensure_auth` falls through from cookie auth to basic auth without explicitly clearing a possibly-stale cookie. Confidence ~50% it's a real defect; recovery via `check_connection` retry pattern (lines 109-118) and explicit `reset_auth()` in hunt.py:418 cover the common failure modes. Skip.
+- `RSSIFilter.trend` reads `_window` without locking. Concurrent `add()` from pipeline thread and `trend` read from dashboard thread can produce a stale split, but no crash. Skip.
+- `_scan_peak` swallows rtl_power stderr to `/dev/null`. Same anti-pattern as the session-start hook fix on `fix/session-start-pip-errors`, but lower stakes — the parser returns None on no data and caller handles it. Worth a debug-log helper but not a defect.
+- `RtlPowerClient.check_connection` does a full 10-MHz scan on every call (1-5s). KismetClient is sub-second. Hunt loop should cache liveness or back off — out of scope for this chunk, flag for Chunk 7 (RF Hunting).
+
+### Chunk 6 — Logging & Export (2026-04-20)
+
+Reviewed: `detection_logger.py` (531), `review_export.py` (348), `event_logger.py` (160), `verify_log.py` (93). Total 1,132 LOC. Tracker scope expanded to include `event_logger.py` and `verify_log.py` (related logging modules not on the original list).
+
+**Result: 2 findings at >= 75 confidence.**
+
+**Finding 1 — Medium (confidence 76). `hydra_detect/event_logger.py:139-148` (`get_recent_events`) holds `_lock` while doing blocking disk I/O.**
+
+The method holds the event-logger lock while calling `path.read_text()`, which loads the entire mission file into memory. The pipeline thread acquires the same lock to call `log_action`, `log_detection`, `log_state_change`, and `log_vehicle_track` — so every dashboard poll of `/api/events/recent` (via `pipeline/facade.py:2040 _get_events` → callback `get_events` registered at `pipeline/control.py:66` → consumed at `web/server.py:1167`) blocks the pipeline write path for the duration of the disk read.
+
+For a 30-minute sortie at 1 Hz GPS + ~10 events/sec under engagement, the file grows to ~3-5 MB. On the Jetson SD card this is sub-100 ms typically, but tail latency under load can exceed 200 ms — enough to dent the CLAUDE.md "≥5 FPS hot loop" guarantee.
+
+The lock comment (line 137) explicitly says it's held "to prevent concurrent end_mission() from deleting the file between the path check and the read" — so just dropping the lock isn't safe.
+
+Suggested fix: maintain an in-memory ring buffer of the last N events alongside the disk write (`collections.deque(maxlen=N)` appended in `_log_event`). `get_recent_events` snapshots the deque under a brief lock — no disk I/O. Mission-end clears the deque. Dashboard never reads from disk; the persisted JSONL stays the system of record for after-action review (use `verify_log.py` for audit).
+
+NOT fixed autonomously — non-trivial behavior change. Flagging for Kyle.
+
+**Finding 2 — Medium (confidence 76). `hydra_detect/detection_logger.py:451` (`_writer_loop`) has no exception handler around `_process_work_item`.**
+
+If a single work item raises (e.g., a corrupted record, a transient OSError that escapes the inner per-write try/except, an unexpected type in `tracking_result`), the entire writer daemon thread dies silently. The hot-path keeps queuing detections; queue fills to maxsize=100; subsequent `put_nowait` calls raise `queue.Full` which IS caught (lines 261-269) and logs "queue full — dropping frame". So the operator sees "queue full" warnings but the actual root cause (writer thread dead) is invisible — and `_disabled` is never set, so no health endpoint surfaces the failure.
+
+Suggested fix:
+
+```python
+def _writer_loop(self) -> None:
+    while True:
+        try:
+            item = self._write_queue.get(timeout=1.0)
+        except queue.Empty:
+            continue
+        if item is _STOP:
+            ...drain...
+            break
+        try:
+            self._process_work_item(item)
+        except Exception:
+            logger.exception("Detection logger work item failed")
+            # Continue — losing one frame is better than killing the writer.
+```
+
+NOT fixed autonomously — small change but in the safety-critical write path. Flagging for Kyle.
+
+Notes (below threshold):
+- `detection_logger._prev_chain_hash` is mutated outside any lock on the caller thread (line 238). Pipeline only calls `log()` from one thread, so no concurrent corruption in practice — but defensive.
+- `detection_logger` queue holds frame copies (~2.7 MB each at 1280×720 BGR). At maxsize=100 that's ~270 MB worst case on a 4-8 GB Jetson. Bounded but worth the operator knowing during config tuning.
+- `verify_log.py` loads the full file into memory before iterating. Acceptable for an offline CLI tool but won't scale to multi-GB logs. Could stream line-by-line.
+- `event_logger._log_event` swallows IOError as DEBUG. If the SD card fills, mission events stop logging silently. Borderline — but raising would crash the pipeline. Accept as a known trade-off.
+- `review_export.py` HTML escape pattern is correct: `</` → `<\/` for script-tag breakout, `html.escape(title)` for the <title>, `esc()` JS helper using textContent/innerHTML pattern, path-traversal guard via `relative_to` resolved paths, SRI hashes on Leaflet CDN tags. No injection vector found.
+- `review_export.py --max-records=0` (default) means no cap on the CLI tool. Web endpoints cap at 50k; CLI lets the operator decide. Reasonable.
+
+### PR #120 follow-ups (out-of-band findings, 2026-04-20)
+
+These came out of the main-branch review of PRs #120/#121 (commit range 27e6e0e..f2538af). Cross-listed here so the tracker captures them alongside the chunk findings.
+
+**Finding A — Low. `hydra_detect/pipeline/bootstrap.py:24-76` (`PipelineBootstrap.load_config`) is dead code.**
+
+The class is defined and tested (`test_pipeline_subsystems.py:14-26`) but never called by `Pipeline.__init__` — `pipeline/facade.py:80-134` still inlines the config-loading logic. The "scaffold" PR landed the wrapper without wiring it up. Two paths forward:
+1. Wire it in: replace the inlined block in `facade.py:80-134` with `ctx = PipelineBootstrap().load_config(...); self._cfg = ctx.cfg; self._callsign = ctx.callsign`.
+2. Drop the class + test: revert until extraction actually happens.
+
+Either is fine. The current state is misleading — tests pass but they're testing code that doesn't run in production.
+
+**Finding B — Low. `hydra_detect/.claude/hooks/session-start.sh` silent pip failures.**
+
+FIXED on local branch `fix/session-start-pip-errors` (commit 41429b6). NOT pushed — Kyle to review and merge. Replaces `2>/dev/null` with logged output to `$TMPDIR/hydra-session-start-pip.log` and adds `if !` guards so a single pip miss no longer aborts the entire hook under `set -e`.
+
+**Finding C — Low. `tests/test_pipeline_subsystems.py` is thinner than it looks.**
+
+Tests #3 (`test_control_adapter_exposes_expected_callbacks`) and #6 (`test_pipeline_contract_adapter_callbacks_keep_command_behavior`) build complete 50-attribute `cb_owner` mocks, then assert against only 1-3 callbacks. The setup cost is paid but the regression coverage is minimal. Suggested expansion of test #6:
+
+```python
+expected_bindings = {
+    "on_target_lock": cb_owner._handle_target_lock,
+    "on_target_unlock": cb_owner._handle_target_unlock,
+    "on_strike_command": cb_owner._handle_strike_command,
+    # ... all 50 ...
+}
+for cb_name, expected in expected_bindings.items():
+    assert callbacks[cb_name] is expected, f"{cb_name} not bound to expected method"
+```
+
+This would catch any future copy-paste rename in `pipeline/control.py:16-69` that the lint script doesn't cover. Pure-additive change, low risk, but requires running pytest to verify — flagging for Kyle rather than committing blind from a Windows host without CV2.
+
+**Finding D — Low. `pipeline/facade.py` still 2565 lines.**
+
+PR #120 set up the scaffolding but moved almost no logic out. Not a regression; the refactor is intentionally staged. Follow-up extraction work is expected. Recommendation: target the most thread-isolated subsystems first (RF hunt controller wiring, TAK output queue, OSD sender) — they have minimal coupling to the main detect loop.
+
+**Finding E — Resolved (no action). `POST /api/models/switch` auth cross-chunk concern from Chunk 3.**
+
+Verified in `web/server.py:1267-1289`. Endpoint requires bearer token via `_check_auth`, validates model name (length ≤ 256, no `/`, no `..`), and audit-logs both success and failure. Path-traversal vector closed at the API boundary, so `YOLODetector.switch_model` doesn't need its own validation. Closed.
+
+### Chunk 5 — Display & OSD (partial, 2026-04-20)
+
+Reviewed: `overlay.py` (204) only. **Result: 0 findings at >= 75 confidence.**
+
+Bbox clamping (lines 58-63) is explicit: `max(0, ...)` and `min(w-1, ...)` with a degenerate-box skip (`if x2 <= x1 or y2 <= y1: return`). Label background also clamped (lines 118-123) with the same degeneracy guard. The CLAUDE.md note about coordinates near frame edges crashing OpenCV is honored. HUD backdrop uses `cv2.multiply(roi, 0.5, dst=roi)` for in-place dimming — no extra alloc. The two-pass dim-then-overlay rendering is bounded (one frame.copy() when dimmed_tracks is non-empty) and correct visually.
+
+Note (below threshold): `frame.copy()` at line 165 allocates ~2.7 MB per render when any tracks are dimmed (1280×720 BGR). Bounded to one alloc per frame; numpy reuses heap on next frame. Not a regression but worth knowing during memory tuning on Jetson.
+
+**Update — full Chunk 5 reviewed:** `osd.py` (271) and `msp_displayport.py` (341) reviewed end-of-session. **0 additional findings at >= 75 confidence.**
+
+Notes (below threshold):
+- `osd.py:_send_named_values` writes 6 PARAM_SET messages every `update_interval` (default 200 ms) → ~30 PARAM_SET/sec when locked. ArduPilot accepts them but it's heavy traffic on the FC bus. Could send only changed values. Borderline (~70% confidence as a real concern); the previous attempt to use NAMED_VALUE_FLOAT didn't work because ArduPilot doesn't forward those from companion-computer serial ports (documented in osd.py:163-167 comment). The current PARAM_SET approach is the documented workaround.
+- `osd.FpvOsd` has no `stop()` method, so `MspDisplayPort.stop()` is never invoked from `pipeline/facade.py`. The MSP thread is `daemon=True` and the kernel closes the serial FD at process exit, so functionally OK under systemd SIGTERM/SIGKILL. Code-quality gap: there's no path to cleanly disable OSD at runtime without restarting the whole pipeline. ~60% confidence.
+- `msp_displayport._format_gps_line` constructs a fresh `mgrs.MGRS()` object every render cycle (5-10 Hz) when MGRS is installed. Could be cached on the instance for a small CPU win. Cosmetic.
+- `osd.update()` lock pattern guards only the rate-limit check; the actual MAVLink send happens outside the lock. Two concurrent `update()` calls could both pass the gate and both send. Pipeline only calls `update` from one thread, so no real race. Skip.
+
+### Chunk 7 — RF Hunting (2026-04-20)
+
+Reviewed: `rf/hunt.py` (641), `rf/navigator.py` (164), `rf/search.py` (102). Total 907 LOC. Tracker LOC bumped from 709 (likely pre-feature-add).
+
+**Result: 1 finding at >= 75 confidence.**
+
+**Finding 4 — Medium (confidence 78). `hydra_detect/rf/hunt.py:439-498` (`_do_search`) silently strands the vehicle when a waypoint violates the geofence and no `_clip_to_geofence` callback is wired.**
+
+When `_geofence_waypoint` returns False because there's no clip callback (line 372-374), `_do_search` returns without commanding any waypoint. On the next iteration, `_wp_index` was already incremented (line 485) and `_effective_wp` reset to None (line 486), so:
+
+- Line 484 distance check uses the NEW waypoint's coords (since `_effective_wp` is None, line 481).
+- If distance >= tolerance (vehicle hasn't moved, since no waypoint was ever commanded), control falls through to the elif at line 494: `wp_index == 0 and effective_wp is None` is False because wp_index ≥ 1. **No waypoint is sent.**
+
+The vehicle hovers at its last known position. The hunt loop keeps polling RSSI but stops moving through the search pattern. Eventually wp_index reaches `len(waypoints)` and the hunt aborts via line 462-472 — which sends a "No signal found" status text. The operator sees an aborted hunt with no indication the search was broken by missing geofence configuration.
+
+This only triggers when:
+1. `geofence_check` is wired (returns False for some waypoints), AND
+2. `geofence_clip` is NOT wired (None at construction), AND
+3. The search pattern wanders outside the fence.
+
+In production, `pipeline/facade.py` likely wires both, so the practical risk is low. But the failure mode is silent — "hunt aborted, no signal found" looks identical to a legitimate negative result.
+
+Suggested fix (one of):
+- Treat `geofence_check pass + clip cb absent + outside fence` as a config error: log ERROR, set state to ABORTED with a clear status text, never silently advance.
+- Skip-and-continue: if the suppressed waypoint isn't sendable, advance `wp_index` and immediately try the next waypoint within the same `_do_search` call (loop until either a sendable one is found or the pattern exhausts).
+
+NOT fixed autonomously — the right answer depends on whether the design intends "fence violations are a deployment bug, fail loud" or "skip and keep searching where you can". Flagging for Kyle.
+
+Notes (below threshold):
+- `RFHuntController._kismet_restart_pending` flag is read/written without lock (lines 408-423). Single-threaded access from the hunt loop, so no real race. ✓
+- `_set_state` releases the lock before invoking `on_state_change` callback. Good — prevents deadlock if the callback re-enters. ✓
+- `GradientNavigator.next_probe` reads `_converge_dbm` without lock (line 121) — that field is set in __init__ and never mutated, so safe. ✓
+- `RFHuntController.stop()` joins thread with 10 s timeout. If the hunt thread is mid-`time.sleep(self._poll_interval)` (default 0.5 s) it stops promptly. The `_stop_evt.wait(3.0)` in `_do_lost` is the longest blocking sleep — still well under timeout. ✓
+- `_report_results` uses `os.replace(tmp_path, csv_path)` for atomic write. Good. ✓ Uses `/tmp` intentionally (per inline comment).
+- `search.generate_spiral` divides by `points_per_rev` (line 65) — if config supplied 0 it'd ZeroDivisionError. Config schema validates upstream; internal helper doesn't re-guard. Acceptable.
+- `navigator.record()` uses `time.time()` (wall clock) for sample timestamp, deliberately for log correlation. Different from monotonic clock used elsewhere. Documented intent. ✓
+
+### Chunk 10 — Config & Deploy (partial, 2026-04-20)
+
+Reviewed (infra core): `Dockerfile` (50), `scripts/hydra-detect.service` (31), `scripts/deploy.sh` (31), `scripts/hydra_sync.sh` (141), `config.ini` (229), `.dockerignore` (8). Skipped: `setup_headless.sh`, `setup_tailscale.sh`, `hydra-setup.sh`, `jetson_preflight.sh`, demo scripts (`rf_*_demo.py`, `osd_layout.py`) — utility scripts, lower risk surface.
+
+**Result: 1 finding at >= 75 confidence.**
+
+**Finding 5 — High (confidence 85). `scripts/deploy.sh:6` defaults to a merged-and-deleted feature branch.**
+
+```bash
+BRANCH="${1:-claude/fix-hydra-video-stream-7CDH6}"
+```
+
+That branch was merged as PR #97 and deleted from origin — confirmed via `git branch -r`. Running `./scripts/deploy.sh` with no argument today would execute `git pull origin claude/fix-hydra-video-stream-7CDH6` and fail with "Couldn't find remote ref." The default is broken, not just stale.
+
+`scripts/hydra_sync.sh:44` correctly defaults to `main`. Aligning `deploy.sh` to the same default is a one-line fix:
+
+```bash
+BRANCH="${1:-main}"
+```
+
+NOT fixed autonomously — deploy script changes the Jetson deploy workflow. Kyle should confirm the intended default (main vs. some specific release branch). Small change; safe under `set -e` since the current behavior is outright failure anyway.
+
+Notes (below threshold):
+- `config.ini` ships with `require_auth_for_control = false` as the default. Combined with `api_token =` empty and `web_password =` empty, the control endpoints accept any request from the local WiFi until the operator configures auth. Given the SORCC field context (vehicle's own AP, 50-100 m range, training environment), the blast radius is limited. But this is a STRIKE-capable system — defaults-off for auth warrants an explicit Kyle decision. ~70% confidence as a real concern.
+- `hydra_sync.sh:52-61` argument parsing passes `-d DIR` and `-b BRANCH` through to ssh commands without validation or shell escaping. An operator who passes `-d "/opt/Hydra; rm -rf /"` would self-pwn the Jetson. Self-harm only (not a remote vector); ~60% confidence as a real defect. Fix with `printf %q` escaping or an explicit allowlist.
+- `Dockerfile` runs as root — acceptable under `--privileged` systemd launcher (needs /dev access for cameras, serial, CUDA). Non-root would require significant rework for marginal hardening gain.
+- `scripts/deploy.sh:22` — `sleep 20` may be too short. CLAUDE.md says "allow ~35 seconds for YOLO model load". Deploys on slow SD cards might hit the `/stream.jpg` check before YOLO warms up, producing false "DEPLOY WARNING". Cosmetic (warning is non-fatal). ~55% confidence.
+- `.dockerignore` correctly excludes `.git`, `.env`, `__pycache__`, `*.pyc`, `logs/`, `crops/`, `models/`, `*.egg-info`. ✓
+- `hydra-detect.service:4` requires docker.service but only `After=` kismet.service (not Requires). If Kismet fails at boot, Hydra starts; RF hunt fails gracefully. Good design. ✓
+- `hydra-detect.service` has no `StartLimitBurst`/`StartLimitIntervalSec` — systemd's default kicks in eventually. Field systems usually prefer aggressive restart over limiting. Accept.
+
+**Remaining for Chunk 10 (defer to a future session):** `setup_headless.sh` (296), `setup_tailscale.sh` (202), `hydra-setup.sh` (462), `jetson_preflight.sh` (131). These are first-time-setup scripts — different risk profile (ran once per Jetson, human supervised) than the always-running deploy/service code reviewed above. Lower priority.
+
+### Local branches awaiting Kyle's review
+
+Two unpushed feature branches off main with the autonomous-session fixes:
+
+- `fix/session-start-pip-errors` (commit 41429b6) — Finding B fix. Surfaces pip failures in SessionStart hook via log file + WARN emission. Pure bash-script change, no Python or runtime impact.
+- `test/expand-pipeline-callback-contract` (commit 9da59c4) — Finding C fix. Expands `test_pipeline_subsystems.py::test_pipeline_contract_adapter_callbacks_keep_command_behavior` to assert all 48 callback bindings. Test-only change. Smoke-tested outside pytest (Windows host has no cv2 so `pytest tests/` can't run end-to-end); CI will validate.
+
+Neither branch was pushed — Kyle to decide on PRs.
