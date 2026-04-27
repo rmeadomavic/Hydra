@@ -14,6 +14,7 @@
             --warning: #FF9F1C;
             --success: #0E8A16;
             --border: #1e2830;
+            --border-default: #1e2830;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -94,6 +95,7 @@
         }
         .alert-time { color: #888; }
         .alert-callsign { color: var(--accent); }
+        .alert-feed-placeholder { color: #888; font-size: 12px; }
     </style>
 </head>
 <body>
@@ -106,8 +108,8 @@
 
     <div class="vehicle-grid" id="vehicle-grid"></div>
 
-    <div class="alert-feed" id="alert-feed">
-        <div style="color: #888; font-size: 12px;">Detection alerts will appear here...</div>
+    <div class="alert-feed" id="alert-feed" role="log" aria-live="polite" aria-label="Fleet detection alert feed">
+        <div class="alert-feed-placeholder">Detection alerts will appear here...</div>
     </div>
 
     <script src="/static/js/instructor.js"></script>

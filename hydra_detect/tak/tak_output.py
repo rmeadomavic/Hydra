@@ -81,6 +81,10 @@ class TAKOutput:
         self._last_sa = 0.0
         self._last_video = 0.0
         self._events_sent = 0
+        # Last _send_cot failure list — populated on every send attempt,
+        # read by send_test_beacon() so a failed preflight returns the
+        # concrete reason (e.g. "mcast 239.2.3.1:6969 (network unreachable)").
+        self._last_send_failures: list[str] = []
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -179,6 +183,60 @@ class TAKOutput:
         with self._data_lock:
             return [{"host": h, "port": p} for h, p in self._unicast_targets]
 
+    def send_test_beacon(self) -> dict:
+        """Force an immediate self-SA emit and report the result.
+
+        Used by the TAK tab's "Test Broadcast" button so operators can
+        verify end-to-end wiring before a field sortie without having to
+        wait on the 5 s SA cadence. Returns a dict with:
+            success (bool), reason (str), callsign, destinations (list[str]).
+        """
+        if not self.is_running():
+            return {
+                "success": False,
+                "reason": "TAK output is not running",
+                "callsign": self._callsign,
+                "destinations": [],
+            }
+        lat, lon, _ = self._mav.get_lat_lon()
+        if lat is None or lon is None:
+            return {
+                "success": False,
+                "reason": "No GPS fix — self-SA needs a position",
+                "callsign": self._callsign,
+                "destinations": [],
+            }
+        try:
+            sent = self._send_self_sa()
+        except OSError as e:
+            return {
+                "success": False,
+                "reason": f"Socket error: {e}",
+                "callsign": self._callsign,
+                "destinations": [],
+            }
+        destinations = [f"mcast://{self._mcast_group}:{self._mcast_port}"]
+        with self._data_lock:
+            for host, port in self._unicast_targets:
+                destinations.append(f"udp://{host}:{port}")
+        if not sent:
+            # _send_cot catches OSError internally — surface whatever it
+            # last recorded so the operator sees the real reason instead
+            # of a false-positive "Self-SA emitted".
+            failures = ", ".join(self._last_send_failures) or "all sends failed"
+            return {
+                "success": False,
+                "reason": f"No destination accepted the packet: {failures}",
+                "callsign": self._callsign,
+                "destinations": destinations,
+            }
+        return {
+            "success": True,
+            "reason": "Self-SA emitted",
+            "callsign": self._callsign,
+            "destinations": destinations,
+        }
+
     # ------------------------------------------------------------------
     # Sender thread
     # ------------------------------------------------------------------
@@ -208,10 +266,13 @@ class TAKOutput:
                     if ts > cutoff
                 }
 
-    def _send_self_sa(self) -> None:
+    def _send_self_sa(self) -> bool:
+        """Build + emit a self-SA CoT. Returns True if at least one
+        destination accepted it, False otherwise (including the no-GPS
+        case so the caller can distinguish)."""
         lat, lon, alt = self._mav.get_lat_lon()
         if lat is None or lon is None:
-            return
+            return False
         heading = self._mav.get_heading_deg()
         telem = self._mav.get_telemetry()
         speed = telem.get("groundspeed")
@@ -224,7 +285,7 @@ class TAKOutput:
             speed=speed,
             stale_seconds=self._stale_sa,
         )
-        self._send_cot(data)
+        return self._send_cot(data)
 
     def _send_video_feed(self) -> None:
         lat, lon, alt = self._mav.get_lat_lon()
@@ -298,17 +359,30 @@ class TAKOutput:
         """
         self._send_cot(data)
 
-    def _send_cot(self, data: bytes) -> None:
-        """Send CoT XML to all configured destinations."""
+    def _send_cot(self, data: bytes) -> bool:
+        """Send CoT XML to all configured destinations.
+
+        Returns True if at least one destination accepted the packet; False
+        if every send errored (or there is no socket / no destinations).
+        The sender loop does not inspect the return value — callers like
+        send_test_beacon() use it to tell the operator whether the force
+        emit actually went out.
+        """
         if self._sock is None:
-            return
+            return False
+        any_ok = False
+        failures: list[str] = []
         # Multicast
         if self._mcast_group:
             try:
                 self._sock.sendto(data, (self._mcast_group, self._mcast_port))
                 self._events_sent += 1
+                any_ok = True
             except OSError as exc:
                 logger.debug("TAK multicast send failed: %s", exc)
+                failures.append(
+                    f"mcast {self._mcast_group}:{self._mcast_port} ({exc})"
+                )
         # Unicast targets — copy under lock to avoid concurrent mutation
         with self._data_lock:
             unicast_snapshot = list(self._unicast_targets)
@@ -316,5 +390,13 @@ class TAKOutput:
             try:
                 self._sock.sendto(data, (host, port))
                 self._events_sent += 1
+                any_ok = True
             except OSError as exc:
                 logger.debug("TAK unicast send to %s:%d failed: %s", host, port, exc)
+                failures.append(f"{host}:{port} ({exc})")
+        # Remember last failure detail so send_test_beacon can surface it.
+        if failures:
+            self._last_send_failures = failures
+        else:
+            self._last_send_failures = []
+        return any_ok

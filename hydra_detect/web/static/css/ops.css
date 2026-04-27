@@ -733,6 +733,20 @@ body.view-ops #view-ops {
     padding: 6px 14px !important;
 }
 
+/* Confirm-overlay target description (track id + label). */
+.ops-confirm-desc {
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    color: var(--text-dim);
+    margin-bottom: var(--s-3);
+}
+
+/* Drop confirm button — amber to distinguish from red strike. */
+.ops-confirm-actions .btn-confirm-drop {
+    background: var(--warning);
+    color: #fff;
+}
+
 /* ── Touch targets ── */
 @media (pointer: coarse) {
     .ops-action-btn {

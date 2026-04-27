@@ -2153,6 +2153,40 @@ async def api_tak_toggle(request: Request, authorization: Optional[str] = Header
     return JSONResponse({"error": "TAK output not available"}, status_code=503)
 
 
+@app.post("/api/tak/test_broadcast")
+async def api_tak_test_broadcast(
+    request: Request, authorization: Optional[str] = Header(None)
+):
+    """Force an immediate TAK self-SA emit so operators can verify wiring.
+
+    Useful before a demo or field sortie: click once, watch for the marker
+    to appear in ATAK. Returns destination list + reason string. Requires
+    the TAK sender thread to be running and MAVLink to have a GPS fix.
+    """
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    if _tak_output_ref is None:
+        return JSONResponse(
+            {
+                "success": False,
+                "reason": "TAK output is not initialized",
+                "destinations": [],
+            },
+            status_code=503,
+        )
+    try:
+        result = _tak_output_ref.send_test_beacon()
+    except Exception as e:
+        logger.exception("TAK test broadcast failed: %s", e)
+        return JSONResponse(
+            {"success": False, "reason": f"Unexpected error: {e}", "destinations": []},
+            status_code=500,
+        )
+    _audit(request, "tak_test_broadcast", target=str(result.get("success")))
+    return result
+
+
 @app.get("/api/stream/quality")
 async def get_stream_quality():
     """Return current MJPEG stream quality."""
@@ -3168,9 +3202,34 @@ async def setup_page(request: Request):
     return templates.TemplateResponse(request, "setup.html")
 
 
+def _detect_lan_ip() -> str:
+    """Return the Jetson's outbound LAN IP, or empty string if undetectable.
+
+    Opens a UDP socket to a routable external address (no packet is sent)
+    and reads back the interface the kernel chose. Handles offline / no-route
+    gracefully — no exception propagates.
+    """
+    import socket as _socket
+    sock = None
+    try:
+        sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        sock.settimeout(0.2)
+        sock.connect(("8.8.8.8", 80))
+        ip = sock.getsockname()[0]
+        return ip if ip and ip != "0.0.0.0" else ""
+    except OSError:
+        return ""
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+
 @app.get("/api/setup/devices")
 async def api_setup_devices():
-    """List available cameras and serial ports for setup wizard."""
+    """List available cameras, serial ports, and LAN IP for setup wizard."""
     import glob
     cameras = []
     serial_ports = []
@@ -3184,7 +3243,11 @@ async def api_setup_devices():
         if any(prefix in dev for prefix in ["ttyACM", "ttyUSB", "ttyTHS", "ttyAMA"]):
             serial_ports.append({"path": dev, "name": dev})
 
-    return {"cameras": cameras, "serial_ports": serial_ports}
+    return {
+        "cameras": cameras,
+        "serial_ports": serial_ports,
+        "lan_ip": _detect_lan_ip(),
+    }
 
 
 @app.post("/api/setup/save")
@@ -3212,11 +3275,17 @@ async def api_setup_save(request: Request, authorization: Optional[str] = Header
     vehicle_type = body.get("vehicle_type", "")
     team_number = body.get("team_number", "")
     callsign = body.get("callsign", "")
+    tak_advertise_host = body.get("tak_advertise_host", "")
+    tak_allowed_callsigns = body.get("tak_allowed_callsigns", "")
+    tak_enabled = body.get("tak_enabled", None)  # None = don't touch existing value
 
     # Validate field types before length checks
-    for field in [camera_source, serial_port, vehicle_type, team_number, callsign]:
+    for field in [camera_source, serial_port, vehicle_type, team_number,
+                  callsign, tak_advertise_host, tak_allowed_callsigns]:
         if not isinstance(field, str):
-            return JSONResponse({"error": "All fields must be strings"}, status_code=400)
+            return JSONResponse({"error": "All string fields must be strings"}, status_code=400)
+    if tak_enabled is not None and not isinstance(tak_enabled, bool):
+        return JSONResponse({"error": "tak_enabled must be bool"}, status_code=400)
 
     # Validate inputs — bounded lengths
     if len(camera_source) > 200:
@@ -3229,6 +3298,10 @@ async def api_setup_save(request: Request, authorization: Optional[str] = Header
         return JSONResponse({"error": "team_number too long"}, status_code=400)
     if len(callsign) > 50:
         return JSONResponse({"error": "callsign too long"}, status_code=400)
+    if len(tak_advertise_host) > 253:
+        return JSONResponse({"error": "tak_advertise_host too long"}, status_code=400)
+    if len(tak_allowed_callsigns) > 500:
+        return JSONResponse({"error": "tak_allowed_callsigns too long"}, status_code=400)
     if vehicle_type and vehicle_type not in ("drone", "usv", "ugv", "fw"):
         return JSONResponse(
             {"error": "vehicle_type must be drone, usv, ugv, or fw"},
@@ -3244,8 +3317,23 @@ async def api_setup_save(request: Request, authorization: Optional[str] = Header
         "camera": {"source": camera_source},
         "mavlink": {"connection_string": serial_port},
     }
+    tak_updates: dict[str, str] = {}
     if callsign:
-        updates["tak"] = {"callsign": callsign}
+        tak_updates["callsign"] = callsign
+    if tak_enabled is not None:
+        tak_updates["enabled"] = "true" if tak_enabled else "false"
+        # Inbound commands gate off the same toggle by default — students
+        # who enable TAK expect GeoChat commands to work if they populate
+        # an allowlist. Explicit separate toggle still lives in Settings.
+        tak_updates["listen_commands"] = "true" if tak_enabled else "false"
+    if tak_advertise_host:
+        tak_updates["advertise_host"] = tak_advertise_host
+    # Always write allowed_callsigns (including empty string) so the wizard
+    # can clear a stale allowlist on re-run.
+    if "tak_allowed_callsigns" in body:
+        tak_updates["allowed_callsigns"] = tak_allowed_callsigns
+    if tak_updates:
+        updates["tak"] = tak_updates
 
     field_errors = validate_config_updates(updates)
     if field_errors:

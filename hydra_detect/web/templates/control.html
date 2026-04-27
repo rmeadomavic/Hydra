@@ -63,6 +63,38 @@
         .btn-unlock { background: #333; color: #ccc; }
         .btn-unlock:active { background: #444; }
 
+        /* Header ABORT — always visible emergency stop for the tablet operator.
+           Sized large + high-contrast so it reads at arm's length with gloves. */
+        .header-abort {
+            background: #8b2020; color: #fff;
+            border: 1px solid #c53030; border-radius: 4px;
+            padding: 8px 16px; font-family: inherit; font-size: 13px;
+            font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+            min-height: 44px; cursor: pointer;
+            box-shadow: 0 0 8px rgba(197, 48, 48, 0.4);
+        }
+        .header-abort:active { background: #6b1515; }
+        .header-abort-flash { animation: abort-flash 0.6s ease-in-out 2; }
+        @keyframes abort-flash {
+            0%, 100% { background: #8b2020; }
+            50%      { background: #c53030; }
+        }
+
+        /* Inline feedback line — replaces native alert() for auth / action errors. */
+        .action-toast {
+            position: fixed; left: 50%; bottom: 20px;
+            transform: translateX(-50%);
+            background: #1c1c1c; color: #e8e8e8;
+            border: 1px solid #385723; border-radius: 6px;
+            padding: 10px 18px; font-size: 13px;
+            max-width: 88vw; text-align: center;
+            z-index: 200; opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+        }
+        .action-toast.show { opacity: 1; }
+        .action-toast.error { border-color: #c53030; }
+
         .confirm-overlay {
             display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85);
             z-index: 100; align-items: center; justify-content: center; flex-direction: column;
@@ -80,8 +112,14 @@
 <body>
     <div class="header">
         <h1>HYDRA CONTROL</h1>
+        <button class="header-abort" id="control-abort" type="button"
+                aria-label="Emergency abort — cancel all approach modes and return platform to safe state">
+            ABORT
+        </button>
         <a href="/">Dashboard</a>
     </div>
+
+    <div class="action-toast" id="action-toast" role="status" aria-live="polite"></div>
 
     <div class="stream-wrap">
         <span class="stream-msg" id="stream-msg">Connecting...</span>

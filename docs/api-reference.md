@@ -327,6 +327,12 @@ curl -sX POST <HOST>/api/autonomy/mode -d '{"mode":"shadow"}' \
 ### `POST /api/tak/toggle`
 **Auth:** bearer · `{"enabled": true|false}`.
 
+### `POST /api/tak/test_broadcast`
+**Auth:** bearer · Force an immediate self-SA emit so operators can verify
+TAK wiring before a sortie. Returns `{success, reason, callsign, destinations}`.
+503 if TAK output is not initialized; `success: false` with `reason` if the
+sender thread is stopped or the MAVLink has no GPS fix.
+
 ### `GET /api/tak/commands?limit=N`
 **Auth:** same-origin · Inbound GeoChat command feed.
 `limit` default 100, capped at 500. Shape:

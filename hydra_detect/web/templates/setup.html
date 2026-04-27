@@ -41,6 +41,37 @@
             max-width: 520px;
             width: 100%;
         }
+        .setup-section-divider {
+            font-family: 'Barlow Condensed', sans-serif;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--ogt-muted);
+            border-top: 1px solid var(--border-default);
+            padding-top: 16px;
+            margin-top: 8px;
+        }
+        .setup-hint {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            line-height: 1.35;
+        }
+        .setup-toggle-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            color: var(--text-primary);
+            font-family: 'Barlow', sans-serif;
+            font-size: 0.9rem;
+            text-transform: none;
+            letter-spacing: 0;
+        }
+        .setup-toggle-label input[type="checkbox"] {
+            width: auto;
+            accent-color: var(--olive-primary);
+        }
         .setup-header {
             text-align: center;
             margin-bottom: 32px;
@@ -211,15 +242,37 @@
                 <div class="setup-field">
                     <label for="setup-callsign">Callsign</label>
                     <input type="text" id="setup-callsign" placeholder="auto: HYDRA-{team}-{vehicle}" maxlength="50">
-                    <span style="font-size:0.7rem;color:var(--text-dim)" id="callsign-preview"></span>
+                    <span class="setup-hint" id="callsign-preview"></span>
                 </div>
+            </div>
+
+            <div class="setup-section-divider">TAK / ATAK</div>
+
+            <div class="setup-field setup-field-row">
+                <label for="setup-tak-enabled" class="setup-toggle-label">
+                    <input type="checkbox" id="setup-tak-enabled" checked>
+                    <span>Enable TAK output</span>
+                </label>
+                <span class="setup-hint">Broadcasts detections + position over multicast for ATAK devices on the same LAN.</span>
+            </div>
+
+            <div class="setup-field setup-tak-field">
+                <label for="setup-tak-advertise-host">Advertise Host (Jetson IP)</label>
+                <input type="text" id="setup-tak-advertise-host" placeholder="detecting..." maxlength="253">
+                <span class="setup-hint" id="advertise-host-hint">Used for RTSP video links shown in ATAK markers.</span>
+            </div>
+
+            <div class="setup-field setup-tak-field">
+                <label for="setup-tak-allowed-callsigns">Allowed ATAK Callsigns</label>
+                <input type="text" id="setup-tak-allowed-callsigns" placeholder="INSTRUCTOR-1,TOC-1" maxlength="500">
+                <span class="setup-hint">Comma-separated. Commands from other callsigns are dropped. Leave blank to disable inbound commands.</span>
             </div>
 
             <p class="setup-status" id="setup-status"></p>
 
             <div class="setup-actions">
                 <button class="btn-save" id="setup-save">Save &amp; Start</button>
-                <button class="btn-skip" id="setup-skip" onclick="window.location='/'">Skip to Dashboard</button>
+                <button class="btn-skip" id="setup-skip" type="button">Skip to Dashboard</button>
             </div>
         </div>
     </div>

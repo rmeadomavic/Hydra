@@ -612,6 +612,65 @@ body.view-config #view-config {
     margin-bottom: var(--s-1);
 }
 
+/* Reusable inline rows inside a panel-field. Replaces repeated
+   style="display:flex;align-items:center;gap:8px" wrappers. */
+.panel-row-inline {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+}
+.panel-row-inline-tight {
+    display: flex;
+    align-items: center;
+    gap: var(--s-1);
+}
+.panel-row-btns {
+    display: flex;
+    gap: var(--s-2);
+    margin-top: var(--s-2);
+}
+
+/* Panel-header trailing badge (e.g. mission badge, RF state badge).
+   Pushes the badge to the right of the header row, leaving room for
+   the collapse chevron after it. */
+.panel-header-badge {
+    margin-left: auto;
+    margin-right: var(--s-2);
+}
+
+/* Empty-state placeholders rendered from JS (detection log, TAK list). */
+.panel-det-empty {
+    color: var(--text-dim);
+    font-size: var(--font-sm);
+    padding: var(--s-2);
+    text-align: center;
+}
+.panel-tak-target-empty {
+    color: var(--text-dim);
+    font-size: var(--font-xs);
+    padding: 2px 0;
+}
+
+/* TAK unicast target list rows. */
+.panel-tak-target-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 0;
+}
+.panel-tak-target-addr {
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    flex: 1;
+}
+.panel-tak-target-del {
+    color: var(--danger);
+    border-color: var(--danger);
+    padding: 0 4px;
+    min-width: 0;
+    line-height: 1.2;
+}
+
 .btn-sm {
     font-size: var(--font-xs) !important;
     padding: 3px 8px !important;

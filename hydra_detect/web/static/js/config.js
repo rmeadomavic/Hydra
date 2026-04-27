@@ -733,7 +733,6 @@ const HydraOperations = (() => {
                 const empty = document.createElement('div');
                 empty.className = 'panel-det-empty';
                 empty.textContent = 'No detections yet';
-                empty.style.cssText = 'color:var(--text-dim);font-size:var(--font-sm);padding:8px;text-align:center;';
                 log.appendChild(empty);
             }
             return;
@@ -1442,7 +1441,7 @@ const HydraOperations = (() => {
         const targets = (data && data.targets) ? data.targets : [];
         if (targets.length === 0) {
             const empty = document.createElement('div');
-            empty.style.cssText = 'color:var(--text-dim);font-size:var(--font-xs);padding:2px 0;';
+            empty.className = 'panel-tak-target-empty';
             empty.textContent = 'No unicast targets';
             list.appendChild(empty);
             return;
@@ -1450,14 +1449,12 @@ const HydraOperations = (() => {
         for (const t of targets) {
             const addr = (typeof t === 'string') ? t : (t.host + ':' + t.port);
             const row = document.createElement('div');
-            row.style.cssText = 'display:flex;align-items:center;gap:4px;padding:2px 0;';
+            row.className = 'panel-tak-target-row';
             const label = document.createElement('span');
-            label.className = 'mono';
-            label.style.cssText = 'font-size:var(--font-xs);color:var(--text-dim);flex:1;';
+            label.className = 'mono panel-tak-target-addr';
             label.textContent = addr;
             const delBtn = document.createElement('button');
-            delBtn.className = 'btn btn-sm';
-            delBtn.style.cssText = 'color:var(--danger);border-color:var(--danger);padding:0 4px;min-width:0;line-height:1.2;';
+            delBtn.className = 'btn btn-sm panel-tak-target-del';
             delBtn.textContent = '\u00D7';
             delBtn.title = 'Remove ' + addr;
             delBtn.addEventListener('click', () => removeTAKTarget(addr));
