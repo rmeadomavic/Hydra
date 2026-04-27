@@ -6,7 +6,8 @@ Covers:
   (c) base.html includes both new <script src="…"> tags.
   (d) base.html contains both new overlay divs.
   (e) base.css has styling blocks for both overlays.
-  (f) Easter-egg regression — easter.js tag + #sentience-overlay preserved.
+  (f) Easter-egg regression — easter.js tag + #sentience-overlay preserved
+      when morale_features_enabled = true.
 
 Lexical / HTTP-level only. No headless JS runner.
 """
@@ -18,7 +19,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from hydra_detect.web.server import app
+from hydra_detect.web.server import app, configure_morale_features
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -160,14 +161,28 @@ class TestBaseCssBlocks:
 # ── (f) Konami / easter regression ──────────────────────────────────────────
 
 class TestKonamiPreserved:
-    def test_easter_script_tag_still_present(self, client):
+    def test_easter_script_tag_present_when_morale_enabled(self, client):
+        configure_morale_features(True)
         html = client.get("/").text
+        configure_morale_features(False)
         assert '/static/js/easter.js' in html
 
-    def test_sentience_overlay_div_still_present(self, client):
+    def test_easter_script_tag_absent_when_morale_disabled(self, client):
+        configure_morale_features(False)
         html = client.get("/").text
+        assert '/static/js/easter.js' not in html
+
+    def test_sentience_overlay_div_present_when_morale_enabled(self, client):
+        configure_morale_features(True)
+        html = client.get("/").text
+        configure_morale_features(False)
         assert 'id="sentience-overlay"' in html
         assert 'id="sentience-terminal"' in html
+
+    def test_sentience_overlay_div_absent_when_morale_disabled(self, client):
+        configure_morale_features(False)
+        html = client.get("/").text
+        assert 'id="sentience-overlay"' not in html
 
     def test_keybinds_does_not_override_arrow_keys(self, client):
         # Defense in depth: keybinds.js must not match arrow keys at all.

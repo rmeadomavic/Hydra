@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from hydra_detect.web.server import app
+from hydra_detect.web.server import app, configure_morale_features
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -74,10 +74,13 @@ class TestViewContainers:
         # And there's no longer a standalone view container.
         assert 'id="view-autonomy"' not in html
 
-    def test_sentience_overlay_preserved(self, client):
+    def test_sentience_overlay_preserved_when_morale_enabled(self, client):
         """PRESERVATION_RULES.md:8-15 — the Konami overlay receivers must
-        remain in base.html so the restored easter.js can target them."""
+        remain in base.html so the restored easter.js can target them.
+        Requires morale_features_enabled = true."""
+        configure_morale_features(True)
         resp = client.get("/")
+        configure_morale_features(False)
         html = resp.text
         assert 'id="sentience-overlay"' in html
         assert 'id="sentience-terminal"' in html

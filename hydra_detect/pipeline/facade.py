@@ -53,6 +53,7 @@ from ..profiles import get_profile, load_profiles
 from ..web.config_api import set_config_path, set_engagement_check
 from ..web.server import (
     configure_auth,
+    configure_morale_features,
     configure_web_password,
     run_server,
     set_autonomous_controller,
@@ -1070,6 +1071,10 @@ class Pipeline:
             session_timeout = self._cfg.getint("web", "session_timeout_min", fallback=480)
             tls_on = self._cfg.getboolean("web", "tls_enabled", fallback=False)
             configure_web_password(web_password or None, session_timeout, tls_on)
+
+            # Morale features; off by default on field images
+            morale_on = self._cfg.getboolean("ui", "morale_features_enabled", fallback=False)
+            configure_morale_features(morale_on)
 
             # Set initial runtime config for web UI
             stream_state.update_runtime_config({

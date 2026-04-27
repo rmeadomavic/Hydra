@@ -1416,6 +1416,17 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             description="ISO 8601 UTC timestamp of Platform Setup",
         ),
     },
+    "ui": {
+        "morale_features_enabled": FieldSpec(
+            FieldType.BOOL,
+            default=False,
+            description=(
+                "Enable dev-era morale features (Konami sentience screen, vehicle "
+                "beep endpoint, power-user easter egg). Off by default for field "
+                "images. Set true only on dev/demo units."
+            ),
+        ),
+    },
 }
 
 

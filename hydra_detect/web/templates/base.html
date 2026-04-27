@@ -238,6 +238,7 @@
         </div>
     </div>
 
+    {% if morale_features_enabled %}
     <!-- ── Sentience Easter Egg Overlay ── -->
     <div id="sentience-overlay">
         <div id="sentience-terminal"></div>
@@ -257,6 +258,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
 
     <!-- ── Footer ── -->
     <footer class="footer" role="contentinfo">
@@ -278,7 +280,7 @@
     <script src="/static/js/ui/sim-gps.js"></script>
     <script src="/static/js/api/client.js"></script>
     <script src="/static/js/preflight/preflight.js"></script>
-    <script src="/static/js/easter.js"></script>
+    {% if morale_features_enabled %}<script src="/static/js/easter.js"></script>{% endif %}
     <script src="/static/js/keybinds.js"></script>
     <script src="/static/js/command-palette.js"></script>
     <script src="/static/js/main.js"></script>
