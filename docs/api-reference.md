@@ -32,6 +32,9 @@ or if password auth is disabled.
 **Auth:** none · Post-mission review page (standalone; does not share
 `base.html`).
 
+### `GET /capabilities`
+**Auth:** none · Capability status page. Shows each subsystem as READY / WARN / BLOCKED / ARMED with plain-language reason strings. Polls `GET /api/capabilities` at 3s. Introduced in #146.
+
 ### `GET /setup`
 **Auth:** none · First-boot setup wizard page.
 
@@ -620,3 +623,13 @@ Body: `{camera_source, serial_port, vehicle_type, team_number,
 callsign}`. `vehicle_type ∈ {drone,usv,ugv,fw}`. Auto-builds
 `HYDRA-<team>-<VEHICLE>` callsign when one is not given. Triggers a
 pipeline restart on success.
+
+---
+
+## Capability Status
+
+### `GET /api/capabilities`
+**Auth:** none · Returns readiness status for all registered subsystems.
+Response cached for 2s. Body: `{generated_at: ISO8601, capabilities:
+[{name, status, reasons: string[], fix_target: string|null}]}`.
+`status ∈ {READY, WARN, BLOCKED, ARMED}`. Introduced in #146.

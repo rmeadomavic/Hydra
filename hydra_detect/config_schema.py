@@ -1220,6 +1220,17 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             description="Minimum consecutive track frames before autonomous action (fixed-wing)",
         ),
     },
+    "system": {
+        "mode": FieldSpec(
+            FieldType.ENUM,
+            choices=["SIM", "BENCH", "OBSERVE", "FIELD", "ARMED", "MAINTENANCE"],
+            default="OBSERVE",
+            description=(
+                "Operating environment. Orthogonal to vehicle/mission profile. "
+                "ARMED transitions require double-confirmation via API."
+            ),
+        ),
+    },
     "audit": {
         "enabled": FieldSpec(
             FieldType.BOOL,
