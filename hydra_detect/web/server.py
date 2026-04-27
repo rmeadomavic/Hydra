@@ -36,6 +36,7 @@ from hydra_detect.web.config_api import (
     validate_config_updates,
 )
 from hydra_detect.config_schema import SCHEMA as CONFIG_SCHEMA
+from hydra_detect.web.capability_api import router as _capability_router
 from hydra_detect.audit import (
     attach_to_logger as _attach_audit,
     get_default_sink as _get_audit_sink,
@@ -67,6 +68,9 @@ TEMPLATE_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="Hydra Detect v2.0", version="2.0.0")
+
+# ── Capability status API (issue #146) ───────────────────────────────────────
+app.include_router(_capability_router)
 
 # CORS: restrict cross-origin to instructor-relevant paths only.
 # The instructor page polls /api/stats and /api/abort on peer Hydra
@@ -337,6 +341,7 @@ _PUBLIC_PATH_PREFIXES = (
     "/api/health", "/api/preflight", "/api/abort",
     "/api/stats",      # instructor page polls peers cross-origin
     "/api/tracks",     # read-only dashboard data
+    "/api/mode",       # operating mode — dashboard polls; POST still auth-checked
     "/api/metrics",    # Prometheus scrape
     "/api/client_error",  # frontend error sink (same-origin, rate-limited)
     "/stream.jpg",     # snapshot polling (img.src, no cookie in some contexts)
@@ -3106,6 +3111,14 @@ async def api_config_import(request: Request, authorization: str | None = Header
         return JSONResponse({"error": f"Failed to import configuration: {e}"}, status_code=500)
 
 
+# ── Capability Status Page (issue #146) ──────────────────────────────
+
+@app.get("/capabilities", response_class=HTMLResponse)
+async def capabilities_page(request: Request):
+    """Serve the capability status page — subsystem readiness at a glance."""
+    return templates.TemplateResponse(request, "capabilities.html")
+
+
 # ── Setup Wizard ─────────────────────────────────────────────────────
 
 @app.get("/setup", response_class=HTMLResponse)
@@ -3215,6 +3228,9 @@ async def api_setup_save(request: Request, authorization: Optional[str] = Header
 
     return {"status": "saved", "callsign": callsign, **result}
 
+
+# ── Operating mode router ────────────────────────────────────────────
+from hydra_detect.web.mode_api import router as _mode_router; app.include_router(_mode_router)  # noqa: E402,E501
 
 # ── Server launcher ──────────────────────────────────────────────────
 

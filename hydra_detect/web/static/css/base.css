@@ -855,3 +855,47 @@ body[data-emerg="1"] #emergency-flash {
     .topbar[data-mock="1"] .tb-wordmark { font-size: 18px; }
     .topbar[data-mock="1"] .tb-shield { width: 36px; height: 36px; }
 }
+
+/* ── Operating Mode Badge ── */
+.topbar[data-mock="1"] .tb-mode-badge {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: var(--radius);
+    border: 1px solid currentColor;
+    white-space: nowrap;
+    /* default / OBSERVE */
+    color: var(--ogt-muted);
+    background: rgba(166, 188, 146, 0.08);
+}
+
+/* Per-mode accent colours */
+.topbar[data-mock="1"] .tb-mode-badge[data-mode="SIM"] {
+    color: var(--info);
+    background: rgba(147, 197, 253, 0.10);
+}
+.topbar[data-mock="1"] .tb-mode-badge[data-mode="BENCH"] {
+    color: #d1d5db;
+    background: rgba(255, 255, 255, 0.06);
+}
+.topbar[data-mock="1"] .tb-mode-badge[data-mode="FIELD"] {
+    color: var(--ogt-muted);
+    background: rgba(166, 188, 146, 0.12);
+}
+.topbar[data-mock="1"] .tb-mode-badge[data-mode="ARMED"] {
+    color: #fca5a5;
+    background: rgba(197, 48, 48, 0.18);
+    border-color: var(--danger);
+}
+.topbar[data-mock="1"] .tb-mode-badge[data-mode="MAINTENANCE"] {
+    color: var(--warning);
+    background: rgba(234, 179, 8, 0.10);
+}
+
+/* Hide mode badge on very narrow viewports */
+@media (max-width: 899px) {
+    .topbar[data-mock="1"] .tb-mode-badge { display: none; }
+}
