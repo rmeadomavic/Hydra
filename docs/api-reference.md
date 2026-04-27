@@ -25,11 +25,14 @@ or if password auth is disabled.
 ### `GET /control`
 **Auth:** none · Mobile operator control page.
 
+### `GET /fleet`
+**Auth:** none · Fleet View with per-vehicle status and abort.
+
 ### `GET /instructor`
-**Auth:** none · Instructor overview with per-vehicle abort.
+**Auth:** none · Redirects to `/fleet` (307).
 
 ### `GET /review`
-**Auth:** none · Post-mission review page (standalone; does not share
+**Auth:** none · Post-sortie review page (standalone; does not share
 `base.html`).
 
 ### `GET /capabilities`

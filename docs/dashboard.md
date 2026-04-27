@@ -6,9 +6,9 @@
 |-----|------|----------|---------|
 | `/` | Dashboard | Operator | Live stream, tracks, target control |
 | `/control` | Mobile Control | Operator (phone) | Touch-optimized lock/strike/abort |
-| `/instructor` | Instructor | Instructor | Multi-vehicle overview + abort |
-| `/review` | Review | All | Post-mission map replay |
-| `/setup` | Setup Wizard | Instructor / Dev | First-boot hardware config |
+| `/fleet` | Fleet View | Fleet lead / range control | Multi-vehicle overview + abort |
+| `/review` | Review | All | Post-sortie map replay |
+| `/setup` | Setup Wizard | Maintainer / Dev | First-boot hardware config |
 | `/login` | Login | All | Password gate (when `web_password` is set) |
 
 The dashboard is a single-page application served on port 8080. Two main views (Operations and Settings) share a common shell. Both always exist in the DOM and toggle via CSS. Review is a standalone page at `/review`.
@@ -156,11 +156,11 @@ The `/control` page is a touch-optimized control surface for field use on phones
 
 No settings editing. Designed for the operator holding the RC transmitter.
 
-## Instructor Overview Page
+## Fleet View Page
 
-![Instructor multi-vehicle overview](images/dashboard-instructor.png)
+![Fleet View multi-vehicle overview](images/dashboard-instructor.png)
 
-The `/instructor` page shows multiple Hydra vehicles on one screen. It fetches `GET /api/stats` from each configured Jetson's IP address. Each vehicle card shows:
+The `/fleet` page shows multiple Hydra vehicles on one screen. It fetches `GET /api/stats` from each configured Jetson's IP address. Each vehicle card shows:
 
 - Callsign
 - FPS and track count
@@ -168,7 +168,9 @@ The `/instructor` page shows multiple Hydra vehicles on one screen. It fetches `
 - Abort button (unauthenticated, calls `POST /api/abort` on that vehicle)
 
 > [!WARNING]
-> The abort endpoint is intentionally unauthenticated. An instructor must be able to abort any vehicle without configuring tokens. The `/api/abort` and `/api/stats` endpoints have permissive CORS headers for cross-origin instructor page access.
+> The abort endpoint is intentionally unauthenticated. Range control must be able to abort any vehicle without configuring tokens first. The `/api/abort` and `/api/stats` endpoints have permissive CORS headers for cross-origin Fleet View access.
+
+`/instructor` redirects to `/fleet` (307).
 
 ## Connection Indicators
 
@@ -187,7 +189,7 @@ All pages include defense-in-depth headers:
 - `X-Content-Type-Options: nosniff`
 - Content Security Policy restricting scripts, styles, and connections
 
-The instructor page has a relaxed CSP (`connect-src *`) to allow cross-origin fetches to other Jetsons.
+The Fleet View page has a relaxed CSP (`connect-src *`) to allow cross-origin fetches to other Jetsons.
 
 ## Keyboard Accessibility Test Checklist (Confirmation Modals)
 

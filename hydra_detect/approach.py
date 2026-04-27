@@ -283,7 +283,7 @@ class ApproachController:
                 )
 
         # Restore pre-approach mode if captured; fall back to configured abort mode.
-        # This ensures a student aborting from AUTO mid-mission returns to AUTO,
+        # This ensures an operator aborting from AUTO mid-sortie returns to AUTO,
         # not the generic LOITER fallback.
         restore_mode = pre_approach_mode or self._cfg.abort_mode
         try:

@@ -30,9 +30,9 @@ For initial Jetson setup, see [Docker install](/setup/jetson-docker) first. For 
 - `sudo` access on the Jetson
 - WiFi SSID and password for the field network (or Ethernet cable)
 
-## Instructor Setup
+## Platform Setup
 
-Run the setup script once in the classroom before deploying to the field.
+Run the setup script once on the bench before deploying to the field.
 
 <Steps>
 

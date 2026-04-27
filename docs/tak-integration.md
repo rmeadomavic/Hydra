@@ -94,7 +94,7 @@ The TAK input listener monitors incoming SA events. If it detects another vehicl
 
 ```ini
 [tak]
-allowed_callsigns = INSTRUCTOR-1, INSTRUCTOR-2
+allowed_callsigns = FLEETLEAD-1, FLEETLEAD-2
 ```
 
 Only GeoChat messages or CoT events from senders whose callsign matches the allowlist are processed.
@@ -112,7 +112,7 @@ Commands include an HMAC digest in the CoT event. The listener verifies the dige
 
 ### Unauthenticated Abort
 
-The web API abort endpoint (`POST /api/abort`) is intentionally unauthenticated for instructor safety override. This is separate from the TAK command path, which respects the allowlist.
+The web API abort endpoint (`POST /api/abort`) is intentionally unauthenticated for safety override. Any device on the network can abort any vehicle. This is separate from the TAK command path, which respects the allowlist.
 
 ## ATAK Plugin
 
@@ -134,7 +134,7 @@ stale_sa = 30.0
 advertise_host = <JETSON_IP>
 listen_commands = true
 listen_port = 6969
-allowed_callsigns = INSTRUCTOR-1
+allowed_callsigns = FLEETLEAD-1
 command_hmac_secret =
 ```
 

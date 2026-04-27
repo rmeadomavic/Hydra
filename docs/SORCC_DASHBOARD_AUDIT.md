@@ -72,7 +72,7 @@ of having a bar chart.
 **5. Device names truncated with "…" in TOP ACTIVE — no tooltip**
 
 "ACI-UniversalCon…" in TOP ACTIVE is cut off. Hovering over it shows no tooltip.
-An instructor demoing this to soldiers can't read the full device name without
+An operator demoing this can't read the full device name without
 clicking into the device. Add a tooltip on hover showing the full name.
 
 **6. WiFi counter always 0 in stat tiles makes WIFI and OTHER tiles look broken**
@@ -116,8 +116,8 @@ current gray to at least `#999` or `rgba(255,255,255,0.6)`.
 
 **12. No export button for device list**
 
-An instructor after a demo wants to show results. There's no way to export the
-detected device list as CSV or JSON from the dashboard. Add an export button.
+After a demo, there's no way to export the detected device list as CSV or JSON
+from the dashboard. Add an export button.
 
 **13. Settings page layout cramped on laptop screens**
 
@@ -139,7 +139,7 @@ A quick theme toggle would help.
 
 **16. No keyboard shortcuts**
 
-Power users (instructors) would benefit from keyboard shortcuts for common
+Power users would benefit from keyboard shortcuts for common
 actions: start/stop survey, switch tabs, export data.
 
 **17. Preflight page "Re-check" button styling inconsistent**

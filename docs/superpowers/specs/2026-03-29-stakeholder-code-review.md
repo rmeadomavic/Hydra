@@ -34,10 +34,10 @@ TLS support exists behind a `tls_enabled` config flag. It uses subprocess-spawne
 - The self-signed cert will trigger browser warnings, which field operators may habitually click through.
 
 **CORS — PASS.**
-Restricted to only `/api/stats` and `/api/abort` for the instructor page (cross-Jetson polling). All other endpoints stay same-origin. This is correctly scoped.
+Restricted to only `/api/stats` and `/api/abort` for the Fleet View page (cross-Jetson polling). All other endpoints stay same-origin. This is correctly scoped.
 
 **CSP — CONDITIONAL PASS.**
-`'unsafe-inline'` is used for both script-src and style-src on all pages. This negates the XSS protection benefit of the CSP entirely. The instructor page additionally uses `connect-src *`, making it a relay attack surface. These are acceptable trade-offs for an intranet device but would fail a DoD STIG review.
+`'unsafe-inline'` is used for both script-src and style-src on all pages. This negates the XSS protection benefit of the CSP entirely. The Fleet View page additionally uses `connect-src *`, making it a relay attack surface. These are acceptable trade-offs for an intranet device but would fail a DoD STIG review.
 
 **Input validation — PASS on most endpoints, GAPS on two.**
 Most control endpoints perform explicit type checking, range validation, and format validation (e.g., BSSID regex, mode allowlist). The `strike` endpoint requires `confirm: true` as an explicit boolean. The `set_mode` endpoint allowlists five modes. This is above average.
@@ -138,7 +138,7 @@ Bounded queues and ring buffers throughout. One concern: auto-loiter calls `comm
 
 ## Stakeholder 2 — USASOC SORD (SOF Fielding Evaluation)
 
-This reviewer asks: "Is this safe to put on aircraft and in the hands of students?"
+This reviewer asks: "Is this safe to put on aircraft and in the hands of operators?"
 
 ### Safety and Fail-Safe Architecture
 
@@ -158,7 +158,7 @@ The `AutonomousController.evaluate()` implements a multi-gate safety model:
 All criteria must hold simultaneously. This is a defensible design for a training system.
 
 **Critical safety concern — `require_operator_lock` defaults to `False`.**
-If autonomous mode is enabled but `require_operator_lock` is not set in `config.ini`, the system will autonomously strike without requiring any human to identify and lock the target first. For a training system in the hands of SOF students on Week 4-5, the default should be `True`.
+If autonomous mode is enabled but `require_operator_lock` is not set in `config.ini`, the system will autonomously strike without requiring any human to identify and lock the target first. The default should be `True`.
 
 **Servo channel safety — PASS.** Channel collision detection at init time with CRITICAL-level logging.
 
@@ -166,7 +166,7 @@ If autonomous mode is enabled but `require_operator_lock` is not set in `config.
 
 **Camera loss response — STRONG.** Suppresses autonomous controller, sends STATUSTEXT, logs the state change, updates dashboard.
 
-### Student-Facing UX and Safety
+### Operator-Facing UX and Safety
 
 **Pre-flight checklist — STRONG.** Structured checks with plain-English error messages.
 
@@ -252,7 +252,7 @@ This reviewer asks: "Does this meet the bar for broader DoD experimentation?"
 Architecturally sound, well-tested, operationally coherent. MAVLink and TAK implementations are above average. Address C1, C2, I2, I4, and produce a threat model document. After those actions, this is a viable integration candidate.
 
 ### USASOC SORD: CONDITIONAL GO for SORCC, NO-GO for operational use
-For SORCC training (controlled environment, instructors present), the system is ready with one precondition: **C1 must be fixed** before students touch autonomous mode. C2 and C3 should also be resolved before CULEX. For operational use, I2/I4 and an ATO process would be required.
+For SORCC (controlled environment, supervised), the system is ready with one precondition: **C1 must be fixed** before operators use autonomous mode. C2 and C3 should also be resolved before CULEX. For operational use, I2/I4 and an ATO process would be required.
 
 ### JEB: NO-GO at current state
 Blockers: no SBOM (I4), no threat model document, cleartext transport (I2), and operator lock default (C1). None are architectural — all are resolvable in one sprint. The test suite, audit logging, chain-of-custody, and TAK integration are genuine differentiators.

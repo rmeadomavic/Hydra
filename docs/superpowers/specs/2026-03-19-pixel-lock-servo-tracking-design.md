@@ -310,7 +310,7 @@ for v1 — the servo is an actuator, not a new data source.
 
 ## Deployment Scenarios
 
-### Bench Demo (instructor)
+### Bench Demo
 
 ```
 USB Webcam → Jetson → YOLO → ByteTrack → pixel-lock → set_servo

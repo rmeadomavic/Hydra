@@ -58,7 +58,7 @@ Think fighter jet HUD, not web dashboard.
 ## Page 2: Config
 
 ### Purpose
-Mission configuration and operational tuning. The instructor's page. Has video
+Mission configuration and operational tuning. Has video
 feed for visual feedback while tuning detection parameters.
 
 ### Layout
@@ -144,7 +144,7 @@ All values editable via **sliders and dropdowns** where possible, not typed text
 - **Logout** button
 
 #### Page Links
-- Links to standalone pages: `/control` (mobile), `/instructor` (fleet), `/review` (post-mission), `/setup` (wizard)
+- Links to standalone pages: `/control` (mobile), `/fleet` (fleet view), `/review` (post-sortie), `/setup` (wizard)
 
 ### Config Sections
 All 10 config.ini sections, each with appropriate input controls derived from
@@ -166,8 +166,8 @@ All 10 config.ini sections, each with appropriate input controls derived from
 
 ### Page Links in Footer or Settings
 - `/control` — Mobile tactical (simplified touch-friendly ops)
-- `/instructor` — Fleet overview (multi-vehicle polling)
-- `/review` — Post-mission map review
+- `/fleet` — Fleet View (multi-vehicle polling)
+- `/review` — Post-sortie map review
 - `/setup` — First-boot wizard
 
 ---
@@ -188,7 +188,7 @@ All 10 config.ini sections, each with appropriate input controls derived from
 | Camera live switch | Config (Detection section) | Dropdown + instant apply via `/api/camera/switch` |
 | Config prompts | Config (Detection section) | Text field → `POST /api/config/prompts` |
 | Control page link | Settings (Page Links) | `<a href="/control">` |
-| Instructor page link | Settings (Page Links) | `<a href="/instructor">` |
+| Fleet View link | Settings (Page Links) | `<a href="/fleet">` |
 | Review page link | Settings (Page Links) | `<a href="/review">` |
 | Setup page link | Settings (Page Links) | `<a href="/setup">` |
 

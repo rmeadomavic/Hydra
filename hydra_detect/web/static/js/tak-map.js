@@ -93,7 +93,7 @@ const HydraTakMap = (() => {
         });
 
         // OSM tiles. For offline/field deployment we bundle a local tile
-        // server later; the CDN works in the classroom and is harmless
+        // server later; the CDN works on the bench and is harmless
         // everywhere else (falls back to grey tiles on no-network).
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,

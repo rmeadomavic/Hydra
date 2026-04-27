@@ -72,15 +72,15 @@ app = FastAPI(title="Hydra Detect v2.0", version="2.0.0")
 # ── Capability status API (issue #146) ───────────────────────────────────────
 app.include_router(_capability_router)
 
-# CORS: restrict cross-origin to instructor-relevant paths only.
-# The instructor page polls /api/stats and /api/abort on peer Hydra
+# CORS: restrict cross-origin to fleet-view-relevant paths only.
+# The Fleet View page polls /api/stats and /api/abort on peer Hydra
 # instances, so those endpoints need permissive CORS.  All other
 # endpoints stay same-origin.
 _CORS_ALLOWED_PATHS = {"/api/stats", "/api/abort"}
 
 
-class _InstructorCORSMiddleware:
-    """Pure ASGI middleware — add CORS headers for instructor endpoints."""
+class _FleetCORSMiddleware:
+    """Pure ASGI middleware — add CORS headers for fleet-view endpoints."""
 
     def __init__(self, app):
         self.app = app
@@ -103,7 +103,7 @@ class _InstructorCORSMiddleware:
         await self.app(scope, receive, send_wrapper)
 
 
-app.add_middleware(_InstructorCORSMiddleware)
+app.add_middleware(_FleetCORSMiddleware)
 
 # Standard CSP for the SPA and standalone pages
 _CSP_DEFAULT = (
@@ -115,8 +115,8 @@ _CSP_DEFAULT = (
     "connect-src 'self'"
 )
 
-# Relaxed CSP for the instructor page — it fetches from other Jetsons
-_CSP_INSTRUCTOR = (
+# Relaxed CSP for the Fleet View page — it fetches from other Jetsons
+_CSP_FLEET = (
     "default-src 'self'; "
     "img-src 'self' data:; "
     "script-src 'self'; "
@@ -143,7 +143,7 @@ class _SecurityHeadersMiddleware:
                 headers = MutableHeaders(scope=message)
                 headers["X-Frame-Options"] = "DENY"
                 headers["X-Content-Type-Options"] = "nosniff"
-                csp = _CSP_INSTRUCTOR if path == "/instructor" else _CSP_DEFAULT
+                csp = _CSP_FLEET if path in ("/fleet", "/instructor") else _CSP_DEFAULT
                 headers["Content-Security-Policy"] = csp
             await send(message)
 
@@ -339,7 +339,7 @@ def _parse_cookies(cookie_header: str) -> dict[str, str]:
 _PUBLIC_PATH_PREFIXES = (
     "/login", "/auth/", "/static/",
     "/api/health", "/api/preflight", "/api/abort",
-    "/api/stats",      # instructor page polls peers cross-origin
+    "/api/stats",      # fleet view polls peers cross-origin
     "/api/tracks",     # read-only dashboard data
     "/api/mode",       # operating mode — dashboard polls; POST still auth-checked
     "/api/metrics",    # Prometheus scrape
@@ -933,8 +933,8 @@ async def api_preflight():
     """Run pre-flight checks and return structured results.
 
     Returns a JSON object with a list of checks (camera, mavlink, config,
-    models, disk) and an overall status (pass/warn/fail).  Designed for
-    student-facing error reporting before a mission.
+    models, disk) and an overall status (pass/warn/fail).  Used for
+    operator-facing status display before a sortie.
     """
     cb = stream_state.get_callback("get_preflight")
     if cb:
@@ -2434,32 +2434,39 @@ async def control_page(request: Request):
     return templates.TemplateResponse(request, "control.html")
 
 
-# ── Instructor Overview ────────────────────────────────────────────
+# ── Fleet View ─────────────────────────────────────────────────────
+
+@app.get("/fleet", response_class=HTMLResponse)
+async def fleet_page(request: Request):
+    """Serve the Fleet View page — multi-vehicle status and abort."""
+    return templates.TemplateResponse(request, "instructor.html")
+
 
 @app.get("/instructor", response_class=HTMLResponse)
-async def instructor_page(request: Request):
-    """Serve the standalone instructor overview page."""
-    return templates.TemplateResponse(request, "instructor.html")
+async def instructor_redirect(request: Request):
+    """Redirect legacy /instructor route to /fleet (307 preserves method)."""
+    from starlette.responses import RedirectResponse
+    return RedirectResponse(url="/fleet", status_code=307)
 
 
 @app.post("/api/abort")
 async def api_abort(request: Request):
     """Emergency abort — switch vehicle to RTL mode.
 
-    This endpoint is intentionally unauthenticated. The instructor page
-    is the safety exception: an instructor must be able to abort any
-    vehicle without configuring tokens.
+    Intentionally unauthenticated. Any device on the network can abort
+    any vehicle. This is the safety override: range control must be able
+    to abort without configuring tokens first.
     """
     _audit(request, "abort")
     # Try RTL first, then LOITER/HOLD as fallback.
-    # This is safety-critical — wrap in try/except so a callback crash
-    # never prevents the instructor from seeing an error response.
+    # Safety-critical — wrap in try/except so a callback crash
+    # never blocks an abort response.
     cb = stream_state.get_callback("on_set_mode_command")
     if cb:
         for mode in ("RTL", "LOITER", "HOLD"):
             try:
                 if cb(mode):
-                    logger.warning("ABORT: vehicle set to %s by instructor", mode)
+                    logger.warning("ABORT: vehicle set to %s by range control", mode)
                     return {"status": "ok", "mode": mode}
             except Exception as exc:
                 logger.error("ABORT callback failed for %s: %s", mode, exc)

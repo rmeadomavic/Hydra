@@ -7,7 +7,7 @@ icon: "microchip"
 
 This guide covers flashing JetPack onto a Jetson Orin Nano and completing the Ubuntu first-boot wizard. When done, you'll have a fresh desktop with a terminal ready for the [Hydra software setup](/setup/jetson-docker).
 
-Written for students reproducing the Hydra Detect build from scratch.
+Written for operators reproducing the Hydra Detect build from scratch.
 
 ## What you need
 
@@ -103,7 +103,7 @@ The Jetson boots into Ubuntu's out-of-box setup. Walk through each screen:
 - Click Continue
 
 <Warning>
-For classroom/lab Jetsons, we use `sorcc`/`sorcc` as the standard credentials. For field deployments, use a stronger password.
+For bench/lab Jetsons, we use `sorcc`/`sorcc` as the standard credentials. For field deployments, use a stronger password.
 </Warning>
 
 **Partition Size** — Accept the default. Click Continue.

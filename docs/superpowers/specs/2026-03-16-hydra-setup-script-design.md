@@ -9,7 +9,7 @@ A single interactive bash script (`scripts/hydra-setup.sh`) that takes a freshly
 cloned Jetson from zero to running Hydra Detect. Idempotent — safe to re-run,
 skips steps already completed.
 
-Target audience: instructors reproducing the Hydra build from scratch after
+Target audience: operators and maintainers reproducing the Hydra build from scratch after
 completing JetPack flash and Ubuntu first-boot.
 
 ## Flow
@@ -44,7 +44,7 @@ script exits with a clear message about what's needed.
   - **Yes:**
     1. Install via official Tailscale install script (`curl -fsSL https://tailscale.com/install.sh | sh`)
     2. Run `sudo tailscale up`
-    3. Print the auth URL for the instructor to open in a browser
+    3. Print the auth URL for the operator to open in a browser
     4. Wait for connection to establish
     5. Enable Tailscale SSH: `sudo tailscale set --ssh`
     6. Print the assigned Tailscale IP
@@ -72,13 +72,13 @@ with Docker volume mounts):
 
 ### Step 6 — Config
 
-Detect hardware and prompt the instructor:
+Detect hardware and prompt the operator:
 
 - **Serial device scan:** Check all `/dev/ttyACM*` and `/dev/ttyUSB*` devices.
   - **One device found:** `"Flight controller detected on /dev/ttyACM0. Enable MAVLink? [Y/n]"`
     - Yes: set `[mavlink] enabled = true`, `connection_string = /dev/ttyACM0`
     - No: set `[mavlink] enabled = false`
-  - **Multiple devices found:** Present a numbered list and let the instructor pick:
+  - **Multiple devices found:** Present a numbered list and let the operator pick:
     ```
     Serial devices found:
       1) /dev/ttyACM0
@@ -111,7 +111,7 @@ per-deployment settings.
   from `docs/jetson-setup-guide.md`). Dynamically include `--device /dev/ttyACM0`
   only when MAVLink was enabled in Step 6. Print dashboard URL
   (`http://<jetson-ip>:8080`).
-- **No:** Print the full docker run command so the instructor can copy/paste later.
+- **No:** Print the full docker run command so the operator can copy/paste later.
 
 Docker run command is built dynamically:
 - **Camera devices:** Loop over detected `/dev/video*` devices from Step 1,
@@ -145,11 +145,11 @@ docker run --rm --privileged --runtime nvidia \
 | Decision | Rationale |
 |----------|-----------|
 | Tailscale on host, not in Docker | SSH needs to reach the Jetson OS directly |
-| Tailscale SSH via `tailscale set --ssh` | No SSH key management needed for instructors |
-| No pre-auth keys | Simpler — instructor clicks auth URL once |
+| Tailscale SSH via `tailscale set --ssh` | No SSH key management needed for operators |
+| No pre-auth keys | Simpler — operator clicks auth URL once |
 | Idempotent steps | Safe to re-run after failure, reboot, or when re-checking setup |
 | Separate from `jetson_preflight.sh` | Preflight stays as a lightweight field-check tool |
-| Only touch MAVLink config | Avoids overwriting instructor customizations in config.ini |
+| Only touch MAVLink config | Avoids overwriting operator customizations in config.ini |
 | `set -euo pipefail` with `|| true` guards | Fail fast on errors, but interactive prompts and optional steps use `|| true` to avoid unexpected exits |
 
 ## Files Changed
@@ -166,7 +166,7 @@ docker run --rm --privileged --runtime nvidia \
 The script is idempotent — each step checks current state before acting. If a
 Docker build fails mid-way (e.g., network timeout), re-running the script will
 pick up where it left off thanks to Docker layer caching. If caching causes
-issues, the instructor can run `docker build --no-cache` manually.
+issues, the operator can run `docker build --no-cache` manually.
 
 ## Out of Scope
 

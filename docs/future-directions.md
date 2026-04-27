@@ -30,9 +30,9 @@ speculative "what if" ideas.
 - **Pixhawk 6X** — Current top-of-line. Ethernet port for high-bandwidth
   MAVLink (vs serial). Could enable video-over-MAVLink at higher quality.
 - **MatekH743** — Budget FC popular in FPV. Runs ArduPilot. Good candidate for
-  student-built platforms where cost matters.
+  operator-built platforms where cost matters.
 - **Betaflight → ArduPilot migration** — Some FPV quads run Betaflight. Hydra
-  requires ArduPilot for MAVLink. Students may need to reflash FCs. Document
+  requires ArduPilot for MAVLink. Operators may need to reflash FCs. Document
   the migration path.
 
 ### Sensors
@@ -72,7 +72,7 @@ speculative "what if" ideas.
 ## Software Capabilities
 
 ### Detection & Tracking
-- **Custom YOLO training pipeline** — Students use COCO-pretrained models.
+- **Custom YOLO training pipeline** — Platforms ship with COCO-pretrained models.
   For mission-relevant classes (specific boat types, vehicle models,
   equipment), need a training pipeline. Roboflow or custom with Ultralytics
   HUB. Could run training on a cloud GPU and push models to Jetsons.
@@ -124,21 +124,21 @@ speculative "what if" ideas.
   uses MAVLink. A STANAG adapter would allow Hydra to interface with
   NATO-standard ground stations. Far future.
 - **Cloud dashboard** — Web dashboard served from a cloud instance (AWS/GCP)
-  that aggregates all field Jetsons via LTE/Starlink. Remote instructor
-  oversight from anywhere. The instructor page architecture already
+  that aggregates all field Jetsons via LTE/Starlink. Remote fleet-lead
+  oversight from anywhere. The Fleet View architecture already
   supports this — just change the polling targets from Tailscale IPs to
   cloud-routed endpoints.
 
-### Training & Simulation
+### Simulation
 - **SITL integration** — ArduPilot Software-in-the-Loop runs on any laptop.
   Pair with a video file as camera source and Hydra runs a full simulated
-  mission. Students could practice before touching real hardware.
+  sortie. Operators can rehearse procedures before touching real hardware.
 - **Digital twin** — Gazebo or AirSim simulation with Hydra running against
-  virtual cameras. Full mission rehearsal. Heavy setup but powerful for
-  pre-mission planning.
+  virtual cameras. Full mission rehearsal. Heavy setup but useful for
+  pre-sortie planning.
 - **Scenario generator** — Script that creates detection scenarios (person
   walking across field, boat on lake) as video files. Use for automated
-  testing and student exercises without going to the field.
+  testing and bench exercises without going to the field.
 - **Scoring system** — Automated CULEX scoring: compare detections against
   ground truth target placements, compute detection rate, time-to-detect,
   false positive rate. Extends the mission tagging feature.
@@ -158,7 +158,7 @@ speculative "what if" ideas.
   addressable LEDs for richer status.
 - **Trigger circuit PCB** — Custom PCB for the two-stage arm circuit
   (software + hardware + physical contact). Could be a simple MOSFET AND
-  gate on a perfboard. Document the circuit for students to build.
+  gate on a perfboard. Document the circuit for operators to build.
 
 ### v3 Mesh Nodes
 - **FANG (detection node)** — Jetson + camera + WiFi HaLow. Full Hydra
@@ -167,7 +167,7 @@ speculative "what if" ideas.
   commands. Lightweight, fast, cheap.
 - **SPINE (relay node)** — RPi + WiFi HaLow. OpenMANET mesh relay.
   Infrastructure node.
-- **NEST (coordinator)** — Laptop/tablet + WiFi HaLow gateway. Instructor
+- **NEST (coordinator)** — Laptop/tablet + WiFi HaLow gateway. Fleet lead
   GCS with multi-vehicle C2.
 
 ## Research Questions
@@ -187,5 +187,5 @@ speculative "what if" ideas.
 - 2026-03-29: Fixed wing = sensor only, no autonomous behaviors (speed constraints)
 - 2026-03-29: Mission profiles (RECON/DELIVERY/STRIKE) as dashboard presets
 - 2026-03-29: Two-stage arm circuit for strike (software + hardware + physical)
-- 2026-03-29: Instructor page is grading tool with abort exception, not C2
+- 2026-03-29: Fleet View is status/abort tool, not C2
 - 2026-03-29: Tailscale for cross-team comms, multicast for same-subnet only

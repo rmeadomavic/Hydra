@@ -182,7 +182,7 @@ stream. In ATAK: **Tools → Video** — the feed should appear automatically.
 | **ATAK-CIV** | Android | tak.gov (free account) | Recommended for testing |
 | **ATAK** (gov) | Android | tak.gov (.mil/.gov email) | Same CoT protocol, extra plugins |
 | **iTAK** | iOS | Apple App Store | Works but multicast less reliable |
-| **WinTAK** | Windows | tak.gov | Great for instructor station, big screen |
+| **WinTAK** | Windows | tak.gov | Good for fleet lead station, big screen |
 
 All clients receive the same CoT messages. No special configuration needed
 per client — if it can receive UDP on `239.2.3.1:6969`, it sees Hydra's data.

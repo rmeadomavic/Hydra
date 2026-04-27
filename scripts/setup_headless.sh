@@ -33,7 +33,7 @@ Options:
 
 Examples:
   # Full setup with WiFi
-  sudo bash scripts/setup_headless.sh --ssid "ClassroomWiFi" --password "s3cret"
+  sudo bash scripts/setup_headless.sh --ssid "FieldNetworkSSID" --password "s3cret"
 
   # Ethernet-only setup
   sudo bash scripts/setup_headless.sh --ethernet-only
