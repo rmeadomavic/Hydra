@@ -6,11 +6,43 @@ import argparse
 import configparser
 import logging
 import os
+import sys
 from pathlib import Path
 
 from .pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
+
+
+def _run_boot_migrations(config_path: str) -> None:
+    """Run pending config schema migrations before Pipeline() is constructed.
+
+    Runs after basicConfig() (so migration logs go to the same handler) but
+    before cfg.read() (so the pipeline sees the migrated file). Exits nonzero
+    on MigrationError; a failed migration leaves config state unknown.
+    """
+    from .config_migrate import MigrationError, run_migrations
+
+    try:
+        result = run_migrations(Path(config_path))
+    except MigrationError as exc:
+        logger.critical(
+            "Config migration failed; refusing to start pipeline: %s", exc
+        )
+        sys.exit(1)
+
+    if result.applied:
+        logger.info(
+            "Config migrated v%d → v%d | applied: %s | backup: %s",
+            result.from_version,
+            result.to_version,
+            result.applied,
+            result.backup_path,
+        )
+    else:
+        logger.debug(
+            "Config schema at v%d; no migrations needed", result.to_version
+        )
 
 
 def _apply_sim_overrides(cfg: configparser.ConfigParser) -> None:
@@ -149,6 +181,10 @@ def main():
         help="Override camera source (e.g., 0 for webcam, path to video file)",
     )
     args = parser.parse_args()
+
+    # Run config schema migrations before anything reads config values.
+    # Must happen before cfg.read() so the pipeline sees the migrated file.
+    _run_boot_migrations(args.config)
 
     # Normalize empty string to None. When systemd expands an unset
     # environment variable, HYDRA_VEHICLE arrives as "" rather than

@@ -44,6 +44,16 @@ class ValidationResult:
 
 # Schema definition — every config key with type, range, and description
 SCHEMA: dict[str, dict[str, FieldSpec]] = {
+    "meta": {
+        "schema_version": FieldSpec(
+            FieldType.INT,
+            required=False,
+            default=1,
+            min_val=0,
+            max_val=9999,
+            description="Config schema version — managed by config_migrate.py, do not edit manually",
+        ),
+    },
     "camera": {
         "source_type": FieldSpec(
             FieldType.ENUM,
