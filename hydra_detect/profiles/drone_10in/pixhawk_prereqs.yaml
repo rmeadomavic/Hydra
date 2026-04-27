@@ -1,0 +1,79 @@
+profile: drone_10in
+firmware: ArduCopter
+
+# ArduCopter 10" FPV quadcopter Pixhawk prerequisites for Hydra Detect.
+# Required = Hydra will not function correctly without these.
+# Recommended = strong operational best practice.
+
+required:
+  - name: FENCE_ENABLE
+    expected: 1
+    reason: >
+      Geofence required for any autonomous behavior (GUIDED mode approach,
+      drop, strike). Without it the copter has no automatic altitude or
+      radius boundary during Hydra-commanded sorties.
+
+  - name: SERIAL2_PROTOCOL
+    expected: 2
+    reason: >
+      Companion computer port (TELEM2) must be MAVLink2 for Hydra connectivity.
+
+  - name: SERIAL2_BAUD
+    expected: 921
+    reason: >
+      921600 baud. Required for reliable heartbeat + telemetry + command
+      throughput at CULEX tempo (multiple sorties, rapid turnaround).
+
+  - name: ARMING_CHECK
+    expected: 1
+    reason: >
+      Value 1 = all arming checks enabled. Disabling checks (value 0) allows
+      arming without GPS fix, healthy EKF, or RC calibration — unacceptable
+      on a 10-inch airframe operating near personnel. If GPS-check interference
+      is needed in a specific environment, use the bitmask to disable only
+      that bit rather than disabling all checks (see ArduPilot docs).
+
+# Stream rates — minimum Hz on companion port (SERIAL2).
+stream_rates:
+  SR1_POSITION: 5
+  SR1_EXTRA1: 4
+  SR1_EXTRA2: 2
+  SR1_RAW_SENS: 2
+
+recommended:
+  - name: FS_GCS_ENABLE
+    expected: 1
+    reason: >
+      Enable GCS heartbeat failsafe. If Hydra's MAVLink connection drops
+      mid-sortie the copter should RTL or land rather than continue flying
+      autonomously without situational awareness. Value 1 = enabled.
+
+  - name: BATT_FS_LOW_ACT
+    expected: 2
+    reason: >
+      RTL on low battery. Value 2 = RTL. Without this a copter with a failing
+      battery will continue flying until motors stop — crash risk.
+
+  - name: FENCE_ACTION
+    expected: 1
+    reason: >
+      RTL when altitude or radius fence is breached. Value 0 = report only
+      (no recovery action), which is not appropriate for operations near people.
+
+  - name: FENCE_ALT_MAX
+    expected: 120
+    reason: >
+      TODO: verify local airspace altitude limit. 120m (400ft AGL) is the
+      FAA Part 107 default ceiling. Adjust to your NOA/LAANC authorization.
+      This is a recommended cap — Hydra does not validate altitude limits.
+
+# Flight mode channel — ArduCopter uses FLTMODE_CH (default 5).
+# GUIDED must be reachable on this channel for Hydra approach modes.
+# Verify your RC transmitter has GUIDED mapped to a switch position.
+# Hydra does not validate the flight mode map — check manually in Mission Planner.
+#
+# Servo/relay function assignments for engagement modes.
+# Operator-configurable at mission time — not validated by preflight.
+# Typical 10-inch setup:
+#   SERVO9_FUNCTION = 0  (GPIO relay — Hydra-controlled payload drop)
+# Set in config.ini [drop] section.
