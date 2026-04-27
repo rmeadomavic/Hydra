@@ -269,12 +269,38 @@
         });
     }
 
+    // ── Operating mode badge ─────────────────────────────────────────
+    // Polls /api/mode every 5 s (same cadence as slow stats).
+    // Badge element: #tb-mode-badge with data-mode attribute.
+    let _modePollTimer = null;
+
+    function updateModeBadge(mode) {
+        const el = document.getElementById('tb-mode-badge');
+        if (!el) return;
+        el.textContent = mode;
+        el.setAttribute('data-mode', mode);
+        el.setAttribute('title', 'Mode: ' + mode);
+    }
+
+    function pollMode() {
+        fetch('/api/mode')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => { if (data && data.mode) updateModeBadge(data.mode); })
+            .catch(() => {})
+            .finally(() => { _modePollTimer = setTimeout(pollMode, 5000); });
+    }
+
+    function initModeBadge() {
+        pollMode();
+    }
+
     function init() {
         preflight.runPreflight();
         modal.initEscapeAndTrap();
         stream.initStreamWatcher();
         router.initRouter();
         initClientErrorReporter();
+        initModeBadge();
         // Defer initial view enter until all scripts are loaded
         setTimeout(function() {
             var v = store.getState().currentView;
