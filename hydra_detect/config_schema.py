@@ -482,6 +482,24 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             default="LOITER",
             description="Flight mode after any autonomous action (fixed-wing)",
         ),
+        # Platform profile keys — set via [vehicle.<name>] overrides.
+        # Listed here so post-merge validation does not flag them as unknown.
+        "platform_role": FieldSpec(
+            FieldType.ENUM,
+            choices=["aerial_isr", "ground_isr", "water_isr"],
+            default=None,
+            description="Platform role identifier (aerial_isr, ground_isr, water_isr)",
+        ),
+        "safe_mode": FieldSpec(
+            FieldType.STRING,
+            default="LOITER",
+            description="ArduPilot mode to enter on safety event for this platform",
+        ),
+        "default_features": FieldSpec(
+            FieldType.STRING,
+            default="detect,mavlink,tak_output,logging",
+            description="Comma-separated feature flags enabled by default for this platform",
+        ),
     },
     "rf_homing": {
         "enabled": FieldSpec(FieldType.BOOL, default=False, description="Enable RF homing"),

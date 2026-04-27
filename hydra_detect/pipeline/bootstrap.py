@@ -52,8 +52,9 @@ class PipelineBootstrap:
                         cfg.add_section(section)
                     cfg.set(section, option, value)
             else:
-                logger.error(
-                    "Vehicle profile %r not found (no [%s] section in config)",
+                logger.warning(
+                    "Vehicle profile '%s' unknown; no overrides applied "
+                    "(no [%s] section in config.ini)",
                     vehicle,
                     vehicle_section,
                 )
