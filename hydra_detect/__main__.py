@@ -168,6 +168,9 @@ def main():
     if args.camera_source:
         _apply_camera_source_override(cfg, args.camera_source)
 
+    from .identity_boot import maybe_generate_identity
+    maybe_generate_identity(args.config)
+
     pipeline = Pipeline(config_path=args.config, vehicle=args.vehicle, cfg_override=cfg)
 
     # Wire the ambient-RF scan buffer + Kismet poller *before* the
