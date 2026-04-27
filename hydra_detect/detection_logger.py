@@ -163,6 +163,7 @@ class DetectionLogger:
         tracking_result: TrackingResult,
         frame: Optional[np.ndarray] = None,
         gps: Optional[Dict[str, Any]] = None,
+        time_source: Optional[str] = None,
     ) -> None:
         """Enqueue tracking results for a single frame.
 
@@ -174,6 +175,8 @@ class DetectionLogger:
             tracking_result: Tracked objects this frame.
             frame: The BGR frame (for image saving).
             gps: GPS dict with keys lat, lon, alt, fix (raw MAVLink ints).
+            time_source: Active time source label (e.g. "GPS", "NTP", "RTC").
+                         Optional — omit to leave the field absent from the record.
         """
         if self._disabled or len(tracking_result) == 0:
             self._frame_count += 1
@@ -227,6 +230,10 @@ class DetectionLogger:
                 "image": img_filename,
                 "model_hash": self._model_hash,
             }
+            # Optional time_source field — only present when a source is known.
+            # Included before hashing so the chain is consistent.
+            if time_source is not None:
+                record["time_source"] = time_source
             # Rolling SHA-256 chain: hash(record_json + prev_hash)
             # Each record chains against the previous record's hash so
             # multi-detection frames produce a sequential chain, not a

@@ -272,3 +272,11 @@ autonomous.min_track_frames = 2
 autonomous.platform_role = aerial_isr
 autonomous.safe_mode = LOITER
 autonomous.default_features = detect,mavlink,tak_output,logging
+
+[time_sync]
+ntp_hosts = pool.ntp.org,time.cloudflare.com
+gps_freshness_seconds = 5
+gps_min_sats = 6
+gps_min_fix_type = 3
+drift_warn_seconds = 5
+drift_block_seconds = 30

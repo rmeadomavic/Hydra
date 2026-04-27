@@ -1306,6 +1306,48 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             description="Retention values above this are clamped with a warning",
         ),
     },
+    "time_sync": {
+        "ntp_hosts": FieldSpec(
+            FieldType.STRING,
+            default="pool.ntp.org,time.cloudflare.com",
+            description="Comma-separated NTP hosts to query (in priority order)",
+        ),
+        "gps_freshness_seconds": FieldSpec(
+            FieldType.FLOAT,
+            min_val=1.0,
+            max_val=60.0,
+            default=5.0,
+            description="GPS data older than this is considered stale",
+        ),
+        "gps_min_sats": FieldSpec(
+            FieldType.INT,
+            min_val=1,
+            max_val=30,
+            default=6,
+            description="Minimum satellite count for GPS time acceptance",
+        ),
+        "gps_min_fix_type": FieldSpec(
+            FieldType.INT,
+            min_val=0,
+            max_val=6,
+            default=3,
+            description="Minimum GPS fix type (3 = 3D fix)",
+        ),
+        "drift_warn_seconds": FieldSpec(
+            FieldType.FLOAT,
+            min_val=0.0,
+            max_val=3600.0,
+            default=5.0,
+            description="Clock drift above this triggers WARN status",
+        ),
+        "drift_block_seconds": FieldSpec(
+            FieldType.FLOAT,
+            min_val=0.0,
+            max_val=86400.0,
+            default=30.0,
+            description="Clock drift above this blocks new missions",
+        ),
+    },
     "audit": {
         "enabled": FieldSpec(
             FieldType.BOOL,

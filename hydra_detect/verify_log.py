@@ -61,6 +61,11 @@ def verify(path: str | Path) -> tuple[bool, int, str]:
         if stored_hash is None:
             return False, line_num, f"Line {line_num}: missing chain_hash field"
 
+        # Any optional fields (e.g. time_source) present in the record were
+        # included in the hash at write time, so they are covered naturally
+        # here.  No special handling needed — the chain remains intact whether
+        # or not optional fields are present, as long as write and verify use
+        # the same sort_keys=True serialization.
         record_json = json.dumps(record, sort_keys=True)
         expected = hashlib.sha256(
             (record_json + prev_hash).encode()

@@ -72,6 +72,11 @@ def build_summary(records: list[dict]) -> dict:
     classes: dict[str, int] = {}
     track_ids: set = set()
     with_gps = 0
+
+    # time_source_summary: distinct sources seen and their time ranges.
+    # Format: { "GPS": {"first": ts, "last": ts}, ... }
+    ts_ranges: dict[str, dict[str, str]] = {}
+
     for r in records:
         label = r.get("label", "unknown")
         classes[label] = classes.get(label, 0) + 1
@@ -79,6 +84,18 @@ def build_summary(records: list[dict]) -> dict:
             track_ids.add(r["track_id"])
         if r.get("lat") is not None and r.get("lon") is not None:
             with_gps += 1
+
+        src = r.get("time_source")
+        if src:
+            ts = r.get("timestamp", "")
+            if src not in ts_ranges:
+                ts_ranges[src] = {"first": ts, "last": ts}
+            else:
+                if ts < ts_ranges[src]["first"]:
+                    ts_ranges[src]["first"] = ts
+                if ts > ts_ranges[src]["last"]:
+                    ts_ranges[src]["last"] = ts
+
     return {
         "total": len(records),
         "classes": classes,
@@ -86,6 +103,7 @@ def build_summary(records: list[dict]) -> dict:
         "with_gps": with_gps,
         "time_start": records[0].get("timestamp", ""),
         "time_end": records[-1].get("timestamp", ""),
+        "time_source_summary": ts_ranges,
     }
 
 
