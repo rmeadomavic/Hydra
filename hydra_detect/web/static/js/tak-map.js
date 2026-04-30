@@ -16,7 +16,7 @@
  * Intentionally framework-free — the rest of the Hydra frontend is
  * vanilla JS and we do not pull in a bundler.
  */
-const HydraTakMap = (() => {
+window.HydraTakMap = (() => {
     const DEFAULT_CENTER = [35.0383, -79.5250]; // SORCC / Southern Pines fallback
     const DEFAULT_ZOOM = 15;
 
