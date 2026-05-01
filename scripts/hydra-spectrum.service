@@ -1,0 +1,33 @@
+[Unit]
+Description=Hydra spectrum daemon — RTL-SDR sweep -> /tmp/hydra_spectrum.json
+Documentation=file:/home/sorcc/Hydra/scripts/README-hydra-spectrum.md
+After=local-fs.target
+
+[Service]
+Type=simple
+User=sorcc
+Group=sorcc
+WorkingDirectory=/home/sorcc/Hydra
+
+# Override these by creating /etc/hydra/spectrum.env, e.g.:
+#   HYDRA_SPECTRUM_FREQ=915
+#   HYDRA_SPECTRUM_INTERVAL=1.0
+#   HYDRA_SPECTRUM_OUTPUT=/tmp/hydra_spectrum.json
+EnvironmentFile=-/etc/hydra/spectrum.env
+Environment=HYDRA_SPECTRUM_FREQ=2400
+Environment=HYDRA_SPECTRUM_INTERVAL=1.0
+Environment=HYDRA_SPECTRUM_OUTPUT=/tmp/hydra_spectrum.json
+
+ExecStart=/usr/bin/python3 /home/sorcc/Hydra/scripts/hydra_spectrum_daemon.py \
+    --freq ${HYDRA_SPECTRUM_FREQ} \
+    --interval ${HYDRA_SPECTRUM_INTERVAL} \
+    --output ${HYDRA_SPECTRUM_OUTPUT}
+
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hydra-spectrum
+
+[Install]
+WantedBy=multi-user.target
