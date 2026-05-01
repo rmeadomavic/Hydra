@@ -36,17 +36,33 @@ class YOLODetector(BaseDetector):
         self._model = YOLO(self._model_path)
         logger.info("YOLO model: %d classes, task=%s",
                     len(self._model.names), getattr(self._model, 'task', 'unknown'))
-        # Force GPU inference on Jetson — CPU gives 1-2 FPS, GPU gives 5-10+
+        self._apply_device_placement(self._model, self._model_path)
+        logger.info("YOLO model loaded.")
+
+    def _apply_device_placement(self, model, model_path: str) -> None:
+        # `.to("cuda:0")` is a PyTorch-only call. TensorRT (.engine) and ONNX
+        # (.onnx) backends are pre-compiled or runtime-managed and reject it
+        # (ultralytics raises TypeError if you try). Only call .to() when the
+        # underlying weights are a PyTorch checkpoint.
+        if not model_path.lower().endswith(".pt"):
+            logger.info(
+                "YOLO model is %s — device handled by backend (no .to() call).",
+                model_path,
+            )
+            return
         try:
             import torch
             if torch.cuda.is_available():
-                self._model.to("cuda:0")
-                logger.info("YOLO model loaded on GPU (CUDA).")
+                model.to("cuda:0")
+                logger.info("YOLO model placed on GPU (CUDA).")
             else:
-                logger.warning("CUDA not available — running YOLO on CPU (expect slow inference).")
+                logger.warning(
+                    "CUDA not available — running YOLO on CPU (expect slow inference)."
+                )
         except ImportError:
-            logger.warning("torch not available for device check — YOLO using default device.")
-        logger.info("YOLO model loaded.")
+            logger.warning(
+                "torch not available for device check — YOLO using default device."
+            )
 
     def detect(self, frame: np.ndarray) -> DetectionResult:
         if self._model is None:
@@ -120,12 +136,7 @@ class YOLODetector(BaseDetector):
         logger.info("Switching YOLO model: %s -> %s", old_path, model_path)
         try:
             new_model = YOLO(model_path)
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    new_model.to("cuda:0")
-            except ImportError:
-                pass
+            self._apply_device_placement(new_model, model_path)
             self._model = new_model
             self._model_path = model_path
             logger.info("YOLO model switched to: %s", model_path)
