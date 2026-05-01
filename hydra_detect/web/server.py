@@ -1352,6 +1352,27 @@ async def api_rf_ambient_scan():
     return JSONResponse({"enabled": True, **snapshot})
 
 
+@app.get("/api/rf/spectrum")
+async def api_rf_spectrum():
+    """Return the latest rtl_power spectrum sweep from /tmp/hydra_spectrum.json.
+
+    The file is written by an external rtl_power daemon. Returns enabled=False
+    when the daemon is not running or its output is missing/corrupt; the
+    dashboard overlay treats that as no live SDR and skips rendering.
+    """
+    path = Path("/tmp/hydra_spectrum.json")
+    try:
+        stat = path.stat()
+        with path.open() as fh:
+            data = json.load(fh)
+        data["enabled"] = True
+        data["file_age_s"] = round(max(0.0, time.time() - stat.st_mtime), 2)
+        return JSONResponse(data)
+    except FileNotFoundError:
+        return JSONResponse({"enabled": False, "reason": "daemon not running", "bins": [], "peaks": []})
+    except Exception as exc:
+        return JSONResponse({"enabled": False, "reason": f"{type(exc).__name__}: {exc}", "bins": [], "peaks": []})
+
 @app.get("/api/servo/status")
 async def api_servo_status():
     """Return the current pan/tilt servo state for the cockpit dial.
