@@ -1,0 +1,15 @@
+# Optional dependencies. NOT installed by default — base requirements.txt
+# omits these so deployed units that do not need them pay zero install
+# weight.
+#
+# Install when enabling specific opt-in features:
+#
+#   pip install -r requirements-extra.txt
+#
+# Then flip the corresponding flag in config.ini.
+
+# ── Re-ID layer for cluttered-scene Follow-mode tracking ────────────────────
+# Activates with [tracker] reid_enabled = true. Pulls in BoT-SORT and the
+# OSNet appearance embedding. OSNet weights (~10 MB) are downloaded on
+# first use via gdown.
+boxmot>=12.0.0
