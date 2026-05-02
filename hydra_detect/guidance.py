@@ -32,6 +32,15 @@ class GuidanceConfig:
     lost_track_timeout_s: float = 2.0  # seconds before declaring track lost
     min_altitude_m: float = 5.0  # vz clamped to prevent ground collision
 
+    # Forward predictor: alpha-beta tracker on the EMA-smoothed bbox center,
+    # projecting position forward by loop_delay_ms to compensate for
+    # camera + inference + MAVLink + ArduPilot + ESC pipeline delay
+    # (measured 100-130 ms steady state on Orin Nano + Pixhawk).
+    loop_delay_ms: float = 100.0
+    predictor_enabled: bool = True
+    predictor_alpha: float = 0.5    # alpha-beta position gain (0..1)
+    predictor_beta: float = 0.05    # alpha-beta velocity gain (0..1)
+
 
 @dataclass
 class VelocityCommand:
@@ -62,6 +71,13 @@ class GuidanceController:
         # Track loss timer
         self._last_track_time: float = 0.0
         self._active: bool = False
+        # Forward predictor (alpha-beta tracker) state
+        self._pred_x: float = 0.0
+        self._pred_y: float = 0.0
+        self._pred_vx: float = 0.0
+        self._pred_vy: float = 0.0
+        self._pred_initialized: bool = False
+        self._last_pred_time: float = 0.0
 
     def start(self) -> None:
         """Begin guidance — call when pixel-lock mode is engaged."""
@@ -69,20 +85,47 @@ class GuidanceController:
         self._smooth_ey = 0.0
         self._last_track_time = time.monotonic()
         self._active = True
+        self._reset_predictor()
 
     def stop(self) -> None:
         """Stop guidance — returns zero velocity on next update."""
         self._active = False
 
+    def _reset_predictor(self) -> None:
+        self._pred_x = 0.0
+        self._pred_y = 0.0
+        self._pred_vx = 0.0
+        self._pred_vy = 0.0
+        self._pred_initialized = False
+        self._last_pred_time = 0.0
+
     @property
     def active(self) -> bool:
         return self._active
+
+    @property
+    def predicted_error(self) -> tuple[float, float] | None:
+        """Predicted (ex, ey) at t = now + loop_delay_ms, or None if the
+        predictor has not seen a valid frame since the last reset."""
+        if not self._pred_initialized:
+            return None
+        lead_s = self._cfg.loop_delay_ms / 1000.0
+        return (
+            self._pred_x + self._pred_vx * lead_s,
+            self._pred_y + self._pred_vy * lead_s,
+        )
+
+    @property
+    def predicted_velocity(self) -> tuple[float, float]:
+        """Current (vx, vy) estimate in error-units per second."""
+        return (self._pred_vx, self._pred_vy)
 
     def update(
         self,
         error_x: float | None,
         error_y: float | None,
         bbox_ratio: float | None,
+        now_s: float | None = None,
     ) -> VelocityCommand:
         """Compute velocity command from current pixel errors.
 
@@ -90,6 +133,9 @@ class GuidanceController:
             error_x: Horizontal offset from centre (-1..+1), or None if lost.
             error_y: Vertical offset from centre (-1..+1), or None if lost.
             bbox_ratio: Target bbox area / frame area (0..1), or None if lost.
+            now_s: Optional monotonic-clock timestamp in seconds. When None
+                (production path), time.monotonic() is used. Tests pass an
+                explicit clock so predictor convergence is deterministic.
 
         Returns:
             VelocityCommand with body-frame velocities.  Returns zero
@@ -98,10 +144,13 @@ class GuidanceController:
         if not self._active:
             return VelocityCommand()
 
-        now = time.monotonic()
+        now = now_s if now_s is not None else time.monotonic()
 
         # Track lost
         if error_x is None or error_y is None or bbox_ratio is None:
+            # Reset the predictor so a re-acquired track does not inherit
+            # stale velocity carried across the gap.
+            self._reset_predictor()
             if (now - self._last_track_time) >= self._cfg.lost_track_timeout_s:
                 return VelocityCommand()  # Hold position (zero velocity)
             # Within timeout — send zero velocity (brake, don't drift)
@@ -109,15 +158,23 @@ class GuidanceController:
 
         self._last_track_time = now
 
-        # EMA smoothing
+        # EMA smoothing on raw input.
         self._smooth_ex = self._alpha * error_x + (1 - self._alpha) * self._smooth_ex
         self._smooth_ey = self._alpha * error_y + (1 - self._alpha) * self._smooth_ey
 
         cfg = self._cfg
 
+        # Forward predictor on the smoothed series. Outputs the EMA-smoothed
+        # error projected by loop_delay_ms; if disabled, falls through to the
+        # raw smoothed value (legacy behavior).
+        if cfg.predictor_enabled:
+            ex_used, ey_used = self._predict(now, self._smooth_ex, self._smooth_ey)
+        else:
+            ex_used, ey_used = self._smooth_ex, self._smooth_ey
+
         # Apply deadzone
-        ex = _deadzone(self._smooth_ex, cfg.deadzone)
-        ey = _deadzone(self._smooth_ey, cfg.deadzone)
+        ex = _deadzone(ex_used, cfg.deadzone)
+        ey = _deadzone(ey_used, cfg.deadzone)
 
         # Forward velocity: approach until target fills target_bbox_ratio
         approach_ratio = max(0.0, min(1.0, 1.0 - bbox_ratio / cfg.target_bbox_ratio))
@@ -150,6 +207,67 @@ class GuidanceController:
             return False
         elapsed = time.monotonic() - self._last_track_time
         return elapsed >= self._cfg.lost_track_timeout_s
+
+    def _predict(
+        self,
+        now: float,
+        smooth_ex: float,
+        smooth_ey: float,
+    ) -> tuple[float, float]:
+        """Alpha-beta tracker step. Returns the smoothed error projected
+        forward by loop_delay_ms.
+
+        Standard discrete alpha-beta filter:
+            x_pred  - x + v * dt
+            r       - z - x_pred
+            x       - x_pred + alpha * r
+            v       - v + (beta / dt) * r
+            output  - x + v * lead
+
+        On the first valid frame after start() or a track loss, the predictor
+        seeds from the measurement with zero velocity and emits no lead.
+        """
+        cfg = self._cfg
+        if not self._pred_initialized:
+            self._pred_x = smooth_ex
+            self._pred_y = smooth_ey
+            self._pred_vx = 0.0
+            self._pred_vy = 0.0
+            self._last_pred_time = now
+            self._pred_initialized = True
+            return smooth_ex, smooth_ey
+
+        dt = now - self._last_pred_time
+        lead_s = cfg.loop_delay_ms / 1000.0
+
+        if dt <= 0.0:
+            # Clock anomaly or two updates in the same tick — skip the filter
+            # step but still project from existing state.
+            return (
+                self._pred_x + self._pred_vx * lead_s,
+                self._pred_y + self._pred_vy * lead_s,
+            )
+
+        # Predict to the current time using prior velocity.
+        x_pred = self._pred_x + self._pred_vx * dt
+        y_pred = self._pred_y + self._pred_vy * dt
+
+        # Residuals against the new measurement.
+        rx = smooth_ex - x_pred
+        ry = smooth_ey - y_pred
+
+        # Filter step.
+        self._pred_x = x_pred + cfg.predictor_alpha * rx
+        self._pred_y = y_pred + cfg.predictor_alpha * ry
+        self._pred_vx = self._pred_vx + (cfg.predictor_beta / dt) * rx
+        self._pred_vy = self._pred_vy + (cfg.predictor_beta / dt) * ry
+        self._last_pred_time = now
+
+        # Project forward by loop_delay.
+        return (
+            self._pred_x + self._pred_vx * lead_s,
+            self._pred_y + self._pred_vy * lead_s,
+        )
 
 
 # ------------------------------------------------------------------

@@ -1186,6 +1186,32 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             default=5.0,
             description="Minimum altitude floor metres",
         ),
+        "loop_delay_ms": FieldSpec(
+            FieldType.FLOAT,
+            min_val=0.0,
+            max_val=1000.0,
+            default=100.0,
+            description="Forward-predictor look-ahead milliseconds (camera + infer + MAVLink + ESC)",
+        ),
+        "predictor_enabled": FieldSpec(
+            FieldType.BOOL,
+            default=True,
+            description="Enable alpha-beta forward predictor on smoothed bbox center",
+        ),
+        "predictor_alpha": FieldSpec(
+            FieldType.FLOAT,
+            min_val=0.0,
+            max_val=1.0,
+            default=0.5,
+            description="Alpha-beta filter position gain",
+        ),
+        "predictor_beta": FieldSpec(
+            FieldType.FLOAT,
+            min_val=0.0,
+            max_val=1.0,
+            default=0.05,
+            description="Alpha-beta filter velocity gain",
+        ),
     },
     "mavlink_video": {
         "enabled": FieldSpec(

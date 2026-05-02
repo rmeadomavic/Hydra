@@ -208,7 +208,8 @@ class TestGuidanceEMASmoothing:
     """EMA smoothing reduces jitter."""
 
     def test_sudden_change_is_smoothed(self):
-        cfg = GuidanceConfig(deadzone=0.0)  # disable deadzone for this test
+        # Predictor disabled — this test isolates EMA behaviour.
+        cfg = GuidanceConfig(deadzone=0.0, predictor_enabled=False)
         gc = GuidanceController(cfg)
         gc.start()
 
@@ -242,6 +243,176 @@ class TestGuidanceStartStop:
         assert gc.active
         gc.stop()
         assert not gc.active
+
+
+# ------------------------------------------------------------------
+# Forward predictor (alpha-beta tracker on smoothed bbox center)
+# ------------------------------------------------------------------
+
+class TestForwardPredictor:
+    """Forward predictor compensates for camera + infer + MAVLink + ESC delay.
+
+    The predictor is an alpha-beta tracker layered on top of the existing EMA.
+    Output of update() is computed from a measurement projected forward by
+    ``loop_delay_ms``, so the controller acts on where the target will be when
+    the velocity command actually takes effect, not where it is now.
+    """
+
+    def _make_cfg(self, **kwargs):
+        """Build a config with EMA disabled (smoothing alpha 1.0) by default."""
+        defaults = dict(
+            deadzone=0.0,
+            smoothing=1.0,           # EMA passthrough so predictor sees raw input
+            predictor_enabled=True,
+            predictor_alpha=0.5,
+            predictor_beta=0.1,
+            loop_delay_ms=100.0,
+        )
+        defaults.update(kwargs)
+        return GuidanceConfig(**defaults)
+
+    def test_constant_velocity_lead(self):
+        """After convergence on constant-velocity motion, predicted error leads
+        measured error by velocity * loop_delay."""
+        cfg = self._make_cfg()
+        gc = GuidanceController(cfg)
+        gc.start()
+
+        dt = 0.02              # 50 Hz frame rate
+        velocity_per_frame = 0.01  # error units per frame
+        ex_final = 0.0
+        for i in range(200):   # plenty of frames for the alpha-beta to converge
+            ex_final = i * velocity_per_frame
+            gc.update(ex_final, 0.0, 0.05, now_s=i * dt)
+
+        pred_x, pred_y = gc.predicted_error
+        # velocity in error units per second
+        true_velocity = velocity_per_frame / dt   # 0.5 units/sec
+        expected_lead = true_velocity * (cfg.loop_delay_ms / 1000.0)  # 0.05
+        assert pred_x == pytest.approx(ex_final + expected_lead, abs=0.01)
+        assert pred_y == pytest.approx(0.0, abs=0.01)
+
+    def test_stationary_target_no_lead(self):
+        """Predictor on a still target converges to truth with zero velocity."""
+        cfg = self._make_cfg()
+        gc = GuidanceController(cfg)
+        gc.start()
+
+        for i in range(100):
+            gc.update(0.3, 0.0, 0.05, now_s=i * 0.02)
+
+        pred_x, pred_y = gc.predicted_error
+        pred_vx, pred_vy = gc.predicted_velocity
+        assert pred_x == pytest.approx(0.3, abs=0.01)
+        assert pred_y == pytest.approx(0.0, abs=0.01)
+        assert pred_vx == pytest.approx(0.0, abs=0.05)
+        assert pred_vy == pytest.approx(0.0, abs=0.05)
+
+    def test_predictor_disabled_matches_legacy_behavior(self):
+        """With predictor_enabled false, the controller reproduces the
+        pre-predictor formula: gain * deadzone(EMA-smoothed error)."""
+        cfg = GuidanceConfig(
+            fwd_gain=2.0, lat_gain=1.5, vert_gain=1.0, yaw_gain=30.0,
+            max_fwd_speed=5.0, max_lat_speed=2.0, max_vert_speed=1.5,
+            max_yaw_rate=45.0,
+            deadzone=0.05,
+            smoothing=0.4,           # default EMA alpha
+            target_bbox_ratio=0.15,
+            lost_track_timeout_s=2.0,
+            min_altitude_m=5.0,
+            predictor_enabled=False,
+        )
+        gc = GuidanceController(cfg)
+        gc.start()
+
+        # Two frames of identical input. EMA at alpha 0.4:
+        #   frame 1: smooth_ex equals 0.4 * 0.3 plus 0.6 * 0.0 equals 0.12
+        #   frame 2: smooth_ex equals 0.4 * 0.3 plus 0.6 * 0.12 equals 0.192
+        gc.update(0.3, 0.2, 0.05, now_s=0.0)
+        cmd = gc.update(0.3, 0.2, 0.05, now_s=0.02)
+
+        # vy equals lat_gain * deadzoned(smooth_ex)
+        # 0.192 is above the 0.05 deadzone, so vy equals 1.5 * 0.192 equals 0.288
+        assert cmd.vy == pytest.approx(0.288, abs=0.005)
+
+    def test_predictor_disabled_lateral_exceeds_enabled_on_zero_velocity(self):
+        """On a stationary target, predictor-on output should match predictor-off
+        output (no lead to add). This guards against the predictor introducing
+        spurious lead on still targets."""
+        cfg_off = self._make_cfg(predictor_enabled=False)
+        cfg_on = self._make_cfg(predictor_enabled=True)
+
+        gc_off = GuidanceController(cfg_off)
+        gc_on = GuidanceController(cfg_on)
+        gc_off.start()
+        gc_on.start()
+
+        cmd_off = None
+        cmd_on = None
+        for i in range(50):
+            cmd_off = gc_off.update(0.4, 0.0, 0.05, now_s=i * 0.02)
+            cmd_on = gc_on.update(0.4, 0.0, 0.05, now_s=i * 0.02)
+
+        # On a stationary target both controllers should produce the same vy
+        # within filter-noise tolerance.
+        assert cmd_on.vy == pytest.approx(cmd_off.vy, abs=0.05)
+
+    def test_track_lost_resets_predictor_state(self):
+        """A None-input frame must clear the velocity estimate so a re-acquired
+        track does not inherit stale velocity."""
+        cfg = self._make_cfg()
+        gc = GuidanceController(cfg)
+        gc.start()
+
+        # Build up a non-zero velocity estimate.
+        for i in range(50):
+            gc.update(i * 0.01, 0.0, 0.05, now_s=i * 0.02)
+        assert abs(gc.predicted_velocity[0]) > 0.1
+
+        # Track lost.
+        gc.update(None, None, None, now_s=1.0)
+        assert gc.predicted_error is None
+        assert gc.predicted_velocity == (0.0, 0.0)
+
+    def test_predictor_extreme_input_does_not_break_clamps(self):
+        """Aggressive predictor settings on a fast target must still produce
+        clamped, finite velocity commands."""
+        import math
+
+        cfg = self._make_cfg(
+            loop_delay_ms=500.0,
+            predictor_alpha=0.9,
+            predictor_beta=0.5,
+            max_lat_speed=2.0,
+            max_fwd_speed=5.0,
+            max_vert_speed=1.5,
+            max_yaw_rate=45.0,
+        )
+        gc = GuidanceController(cfg)
+        gc.start()
+
+        for i in range(20):
+            gc.update(i * 0.5, 0.0, 0.05, now_s=i * 0.02)
+        cmd = gc.update(10.0, 0.0, 0.05, now_s=0.42)
+
+        for value in (cmd.vx, cmd.vy, cmd.vz, cmd.yaw_rate):
+            assert math.isfinite(value)
+        assert abs(cmd.vy) <= cfg.max_lat_speed
+        assert cmd.vx <= cfg.max_fwd_speed
+        assert abs(cmd.vz) <= cfg.max_vert_speed
+        assert abs(cmd.yaw_rate) <= cfg.max_yaw_rate
+
+    def test_first_frame_no_lead(self):
+        """The first valid frame after start() initializes the predictor and
+        emits no lead (no velocity history yet)."""
+        cfg = self._make_cfg()
+        gc = GuidanceController(cfg)
+        gc.start()
+
+        gc.update(0.3, 0.1, 0.05, now_s=0.0)
+        pred_x, pred_y = gc.predicted_error
+        assert pred_x == pytest.approx(0.3, abs=1e-6)
+        assert pred_y == pytest.approx(0.1, abs=1e-6)
 
 
 # ------------------------------------------------------------------

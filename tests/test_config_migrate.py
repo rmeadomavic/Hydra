@@ -63,6 +63,30 @@ GOLDEN_V1 = textwrap.dedent("""\
 """)
 
 
+# A config already at the current schema version. Constructed dynamically so
+# the fixture stays correct when CURRENT_SCHEMA_VERSION is bumped.
+GOLDEN_CURRENT = textwrap.dedent(f"""\
+    [meta]
+    schema_version = {CURRENT_SCHEMA_VERSION}
+
+    [camera]
+    source_type = auto
+    source = auto
+    width = 640
+    height = 480
+    fps = 30
+
+    [detector]
+    yolo_model = yolov8n.pt
+    yolo_confidence = 0.45
+
+    [web]
+    enabled = true
+    host = 0.0.0.0
+    port = 8080
+""")
+
+
 @pytest.fixture
 def tmp_config(tmp_path):
     """Return a factory: write INI text to a temp file and return its Path."""
@@ -78,27 +102,28 @@ def tmp_config(tmp_path):
 # ---------------------------------------------------------------------------
 
 class TestV0ToV1Migration:
-    def test_v0_migrates_to_v1(self, tmp_config):
-        """v0 config (no [meta]) gets schema_version = 1 written back."""
+    def test_v0_migrates_to_current(self, tmp_config):
+        """v0 config (no [meta]) gets schema_version stamped to current."""
         p = tmp_config(GOLDEN_V0)
-        result = run_migrations(p)
+        run_migrations(p)
 
         cfg = configparser.ConfigParser()
         cfg.read(p)
 
         assert cfg.has_section("meta"), "expected [meta] section after migration"
-        assert cfg.get("meta", "schema_version") == "1"
+        assert cfg.get("meta", "schema_version") == str(CURRENT_SCHEMA_VERSION)
 
     def test_v0_migration_result(self, tmp_config):
-        """run_migrations returns correct MigrationResult for v0→v1."""
+        """run_migrations returns correct MigrationResult for v0→current."""
         p = tmp_config(GOLDEN_V0)
         result = run_migrations(p)
 
         assert isinstance(result, MigrationResult)
         assert result.from_version == 0
-        assert result.to_version == 1
-        assert len(result.applied) == 1
-        assert "001" in result.applied[0]  # migration filename in the list
+        assert result.to_version == CURRENT_SCHEMA_VERSION
+        # Every step from 0 to current should have been applied.
+        assert len(result.applied) == CURRENT_SCHEMA_VERSION
+        assert "001" in result.applied[0]  # first step is the v0→v1 migration
 
     def test_v0_backup_created(self, tmp_config):
         """A .premigrate.<ISO8601> backup is created before any change."""
@@ -136,38 +161,90 @@ class TestV0ToV1Migration:
 # 2. v1 config is a no-op
 # ---------------------------------------------------------------------------
 
-class TestV1Noop:
-    def test_v1_already_current_no_migrations_applied(self, tmp_config):
-        """Config already at v1 returns an empty applied list."""
-        p = tmp_config(GOLDEN_V1)
+class TestCurrentNoop:
+    def test_at_current_no_migrations_applied(self, tmp_config):
+        """Config already at the current schema version returns empty applied."""
+        p = tmp_config(GOLDEN_CURRENT)
         result = run_migrations(p)
 
         assert result.applied == []
-        assert result.from_version == 1
-        assert result.to_version == 1
+        assert result.from_version == CURRENT_SCHEMA_VERSION
+        assert result.to_version == CURRENT_SCHEMA_VERSION
 
-    def test_v1_no_backup_created(self, tmp_config):
+    def test_at_current_no_backup_created(self, tmp_config):
         """No backup file is written when no migrations run."""
-        p = tmp_config(GOLDEN_V1)
+        p = tmp_config(GOLDEN_CURRENT)
         result = run_migrations(p)
 
         assert result.backup_path is None
 
-    def test_v1_file_unchanged(self, tmp_config):
+    def test_at_current_file_unchanged(self, tmp_config):
         """File content is byte-identical after a no-op run."""
-        p = tmp_config(GOLDEN_V1)
+        p = tmp_config(GOLDEN_CURRENT)
         before = p.read_bytes()
         run_migrations(p)
         after = p.read_bytes()
 
-        # Content must be equivalent (configparser may reformat whitespace,
-        # so compare parsed sections rather than raw bytes).
         cfg_before = configparser.ConfigParser()
         cfg_before.read_string(before.decode())
         cfg_after = configparser.ConfigParser()
         cfg_after.read_string(after.decode())
 
         assert dict(cfg_before["meta"]) == dict(cfg_after["meta"])
+
+
+class TestV1ToV2Migration:
+    """Migration 002: forward-predictor keys are inserted into [guidance]."""
+
+    def test_v1_picks_up_predictor_keys(self, tmp_config):
+        """Migrating from v1 adds predictor_enabled and friends to [guidance]."""
+        # v1 baseline with a [guidance] section containing only legacy keys.
+        v1_with_guidance = GOLDEN_V1 + textwrap.dedent("""
+            [guidance]
+            fwd_gain = 2.0
+            lat_gain = 1.5
+        """)
+        p = tmp_config(v1_with_guidance)
+        run_migrations(p)
+
+        cfg = configparser.ConfigParser()
+        cfg.read(p)
+
+        assert cfg.get("guidance", "loop_delay_ms") == "100.0"
+        assert cfg.get("guidance", "predictor_enabled") == "true"
+        assert cfg.get("guidance", "predictor_alpha") == "0.5"
+        assert cfg.get("guidance", "predictor_beta") == "0.05"
+        # Existing keys preserved.
+        assert cfg.get("guidance", "fwd_gain") == "2.0"
+
+    def test_v1_existing_predictor_value_preserved(self, tmp_config):
+        """If a key already exists in [guidance], the user's value wins."""
+        v1_with_user_override = GOLDEN_V1 + textwrap.dedent("""
+            [guidance]
+            predictor_enabled = false
+            predictor_alpha = 0.3
+        """)
+        p = tmp_config(v1_with_user_override)
+        run_migrations(p)
+
+        cfg = configparser.ConfigParser()
+        cfg.read(p)
+
+        assert cfg.get("guidance", "predictor_enabled") == "false"
+        assert cfg.get("guidance", "predictor_alpha") == "0.3"
+        # Missing keys still get filled in.
+        assert cfg.get("guidance", "loop_delay_ms") == "100.0"
+
+    def test_v1_no_guidance_section_creates_one(self, tmp_config):
+        """If [guidance] is absent at v1, the migration creates it."""
+        p = tmp_config(GOLDEN_V1)
+        run_migrations(p)
+
+        cfg = configparser.ConfigParser()
+        cfg.read(p)
+
+        assert cfg.has_section("guidance")
+        assert cfg.get("guidance", "predictor_enabled") == "true"
 
 
 # ---------------------------------------------------------------------------
@@ -177,16 +254,15 @@ class TestV1Noop:
 class TestMigrationDiscovery:
     def test_migrations_applied_in_version_order(self, tmp_config, tmp_path, monkeypatch):
         """Migration files are applied in from_version order, not filename sort order."""
-        # We fake a v0 config and patch the migration directory to contain
-        # a single (the real) migration file. If discovery returns them sorted
-        # correctly, v0→v1 completes; if not, an assertion inside the runner
-        # will catch the gap.
+        # A v0 config should chain through every migration to reach the
+        # current schema version. If discovery sorted by filename instead of
+        # from_version the runner's contiguity check would catch the gap.
         p = tmp_config(GOLDEN_V0)
         result = run_migrations(p)
 
-        # Real migrations directory has only 001; must produce exactly one step.
         assert result.from_version == 0
         assert result.to_version == CURRENT_SCHEMA_VERSION
+        assert len(result.applied) == CURRENT_SCHEMA_VERSION
 
     def test_migration_files_need_correct_from_to(self, tmp_config, tmp_path, monkeypatch):
         """Runner raises MigrationError if a migration module lacks required attrs."""
