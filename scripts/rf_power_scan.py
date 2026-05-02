@@ -56,8 +56,17 @@ def power_bar(db: float, floor: float = -20.0, ceiling: float = 20.0, width: int
     return f"{color}{'█' * filled}{DIM}{'░' * (width - filled)}{RST}"
 
 
-def scan_once(start_mhz: float, stop_mhz: float, step_khz: float = 100) -> list[tuple[float, float]]:
-    """Run one rtl_power sweep and return [(freq_mhz, power_db), ...]."""
+def scan_once(
+    start_mhz: float,
+    stop_mhz: float,
+    step_khz: float = 100,
+    timeout: float | None = None,
+) -> list[tuple[float, float]]:
+    """Run one rtl_power sweep and return [(freq_mhz, power_db), ...].
+
+    Raises subprocess.TimeoutExpired (after killing the child) if rtl_power
+    does not complete within *timeout* seconds. Pass timeout=None for no limit.
+    """
     cmd = [
         "rtl_power",
         "-f", f"{start_mhz}M:{stop_mhz}M:{step_khz}k",
@@ -72,28 +81,31 @@ def scan_once(start_mhz: float, stop_mhz: float, step_khz: float = 100) -> list[
         print("rtl_power not found — install rtl-sdr package")
         sys.exit(1)
 
-    samples = []
     try:
-        for line in proc.stdout:
-            line = line.strip()
-            if not line:
-                continue
-            parts = line.split(",")
-            # Format: date, time, freq_start_hz, freq_stop_hz, step_hz, samples, db1, db2, ...
-            if len(parts) < 7:
-                continue
-            try:
-                freq_start = float(parts[2].strip())
-                freq_step = float(parts[4].strip())
-                db_values = [float(x.strip()) for x in parts[6:]]
-                for i, db in enumerate(db_values):
-                    freq_hz = freq_start + i * freq_step
-                    samples.append((freq_hz / 1e6, db))
-            except (ValueError, IndexError):
-                continue
-    finally:
-        proc.terminate()
-        proc.wait(timeout=3)
+        stdout, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        raise
+
+    samples = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(",")
+        # Format: date, time, freq_start_hz, freq_stop_hz, step_hz, samples, db1, db2, ...
+        if len(parts) < 7:
+            continue
+        try:
+            freq_start = float(parts[2].strip())
+            freq_step = float(parts[4].strip())
+            db_values = [float(x.strip()) for x in parts[6:]]
+            for i, db in enumerate(db_values):
+                freq_hz = freq_start + i * freq_step
+                samples.append((freq_hz / 1e6, db))
+        except (ValueError, IndexError):
+            continue
 
     return samples
 

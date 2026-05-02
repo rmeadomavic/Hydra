@@ -5,8 +5,6 @@ After=local-fs.target
 
 [Service]
 Type=simple
-User=sorcc
-Group=sorcc
 WorkingDirectory=/home/sorcc/Hydra
 
 # Override these by creating /etc/hydra/spectrum.env, e.g.:
