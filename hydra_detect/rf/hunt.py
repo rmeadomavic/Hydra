@@ -137,6 +137,20 @@ class RFHuntController:
         self._gps_required = gps_required
         self._check_geofence = geofence_check
         self._clip_to_geofence = geofence_clip
+
+        # Surface a likely misconfiguration early: a check callback without
+        # a clip callback means every out-of-fence waypoint is skipped,
+        # which — combined with the search-pattern advance logic — can strand
+        # the vehicle silently. Supported mode (some tests exercise it), so
+        # only a WARN, not a raise.
+        if geofence_check is not None and geofence_clip is None:
+            logger.warning(
+                "RFHuntController: geofence_check wired without geofence_clip. "
+                "Waypoints outside the fence will be skipped; the search loop "
+                "will advance past them but the vehicle may hover if every "
+                "remaining waypoint is suppressed. Pass geofence_clip too for "
+                "full coverage."
+            )
         self._consecutive_clips = 0
         self._MAX_CONSECUTIVE_CLIPS = 3
         self._consecutive_none = 0  # count of consecutive None RSSI reads in homing
@@ -510,19 +524,51 @@ class RFHuntController:
             check_lat, check_lon = self._effective_wp
         dist = haversine_m(lat, lon, check_lat, check_lon)
         if dist < self._arrival_tolerance:
+            # Arrived at current waypoint — advance to the next sendable one.
             self._wp_index += 1
-            self._effective_wp = None  # reset for next waypoint
-            if self._wp_index < len(self._waypoints):
-                nwp = self._waypoints[self._wp_index]
-                if not self._geofence_waypoint(nwp[0], nwp[1], nwp[2]):
-                    return
-                logger.debug(
-                    "Search WP %d/%d", self._wp_index, len(self._waypoints),
-                )
-        elif self._wp_index == 0 and self._effective_wp is None:
-            # Send first waypoint
-            if not self._geofence_waypoint(wp[0], wp[1], wp[2]):
+            self._effective_wp = None
+            self._advance_to_next_sendable_wp()
+        elif self._effective_wp is None:
+            # No waypoint has been commanded for the current index yet
+            # (first call, or the previous attempt was suppressed by the
+            # geofence). Try to send one now, skipping past any waypoints
+            # that can't be sent.
+            self._advance_to_next_sendable_wp()
+
+    def _advance_to_next_sendable_wp(self) -> None:
+        """Advance through waypoints until one is successfully commanded.
+
+        A waypoint can be suppressed when ``_check_geofence`` rejects it
+        and no ``_clip_to_geofence`` callback is wired. The previous
+        implementation sent exactly one waypoint per ``_do_search`` call
+        and returned silently on suppression — which left ``_wp_index``
+        advanced but no command sent, stranding the vehicle at its
+        current position until the entire pattern exhausted.
+
+        This helper loops forward through remaining waypoints until one
+        is sendable. If every remaining waypoint is suppressed, the loop
+        exits with ``_wp_index >= len(_waypoints)`` and the next
+        ``_do_search`` iteration hits the existing "pattern complete"
+        branch, aborting cleanly.
+
+        Also bails if a mid-loop state transition (e.g.
+        ``_geofence_waypoint`` pushing to CONVERGED after
+        ``_MAX_CONSECUTIVE_CLIPS``) moves the controller out of
+        ``SEARCHING``.
+        """
+        while self._wp_index < len(self._waypoints):
+            if self.state != HuntState.SEARCHING:
                 return
+            wp = self._waypoints[self._wp_index]
+            if self._geofence_waypoint(wp[0], wp[1], wp[2]):
+                logger.debug(
+                    "Search WP %d/%d",
+                    self._wp_index + 1, len(self._waypoints),
+                )
+                return
+            # Waypoint suppressed — advance and retry with the next one.
+            self._wp_index += 1
+            self._effective_wp = None
 
     def _do_homing(self) -> None:
         """Gradient ascent toward signal source."""
