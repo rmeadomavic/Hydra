@@ -32,6 +32,7 @@ import json
 import os
 import signal
 import statistics
+import subprocess
 import sys
 import tempfile
 import time
@@ -49,6 +50,7 @@ PRESETS = {
 }
 
 DEFAULT_OUTPUT = "/tmp/hydra_spectrum.json"
+SCAN_TIMEOUT = int(os.environ.get("HYDRA_SPECTRUM_TIMEOUT", "60"))
 
 
 def find_peaks(samples, threshold_dbm, max_peaks=12, min_separation_mhz=1.0):
@@ -162,7 +164,11 @@ def main():
         error = None
         samples = []
         try:
-            samples = scan_once(start, stop, step_khz=args.step_khz)
+            samples = scan_once(start, stop, step_khz=args.step_khz, timeout=SCAN_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            print(f"hydra-spectrum: WARN rtl_power timed out after {SCAN_TIMEOUT}s — "
+                  "dongle may be hung; skipping sweep", file=sys.stderr, flush=True)
+            status, error = "error", f"rtl_power timed out after {SCAN_TIMEOUT}s"
         except SystemExit:
             status, error = "error", "rtl_power binary not found"
         except Exception as exc:
@@ -170,7 +176,8 @@ def main():
 
         if status == "ok" and not samples:
             status = "no_sdr"
-            error = "rtl_power produced no samples (dongle unplugged or busy?)"
+            error = ("rtl_power produced no samples "
+                     "(dongle unplugged, busy, or returned no bins — check gain/frequency)")
 
         if samples:
             sweep_count += 1

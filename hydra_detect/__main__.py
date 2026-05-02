@@ -152,6 +152,19 @@ def _apply_camera_source_override(cfg: configparser.ConfigParser, source: str) -
         cfg.set("camera", "source_type", "file")
 
 
+def _load_dotenv(repo_root: Path) -> None:
+    """Load key=value pairs from .env into os.environ (no-op if file absent)."""
+    env_path = repo_root / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        os.environ.setdefault(key.strip(), val.strip())
+
+
 def main():
     logging.basicConfig(
         level=logging.INFO,
@@ -193,10 +206,35 @@ def main():
     if args.vehicle == "":
         args.vehicle = None
 
+    _load_dotenv(Path(args.config).resolve().parent)
+
     # Pre-load config so we can apply --sim and --camera-source overrides
     # before Pipeline.__init__ reads the values.
     cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
     cfg.read(args.config)
+
+    # Inject HYDRA_API_TOKEN from env if config has no token set.
+    _env_token = os.environ.get("HYDRA_API_TOKEN", "").strip()
+    if _env_token and not cfg.get("web", "api_token", fallback="").strip():
+        cfg.set("web", "api_token", _env_token)
+
+    # Warn if token is still absent — external API access will be unrestricted.
+    # Warn-and-continue: same-origin dashboard still works; field ops are not blocked.
+    if not cfg.get("web", "api_token", fallback="").strip():
+        logger.warning(
+            "HYDRA_API_TOKEN is not set — external API access is unrestricted. "
+            "Set HYDRA_API_TOKEN in .env or the environment."
+        )
+
+    # Per-host MAVLink overrides — let each Jetson use its own serial port
+    # without editing the shared config.ini.
+    _env_mavlink_device = os.environ.get("HYDRA_MAVLINK_DEVICE", "").strip()
+    if _env_mavlink_device and cfg.has_section("mavlink"):
+        cfg.set("mavlink", "connection_string", _env_mavlink_device)
+
+    _env_mavlink_baud = os.environ.get("HYDRA_MAVLINK_BAUD", "").strip()
+    if _env_mavlink_baud and cfg.has_section("mavlink"):
+        cfg.set("mavlink", "baud", _env_mavlink_baud)
 
     if args.sim:
         _apply_sim_overrides(cfg)

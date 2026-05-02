@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
 import threading
@@ -91,6 +92,10 @@ logger = logging.getLogger(__name__)
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
+
+# Spectrum endpoint configuration (overridable via env vars; see .env.example)
+_SPECTRUM_PATH = Path(os.environ.get("HYDRA_SPECTRUM_PATH", "/tmp/hydra_spectrum.json"))
+_SPECTRUM_MAX_AGE_S = float(os.environ.get("HYDRA_SPECTRUM_MAX_AGE_S", "10"))
 
 app = FastAPI(title="Hydra Detect v2.0", version="2.0.0")
 
@@ -1385,18 +1390,24 @@ async def api_rf_spectrum():
     when the daemon is not running or its output is missing/corrupt; the
     dashboard overlay treats that as no live SDR and skips rendering.
     """
-    path = Path("/tmp/hydra_spectrum.json")
+    path = _SPECTRUM_PATH
     try:
         stat = path.stat()
         with path.open() as fh:
             data = json.load(fh)
-        data["enabled"] = True
-        data["file_age_s"] = round(max(0.0, time.time() - stat.st_mtime), 2)
+        file_age_s = round(max(0.0, time.time() - stat.st_mtime), 2)
+        data["file_age_s"] = file_age_s
+        if file_age_s > _SPECTRUM_MAX_AGE_S:
+            data["enabled"] = False
+            data["status"] = "stale_data"
+        else:
+            data["enabled"] = True
         return JSONResponse(data)
     except FileNotFoundError:
         return JSONResponse({"enabled": False, "reason": "daemon not running", "bins": [], "peaks": []})
     except Exception as exc:
         return JSONResponse({"enabled": False, "reason": f"{type(exc).__name__}: {exc}", "bins": [], "peaks": []})
+
 
 @app.get("/api/servo/status")
 async def api_servo_status():
