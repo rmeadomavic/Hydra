@@ -48,6 +48,8 @@ def _make_state(**overrides) -> SystemState:
         vehicle_profile_present=True,
         schema_version="1",
         schema_version_present=True,
+        cpu_temp_c=50.0,
+        gpu_temp_c=55.0,
         cfg=None,
     )
     defaults.update(overrides)
@@ -111,6 +113,7 @@ EXPECTED_CAPABILITIES = [
     "Time Source",
     "Vehicle Profile",
     "Schema Version",
+    "Thermal",
     "Autonomy Live",
     "Drop",
     "RF Hunt",
@@ -398,6 +401,75 @@ class TestSchemaVersionEvaluator:
         r = next(r for r in reports if r.name == "Schema Version")
         assert r.status == CapabilityStatus.BLOCKED
         assert len(r.reasons) > 0
+
+
+# ---------------------------------------------------------------------------
+# Thermal evaluator (SoC temp from /sys/devices/virtual/thermal)
+# ---------------------------------------------------------------------------
+
+class TestThermalEvaluator:
+    """Operator-visible WARN/BLOCKED gating on Jetson SoC temperature.
+
+    Threshold rationale: Orin Nano begins thermal throttling around 85-92 °C
+    depending on the rail. WARN at 75 °C gives the operator margin to land
+    or shade the unit before performance degrades; BLOCKED at 90 °C is the
+    'stop using this unit' line.
+    """
+
+    def test_ready_when_temps_unavailable(self):
+        """No Jetson hardware (dev box, sim) — return READY rather than warn."""
+        state = _make_state(cpu_temp_c=None, gpu_temp_c=None)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Thermal")
+        assert r.status == CapabilityStatus.READY
+
+    def test_ready_when_cool(self):
+        state = _make_state(cpu_temp_c=45.0, gpu_temp_c=50.0)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Thermal")
+        assert r.status == CapabilityStatus.READY
+        assert r.reasons == []
+
+    def test_warn_when_cpu_above_threshold(self):
+        state = _make_state(cpu_temp_c=80.0, gpu_temp_c=50.0)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Thermal")
+        assert r.status == CapabilityStatus.WARN
+        assert any("80" in reason or "75" in reason for reason in r.reasons)
+
+    def test_warn_when_gpu_above_threshold(self):
+        state = _make_state(cpu_temp_c=60.0, gpu_temp_c=82.0)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Thermal")
+        assert r.status == CapabilityStatus.WARN
+
+    def test_warn_uses_hottest_zone(self):
+        """If only one zone is hot, the report still warns (max wins)."""
+        state = _make_state(cpu_temp_c=30.0, gpu_temp_c=78.0)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Thermal")
+        assert r.status == CapabilityStatus.WARN
+
+    def test_blocked_when_at_throttle_limit(self):
+        state = _make_state(cpu_temp_c=92.0, gpu_temp_c=88.0)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Thermal")
+        assert r.status == CapabilityStatus.BLOCKED
+
+    def test_partial_data_one_zone_only(self):
+        """One zone reporting None should not crash the evaluator."""
+        state = _make_state(cpu_temp_c=80.0, gpu_temp_c=None)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Thermal")
+        assert r.status == CapabilityStatus.WARN
+
+    def test_at_warn_boundary_is_warn(self):
+        """75.0 °C exactly is the warn threshold — strictly-above triggers."""
+        # Slightly above to avoid floating-point ambiguity.
+        state = _make_state(cpu_temp_c=75.1, gpu_temp_c=50.0)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Thermal")
+        assert r.status == CapabilityStatus.WARN
 
 
 # ---------------------------------------------------------------------------

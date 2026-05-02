@@ -84,6 +84,12 @@ class SystemState:
     schema_version: str | None = None
     schema_version_present: bool = False
 
+    # SoC temperatures in degrees Celsius (None on non-Jetson hosts).
+    # Populated from system.read_jetson_stats() via the merged
+    # stream_state stats dict; see build_system_state.
+    cpu_temp_c: float | None = None
+    gpu_temp_c: float | None = None
+
     # Raw config parser (optional — used by some evaluators)
     cfg: Any = None
 
@@ -113,6 +119,12 @@ def build_system_state(
             last_frame_ts = stats.get("last_frame_ts")
             if last_frame_ts is not None:
                 state.camera_frame_age_sec = time.monotonic() - float(last_frame_ts)
+            # Jetson SoC temps are merged into stats by pipeline.facade
+            # via system.read_jetson_stats(); read straight through.
+            cpu_t = stats.get("cpu_temp_c")
+            gpu_t = stats.get("gpu_temp_c")
+            state.cpu_temp_c = float(cpu_t) if cpu_t is not None else None
+            state.gpu_temp_c = float(gpu_t) if gpu_t is not None else None
         except Exception:
             pass
 
@@ -208,6 +220,10 @@ _STALE_FRAME_SEC = 5.0       # frame age beyond which detection is WARN
 _STALE_HEARTBEAT_SEC = 5.0   # heartbeat age beyond which MAVLink is WARN
 _DISK_WARN_GB = 2.0          # free disk WARN threshold
 _DISK_BLOCKED_GB = 0.5       # free disk BLOCKED threshold
+# SoC temp thresholds. Orin Nano begins thermal throttling around 85-92 °C
+# depending on rail; WARN at 75 leaves the operator margin to land/shade.
+_SOC_TEMP_WARN_C = 75.0
+_SOC_TEMP_BLOCK_C = 90.0
 
 
 # ── Evaluators ────────────────────────────────────────────────────────────────
@@ -397,6 +413,46 @@ def _eval_schema_version(state: SystemState) -> CapabilityReport:
     return CapabilityReport("Schema Version", CapabilityStatus.READY)
 
 
+def _eval_thermal(state: SystemState) -> CapabilityReport:
+    """Operator-visible SoC temperature gate.
+
+    Treats unknown temps (None on both zones) as READY rather than WARN —
+    dev boxes and SITL hosts have no sysfs thermal data, and surfacing a
+    nag-warn there would train operators to ignore the signal.
+    """
+    cpu = state.cpu_temp_c
+    gpu = state.gpu_temp_c
+
+    available = [t for t in (cpu, gpu) if t is not None]
+    if not available:
+        return CapabilityReport("Thermal", CapabilityStatus.READY)
+
+    hottest = max(available)
+    detail = (
+        f"cpu={cpu:.1f}C, gpu={gpu:.1f}C"
+        if (cpu is not None and gpu is not None)
+        else (f"cpu={cpu:.1f}C" if cpu is not None else f"gpu={gpu:.1f}C")
+    )
+
+    if hottest > _SOC_TEMP_BLOCK_C:
+        reasons = [
+            f"SoC at {hottest:.1f}C ({detail}). "
+            f"Above thermal-throttle limit of {_SOC_TEMP_BLOCK_C:.0f}C — "
+            "performance is degraded. Land or shade the unit immediately."
+        ]
+        return CapabilityReport("Thermal", CapabilityStatus.BLOCKED, reasons)
+
+    if hottest > _SOC_TEMP_WARN_C:
+        reasons = [
+            f"SoC at {hottest:.1f}C ({detail}). "
+            f"Above WARN threshold of {_SOC_TEMP_WARN_C:.0f}C — approaching "
+            "thermal throttling. Increase airflow or reduce load."
+        ]
+        return CapabilityReport("Thermal", CapabilityStatus.WARN, reasons)
+
+    return CapabilityReport("Thermal", CapabilityStatus.READY)
+
+
 def _eval_autonomy_live(state: SystemState) -> CapabilityReport:
     return CapabilityReport(
         "Autonomy Live",
@@ -436,6 +492,7 @@ _EVALUATORS: list[tuple[str, Any]] = [
     ("Time Source", _eval_time_source),
     ("Vehicle Profile", _eval_vehicle_profile),
     ("Schema Version", _eval_schema_version),
+    ("Thermal", _eval_thermal),
     ("Autonomy Live", _eval_autonomy_live),
     ("Drop", _eval_drop),
     ("RF Hunt", _eval_rf_hunt),
