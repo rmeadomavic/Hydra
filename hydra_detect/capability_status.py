@@ -14,6 +14,7 @@ Issue #146 — skeleton. Real ARMED gating follows #147.
 from __future__ import annotations
 
 import shutil
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -89,6 +90,11 @@ class SystemState:
     # stream_state stats dict; see build_system_state.
     cpu_temp_c: float | None = None
     gpu_temp_c: float | None = None
+
+    # Sustained-below-target FPS window in seconds. Populated from the
+    # module-level _fps_tracker singleton, which the pipeline feeds via
+    # record_fps() each time it pushes new pipeline stats.
+    fps_below_target_sustained_sec: float = 0.0
 
     # Raw config parser (optional — used by some evaluators)
     cfg: Any = None
@@ -211,6 +217,20 @@ def build_system_state(
         except Exception:
             pass
 
+    # ── Performance — sustained FPS-below-target window ──────────────────
+    # READ-ONLY here. The tracker is fed exclusively by the pipeline hot
+    # loop via record_fps() — see hydra_detect/pipeline/facade.py. Reading
+    # stream_state.get_stats()["fps"] from the readiness poll and pushing
+    # it back into the tracker would let stale samples masquerade as fresh
+    # measurements: when the pipeline stalls, the cached "fps" value never
+    # changes, so every poll would re-stamp the last good value as a new
+    # above-threshold sample and reset _below_since=None. That defeats
+    # the sustained-below-target signal in exactly the failure mode it is
+    # meant to catch (per PR #183 Codex review).
+    state.fps_below_target_sustained_sec = _fps_tracker.sustained_below_sec(
+        time.monotonic(),
+    )
+
     return state
 
 
@@ -224,6 +244,75 @@ _DISK_BLOCKED_GB = 0.5       # free disk BLOCKED threshold
 # depending on rail; WARN at 75 leaves the operator margin to land/shade.
 _SOC_TEMP_WARN_C = 75.0
 _SOC_TEMP_BLOCK_C = 90.0
+# FPS thresholds. 5 FPS is the documented Hydra minimum on Jetson (CLAUDE.md).
+# WARN fires only after FPS has been continuously below for the full window
+# so a single transient dip does not flap the operator status.
+_FPS_WARN_THRESHOLD = 5.0
+_FPS_WARN_WINDOW_SEC = 30.0
+
+
+# ── Sustained-FPS tracker singleton ──────────────────────────────────────────
+
+class _FpsTracker:
+    """Thread-safe tracker of how long FPS has been below the warn threshold.
+
+    Fed exclusively by the pipeline hot loop via record_fps() with fresh
+    per-frame measurements. Read by the readiness page via
+    sustained_below_sec() during evaluator runs. None samples (FPS not yet
+    known) leave the existing state untouched so a brief pipeline transient
+    does not mask an ongoing thermal event.
+
+    Important: do NOT add a re-feed path from build_system_state or any
+    other readiness-poll site. The cached fps in stream_state.get_stats()
+    has no freshness timestamp; pushing it on every poll would re-stamp
+    the last good value as a fresh above-threshold sample and reset
+    _below_since=None even when the pipeline has stalled. See PR #183
+    Codex review for the failure mode.
+    """
+
+    def __init__(self) -> None:
+        self._below_since: float | None = None
+        self._lock = threading.Lock()
+
+    def record(self, fps: float | None, now: float) -> None:
+        if fps is None:
+            return
+        with self._lock:
+            if fps < _FPS_WARN_THRESHOLD:
+                if self._below_since is None:
+                    self._below_since = now
+            else:
+                self._below_since = None
+
+    def sustained_below_sec(self, now: float) -> float:
+        with self._lock:
+            if self._below_since is None:
+                return 0.0
+            return max(0.0, now - self._below_since)
+
+    def reset(self) -> None:
+        with self._lock:
+            self._below_since = None
+
+
+_fps_tracker = _FpsTracker()
+
+
+def record_fps(fps: float | None, now_s: float | None = None) -> None:
+    """Public API: pipeline pushes the current pipeline FPS into the tracker."""
+    _fps_tracker.record(fps, now_s if now_s is not None else time.monotonic())
+
+
+def sustained_fps_below_sec(now_s: float | None = None) -> float:
+    """Public API: how long current FPS has been below the warn threshold."""
+    return _fps_tracker.sustained_below_sec(
+        now_s if now_s is not None else time.monotonic(),
+    )
+
+
+def reset_fps_tracker_for_test() -> None:
+    """Test-only — zero the FPS tracker between tests."""
+    _fps_tracker.reset()
 
 
 # ── Evaluators ────────────────────────────────────────────────────────────────
@@ -453,6 +542,26 @@ def _eval_thermal(state: SystemState) -> CapabilityReport:
     return CapabilityReport("Thermal", CapabilityStatus.READY)
 
 
+def _eval_performance(state: SystemState) -> CapabilityReport:
+    """WARN when pipeline FPS has been below the Jetson minimum for >= 30 s.
+
+    A single transient dip is ignored — the tracker only counts continuous
+    below-threshold time. Reasons text steers the operator toward the most
+    common cause (thermal throttling) without claiming certainty.
+    """
+    sustained = state.fps_below_target_sustained_sec
+    if sustained >= _FPS_WARN_WINDOW_SEC:
+        reasons = [
+            f"Pipeline FPS below {_FPS_WARN_THRESHOLD:.0f} for "
+            f"{sustained:.0f}s (window {_FPS_WARN_WINDOW_SEC:.0f}s). "
+            "Likely thermal throttling or detector overload — check SoC "
+            "temperature and active model count."
+        ]
+        return CapabilityReport("Performance", CapabilityStatus.WARN, reasons)
+
+    return CapabilityReport("Performance", CapabilityStatus.READY)
+
+
 def _eval_autonomy_live(state: SystemState) -> CapabilityReport:
     return CapabilityReport(
         "Autonomy Live",
@@ -493,6 +602,7 @@ _EVALUATORS: list[tuple[str, Any]] = [
     ("Vehicle Profile", _eval_vehicle_profile),
     ("Schema Version", _eval_schema_version),
     ("Thermal", _eval_thermal),
+    ("Performance", _eval_performance),
     ("Autonomy Live", _eval_autonomy_live),
     ("Drop", _eval_drop),
     ("RF Hunt", _eval_rf_hunt),
