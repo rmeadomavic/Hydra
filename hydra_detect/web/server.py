@@ -1373,6 +1373,7 @@ async def api_rf_spectrum():
     except Exception as exc:
         return JSONResponse({"enabled": False, "reason": f"{type(exc).__name__}: {exc}", "bins": [], "peaks": []})
 
+
 @app.get("/api/servo/status")
 async def api_servo_status():
     """Return the current pan/tilt servo state for the cockpit dial.

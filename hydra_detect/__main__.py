@@ -218,6 +218,24 @@ def main():
     if _env_token and not cfg.get("web", "api_token", fallback="").strip():
         cfg.set("web", "api_token", _env_token)
 
+    # Warn if token is still absent — external API access will be unrestricted.
+    # Warn-and-continue: same-origin dashboard still works; field ops are not blocked.
+    if not cfg.get("web", "api_token", fallback="").strip():
+        logger.warning(
+            "HYDRA_API_TOKEN is not set — external API access is unrestricted. "
+            "Set HYDRA_API_TOKEN in .env or the environment."
+        )
+
+    # Per-host MAVLink overrides — let each Jetson use its own serial port
+    # without editing the shared config.ini.
+    _env_mavlink_device = os.environ.get("HYDRA_MAVLINK_DEVICE", "").strip()
+    if _env_mavlink_device and cfg.has_section("mavlink"):
+        cfg.set("mavlink", "connection_string", _env_mavlink_device)
+
+    _env_mavlink_baud = os.environ.get("HYDRA_MAVLINK_BAUD", "").strip()
+    if _env_mavlink_baud and cfg.has_section("mavlink"):
+        cfg.set("mavlink", "baud", _env_mavlink_baud)
+
     if args.sim:
         _apply_sim_overrides(cfg)
 
