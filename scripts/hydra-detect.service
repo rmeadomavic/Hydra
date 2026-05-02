@@ -18,6 +18,7 @@ RestartSec=5s
 #   Environment=HYDRA_VEHICLE=ugv
 # Then: systemctl daemon-reload && systemctl restart hydra-detect
 EnvironmentFile=-/etc/hydra/vehicle.env
+EnvironmentFile=-/home/sorcc/Hydra/.env
 
 # --privileged grants access to all /dev devices (cameras, serial ports)
 # so individual --device flags are not needed and would fail if a device
@@ -28,6 +29,7 @@ ExecStartPre=-/usr/bin/docker rm hydra-detect
 ExecStart=/usr/bin/docker run --rm --privileged --runtime nvidia \
   --network host \
   -e HYDRA_VEHICLE=${HYDRA_VEHICLE} \
+  -e HYDRA_API_TOKEN=${HYDRA_API_TOKEN} \
   -v /home/sorcc/Hydra/config.ini:/app/config.ini \
   -v /usr/sbin/nvpmodel:/usr/sbin/nvpmodel:ro \
   -v /usr/bin/jetson_clocks:/usr/bin/jetson_clocks:ro \

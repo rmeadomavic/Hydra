@@ -244,6 +244,22 @@ mkdir -p "$HYDRA_DIR/models"
 mkdir -p "$HYDRA_DIR/output_data"
 ok "models/ and output_data/ directories ready"
 
+# Create .env from template if absent.
+ENV_FILE="$HYDRA_DIR/.env"
+ENV_EXAMPLE="$HYDRA_DIR/.env.example"
+if [ ! -f "$ENV_FILE" ]; then
+    if [ -f "$ENV_EXAMPLE" ]; then
+        cp "$ENV_EXAMPLE" "$ENV_FILE"
+    else
+        printf '# Hydra Detect — environment variables\n# TODO: replace with your actual token\nHYDRA_API_TOKEN=your-token-here\n' > "$ENV_FILE"
+    fi
+    chmod 600 "$ENV_FILE"
+    warn ".env created from template at $ENV_FILE"
+    warn "  Edit it now and set HYDRA_API_TOKEN before starting Hydra."
+else
+    ok ".env already exists ($ENV_FILE)"
+fi
+
 echo ""
 
 # ── Step 6: Config ──────────────────────────────────────────
