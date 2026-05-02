@@ -517,6 +517,18 @@ class Pipeline:
                         "guidance", "lost_track_timeout_s", fallback=2.0),
                     min_altitude_m=self._cfg.getfloat(
                         "guidance", "min_altitude_m", fallback=5.0),
+                    loop_delay_ms=self._cfg.getfloat(
+                        "guidance", "loop_delay_ms", fallback=100.0),
+                    predictor_enabled=self._cfg.getboolean(
+                        "guidance", "predictor_enabled", fallback=True),
+                    predictor_alpha=self._cfg.getfloat(
+                        "guidance", "predictor_alpha", fallback=0.5),
+                    predictor_beta=self._cfg.getfloat(
+                        "guidance", "predictor_beta", fallback=0.05),
+                    attitude_compensation_enabled=self._cfg.getboolean(
+                        "guidance", "attitude_compensation_enabled", fallback=True),
+                    gimbal_stabilized=self._cfg.getboolean(
+                        "guidance", "gimbal_stabilized", fallback=False),
                 ),
             )
             self._approach = ApproachController(self._mavlink, approach_cfg)

@@ -1186,6 +1186,42 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             default=5.0,
             description="Minimum altitude floor metres",
         ),
+        "loop_delay_ms": FieldSpec(
+            FieldType.FLOAT,
+            min_val=0.0,
+            max_val=1000.0,
+            default=100.0,
+            description="Forward-predictor look-ahead milliseconds (camera + infer + MAVLink + ESC)",
+        ),
+        "predictor_enabled": FieldSpec(
+            FieldType.BOOL,
+            default=True,
+            description="Enable alpha-beta forward predictor on smoothed bbox center",
+        ),
+        "predictor_alpha": FieldSpec(
+            FieldType.FLOAT,
+            min_val=0.0,
+            max_val=1.0,
+            default=0.5,
+            description="Alpha-beta filter position gain",
+        ),
+        "predictor_beta": FieldSpec(
+            FieldType.FLOAT,
+            min_val=0.0,
+            max_val=1.0,
+            default=0.05,
+            description="Alpha-beta filter velocity gain",
+        ),
+        "attitude_compensation_enabled": FieldSpec(
+            FieldType.BOOL,
+            default=True,
+            description="Rotate pixel-error by vehicle roll/pitch before gain stage",
+        ),
+        "gimbal_stabilized": FieldSpec(
+            FieldType.BOOL,
+            default=False,
+            description="Skip attitude compensation when a level-stabilized gimbal is fitted",
+        ),
     },
     "mavlink_video": {
         "enabled": FieldSpec(
