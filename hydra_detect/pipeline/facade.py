@@ -43,6 +43,7 @@ from ..system import (
     refresh_nvpmodel_async as _refresh_nvpmodel_async,
     set_power_mode as _set_power_mode,
 )
+from ..capability_status import record_fps as _record_fps
 from ..rtsp_server import RTSPServer
 from ..mavlink_video import MAVLinkVideoSender
 from ..tak.mavlink_relay import MAVLinkRelayOutput
@@ -1564,6 +1565,9 @@ class Pipeline:
 
             # Render overlay
             fps = fps_counter.tick()
+            # Feed the sustained-FPS warn tracker. Cheap (single lock acquire);
+            # safe to call every frame.
+            _record_fps(fps)
             with self._state_lock:
                 render_lock_id = self._locked_track_id
                 render_lock_mode = self._lock_mode

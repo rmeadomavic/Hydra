@@ -50,6 +50,7 @@ def _make_state(**overrides) -> SystemState:
         schema_version_present=True,
         cpu_temp_c=50.0,
         gpu_temp_c=55.0,
+        fps_below_target_sustained_sec=0.0,
         cfg=None,
     )
     defaults.update(overrides)
@@ -114,6 +115,7 @@ EXPECTED_CAPABILITIES = [
     "Vehicle Profile",
     "Schema Version",
     "Thermal",
+    "Performance",
     "Autonomy Live",
     "Drop",
     "RF Hunt",
@@ -469,6 +471,86 @@ class TestThermalEvaluator:
         state = _make_state(cpu_temp_c=75.1, gpu_temp_c=50.0)
         reports = evaluate_all(state)
         r = next(r for r in reports if r.name == "Thermal")
+        assert r.status == CapabilityStatus.WARN
+
+
+# ---------------------------------------------------------------------------
+# Performance evaluator + sustained-FPS tracker
+# ---------------------------------------------------------------------------
+
+class TestSustainedFpsTracker:
+    """Singleton tracker that records how long FPS has been below the
+    Hydra-documented 5 FPS minimum on Jetson."""
+
+    def setup_method(self):
+        from hydra_detect.capability_status import reset_fps_tracker_for_test
+        reset_fps_tracker_for_test()
+
+    def test_zero_when_fps_above_threshold(self):
+        from hydra_detect.capability_status import record_fps, sustained_fps_below_sec
+        record_fps(10.0, now_s=0.0)
+        record_fps(10.0, now_s=5.0)
+        assert sustained_fps_below_sec(now_s=10.0) == 0.0
+
+    def test_zero_when_fps_unknown(self):
+        from hydra_detect.capability_status import record_fps, sustained_fps_below_sec
+        record_fps(None, now_s=0.0)
+        assert sustained_fps_below_sec(now_s=10.0) == 0.0
+
+    def test_counts_from_first_below_sample(self):
+        from hydra_detect.capability_status import record_fps, sustained_fps_below_sec
+        record_fps(10.0, now_s=0.0)
+        record_fps(3.0, now_s=10.0)
+        record_fps(2.5, now_s=20.0)
+        assert sustained_fps_below_sec(now_s=40.0) == pytest.approx(30.0, abs=0.01)
+
+    def test_resets_when_fps_recovers(self):
+        from hydra_detect.capability_status import record_fps, sustained_fps_below_sec
+        record_fps(3.0, now_s=0.0)
+        record_fps(3.0, now_s=20.0)
+        assert sustained_fps_below_sec(now_s=20.0) == pytest.approx(20.0, abs=0.01)
+        record_fps(10.0, now_s=21.0)  # recovered
+        assert sustained_fps_below_sec(now_s=22.0) == 0.0
+
+    def test_unknown_fps_does_not_reset_sustained(self):
+        """A None FPS sample (e.g. stats not yet populated on a poll) must
+        not zero out the sustained-below counter — that would mask a real
+        thermal throttling event."""
+        from hydra_detect.capability_status import record_fps, sustained_fps_below_sec
+        record_fps(3.0, now_s=0.0)
+        record_fps(None, now_s=10.0)  # pipeline transient
+        assert sustained_fps_below_sec(now_s=15.0) == pytest.approx(15.0, abs=0.01)
+
+
+class TestPerformanceEvaluator:
+    """READY when FPS healthy, WARN when sustained-below window exceeded."""
+
+    def test_ready_when_no_sustained_below(self):
+        state = _make_state(fps_below_target_sustained_sec=0.0)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Performance")
+        assert r.status == CapabilityStatus.READY
+        assert r.reasons == []
+
+    def test_ready_when_below_window(self):
+        # 20 s below target — under the 30 s window, still READY.
+        state = _make_state(fps_below_target_sustained_sec=20.0)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Performance")
+        assert r.status == CapabilityStatus.READY
+
+    def test_warn_when_at_window(self):
+        state = _make_state(fps_below_target_sustained_sec=30.0)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Performance")
+        assert r.status == CapabilityStatus.WARN
+        assert any("30" in reason or "thermal" in reason.lower()
+                   for reason in r.reasons)
+
+    def test_warn_when_well_past_window(self):
+        state = _make_state(fps_below_target_sustained_sec=120.0)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Performance")
         assert r.status == CapabilityStatus.WARN
 
 
