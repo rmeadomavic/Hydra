@@ -44,7 +44,7 @@ from types import ModuleType
 logger = logging.getLogger(__name__)
 
 # Bump this when adding a new migration file.
-CURRENT_SCHEMA_VERSION: int = 3
+CURRENT_SCHEMA_VERSION: int = 4
 
 # Migration modules directory (monkeypatched in tests to point at fixtures).
 _MIGRATIONS_DIR: Path = Path(__file__).parent / "migrations"

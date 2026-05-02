@@ -48,7 +48,7 @@ from ..mavlink_video import MAVLinkVideoSender
 from ..tak.mavlink_relay import MAVLinkRelayOutput
 from ..tak.tak_input import TAKInput
 from ..tak.tak_output import TAKOutput
-from ..tracker import ByteTracker
+from ..tracker import ByteTracker, ReIDTracker
 from ..profiles import get_profile, load_profiles
 from ..web.config_api import set_config_path, set_engagement_check
 from ..web.server import (
@@ -189,13 +189,24 @@ class Pipeline:
         # Detector
         self._detector = _build_detector(self._cfg, self._models_dir)
 
-        # Tracker
-        self._tracker = ByteTracker(
-            track_thresh=self._cfg.getfloat("tracker", "track_thresh", fallback=0.5),
-            track_buffer=self._cfg.getint("tracker", "track_buffer", fallback=30),
-            match_thresh=self._cfg.getfloat("tracker", "match_thresh", fallback=0.8),
-            frame_rate=self._cfg.getint("camera", "fps", fallback=30),
-        )
+        # Tracker — ByteTrack by default, optional boxmot re-ID layer when
+        # [tracker] reid_enabled=true. The re-ID path requires the optional
+        # boxmot dependency (see requirements-extra.txt) and the actual
+        # frame to extract appearance embeddings each update.
+        if self._cfg.getboolean("tracker", "reid_enabled", fallback=False):
+            self._reid_enabled = True
+            self._tracker = ReIDTracker(
+                tracker_type=self._cfg.get(
+                    "tracker", "reid_tracker_type", fallback="botsort"),
+            )
+        else:
+            self._reid_enabled = False
+            self._tracker = ByteTracker(
+                track_thresh=self._cfg.getfloat("tracker", "track_thresh", fallback=0.5),
+                track_buffer=self._cfg.getint("tracker", "track_buffer", fallback=30),
+                match_thresh=self._cfg.getfloat("tracker", "match_thresh", fallback=0.8),
+                frame_rate=self._cfg.getint("camera", "fps", fallback=30),
+            )
 
         # Alert class filter (shared with MAVLink and overlay)
         alert_classes_raw = self._cfg.get("mavlink", "alert_classes", fallback="")
@@ -1258,12 +1269,20 @@ class Pipeline:
                 self._cfg.read(get_config_path())
                 self._detector = _build_detector(self._cfg, self._models_dir)
                 self._detector.load()
-                self._tracker = ByteTracker(
-                    track_thresh=self._cfg.getfloat("tracker", "track_thresh", fallback=0.5),
-                    track_buffer=self._cfg.getint("tracker", "track_buffer", fallback=30),
-                    match_thresh=self._cfg.getfloat("tracker", "match_thresh", fallback=0.8),
-                    frame_rate=self._cfg.getint("camera", "fps", fallback=30),
-                )
+                if self._cfg.getboolean("tracker", "reid_enabled", fallback=False):
+                    self._reid_enabled = True
+                    self._tracker = ReIDTracker(
+                        tracker_type=self._cfg.get(
+                            "tracker", "reid_tracker_type", fallback="botsort"),
+                    )
+                else:
+                    self._reid_enabled = False
+                    self._tracker = ByteTracker(
+                        track_thresh=self._cfg.getfloat("tracker", "track_thresh", fallback=0.5),
+                        track_buffer=self._cfg.getint("tracker", "track_buffer", fallback=30),
+                        match_thresh=self._cfg.getfloat("tracker", "match_thresh", fallback=0.8),
+                        frame_rate=self._cfg.getint("camera", "fps", fallback=30),
+                    )
                 self._tracker.init()
                 self._camera = Camera(
                     source=self._cfg.get("camera", "source", fallback="auto"),
@@ -1441,8 +1460,9 @@ class Pipeline:
             # the pipeline is alive even if render/RTSP/stats takes time.
             self._last_frame_time = time.monotonic()
 
-            # Track
-            track_result = self._tracker.update(det_result)
+            # Track. ReIDTracker needs the raw frame for appearance
+            # embeddings; ByteTracker accepts and ignores it (forward-compat).
+            track_result = self._tracker.update(det_result, frame=frame)
             with self._state_lock:
                 self._last_track_result = track_result
                 self._total_detections += len(track_result)
