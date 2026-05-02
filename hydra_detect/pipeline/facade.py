@@ -525,6 +525,10 @@ class Pipeline:
                         "guidance", "predictor_alpha", fallback=0.5),
                     predictor_beta=self._cfg.getfloat(
                         "guidance", "predictor_beta", fallback=0.05),
+                    attitude_compensation_enabled=self._cfg.getboolean(
+                        "guidance", "attitude_compensation_enabled", fallback=True),
+                    gimbal_stabilized=self._cfg.getboolean(
+                        "guidance", "gimbal_stabilized", fallback=False),
                 ),
             )
             self._approach = ApproachController(self._mavlink, approach_cfg)

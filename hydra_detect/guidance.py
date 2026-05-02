@@ -8,6 +8,7 @@ Raspberry Pi Zero 2W with colour/shape tracking).
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
 
@@ -40,6 +41,14 @@ class GuidanceConfig:
     predictor_enabled: bool = True
     predictor_alpha: float = 0.5    # alpha-beta position gain (0..1)
     predictor_beta: float = 0.05    # alpha-beta velocity gain (0..1)
+
+    # Attitude compensation: rotate the (ex, ey) pixel-error vector through
+    # the current vehicle roll/pitch before feeding the predictor and gain
+    # stages. Necessary for a strapdown camera; bypass when a gimbal already
+    # keeps the optical axis level. ArduPilot ATTITUDE convention: positive
+    # roll is right-wing-down, positive pitch is nose-up.
+    attitude_compensation_enabled: bool = True
+    gimbal_stabilized: bool = False
 
 
 @dataclass
@@ -126,6 +135,8 @@ class GuidanceController:
         error_y: float | None,
         bbox_ratio: float | None,
         now_s: float | None = None,
+        roll_rad: float | None = None,
+        pitch_rad: float | None = None,
     ) -> VelocityCommand:
         """Compute velocity command from current pixel errors.
 
@@ -136,6 +147,12 @@ class GuidanceController:
             now_s: Optional monotonic-clock timestamp in seconds. When None
                 (production path), time.monotonic() is used. Tests pass an
                 explicit clock so predictor convergence is deterministic.
+            roll_rad: Vehicle roll in radians from MAVLink ATTITUDE
+                (positive = right wing down). When None or attitude
+                compensation is disabled / gimbal-stabilized, no rotation
+                is applied.
+            pitch_rad: Vehicle pitch in radians from MAVLink ATTITUDE
+                (positive = nose up).
 
         Returns:
             VelocityCommand with body-frame velocities.  Returns zero
@@ -164,13 +181,20 @@ class GuidanceController:
 
         cfg = self._cfg
 
-        # Forward predictor on the smoothed series. Outputs the EMA-smoothed
-        # error projected by loop_delay_ms; if disabled, falls through to the
-        # raw smoothed value (legacy behavior).
+        # Attitude compensation: rotate (smooth_ex, smooth_ey) into the
+        # gravity-stable level-body frame so the predictor and gain stages
+        # see a stationary world-aligned signal.
+        corr_ex, corr_ey = self._attitude_correct(
+            self._smooth_ex, self._smooth_ey, roll_rad, pitch_rad,
+        )
+
+        # Forward predictor on the (attitude-corrected) smoothed series.
+        # Outputs the corrected error projected by loop_delay_ms; if disabled,
+        # falls through to the corrected value directly.
         if cfg.predictor_enabled:
-            ex_used, ey_used = self._predict(now, self._smooth_ex, self._smooth_ey)
+            ex_used, ey_used = self._predict(now, corr_ex, corr_ey)
         else:
-            ex_used, ey_used = self._smooth_ex, self._smooth_ey
+            ex_used, ey_used = corr_ex, corr_ey
 
         # Apply deadzone
         ex = _deadzone(ex_used, cfg.deadzone)
@@ -207,6 +231,56 @@ class GuidanceController:
             return False
         elapsed = time.monotonic() - self._last_track_time
         return elapsed >= self._cfg.lost_track_timeout_s
+
+    def _attitude_correct(
+        self,
+        ex: float,
+        ey: float,
+        roll_rad: float | None,
+        pitch_rad: float | None,
+    ) -> tuple[float, float]:
+        """Map (ex, ey) through current vehicle roll/pitch into the
+        gravity-stable level-body frame.
+
+        Geometry (strapdown forward-facing camera, no gimbal):
+            camera-x (right)   maps to body-y at zero attitude
+            camera-y (down)    maps to body-z
+            camera-z (forward) maps to body-x
+        So a pixel direction vector (ex, ey, 1) in the camera frame becomes
+        (1, ex, ey) in the body frame at zero attitude. Apply the vehicle
+        attitude rotation (yaw ignored; IBVS commands yaw-rate separately)
+        to express it in the level-body frame, then read off the y/z
+        components as the corrected pixel error.
+
+        Returns the input unchanged when compensation is disabled, the
+        gimbal-stabilized flag is set, or attitude is unavailable.
+        """
+        cfg = self._cfg
+        if cfg.gimbal_stabilized or not cfg.attitude_compensation_enabled:
+            return ex, ey
+        if roll_rad is None or pitch_rad is None:
+            return ex, ey
+
+        cos_r = math.cos(roll_rad)
+        sin_r = math.sin(roll_rad)
+        cos_p = math.cos(pitch_rad)
+        sin_p = math.sin(pitch_rad)
+
+        # v_body0 = (1, ex, ey) — camera-z in body-x, camera-x in body-y,
+        # camera-y in body-z at zero attitude.
+        bx = 1.0
+        by = ex
+        bz = ey
+
+        # R_x(roll): rotates (by, bz) around body-x.
+        by, bz = by * cos_r - bz * sin_r, by * sin_r + bz * cos_r
+
+        # R_y(pitch): rotates (bx, bz) around body-y.
+        bx, bz = bx * cos_p + bz * sin_p, -bx * sin_p + bz * cos_p
+
+        # The level-body y component drives vy, z drives vz. bx (forward
+        # depth) is unused — approach distance comes from bbox_ratio.
+        return by, bz
 
     def _predict(
         self,

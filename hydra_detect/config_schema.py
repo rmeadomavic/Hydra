@@ -1212,6 +1212,16 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             default=0.05,
             description="Alpha-beta filter velocity gain",
         ),
+        "attitude_compensation_enabled": FieldSpec(
+            FieldType.BOOL,
+            default=True,
+            description="Rotate pixel-error by vehicle roll/pitch before gain stage",
+        ),
+        "gimbal_stabilized": FieldSpec(
+            FieldType.BOOL,
+            default=False,
+            description="Skip attitude compensation when a level-stabilized gimbal is fitted",
+        ),
     },
     "mavlink_video": {
         "enabled": FieldSpec(
