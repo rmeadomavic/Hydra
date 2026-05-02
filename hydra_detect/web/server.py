@@ -45,8 +45,11 @@ from hydra_detect.observability import (
     attach_audit_counters as _attach_metrics_counters,
     get_client_error_sink as _get_client_error_sink,
     health_snapshot as _health_snapshot,
+    hydra_cpu_temp_c as _m_cpu_temp,
     hydra_fps as _m_fps,
+    hydra_gpu_temp_c as _m_gpu_temp,
     hydra_inference_ms as _m_inference_ms,
+    hydra_ram_pct as _m_ram_pct,
     render_metrics as _render_metrics,
 )
 
@@ -61,6 +64,28 @@ _client_error_sink = _get_client_error_sink()
 # every Prometheus scrape. Set once at import — provider closures are stable.
 _m_fps.set_provider(lambda: stream_state.get_stats().get("fps"))
 _m_inference_ms.set_provider(lambda: stream_state.get_stats().get("inference_ms"))
+
+
+def _ram_pct_from_stats() -> float | None:
+    """Compute RAM utilisation percent from the jetson_stats dict in stream_state.
+
+    Returns None when either total or used is missing or total is zero, so the
+    Prometheus exposition renders NaN rather than a misleading number.
+    """
+    stats = stream_state.get_stats()
+    total = stats.get("ram_total_mb")
+    used = stats.get("ram_used_mb")
+    if not total or used is None:
+        return None
+    return round(float(used) / float(total) * 100.0, 1)
+
+
+# SoC temp + RAM providers fed from system.read_jetson_stats(), which the
+# pipeline merges into stream_state every ~5 s. Keeps deployed-unit thermal
+# state visible via /metrics without adding a separate scrape thread.
+_m_cpu_temp.set_provider(lambda: stream_state.get_stats().get("cpu_temp_c"))
+_m_gpu_temp.set_provider(lambda: stream_state.get_stats().get("gpu_temp_c"))
+_m_ram_pct.set_provider(_ram_pct_from_stats)
 
 logger = logging.getLogger(__name__)
 
