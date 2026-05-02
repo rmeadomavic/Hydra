@@ -85,6 +85,16 @@ class MAVLinkIO:
             "climb": None,
         }
 
+        # Vehicle attitude (radians, populated from ATTITUDE msg 30).
+        # ArduPilot convention: positive roll = right wing down, positive
+        # pitch = nose up, yaw = body heading (0..2pi).
+        self._attitude: Dict[str, Any] = {
+            "roll": None,
+            "pitch": None,
+            "yaw": None,
+            "last_update": 0.0,
+        }
+
         # RC channel values (updated by _message_reader from RC_CHANNELS)
         self._rc_channels: list[int] = []
         self._rc_channels_lock = threading.Lock()
@@ -205,7 +215,7 @@ class MAVLinkIO:
     # ------------------------------------------------------------------
     _ALL_MSG_TYPES = [
         "GLOBAL_POSITION_INT", "GPS_RAW_INT", "HEARTBEAT",
-        "SYS_STATUS", "VFR_HUD", "RC_CHANNELS",
+        "SYS_STATUS", "VFR_HUD", "RC_CHANNELS", "ATTITUDE",
         "COMMAND_LONG", "NAMED_VALUE_INT",
     ]
 
@@ -243,6 +253,8 @@ class MAVLinkIO:
                             self._telemetry["battery_pct"] = msg.battery_remaining
                 elif msg_type == "VFR_HUD":
                     self._handle_vfr_hud(msg)
+                elif msg_type == "ATTITUDE":
+                    self._handle_attitude(msg)
                 elif msg_type == "RC_CHANNELS":
                     with self._rc_channels_lock:
                         self._rc_channels = [
@@ -285,6 +297,14 @@ class MAVLinkIO:
             self._telemetry["altitude"] = round(msg.alt, 1)
             self._telemetry["heading"] = round(msg.heading, 0)
             self._telemetry["climb"] = round(msg.climb, 2)
+
+    def _handle_attitude(self, msg) -> None:
+        """Cache roll, pitch, yaw (radians) from ATTITUDE msg 30."""
+        with self._gps_lock:
+            self._attitude["roll"] = float(msg.roll)
+            self._attitude["pitch"] = float(msg.pitch)
+            self._attitude["yaw"] = float(msg.yaw)
+            self._attitude["last_update"] = time.monotonic()
 
     def _update_armed_state(self, heartbeat_msg) -> None:
         """Extract armed state from HEARTBEAT base_mode."""
@@ -431,6 +451,20 @@ class MAVLinkIO:
         with self._vehicle_mode_lock:
             result["vehicle_mode"] = self._vehicle_mode
         return result
+
+    def get_attitude(self) -> Dict[str, Any]:
+        """Return current vehicle attitude in radians, or all-None if no
+        ATTITUDE message has been received yet.
+
+        Keys:
+          - ``roll``  - radians, positive = right wing down
+          - ``pitch`` - radians, positive = nose up
+          - ``yaw``   - radians, body heading
+          - ``last_update`` - monotonic timestamp of the most recent message
+            (0.0 if never received)
+        """
+        with self._gps_lock:
+            return dict(self._attitude)
 
     def get_flight_data(self) -> Dict[str, Any]:
         """Return flight-instrument values as a dict.

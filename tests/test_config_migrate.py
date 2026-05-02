@@ -247,6 +247,67 @@ class TestV1ToV2Migration:
         assert cfg.get("guidance", "predictor_enabled") == "true"
 
 
+class TestV2ToV3Migration:
+    """Migration 003: attitude-compensation keys are inserted into [guidance]."""
+
+    def test_v2_picks_up_attitude_keys(self, tmp_config):
+        """Migrating from v2 adds attitude_compensation_enabled and
+        gimbal_stabilized to [guidance]."""
+        v2 = textwrap.dedent("""\
+            [meta]
+            schema_version = 2
+
+            [guidance]
+            fwd_gain = 2.0
+            predictor_enabled = true
+        """)
+        p = tmp_config(v2)
+        run_migrations(p)
+
+        cfg = configparser.ConfigParser()
+        cfg.read(p)
+
+        assert cfg.get("guidance", "attitude_compensation_enabled") == "true"
+        assert cfg.get("guidance", "gimbal_stabilized") == "false"
+        # Existing keys preserved.
+        assert cfg.get("guidance", "fwd_gain") == "2.0"
+        assert cfg.get("guidance", "predictor_enabled") == "true"
+
+    def test_v2_existing_attitude_value_preserved(self, tmp_config):
+        """A pre-existing user value in [guidance] survives the migration."""
+        v2 = textwrap.dedent("""\
+            [meta]
+            schema_version = 2
+
+            [guidance]
+            attitude_compensation_enabled = false
+        """)
+        p = tmp_config(v2)
+        run_migrations(p)
+
+        cfg = configparser.ConfigParser()
+        cfg.read(p)
+
+        assert cfg.get("guidance", "attitude_compensation_enabled") == "false"
+        # Missing key still gets filled in.
+        assert cfg.get("guidance", "gimbal_stabilized") == "false"
+
+    def test_v0_chains_through_all_migrations(self, tmp_config):
+        """A v0 config must walk through 001 then 002 then 003 to reach
+        current. Verifies the chain is contiguous."""
+        p = tmp_config(GOLDEN_V0)
+        result = run_migrations(p)
+
+        assert result.from_version == 0
+        assert result.to_version == CURRENT_SCHEMA_VERSION
+        assert len(result.applied) == CURRENT_SCHEMA_VERSION
+        # Final state has both predictor and attitude keys.
+        cfg = configparser.ConfigParser()
+        cfg.read(p)
+        assert cfg.has_option("guidance", "predictor_enabled")
+        assert cfg.has_option("guidance", "attitude_compensation_enabled")
+
+
 # ---------------------------------------------------------------------------
 # 3. Migration discovery handles out-of-order files
 # ---------------------------------------------------------------------------

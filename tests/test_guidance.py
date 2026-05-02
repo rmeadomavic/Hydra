@@ -416,6 +416,152 @@ class TestForwardPredictor:
 
 
 # ------------------------------------------------------------------
+# Attitude compensation (roll/pitch rotation of pixel-error vector)
+# ------------------------------------------------------------------
+
+class TestAttitudeCompensation:
+    """Roll/pitch rotation of the pixel-error vector before gain stage.
+
+    For a strapdown camera the image axes are no longer aligned with the
+    gravity-stable body frame when the vehicle is rolled or pitched. The
+    controller compensates by lifting (ex, ey) to a 3D direction vector and
+    rotating it through the current attitude before computing vy/vz commands.
+    """
+
+    def _make_cfg(self, **kwargs):
+        # Disable EMA + predictor so the rotation is the only transform.
+        defaults = dict(
+            deadzone=0.0,
+            smoothing=1.0,
+            predictor_enabled=False,
+            attitude_compensation_enabled=True,
+            gimbal_stabilized=False,
+        )
+        defaults.update(kwargs)
+        return GuidanceConfig(**defaults)
+
+    def test_zero_attitude_is_identity(self):
+        """At roll=pitch=0 the controller output matches the no-attitude path."""
+        cfg = self._make_cfg()
+        gc = GuidanceController(cfg)
+        gc.start()
+        gc.update(0.5, 0.3, 0.05, now_s=0.0)  # warmup EMA
+        cmd_with_attitude = gc.update(0.5, 0.3, 0.05, now_s=0.02,
+                                      roll_rad=0.0, pitch_rad=0.0)
+
+        gc2 = GuidanceController(cfg)
+        gc2.start()
+        gc2.update(0.5, 0.3, 0.05, now_s=0.0)
+        cmd_no_attitude = gc2.update(0.5, 0.3, 0.05, now_s=0.02)
+
+        assert cmd_with_attitude.vy == pytest.approx(cmd_no_attitude.vy, abs=1e-6)
+        assert cmd_with_attitude.vz == pytest.approx(cmd_no_attitude.vz, abs=1e-6)
+
+    def test_roll_reduces_vy_and_creates_vz(self):
+        """Rolling right (positive roll) on a target at +ex partially maps the
+        lateral pixel error into a vertical body-frame component: vy drops in
+        magnitude and vz appears."""
+        import math
+        cfg = self._make_cfg()
+        gc_no_roll = GuidanceController(cfg)
+        gc_rolled = GuidanceController(cfg)
+        gc_no_roll.start()
+        gc_rolled.start()
+
+        cmd_level = gc_no_roll.update(0.5, 0.0, 0.05, now_s=0.0,
+                                      roll_rad=0.0, pitch_rad=0.0)
+        cmd_rolled = gc_rolled.update(0.5, 0.0, 0.05, now_s=0.0,
+                                      roll_rad=math.radians(20.0),
+                                      pitch_rad=0.0)
+
+        # vy magnitude reduced (cos(20deg) factor on ex)
+        assert abs(cmd_rolled.vy) < abs(cmd_level.vy)
+        assert cmd_rolled.vy == pytest.approx(
+            cmd_level.vy * math.cos(math.radians(20.0)), abs=0.01,
+        )
+        # vz appears (sin(20deg) factor on ex). At zero attitude vz was 0.
+        assert cmd_level.vz == pytest.approx(0.0, abs=1e-6)
+        assert cmd_rolled.vz != pytest.approx(0.0, abs=0.01)
+
+    def test_pitch_reduces_vz_for_target_below_horizon(self):
+        """Pitching nose up rotates the optical axis up, so a target at +ey
+        (below image center) is closer to gravity-level forward than the raw
+        ey suggests. vz magnitude should be reduced."""
+        import math
+        cfg = self._make_cfg()
+        gc_level = GuidanceController(cfg)
+        gc_pitched = GuidanceController(cfg)
+        gc_level.start()
+        gc_pitched.start()
+
+        cmd_level = gc_level.update(0.0, 0.5, 0.05, now_s=0.0,
+                                    roll_rad=0.0, pitch_rad=0.0)
+        cmd_pitched = gc_pitched.update(0.0, 0.5, 0.05, now_s=0.0,
+                                        roll_rad=0.0,
+                                        pitch_rad=math.radians(20.0))
+
+        assert abs(cmd_pitched.vz) < abs(cmd_level.vz)
+
+    def test_gimbal_stabilized_bypasses_compensation(self):
+        """With gimbal_stabilized=True the rotation is skipped even at non-zero
+        attitude — the gimbal already keeps the camera level."""
+        import math
+        cfg = self._make_cfg(gimbal_stabilized=True)
+        gc = GuidanceController(cfg)
+        gc.start()
+
+        cmd_with_roll = gc.update(0.5, 0.0, 0.05, now_s=0.0,
+                                  roll_rad=math.radians(30.0),
+                                  pitch_rad=0.0)
+
+        # Same input should produce the same output regardless of attitude.
+        gc2 = GuidanceController(cfg)
+        gc2.start()
+        cmd_no_roll = gc2.update(0.5, 0.0, 0.05, now_s=0.0,
+                                 roll_rad=0.0, pitch_rad=0.0)
+
+        assert cmd_with_roll.vy == pytest.approx(cmd_no_roll.vy, abs=1e-6)
+        assert cmd_with_roll.vz == pytest.approx(cmd_no_roll.vz, abs=1e-6)
+
+    def test_compensation_disabled_bypasses_rotation(self):
+        """attitude_compensation_enabled=False reproduces legacy behavior."""
+        import math
+        cfg = self._make_cfg(attitude_compensation_enabled=False)
+        gc = GuidanceController(cfg)
+        gc.start()
+
+        cmd_with_attitude = gc.update(0.5, 0.0, 0.05, now_s=0.0,
+                                      roll_rad=math.radians(30.0),
+                                      pitch_rad=math.radians(15.0))
+
+        gc2 = GuidanceController(cfg)
+        gc2.start()
+        cmd_zero = gc2.update(0.5, 0.0, 0.05, now_s=0.0,
+                              roll_rad=0.0, pitch_rad=0.0)
+
+        assert cmd_with_attitude.vy == pytest.approx(cmd_zero.vy, abs=1e-6)
+        assert cmd_with_attitude.vz == pytest.approx(cmd_zero.vz, abs=1e-6)
+
+    def test_missing_attitude_falls_back_to_legacy(self):
+        """If roll/pitch are None (no MAVLink ATTITUDE yet), no rotation is
+        applied so the controller still produces a sensible command."""
+        cfg = self._make_cfg()
+        gc = GuidanceController(cfg)
+        gc.start()
+
+        cmd = gc.update(0.5, 0.3, 0.05, now_s=0.0,
+                        roll_rad=None, pitch_rad=None)
+
+        gc2 = GuidanceController(cfg)
+        gc2.start()
+        cmd_zero = gc2.update(0.5, 0.3, 0.05, now_s=0.0,
+                              roll_rad=0.0, pitch_rad=0.0)
+
+        assert cmd.vy == pytest.approx(cmd_zero.vy, abs=1e-6)
+        assert cmd.vz == pytest.approx(cmd_zero.vz, abs=1e-6)
+
+
+# ------------------------------------------------------------------
 # Integration: ApproachController pixel-lock auto-abort chain
 # ------------------------------------------------------------------
 

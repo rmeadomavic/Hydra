@@ -558,7 +558,22 @@ class ApproachController:
             error_y = None
             bbox_ratio = None
 
-        cmd = self._guidance.update(error_x, error_y, bbox_ratio)
+        # Fetch current vehicle attitude (radians) for the pixel-error
+        # rotation; if unavailable the controller falls back to legacy.
+        roll_rad: float | None = None
+        pitch_rad: float | None = None
+        try:
+            attitude = self._mavlink.get_attitude()
+            if attitude.get("last_update", 0.0) > 0.0:
+                roll_rad = attitude.get("roll")
+                pitch_rad = attitude.get("pitch")
+        except Exception:
+            pass  # mavlink stub or older controller without attitude — ignore
+
+        cmd = self._guidance.update(
+            error_x, error_y, bbox_ratio,
+            roll_rad=roll_rad, pitch_rad=pitch_rad,
+        )
 
         # Enforce minimum altitude floor — prevent descent below threshold.
         # In NED, positive vz = descend.  Clamp to zero if near floor.
