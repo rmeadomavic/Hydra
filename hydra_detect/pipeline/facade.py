@@ -45,10 +45,9 @@ from ..system import (
 )
 from ..rtsp_server import RTSPServer
 from ..mavlink_video import MAVLinkVideoSender
-from ..tak import get_tak_output_cls
 from ..tak.mavlink_relay import MAVLinkRelayOutput
 from ..tak.tak_input import TAKInput
-from ..tak.tak_output import TAKOutput  # legacy fallback type for annotations
+from ..tak.tak_output import TAKOutput
 from ..tracker import ByteTracker
 from ..profiles import get_profile, load_profiles
 from ..web.config_api import set_config_path, set_engagement_check
@@ -715,8 +714,7 @@ class Pipeline:
                     callsign = self._cfg.get(
                         "tak", "callsign", fallback="HYDRA-1",
                     )
-                    tak_cls = get_tak_output_cls()
-                    self._tak = tak_cls(
+                    self._tak = TAKOutput(
                         mavlink_io=self._mavlink,
                         callsign=callsign,
                         multicast_group=mcast_group,
@@ -739,8 +737,8 @@ class Pipeline:
                     )
                     set_tak_output(self._tak)
                     logger.info(
-                        "TAK/ATAK direct output configured: %s:%d callsign=%s backend=%s",
-                        mcast_group, mcast_port, callsign, tak_cls.__name__,
+                        "TAK/ATAK direct output configured: %s:%d callsign=%s",
+                        mcast_group, mcast_port, callsign,
                     )
                 if want_relay:
                     self._mav_relay = MAVLinkRelayOutput(
@@ -2715,8 +2713,7 @@ class Pipeline:
                     rtsp_url = (
                         f"rtsp://{tak_host}:{self._rtsp_port}{self._rtsp_mount}"
                     )
-                tak_cls = get_tak_output_cls()
-                self._tak = tak_cls(
+                self._tak = TAKOutput(
                     mavlink_io=self._mavlink,
                     callsign=self._cfg.get("tak", "callsign", fallback="HYDRA-1"),
                     multicast_group=self._cfg.get(

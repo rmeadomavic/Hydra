@@ -45,7 +45,7 @@ HYDRA_COT_BACKEND=legacy ./run.sh
 ./run.sh
 ```
 
-Selection happens at construction time inside `hydra_detect.tak.get_tak_output_cls`, so flipping the env var requires a process restart, not a code change.
+Selection happens at package-import time inside `hydra_detect.tak.__init__`, which rebinds the `TAKOutput` symbol in `hydra_detect.tak.tak_output` to whichever backend is active. Existing callers (including the pipeline facade) keep their `from hydra_detect.tak.tak_output import TAKOutput` import lines unchanged. Flipping the env var requires a process restart, not a code change.
 
 > [!NOTE]
 > The legacy emitter (`hydra_detect/tak/tak_output.py`) and the back-compat `from hydra_detect.tak import TAKOutput` re-export will be removed in a follow-up PR after one week (≈ 2026-05-10) of clean operations on `pytak`. The inbound CoT command listener (`tak_input.py`) is OUT OF SCOPE for this migration and is unchanged.
