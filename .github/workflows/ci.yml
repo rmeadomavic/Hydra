@@ -171,8 +171,8 @@ jobs:
           if [ -n "$HITS" ]; then
             echo "touched=true" >> "$GITHUB_OUTPUT"
             # Write hits to $GITHUB_ENV (not $GITHUB_OUTPUT) so later steps
-            # read via env, avoiding shell-injection via ${{ }} template
-            # interpolation of attacker-controlled filenames.
+            # read via env, avoiding shell-injection via workflow-expression
+            # template interpolation of attacker-controlled filenames.
             {
               echo 'HITS<<HITS_EOF'
               echo "$HITS"
