@@ -385,10 +385,24 @@ Shape:
 `/api/tak/peers.unicast_targets`).
 
 ### `POST /api/tak/targets`
-**Auth:** bearer · `{"host": "10.0.0.5", "port": 6969}`.
+**Auth:** bearer · `{"host": "10.0.0.5", "port": 6969}`. Mutation emits
+a `hydra.audit` `add_tak_target` entry. Idempotent on `(host, port)`.
 
 ### `DELETE /api/tak/targets`
-**Auth:** bearer · Same body as POST.
+**Auth:** bearer · Same body as POST. Mutation emits a `hydra.audit`
+`remove_tak_target` entry. No-op if the target is not in the registry.
+
+> **Phase 2 handoff note (B4 reconciliation):** the
+> `design_handoff_hydra_alignment/02_BACKEND_ADDITIONS.md` spec proposes
+> these endpoints under the path `/api/tak/unicast`. The real repo ships
+> them as `/api/tak/targets` — same payload shape, same auth model
+> (same-origin GET, bearer POST/DELETE), same audit logging, same
+> backing methods (`TAKOutput.add_unicast_target` /
+> `remove_unicast_target` / `get_unicast_targets`). B4 is therefore
+> already complete; do not implement a parallel `/api/tak/unicast` path.
+> Frontend consumers (`static/js/config.js`) call `/api/tak/targets`
+> directly. If an external caller insists on the spec name, treat it as
+> a doc bug, not a missing endpoint.
 
 ---
 
