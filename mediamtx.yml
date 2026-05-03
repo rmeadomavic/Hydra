@@ -1,0 +1,50 @@
+# mediamtx.yml — sidecar config for republishing Hydra RTSP as WebRTC.
+#
+# Hydra's RTSPServer (hydra_detect/rtsp_server.py) publishes annotated
+# detection frames at rtsp://localhost:8554/hydra. mediamtx pulls that
+# stream on demand and exposes it as WebRTC at /cam/whep on :8889.
+# Operators view it in any browser — sub-200ms, no client install.
+#
+# HLS and recording are explicitly disabled; this is a low-latency
+# viewer only. No transcoding, no auth proxy, no TLS termination — those
+# are out of scope for the sidecar story (see issue #187).
+#
+# The mediamtx process keeps running even when the source RTSP is down;
+# it simply has no clients to serve. When Hydra comes back up the next
+# WHEP request triggers a fresh pull from rtsp://localhost:8554/hydra.
+
+# Logging — keep mediamtx noise low; Hydra is the loud one.
+logLevel: info
+logDestinations: [stdout]
+
+# RTSP ingest (server side disabled — we PULL, not accept)
+# We don't run mediamtx as an RTSP server; it's purely a republisher.
+rtsp: yes
+rtspAddress: :8555  # off the default :8554 so we never collide with Hydra
+rtspTransports: [tcp, udp]
+
+# WebRTC — the only output that matters for this sidecar.
+webrtc: yes
+webrtcAddress: :8889
+# ICE/STUN: localhost-only deployments do not need a STUN server. If
+# operators want to view from a remote host, set webrtcAdditionalHosts
+# in a deploy override or add a STUN entry — out of scope here.
+
+# HLS — off by default per scope lock (issue #187). Flip to `yes` and
+# pick a free port if you need HLS later.
+hls: no
+
+# Recording — off. Hydra writes its own logs/exports; mediamtx is
+# viewer-only.
+record: no
+
+# Path config — `cam` is the WebRTC viewing alias. mediamtx pulls from
+# Hydra's RTSP mount on demand whenever a client requests /cam/whep.
+paths:
+  cam:
+    source: rtsp://127.0.0.1:8554/hydra
+    sourceOnDemand: yes
+    # 10s grace before mediamtx tears the upstream pull down after the
+    # last viewer leaves — avoids reconnect churn during classroom demos
+    # where students refresh the page.
+    sourceOnDemandCloseAfter: 10s

@@ -1,0 +1,76 @@
+# docker-compose.yml — Hydra + mediamtx sidecar.
+#
+# Production Hydra runs under systemd on the Jetson (see README + docs/
+# deployment.md). This compose file is for the *streaming sidecar story*:
+# it lets an operator (or SORCC classroom) bring up the existing Hydra
+# image alongside a `mediamtx` service that ingests Hydra's RTSP stream
+# at rtsp://localhost:8554/hydra and republishes it as WebRTC at
+# http://<host>:8889/cam/whep — sub-200ms in any browser, no client.
+#
+# Hydra Python code is unchanged. This is a sidecar.
+#
+# ── Quick start ─────────────────────────────────────────────────────
+#
+#   docker compose up                # Hydra + mediamtx (default)
+#   HYDRA_STREAMING_MTX=off \
+#     docker compose up              # Hydra only — no sidecar
+#
+# The mediamtx service is profile-gated: its profile name IS the value
+# of HYDRA_STREAMING_MTX (default `on`). Compose only spins up services
+# whose profile matches an active profile in COMPOSE_PROFILES. When the
+# flag is `on`, the profile resolves to `on` and the bundled .env (or a
+# wrapper) sets COMPOSE_PROFILES=on so the sidecar starts. Setting
+# HYDRA_STREAMING_MTX=off swaps the profile to `off`, which is not in
+# COMPOSE_PROFILES, so mediamtx stays down.
+#
+# ── Networking ───────────────────────────────────────────────────────
+#
+# Both services use host networking. Hydra needs it for MAVLink/serial
+# and TAK multicast; mediamtx needs to reach RTSP on 127.0.0.1:8554 and
+# expose WebRTC ICE candidates on the host's real IP. Port mapping
+# tables (`ports:`) are no-ops under host networking — kept here as
+# documentation of which ports each service owns.
+#
+# ── Tag pinning ──────────────────────────────────────────────────────
+#
+# mediamtx pinned to bluenviron/mediamtx:1.9.0 (linux/amd64 + linux/arm64
+# both published — works on the Jetson). Bump deliberately, never use
+# :latest in production sidecars.
+
+services:
+  hydra-detect:
+    image: hydra-detect:latest
+    container_name: hydra-detect
+    network_mode: host
+    privileged: true
+    runtime: nvidia
+    volumes:
+      - ./config.ini:/app/config.ini
+      - ./models:/models
+      - ./output_data:/data
+    environment:
+      PYTHONUNBUFFERED: "1"
+    restart: unless-stopped
+
+  mediamtx:
+    # Sidecar — ingests rtsp://localhost:8554/hydra and republishes as
+    # WebRTC on :8889 (WHEP) and (off by default) HLS on :8888.
+    # Profile-gated: only starts when COMPOSE_PROFILES contains
+    # `streaming`, which is the default below. Set HYDRA_STREAMING_MTX=off
+    # to suppress.
+    image: bluenviron/mediamtx:1.9.0
+    container_name: hydra-mediamtx
+    network_mode: host
+    profiles:
+      - ${HYDRA_STREAMING_MTX:-on}
+    # Documentation only under host networking — no actual mapping
+    # happens, but keeps the port story discoverable from `docker
+    # compose config`.
+    ports:
+      - "8189:8189/udp"   # WebRTC ICE/UDP
+      - "8889:8889/tcp"   # WebRTC HTTP (WHEP/WHIP)
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+    restart: unless-stopped
+    depends_on:
+      - hydra-detect

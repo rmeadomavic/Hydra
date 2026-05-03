@@ -52,6 +52,15 @@ Edit `config.ini` to set camera source, MAVLink connection, callsign,
 and TAK endpoint before the first run. First-boot operators can use
 the `/setup` wizard instead of editing the file by hand.
 
+## View in browser
+
+Hydra's RTSP stream (`rtsp://<jetson-ip>:8554/hydra`) is republished
+as low-latency WebRTC by an optional `mediamtx` sidecar in
+`docker-compose.yml` — sub-200ms in any browser, no client install.
+Bring it up with `docker compose up`, then open
+`http://<jetson-ip>:8889/cam/whep` in Chrome/Edge. Disable with
+`HYDRA_STREAMING_MTX=off` (the sidecar is profile-gated).
+
 ## Dev loop (no rebuild)
 
 For UI work (templates, CSS, JS, or FastAPI route tweaks) you don't need
