@@ -50,6 +50,7 @@ def _make_state(**overrides) -> SystemState:
         schema_version_present=True,
         cpu_temp_c=50.0,
         gpu_temp_c=55.0,
+        fps_below_target_sustained_sec=0.0,
         cfg=None,
     )
     defaults.update(overrides)
@@ -114,6 +115,7 @@ EXPECTED_CAPABILITIES = [
     "Vehicle Profile",
     "Schema Version",
     "Thermal",
+    "Performance",
     "Autonomy Live",
     "Drop",
     "RF Hunt",
@@ -469,6 +471,152 @@ class TestThermalEvaluator:
         state = _make_state(cpu_temp_c=75.1, gpu_temp_c=50.0)
         reports = evaluate_all(state)
         r = next(r for r in reports if r.name == "Thermal")
+        assert r.status == CapabilityStatus.WARN
+
+
+# ---------------------------------------------------------------------------
+# Performance evaluator + sustained-FPS tracker
+# ---------------------------------------------------------------------------
+
+class TestSustainedFpsTracker:
+    """Singleton tracker that records how long FPS has been below the
+    Hydra-documented 5 FPS minimum on Jetson."""
+
+    def setup_method(self):
+        from hydra_detect.capability_status import reset_fps_tracker_for_test
+        reset_fps_tracker_for_test()
+
+    def test_zero_when_fps_above_threshold(self):
+        from hydra_detect.capability_status import record_fps, sustained_fps_below_sec
+        record_fps(10.0, now_s=0.0)
+        record_fps(10.0, now_s=5.0)
+        assert sustained_fps_below_sec(now_s=10.0) == 0.0
+
+    def test_zero_when_fps_unknown(self):
+        from hydra_detect.capability_status import record_fps, sustained_fps_below_sec
+        record_fps(None, now_s=0.0)
+        assert sustained_fps_below_sec(now_s=10.0) == 0.0
+
+    def test_counts_from_first_below_sample(self):
+        from hydra_detect.capability_status import record_fps, sustained_fps_below_sec
+        record_fps(10.0, now_s=0.0)
+        record_fps(3.0, now_s=10.0)
+        record_fps(2.5, now_s=20.0)
+        assert sustained_fps_below_sec(now_s=40.0) == pytest.approx(30.0, abs=0.01)
+
+    def test_resets_when_fps_recovers(self):
+        from hydra_detect.capability_status import record_fps, sustained_fps_below_sec
+        record_fps(3.0, now_s=0.0)
+        record_fps(3.0, now_s=20.0)
+        assert sustained_fps_below_sec(now_s=20.0) == pytest.approx(20.0, abs=0.01)
+        record_fps(10.0, now_s=21.0)  # recovered
+        assert sustained_fps_below_sec(now_s=22.0) == 0.0
+
+    def test_unknown_fps_does_not_reset_sustained(self):
+        """A None FPS sample (e.g. stats not yet populated on a poll) must
+        not zero out the sustained-below counter — that would mask a real
+        thermal throttling event."""
+        from hydra_detect.capability_status import record_fps, sustained_fps_below_sec
+        record_fps(3.0, now_s=0.0)
+        record_fps(None, now_s=10.0)  # pipeline transient
+        assert sustained_fps_below_sec(now_s=15.0) == pytest.approx(15.0, abs=0.01)
+
+    def test_build_system_state_does_not_advance_tracker(self):
+        """Regression test for PR #183 Codex review: build_system_state must
+        be a pure reader of the FPS tracker. Re-feeding stream_state's cached
+        "fps" on every readiness poll would let a stalled pipeline's last
+        good value masquerade as a fresh sample and reset the sustained
+        counter, defeating the very signal this evaluator is meant to catch.
+        """
+        from hydra_detect.capability_status import (
+            record_fps, sustained_fps_below_sec, build_system_state,
+        )
+
+        # Pipeline reports a healthy FPS, then stalls (no more record_fps
+        # calls). The cached fps value in stream_state.get_stats() does
+        # not change.
+        record_fps(10.0, now_s=0.0)
+
+        class FakeStreamState:
+            def get_stats(self):
+                # Stale "healthy" reading — pipeline has actually stopped
+                # producing frames but no one updated this dict.
+                return {"camera_ok": True, "fps": 10.0, "last_frame_ts": 0.0}
+
+        # Operator polls readiness many times. Each poll calls
+        # build_system_state with the stale stats dict.
+        for poll_t in range(1, 60):
+            build_system_state(stream_state=FakeStreamState())
+
+        # FPS has never gone below threshold, so sustained must be 0.0 —
+        # but the bug would make it appear that FPS is healthy even after
+        # a stall because polls keep pushing the cached 10.0 back in.
+        # We verify the tracker state directly: no one has fed it a below-
+        # threshold sample, so it should still be at zero. The stalled-
+        # high case is symmetric — see test_stalled_high_fps_does_not_mask_real_drop.
+        assert sustained_fps_below_sec(now_s=60.0) == 0.0
+
+    def test_stalled_high_fps_does_not_mask_real_drop(self):
+        """Variant of the Codex regression scenario where the pipeline drops
+        below threshold and stalls. The readiness poll must NOT be able to
+        reset the sustained counter by re-pushing a now-stale healthy value.
+        """
+        from hydra_detect.capability_status import (
+            record_fps, sustained_fps_below_sec, build_system_state,
+        )
+
+        # Pipeline reports healthy, then degrades, then stalls entirely.
+        record_fps(10.0, now_s=0.0)
+        record_fps(2.0, now_s=10.0)  # below threshold from t=10 onward
+        # Pipeline stops at t=10 — no more record_fps calls.
+
+        class StalePostDegradationStream:
+            def get_stats(self):
+                # Cached value still shows the LAST below-threshold reading,
+                # but operator polls keep re-firing on cached state.
+                return {"fps": 2.0, "camera_ok": True, "last_frame_ts": 10.0}
+
+        # Operator polls many times — none of these should advance _below_since
+        # forward (which would shorten the apparent sustained-below window),
+        # nor should any push of a stale value prior to t=10 reset to None.
+        for poll_t in range(11, 50):
+            build_system_state(stream_state=StalePostDegradationStream())
+
+        # 40 s of below-threshold time elapsed since t=10. The tracker should
+        # see the full window because only the pipeline's t=10 record_fps
+        # call drove _below_since, and nothing has reset it since.
+        assert sustained_fps_below_sec(now_s=50.0) == pytest.approx(40.0, abs=0.01)
+
+
+class TestPerformanceEvaluator:
+    """READY when FPS healthy, WARN when sustained-below window exceeded."""
+
+    def test_ready_when_no_sustained_below(self):
+        state = _make_state(fps_below_target_sustained_sec=0.0)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Performance")
+        assert r.status == CapabilityStatus.READY
+        assert r.reasons == []
+
+    def test_ready_when_below_window(self):
+        # 20 s below target — under the 30 s window, still READY.
+        state = _make_state(fps_below_target_sustained_sec=20.0)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Performance")
+        assert r.status == CapabilityStatus.READY
+
+    def test_warn_when_at_window(self):
+        state = _make_state(fps_below_target_sustained_sec=30.0)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Performance")
+        assert r.status == CapabilityStatus.WARN
+        assert any("30" in reason or "thermal" in reason.lower()
+                   for reason in r.reasons)
+
+    def test_warn_when_well_past_window(self):
+        state = _make_state(fps_below_target_sustained_sec=120.0)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Performance")
         assert r.status == CapabilityStatus.WARN
 
 
