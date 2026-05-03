@@ -3187,58 +3187,119 @@ async def api_restore_config_backup(request: Request, authorization: str | None 
 
 @app.post("/api/config/factory-reset")
 async def api_factory_reset(request: Request, authorization: str | None = Header(None)):
-    """Restore factory defaults from config.ini.factory."""
+    """Restore factory defaults from config.ini.factory.
+
+    The factory file (config.ini.factory) is a hand-maintained ground-truth
+    snapshot of known-good config. This endpoint copies it over config.ini
+    atomically (via shutil.copy2 inside restore_factory()) and triggers a
+    pipeline restart so the new values take effect.
+
+    Audit fires on success AND on rejection (missing factory file, write
+    failure) so instructors can see when a student tried to recover and why
+    it failed.
+    """
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     if not has_factory():
-        return JSONResponse({"error": "No factory defaults available"}, status_code=404)
+        _audit(request, "config_factory_reset", outcome="no_factory_file")
+        return JSONResponse(
+            {"error": "No factory defaults available"}, status_code=503,
+        )
     try:
         restore_factory()
         _audit(request, "config_factory_reset")
-        # Trigger pipeline restart
+        # Trigger pipeline restart so new config takes effect
         cb = stream_state.get_callback("on_restart_command")
         if cb:
             cb()
         return {"status": "ok", "message": "Factory defaults restored"}
     except Exception as e:
         logger.error("Failed to restore factory defaults: %s", e)
+        _audit(request, "config_factory_reset", outcome="error")
         return JSONResponse({"error": f"Failed to restore: {e}"}, status_code=500)
 
 
 @app.get("/api/config/export")
 async def api_config_export(request: Request, authorization: str | None = Header(None)):
-    """Export current config as JSON download."""
+    """Export current config as JSON download.
+
+    Sets Content-Disposition so browsers trigger a download with a
+    hostname-and-timestamp filename. Sensitive fields (api_token,
+    kismet_pass) are redacted by read_config() before serialisation —
+    students can share exported configs without leaking tokens.
+    """
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     try:
         config = read_config()
-        _audit(request, "config_export")
-        return config
     except Exception as e:
         logger.error("Failed to export config: %s", e)
-        return JSONResponse({"error": "Failed to export configuration"}, status_code=500)
+        _audit(request, "config_export", outcome="error")
+        return JSONResponse(
+            {"error": "Failed to export configuration"}, status_code=500,
+        )
+
+    # Hostname + UTC timestamp in the filename so multiple Jetsons'
+    # exports don't collide when collected in one folder.
+    try:
+        import socket as _socket
+        host = _socket.gethostname() or "hydra"
+    except Exception:
+        host = "hydra"
+    # Strip anything that could break the filename header.
+    host = re.sub(r"[^A-Za-z0-9._-]", "-", host)[:32] or "hydra"
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    filename = f"hydra-config-{host}-{ts}.json"
+
+    _audit(request, "config_export")
+    return JSONResponse(
+        config,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.post("/api/config/import")
 async def api_config_import(request: Request, authorization: str | None = Header(None)):
-    """Import config from uploaded JSON."""
+    """Import config from uploaded JSON.
+
+    Validates the payload against the schema BEFORE writing — invalid
+    imports are rejected wholesale with 400 + field_errors. Unknown
+    sections/keys are silently skipped by write_config() (reported back in
+    `skipped`), so importing a partial config preserves any [ui]/[web]
+    keys the dashboard relies on but the import file doesn't mention.
+
+    Audit fires on success, validation failure, malformed JSON, and write
+    failure so the audit log is the single source of truth for "what did
+    the student try?".
+    """
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
-    import json as _json
+
     body_bytes = await request.body()
     if len(body_bytes) > MAX_BODY_SIZE:
+        _audit(request, "config_import", outcome="oversized")
         return JSONResponse({"error": "Request body too large"}, status_code=413)
-    try:
-        body = _json.loads(body_bytes)
-    except (ValueError, _json.JSONDecodeError):
+
+    body = await _parse_json(request)
+    if body is None:
+        _audit(request, "config_import", outcome="malformed_json")
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
     if not isinstance(body, dict):
-        return JSONResponse({"error": "Expected JSON object with config sections"}, status_code=400)
+        _audit(request, "config_import", outcome="not_an_object")
+        return JSONResponse(
+            {"error": "Expected JSON object with config sections"},
+            status_code=400,
+        )
+
     field_errors = validate_config_updates(body)
     if field_errors:
+        _audit(
+            request, "config_import",
+            target=str(len(field_errors)), outcome="validation_failed",
+        )
         return JSONResponse(
             {"error": "Validation failed", "field_errors": field_errors},
             status_code=400,
@@ -3249,7 +3310,11 @@ async def api_config_import(request: Request, authorization: str | None = Header
         return {"status": "imported", **result}
     except Exception as e:
         logger.error("Failed to import config: %s", e)
-        return JSONResponse({"error": f"Failed to import configuration: {e}"}, status_code=500)
+        _audit(request, "config_import", outcome="write_error")
+        return JSONResponse(
+            {"error": f"Failed to import configuration: {e}"},
+            status_code=500,
+        )
 
 
 # ── Capability Status Page (issue #146) ──────────────────────────────
