@@ -17,7 +17,6 @@ Covers:
 from __future__ import annotations
 
 import configparser
-import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -219,7 +218,9 @@ class TestModeTransitionEvent:
         action = call_kwargs[0][0]
         assert action == "mode.transition"
         # Details dict
-        details = call_kwargs[0][1] if len(call_kwargs[0]) > 1 else call_kwargs[1].get("details", {})
+        details = (
+            call_kwargs[0][1] if len(call_kwargs[0]) > 1 else call_kwargs[1].get("details", {})
+        )
         assert details["to"] == "FIELD"
         assert details["reason"] == "pre-sortie"
 
@@ -232,7 +233,9 @@ class TestModeTransitionEvent:
                 set_mode(cfg, OperatingMode.BENCH, reason="bench test", confirmed_twice=False)
 
         call_kwargs = mock_logger.log_action.call_args
-        details = call_kwargs[0][1] if len(call_kwargs[0]) > 1 else call_kwargs[1].get("details", {})
+        details = (
+            call_kwargs[0][1] if len(call_kwargs[0]) > 1 else call_kwargs[1].get("details", {})
+        )
         assert details["from"] == "OBSERVE"
         assert details["to"] == "BENCH"
 
@@ -245,7 +248,9 @@ class TestModeTransitionEvent:
                 set_mode(cfg, OperatingMode.FIELD, reason="test", actor="api")
 
         call_kwargs = mock_logger.log_action.call_args
-        details = call_kwargs[0][1] if len(call_kwargs[0]) > 1 else call_kwargs[1].get("details", {})
+        details = (
+            call_kwargs[0][1] if len(call_kwargs[0]) > 1 else call_kwargs[1].get("details", {})
+        )
         assert "actor" in details
 
     def test_no_event_when_no_logger(self, tmp_config: Path):

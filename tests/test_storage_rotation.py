@@ -17,7 +17,7 @@ import configparser
 import json
 import os
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,8 +26,6 @@ import pytest
 from hydra_detect.storage_rotation import (
     AUDIT_LOG_FILENAME,
     CATEGORY_DIRS,
-    CleanupPlan,
-    CategoryPlan,
     DiskStatus,
     check_disk_at_boot,
     disk_status,
@@ -40,6 +38,7 @@ from hydra_detect.storage_rotation import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_cfg(**storage_overrides) -> configparser.ConfigParser:
     """Build a minimal ConfigParser with [storage] section."""

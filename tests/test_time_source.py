@@ -8,10 +8,8 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -394,7 +392,9 @@ class TestDetectionLoggerTimeSources:
 
         log_files = list((tmp_path / "logs").glob("*.jsonl"))
         assert log_files, "No JSONL log files written"
-        records = [json.loads(line) for line in log_files[0].read_text().splitlines() if line.strip()]
+        records = [
+            json.loads(line) for line in log_files[0].read_text().splitlines() if line.strip()
+        ]
         assert records, "No records in log"
         assert records[0]["time_source"] == "GPS"
 
@@ -413,7 +413,9 @@ class TestDetectionLoggerTimeSources:
 
         log_files = list((tmp_path / "logs").glob("*.jsonl"))
         assert log_files
-        records = [json.loads(line) for line in log_files[0].read_text().splitlines() if line.strip()]
+        records = [
+            json.loads(line) for line in log_files[0].read_text().splitlines() if line.strip()
+        ]
         assert records
         assert "time_source" not in records[0]
 
