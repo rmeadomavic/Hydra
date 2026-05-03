@@ -59,7 +59,11 @@ def _probe_camera(stats: Dict[str, Any]) -> Dict[str, str]:
     cam_ok = stats.get("camera_ok")
     fps = stats.get("fps") or 0.0
     if cam_ok is False:
-        return _fail("camera_ok=false")
+        # Missing/unplugged camera is operator-recoverable (USB plug).
+        # Web UI must stay reachable so the operator can diagnose, so this is
+        # warn (not fail). The capability status page surfaces the actionable
+        # reason; here we just keep the Jetson in rotation. See issue #122.
+        return _warn("camera_ok=false (waiting for camera; web UI remains up)")
     if fps <= 0:
         return _warn("fps=0 (pipeline not producing frames)")
     return _ok(f"fps={fps:.1f}")

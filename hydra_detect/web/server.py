@@ -890,7 +890,11 @@ async def api_health():
     body["healthy"] = legacy_healthy
     body["camera_ok"] = camera_ok
     body["fps"] = fps
-    status_code = 503 if status == "fail" else (200 if legacy_healthy else 503)
+    # HTTP code follows structured status only (per docstring): 200 for ok/warn,
+    # 503 for fail. legacy_healthy stays in the body for old clients but no
+    # longer gates the response code — a missing camera is warn (recoverable),
+    # not fail, so it must not take the Jetson out of rotation. See #122.
+    status_code = 503 if status == "fail" else 200
     return JSONResponse(body, status_code=status_code)
 
 

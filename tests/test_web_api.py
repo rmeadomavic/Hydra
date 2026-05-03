@@ -55,16 +55,23 @@ class TestHealthEndpoint:
         assert data["camera_ok"] is True
 
     def test_health_camera_lost(self, client):
+        # Missing camera → warn (not fail). HTTP 200 keeps the Jetson in
+        # rotation; legacy_healthy stays False for old clients. See #122.
         stream_state.update_stats(camera_ok=False, fps=0.0)
         resp = client.get("/api/health")
-        assert resp.status_code == 503
-        assert resp.json()["healthy"] is False
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["healthy"] is False
+        assert body["status"] == "warn"
 
     def test_health_zero_fps(self, client):
+        # Pipeline not producing frames → warn (not fail). HTTP 200.
         stream_state.update_stats(camera_ok=True, fps=0.0)
         resp = client.get("/api/health")
-        assert resp.status_code == 503
-        assert resp.json()["healthy"] is False
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["healthy"] is False
+        assert body["status"] == "warn"
 
 
 class TestReadOnlyEndpoints:

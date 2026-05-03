@@ -109,11 +109,12 @@ class TestHealthSnapshot:
             assert sub["status"] in ("ok", "warn", "fail"), name
             assert "detail" in sub
 
-    def test_camera_fail_when_camera_ok_false(self):
+    def test_camera_warn_when_camera_ok_false(self):
+        # Missing camera is operator-recoverable — warn, not fail. See #122.
         snap = health_snapshot(stats={"camera_ok": False, "fps": 0.0})
-        assert snap["subsystems"]["camera"]["status"] == "fail"
-        # Overall status is fail because camera fails.
-        assert snap["status"] == "fail"
+        assert snap["subsystems"]["camera"]["status"] == "warn"
+        # No subsystem fails, so overall stays at warn.
+        assert snap["status"] == "warn"
 
     def test_overall_is_worst_subsystem(self):
         snap = health_snapshot(stats={"camera_ok": True, "fps": 5.0, "detector": "yolo"})
@@ -229,13 +230,19 @@ class TestHealthEndpoint:
         assert body["camera_ok"] is True
         assert body["fps"] == 10.0
 
-    def test_returns_503_on_camera_fail(self, client):
+    def test_returns_200_warn_when_camera_missing(self, client):
+        # Missing camera is operator-recoverable (plug in USB) — keep the
+        # Jetson in rotation so the dashboard stays reachable. The capability
+        # status page surfaces the actionable reason. Issue #122.
         server_module.stream_state.update_stats(camera_ok=False, fps=0.0)
         resp = client.get("/api/health")
-        assert resp.status_code == 503
+        assert resp.status_code == 200
         body = resp.json()
-        assert body["status"] == "fail"
-        assert body["subsystems"]["camera"]["status"] == "fail"
+        assert body["status"] == "warn"
+        assert body["subsystems"]["camera"]["status"] == "warn"
+        # Back-compat: legacy_healthy stays false (camera_ok is the AND clause).
+        assert body["healthy"] is False
+        assert body["camera_ok"] is False
 
 
 class TestMetricsEndpoint:
