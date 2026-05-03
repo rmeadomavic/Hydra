@@ -232,10 +232,22 @@ def _eval_detection(state: SystemState) -> CapabilityReport:
     reasons: list[str] = []
 
     if not state.camera_ok:
-        reasons.append(
-            "Camera not initialized. Check source in [camera] config."
-        )
-        return CapabilityReport("Detection", CapabilityStatus.BLOCKED, reasons)
+        # Issue #122: distinguish "camera not detected at all" from
+        # "camera was there and went stale". Frame-age None means the
+        # capture device never produced a frame.
+        if state.camera_frame_age_sec is None:
+            reasons.append(
+                "Camera not detected. Plug in a USB camera or check "
+                "/dev/video* and the [camera] source in config.ini. "
+                "The pipeline is waiting and will resume automatically."
+            )
+        else:
+            reasons.append(
+                "Camera disconnected. Check the USB cable or the device "
+                "path in [camera] config — the pipeline is retrying."
+            )
+        return CapabilityReport("Detection", CapabilityStatus.BLOCKED, reasons,
+                                fix_target="#122")
 
     if state.camera_frame_age_sec is None:
         reasons.append("No frames received yet. Pipeline may still be starting.")

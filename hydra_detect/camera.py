@@ -7,12 +7,80 @@ import logging
 import shutil
 import subprocess
 import threading
-from typing import Optional
+import time
+from typing import Optional, Tuple
 
 import cv2
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# Default retry interval for try_open_camera (seconds). 10s matches the
+# behavior described in issue #122 — long enough to avoid CPU burn,
+# short enough that a freshly-plugged camera comes online quickly.
+DEFAULT_OPEN_RETRY_INTERVAL_SEC = 10.0
+
+
+def try_open_camera(
+    source: str | int,
+    retries: int = 0,
+    interval: float = DEFAULT_OPEN_RETRY_INTERVAL_SEC,
+    api_preference: int | None = None,
+    stop_event: threading.Event | None = None,
+) -> Tuple[Optional["cv2.VideoCapture"], bool]:
+    """Open a cv2.VideoCapture without raising on failure (issue #122).
+
+    Args:
+        source: device index, /dev/videoX path, RTSP URL, or file path.
+        retries: number of additional open attempts after the first.
+            ``0`` means single-attempt (fail-fast probe). Use a positive
+            int for a bounded retry budget; the pipeline-level reconnect
+            loop handles unbounded retry above this.
+        interval: seconds between attempts.
+        api_preference: optional cv2.CAP_* backend (e.g. CAP_V4L2 for
+            analog dongles). ``None`` = OpenCV default.
+        stop_event: optional threading.Event — when set, abandons the
+            retry loop early and returns ``(None, False)``.
+
+    Returns:
+        ``(cap, True)`` if the device opened.
+        ``(None, False)`` if every attempt failed; any partial cv2
+        handle is released before returning.
+
+    Never raises on a missing device — the web UI must stay up.
+    """
+    attempts = max(1, retries + 1)
+    for n in range(attempts):
+        if stop_event is not None and stop_event.is_set():
+            return None, False
+        try:
+            if api_preference is not None:
+                cap = cv2.VideoCapture(source, api_preference)
+            else:
+                cap = cv2.VideoCapture(source)
+        except Exception as exc:  # cv2 occasionally raises on bad source
+            logger.debug("cv2.VideoCapture(%s) raised: %s", source, exc)
+            cap = None
+
+        if cap is not None and cap.isOpened():
+            return cap, True
+        if cap is not None:
+            try:
+                cap.release()
+            except Exception:
+                pass
+
+        if n + 1 >= attempts:
+            break
+        # Quiet wait — the caller logs state transitions; per-retry noise
+        # belongs at DEBUG (issue #122 spec).
+        logger.debug("Camera %s not ready (attempt %d/%d).", source, n + 1, attempts)
+        if stop_event is not None:
+            if stop_event.wait(timeout=interval):
+                return None, False
+        else:
+            time.sleep(interval)
+    return None, False
 
 
 def _get_device_name(idx: int) -> str:
@@ -299,6 +367,12 @@ class Camera:
         # Signalled by close() to interrupt the reconnect-backoff sleep —
         # otherwise shutdown blocks for up to 30 s during reconnect.
         self._stop_evt = threading.Event()
+        # True when the most recent open/grab attempt produced a live device.
+        # Read by the pipeline + capability_status to drive operator UI.
+        # Defaults to False: nothing is "available" until it's actually opened.
+        self._available = False
+        # Retry interval for the background reconnect loop (issue #122).
+        self._reconnect_interval = DEFAULT_OPEN_RETRY_INTERVAL_SEC
 
     # ------------------------------------------------------------------
     def _device_path(self) -> str:
@@ -316,28 +390,31 @@ class Camera:
         Always returns True — a missing camera is a degraded runtime state,
         not a hard failure (see issue #122).
         """
+        api_pref = cv2.CAP_V4L2 if self._source_type == "analog" else None
         if self._source_type == "analog":
             # Configure V4L2 composite input before opening
             _configure_analog_input(self._device_path(), self._video_standard)
-            # Force V4L2 backend for analog capture dongles
-            self._cap = cv2.VideoCapture(self._source, cv2.CAP_V4L2)
-        else:
-            self._cap = cv2.VideoCapture(self._source)
 
-        if not self._cap.isOpened():
+        cap, ok = try_open_camera(
+            self._source, retries=0, api_preference=api_pref,
+        )
+        self._cap = cap
+
+        if not ok:
             logger.warning(
-                "Camera not found at %s — will keep retrying in the background. "
-                "Check USB connection, device path, or camera.source in config.ini.",
-                self._source,
+                "No camera at %s — retrying every %.0fs. "
+                "Web UI remains available. Check USB connection, "
+                "device path, or camera.source in config.ini.",
+                self._source, self._reconnect_interval,
             )
-            self._cap.release()
-            self._cap = None
+            self._available = False
             # Start grab thread anyway — it reconnects with backoff.
             self._running = True
             self._thread = threading.Thread(target=self._grab_loop, daemon=True)
             self._thread.start()
             return True
 
+        self._available = True
         self._configure_and_start()
 
         # Log actual resolution after first configuration
@@ -388,41 +465,93 @@ class Camera:
 
     # ------------------------------------------------------------------
     def _grab_loop(self) -> None:
-        """Continuously grab frames in background thread."""
-        backoff = 1.0
+        """Continuously grab frames in background thread.
+
+        Logs state transitions (lost / restored) at INFO/WARN — per-retry
+        churn stays at DEBUG so journald isn't spammed when a Jetson sits
+        without a camera plugged in (issue #122).
+        """
+        # Initial WARN already logged in open(); silent until restored.
+        warn_logged = not self._available
+        api_pref = cv2.CAP_V4L2 if self._source_type == "analog" else None
+
         while self._running:
             if self._cap is None or not self._cap.isOpened():
-                logger.warning("Reconnecting camera in %.1fs ...", backoff)
-                # Use Event.wait so close() can interrupt the backoff sleep.
-                if self._stop_evt.wait(timeout=backoff):
+                if self._available:
+                    self._available = False
+                    logger.warning(
+                        "Camera at %s disconnected — retrying every %.0fs. "
+                        "Web UI remains available.",
+                        self._source, self._reconnect_interval,
+                    )
+                    warn_logged = True
+                else:
+                    logger.debug(
+                        "Camera %s not ready, next attempt in %.0fs.",
+                        self._source, self._reconnect_interval,
+                    )
+
+                # Wait so close() can interrupt the sleep promptly.
+                if self._stop_evt.wait(timeout=self._reconnect_interval):
                     break
-                backoff = min(backoff * 2, 30.0)
+
                 if self._cap is not None:
-                    # Release any lingering (unopened) capture before replacing
-                    self._cap.release()
+                    try:
+                        self._cap.release()
+                    except Exception:
+                        pass
+                    self._cap = None
                 if self._source_type == "analog":
                     _configure_analog_input(
                         self._device_path(), self._video_standard,
                     )
-                    self._cap = cv2.VideoCapture(self._source, cv2.CAP_V4L2)
-                else:
-                    self._cap = cv2.VideoCapture(self._source)
-                if self._cap.isOpened():
+                cap, ok = try_open_camera(
+                    self._source,
+                    retries=0,
+                    api_preference=api_pref,
+                    stop_event=self._stop_evt,
+                )
+                self._cap = cap
+                if ok:
                     # Apply resolution/fps after reconnect — otherwise camera
                     # runs at default settings after a reconnect.
                     self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
                     self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
                     self._cap.set(cv2.CAP_PROP_FPS, self._fps)
+                    self._available = True
+                    if warn_logged:
+                        logger.info(
+                            "Camera at %s recovered — frames flowing.",
+                            self._source,
+                        )
+                        warn_logged = False
                 continue
 
-            ok, frame = self._cap.read()
+            try:
+                ok, frame = self._cap.read()
+            except (cv2.error, RuntimeError, OSError) as exc:
+                # Mid-session disconnects (USB pull, USB power glitch on
+                # Jetson) can surface as exceptions out of cv2 instead of
+                # ok=False. Treat them as "gone" and drop into the
+                # reconnect branch on the next iteration. Issue #122.
+                logger.debug("Camera read raised %s — treating as disconnect.", exc)
+                ok, frame = False, None
             if not ok:
-                logger.warning("Frame grab failed, will reconnect.")
-                self._cap.release()
+                if self._available:
+                    self._available = False
+                    logger.warning(
+                        "Frame grab failed on %s — entering reconnect.",
+                        self._source,
+                    )
+                    warn_logged = True
+                if self._cap is not None:
+                    try:
+                        self._cap.release()
+                    except Exception:
+                        pass
                 self._cap = None
                 continue
 
-            backoff = 1.0
             with self._lock:
                 self._frame = frame
 
@@ -484,6 +613,16 @@ class Camera:
     def has_frame(self) -> bool:
         with self._lock:
             return self._frame is not None
+
+    @property
+    def available(self) -> bool:
+        """True when the camera is currently open and producing frames.
+
+        Driven by the grab loop — flips False on disconnect, True when
+        a reconnect succeeds. Read by the pipeline + capability_status
+        to surface camera presence to the operator (issue #122).
+        """
+        return self._available
 
     # ------------------------------------------------------------------
     def __enter__(self) -> "Camera":

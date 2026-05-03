@@ -14,6 +14,8 @@ from collections import deque
 from pathlib import Path
 from typing import Optional
 
+import cv2
+
 from ..approach import ApproachConfig, ApproachController, ApproachMode
 from ..guidance import GuidanceConfig
 from ..autonomous import AutonomousController, parse_polygon
@@ -1114,6 +1116,13 @@ class Pipeline:
             stream_state.update_stats(
                 detector="yolo",
                 mavlink=self._mavlink is not None and self._mavlink.connected,
+                # Surface camera presence as soon as the web layer comes
+                # up — otherwise /api/health and the capability page
+                # default to camera_ok=True until the first loop tick,
+                # which masks the "no camera plugged in" state at boot
+                # (issue #122).
+                camera_ok=self._camera.available,
+                camera_source=str(self._camera.source),
             )
 
             # TLS: generate self-signed cert if enabled
@@ -1372,8 +1381,19 @@ class Pipeline:
 
     # ------------------------------------------------------------------
     def _check_camera_frame(self):
-        """Read a frame and manage camera loss state. Returns frame or None."""
-        frame = self._camera.read()
+        """Read a frame and manage camera loss state. Returns frame or None.
+
+        Wraps the camera read in a try/except so a hardware-level disconnect
+        that surfaces as cv2.error / RuntimeError can't crash the pipeline
+        thread (issue #122 mid-session disconnect path). The Camera object's
+        own grab loop already retries in the background — we just need to
+        survive the read call here.
+        """
+        try:
+            frame = self._camera.read()
+        except (cv2.error, RuntimeError, OSError) as exc:
+            logger.debug("Camera read raised %s — treating as no frame.", exc)
+            frame = None
         if frame is None:
             self._cam_fail_count += 1
             if self._cam_fail_count >= self._CAM_FAIL_THRESHOLD and not self._cam_lost:
