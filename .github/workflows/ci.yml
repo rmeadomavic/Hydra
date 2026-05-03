@@ -126,10 +126,10 @@ jobs:
           set -euo pipefail
           # Fail loud if base is unreachable (rebase + force-push on the base
           # branch can leave base.sha absent even after fetch-depth=0).
-          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
             git fetch --no-tags origin "${BASE_SHA}" || true
           fi
-          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
             echo "::error::base.sha ${BASE_SHA} not reachable — cannot compute diff"
             exit 2
           fi
@@ -171,8 +171,8 @@ jobs:
           if [ -n "$HITS" ]; then
             echo "touched=true" >> "$GITHUB_OUTPUT"
             # Write hits to $GITHUB_ENV (not $GITHUB_OUTPUT) so later steps
-            # read via env, avoiding shell-injection via ${{ }} template
-            # interpolation of attacker-controlled filenames.
+            # read via env, avoiding shell-injection via workflow-expression
+            # template interpolation of attacker-controlled filenames.
             {
               echo 'HITS<<HITS_EOF'
               echo "$HITS"
