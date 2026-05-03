@@ -173,6 +173,11 @@ curl -sX POST <HOST>/api/config/prompts \
 ### `POST /api/config/alert-classes`
 **Auth:** bearer · `{"classes": ["person","car"]}` or `[]` for all.
 
+### `GET /api/config/effective`
+**Auth:** none · Effective (post-profile-merge) runtime config. Returns
+`{vehicle_profile, runtime_config}` reflecting any `[vehicle.<name>]`
+overrides applied at startup.
+
 ### `GET /api/config/full`
 **Auth:** same-origin · All `config.ini` sections as JSON with
 sensitive fields redacted (`api_token`, `kismet_pass`).
@@ -421,6 +426,14 @@ ticker. Shape:
  "window_seconds": 60,
  "max_rssi": -42}
 ```
+
+### `GET /api/rf/spectrum`
+**Auth:** none · Latest `rtl_power` spectrum sweep from
+`/tmp/hydra_spectrum.json` (written by an external rtl_power daemon).
+Returns `{enabled, file_age_s, bins, peaks, ...}`. `enabled=false`
+when the daemon is not running, the file is missing, or the file is
+older than `_SPECTRUM_MAX_AGE_S` (`status: stale_data`). Dashboard
+SDR overlay treats `enabled=false` as no live SDR and skips rendering.
 
 ### `GET /api/rf/devices`
 **Auth:** none · Current Kismet device feed, normalized. Payload:
