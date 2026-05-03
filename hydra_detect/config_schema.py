@@ -51,7 +51,9 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             default=1,
             min_val=0,
             max_val=9999,
-            description="Config schema version — managed by config_migrate.py, do not edit manually",
+            description=(
+                "Config schema version — managed by config_migrate.py, do not edit manually"
+            ),
         ),
     },
     "camera": {
@@ -1191,7 +1193,9 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             min_val=0.0,
             max_val=1000.0,
             default=100.0,
-            description="Forward-predictor look-ahead milliseconds (camera + infer + MAVLink + ESC)",
+            description=(
+                "Forward-predictor look-ahead milliseconds (camera + infer + MAVLink + ESC)"
+            ),
         ),
         "predictor_enabled": FieldSpec(
             FieldType.BOOL,

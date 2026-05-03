@@ -1404,9 +1404,18 @@ async def api_rf_spectrum():
             data["enabled"] = True
         return JSONResponse(data)
     except FileNotFoundError:
-        return JSONResponse({"enabled": False, "reason": "daemon not running", "bins": [], "peaks": []})
+        return JSONResponse(
+            {"enabled": False, "reason": "daemon not running", "bins": [], "peaks": []}
+        )
     except Exception as exc:
-        return JSONResponse({"enabled": False, "reason": f"{type(exc).__name__}: {exc}", "bins": [], "peaks": []})
+        return JSONResponse(
+            {
+                "enabled": False,
+                "reason": f"{type(exc).__name__}: {exc}",
+                "bins": [],
+                "peaks": [],
+            }
+        )
 
 
 @app.get("/api/servo/status")
@@ -3416,9 +3425,12 @@ async def api_setup_save(request: Request, authorization: Optional[str] = Header
 
 
 # ── Operating mode router ────────────────────────────────────────────
-from hydra_detect.web.mode_api import router as _mode_router; app.include_router(_mode_router)  # noqa: E402,E501
+from hydra_detect.web.mode_api import router as _mode_router  # noqa: E402
+
+app.include_router(_mode_router)
 
 # ── Server launcher ──────────────────────────────────────────────────
+
 
 def run_server(
     host: str = "0.0.0.0",

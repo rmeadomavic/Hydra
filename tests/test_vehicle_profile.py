@@ -222,7 +222,6 @@ class TestHydraVehicleEnvVar:
         """Verify the actual __main__.py parser uses HYDRA_VEHICLE as default."""
         # We directly inspect the argument definition in __main__.py source
         # rather than importing it (which drags in pipeline and heavy deps).
-        import ast
         import pathlib
         src = (
             pathlib.Path(__file__).parent.parent

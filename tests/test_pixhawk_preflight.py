@@ -231,9 +231,27 @@ class TestFormatReport:
         mod = _load_preflight_module()
         Result = mod.PreflightResult
         results = [
-            Result(name="FENCE_ENABLE", status="PASS", actual=1.0, expected=1, message="FENCE_ENABLE = 1"),
-            Result(name="SR1_POSITION", status="FAIL", actual=2.0, expected=5, message="SR1_POSITION = 2 (expected ≥ 5)"),
-            Result(name="BATT_FS_LOW_ACT", status="WARN", actual=0.0, expected=2, message="BATT_FS_LOW_ACT = 0 (recommended 2)"),
+            Result(
+                name="FENCE_ENABLE",
+                status="PASS",
+                actual=1.0,
+                expected=1,
+                message="FENCE_ENABLE = 1",
+            ),
+            Result(
+                name="SR1_POSITION",
+                status="FAIL",
+                actual=2.0,
+                expected=5,
+                message="SR1_POSITION = 2 (expected ≥ 5)",
+            ),
+            Result(
+                name="BATT_FS_LOW_ACT",
+                status="WARN",
+                actual=0.0,
+                expected=2,
+                message="BATT_FS_LOW_ACT = 0 (recommended 2)",
+            ),
         ]
         report = mod.format_report("ugv", "ArduRover", results)
         assert "[PASS]" in report
