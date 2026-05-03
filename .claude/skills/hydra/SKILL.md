@@ -75,7 +75,7 @@ Hydra serves three audiences — tag features and ideas by which they serve:
 
 ## SORCC Course Context
 
-Hydra is built for **SORCC** (Special Operations Robotics Capabilities Course) —
+Hydra is built for **SORCC** (Special Operations Robotics Capability Course) —
 a 6-week SOF training program. 15 students in 5 teams operate drones, rovers,
 boats, and fixed-wing aircraft with Hydra payloads. Students interact only via
 the web dashboard (never SSH). Errors must be plain English. Up to 20 Hydra
