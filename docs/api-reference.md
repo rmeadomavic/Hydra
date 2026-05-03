@@ -204,6 +204,20 @@ restart.
 ### `POST /api/config/import`
 **Auth:** bearer · Accept a previously exported config JSON.
 
+### `GET /api/settings/hud_layout`
+**Auth:** none · Current HUD layout preset plus the available choices.
+Returns `{"hud_layout": "<value>", "choices": [...], "default": "..."}`.
+Falls back to the schema default if the persisted value is missing or
+unknown.
+
+### `POST /api/settings/hud_layout`
+**Auth:** same-origin (bearer for external callers) · Persists the
+operator's HUD layout choice. Body: `{"hud_layout": "classic" |
+"operator" | "graphs" | "hybrid"}`. Validates against the
+`[web] hud_layout` schema entry, then writes via `write_config()`
+(atomic + backup). Malformed JSON or unknown preset returns 400 with
+`field_errors`.
+
 ---
 
 ## Vehicle control

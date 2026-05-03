@@ -2642,9 +2642,17 @@ const HydraOps = (() => {
             applyHudLayout('classic');
             return;
         }
-        HydraApp.apiGet('/api/config/full').then(function (cfg) {
-            var layout = (cfg && cfg.web && cfg.web.hud_layout) ? cfg.web.hud_layout : 'classic';
-            applyHudLayout(layout);
+        // Phase 2 B8: prefer the dedicated settings endpoint; fall back to
+        // /api/config/full so older Hydra builds (no B8) still hydrate.
+        HydraApp.apiGet('/api/settings/hud_layout').then(function (resp) {
+            if (resp && typeof resp.hud_layout === 'string') {
+                applyHudLayout(resp.hud_layout);
+                return;
+            }
+            return HydraApp.apiGet('/api/config/full').then(function (cfg) {
+                var layout = (cfg && cfg.web && cfg.web.hud_layout) ? cfg.web.hud_layout : 'classic';
+                applyHudLayout(layout);
+            });
         }).catch(function () { applyHudLayout('classic'); });
     }
 
@@ -2652,8 +2660,17 @@ const HydraOps = (() => {
         var layout = e && e.target ? e.target.value : 'classic';
         applyHudLayout(layout);
         if (HydraApp && typeof HydraApp.apiPost === 'function') {
-            HydraApp.apiPost('/api/config/full', { web: { hud_layout: layout } }).then(function (r) {
-                if (r) HydraApp.showToast('HUD layout: ' + layout, 'info');
+            // Phase 2 B8: write through the dedicated settings endpoint.
+            // Falls back to /api/config/full when the dedicated endpoint
+            // is unavailable (old build) so the picker keeps working.
+            HydraApp.apiPost('/api/settings/hud_layout', { hud_layout: layout }).then(function (r) {
+                if (r && typeof r.hud_layout === 'string') {
+                    HydraApp.showToast('HUD layout: ' + r.hud_layout, 'info');
+                    return;
+                }
+                return HydraApp.apiPost('/api/config/full', { web: { hud_layout: layout } }).then(function (rr) {
+                    if (rr) HydraApp.showToast('HUD layout: ' + layout, 'info');
+                });
             });
         }
     }

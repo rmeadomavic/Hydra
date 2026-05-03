@@ -2253,6 +2253,131 @@ async def api_tak_test_broadcast(
     return result
 
 
+_HUD_LAYOUT_SPEC = CONFIG_SCHEMA.get("web", {}).get("hud_layout")
+_HUD_LAYOUT_CHOICES: list[str] = (
+    list(_HUD_LAYOUT_SPEC.choices) if _HUD_LAYOUT_SPEC and _HUD_LAYOUT_SPEC.choices else []
+)
+_HUD_LAYOUT_DEFAULT: str = (
+    str(_HUD_LAYOUT_SPEC.default) if _HUD_LAYOUT_SPEC and _HUD_LAYOUT_SPEC.default else "classic"
+)
+
+
+def _read_hud_layout_value() -> str:
+    """Return the persisted hud_layout, falling back to the schema default."""
+    try:
+        cfg = read_config()
+    except Exception as exc:
+        logger.warning("hud_layout read failed: %s", exc)
+        return _HUD_LAYOUT_DEFAULT
+    value = (cfg.get("web") or {}).get("hud_layout") or _HUD_LAYOUT_DEFAULT
+    if _HUD_LAYOUT_CHOICES and value not in _HUD_LAYOUT_CHOICES:
+        return _HUD_LAYOUT_DEFAULT
+    return value
+
+
+def _ensure_hud_layout_key() -> None:
+    """Seed [web] hud_layout in config.ini when absent.
+
+    write_config() silently skips keys that don't already exist, so a config
+    that pre-dates the schema entry (or skipped the 004 migration for any
+    reason) needs the key materialised before the first POST round-trips.
+    Idempotent and safe to call before every write.
+    """
+    import configparser as _configparser
+
+    from hydra_detect.web.config_api import get_config_path as _get_path
+
+    path = _get_path()
+    cfg = _configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
+    cfg.read(path)
+    if cfg.has_section("web") and cfg.has_option("web", "hud_layout"):
+        return
+    if not cfg.has_section("web"):
+        cfg.add_section("web")
+    if not cfg.has_option("web", "hud_layout"):
+        cfg.set("web", "hud_layout", _HUD_LAYOUT_DEFAULT)
+    with open(path, "w") as f:
+        cfg.write(f)
+
+
+@app.get("/api/settings/hud_layout")
+async def api_get_hud_layout():
+    """Return the current HUD layout choice plus the available presets.
+
+    Auth-free read — display preference, not a control action. Mirrors
+    the same-origin-friendly pattern of ``/api/stream/quality`` and the
+    schema-driven settings UI.
+    """
+    return {
+        "hud_layout": _read_hud_layout_value(),
+        "choices": list(_HUD_LAYOUT_CHOICES),
+        "default": _HUD_LAYOUT_DEFAULT,
+    }
+
+
+@app.post("/api/settings/hud_layout")
+async def api_set_hud_layout(
+    request: Request, authorization: Optional[str] = Header(None),
+):
+    """Persist the operator's HUD layout choice.
+
+    Body: ``{"hud_layout": "classic" | "operator" | "graphs" | "hybrid"}``.
+
+    Validates against the [web] hud_layout schema entry, then writes via
+    the existing ``write_config`` path (same atomic+lock semantics as
+    ``POST /api/config/full``). Same-origin requests bypass Bearer auth
+    in line with every other settings endpoint; external callers still
+    need the token when ``api_token`` is set.
+
+    Malformed JSON → 400 (via ``_parse_json``). Schema rejection → 400
+    with ``field_errors``. Persistence failure → 500.
+    """
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse(
+            {"error": "Invalid or missing JSON body"}, status_code=400
+        )
+    if not isinstance(body, dict):
+        return JSONResponse(
+            {"error": "Body must be a JSON object"}, status_code=400
+        )
+    layout = body.get("hud_layout")
+    if not isinstance(layout, str) or not layout.strip():
+        return JSONResponse(
+            {"error": "hud_layout must be a non-empty string"},
+            status_code=400,
+        )
+    layout = layout.strip()
+
+    updates = {"web": {"hud_layout": layout}}
+    field_errors = validate_config_updates(updates)
+    if field_errors:
+        return JSONResponse(
+            {"error": "Validation failed", "field_errors": field_errors},
+            status_code=400,
+        )
+    try:
+        # write_config silently skips unknown keys, so seed [web].hud_layout
+        # on legacy configs that pre-date the schema entry. Idempotent on
+        # configs migrated by 004_web_hud_layout.py.
+        _ensure_hud_layout_key()
+        write_config(updates)
+    except Exception as exc:
+        logger.error("hud_layout write failed: %s", exc)
+        return JSONResponse(
+            {"error": f"Failed to save hud_layout: {exc}"}, status_code=500
+        )
+    _audit(request, "set_hud_layout", target=layout)
+    return {
+        "hud_layout": _read_hud_layout_value(),
+        "choices": list(_HUD_LAYOUT_CHOICES),
+        "default": _HUD_LAYOUT_DEFAULT,
+    }
+
+
 @app.get("/api/stream/quality")
 async def get_stream_quality():
     """Return current MJPEG stream quality."""
