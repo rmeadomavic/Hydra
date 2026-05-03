@@ -276,18 +276,35 @@ class ReIDTracker:
             )
 
         dets = detection_result.detections
-        if not dets:
-            # Some boxmot versions accept an empty Nx6; others reject it.
-            # Skip the call entirely to keep behaviour deterministic.
-            return TrackingResult()
+        # Always call boxmot.update() — even with zero detections — so the
+        # tracker ages out missed tracks during dropouts and occlusions.
+        # Returning early here freezes internal time counters and lets
+        # stale IDs persist or reassociate incorrectly when detections
+        # resume, which directly degrades re-ID quality in cluttered
+        # Follow scenarios.
+        if dets:
+            # boxmot wants Nx6: x1, y1, x2, y2, conf, cls.
+            det_array = np.array(
+                [[d.x1, d.y1, d.x2, d.y2, d.confidence, d.class_id] for d in dets],
+                dtype=np.float32,
+            )
+        else:
+            det_array = np.empty((0, 6), dtype=np.float32)
 
-        # boxmot wants Nx6: x1, y1, x2, y2, conf, cls.
-        det_array = np.array(
-            [[d.x1, d.y1, d.x2, d.y2, d.confidence, d.class_id] for d in dets],
-            dtype=np.float32,
-        )
-
-        result = self._tracker.update(det_array, frame)
+        try:
+            result = self._tracker.update(det_array, frame)
+        except (ValueError, IndexError) as exc:
+            # Defensive: a handful of older boxmot releases reject empty
+            # arrays. Log once and fall back to an empty result rather
+            # than crashing the pipeline. This is strictly an old-version
+            # safety net; modern boxmot (>=10.0) handles empty Nx6 fine.
+            if not dets:
+                logger.debug(
+                    "boxmot update() rejected empty detections (%s); "
+                    "falling back to empty TrackingResult.", exc,
+                )
+                return TrackingResult()
+            raise
 
         # boxmot returns Nx7 or Nx8 depending on version: x1, y1, x2, y2,
         # id, conf, cls, [ind]. Read the first 7 columns; treat missing

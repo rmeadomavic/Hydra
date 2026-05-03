@@ -127,8 +127,14 @@ class TestReIDTrackerWiring:
         assert result.tracks[0].track_id == 7
         assert result.tracks[0].confidence == pytest.approx(0.85)
 
-    def test_empty_detections_returns_empty_result_without_calling_boxmot(self, monkeypatch):
+    def test_empty_detections_still_calls_boxmot_update(self, monkeypatch):
+        """Even with zero detections, boxmot.update() must be invoked so
+        the tracker ages missed tracks during dropouts/occlusions. Skipping
+        the call freezes internal counters and breaks re-ID continuity."""
         fake_tracker, _ = self._install_boxmot_stub(monkeypatch)
+        # Configure the stub to return an empty result for empty input.
+        fake_tracker.update.return_value = np.empty((0, 7), dtype=np.float32)
+
         rt = ReIDTracker(tracker_type="botsort")
         rt.init()
 
@@ -136,9 +142,30 @@ class TestReIDTrackerWiring:
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
         result = rt.update(empty, frame=frame)
 
+        # boxmot.update() WAS called — that's the bug fix.
+        assert fake_tracker.update.called
+        call_args = fake_tracker.update.call_args.args
+        dets_arg = call_args[0]
+        assert dets_arg.shape == (0, 6), "empty detections must be passed as 0x6 ndarray"
+        assert call_args[1] is frame
+        # Tracking result is empty (no IDs to report this frame).
         assert len(result) == 0
-        # Boxmot's update may still be invoked with an empty array — that's
-        # also fine. We just check no crash and an empty result.
+
+    def test_empty_detections_old_boxmot_falls_back_gracefully(self, monkeypatch):
+        """Older boxmot versions can raise ValueError on empty input.
+        The fallback path should swallow that and return empty."""
+        fake_tracker, _ = self._install_boxmot_stub(monkeypatch)
+        fake_tracker.update.side_effect = ValueError("empty input not supported")
+
+        rt = ReIDTracker(tracker_type="botsort")
+        rt.init()
+
+        empty = DetectionResult(detections=[])
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        result = rt.update(empty, frame=frame)
+
+        assert fake_tracker.update.called
+        assert len(result) == 0
 
     def test_update_requires_frame(self, monkeypatch):
         """Re-ID needs the actual image for appearance embedding; an
