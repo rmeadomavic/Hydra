@@ -24,6 +24,12 @@ output_data/
 # Backup / temp files
 *.bak
 
+# Scratch workspace — bench scripts, throwaway configs, captured logs.
+# Contains hardcoded API tokens and operational data; must never be
+# committed. Currently kept untracked by convention; explicit ignore
+# closes the `git add -A` gap.
+.tmp/
+
 # Large reference material (not source — keep local only)
 docs/reference/
 docs/sorcc manuals/
