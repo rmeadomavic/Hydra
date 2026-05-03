@@ -28,6 +28,28 @@ When RTSP is enabled and `advertise_host` is set, Hydra includes a video feed li
 
 The URL format is `rtsp://<advertise_host>:<rtsp_port><rtsp_mount>`.
 
+### Outbound Backend (`HYDRA_COT_BACKEND`)
+
+The outbound CoT path is library-backed by [`pytak`](https://github.com/snstac/pytak) by default. The legacy hand-rolled UDP emitter is kept on disk as a one-week safety net so a field swap can fall back without a code change.
+
+| Value (env var) | Class | Notes |
+|---|---|---|
+| `pytak` (default) | `hydra_detect.tak.pytak_emitter.PyTAKOutput` | Asyncio UDP transport via pytak. Same CoT XML on the wire — the bytes are still produced by `cot_builder`. |
+| `legacy` | `hydra_detect.tak.tak_output.TAKOutput` | Pre-pytak emitter. Hand-rolled `socket.sendto` per destination. |
+
+```bash
+# Force legacy emitter on a flight
+HYDRA_COT_BACKEND=legacy ./run.sh
+
+# Default (pytak)
+./run.sh
+```
+
+Selection happens at package-import time inside `hydra_detect.tak.__init__`, which rebinds the `TAKOutput` symbol in `hydra_detect.tak.tak_output` to whichever backend is active. Existing callers (including the pipeline facade) keep their `from hydra_detect.tak.tak_output import TAKOutput` import lines unchanged. Flipping the env var requires a process restart, not a code change.
+
+> [!NOTE]
+> The legacy emitter (`hydra_detect/tak/tak_output.py`) and the back-compat `from hydra_detect.tak import TAKOutput` re-export will be removed in a follow-up PR after one week (≈ 2026-05-10) of clean operations on `pytak`. The inbound CoT command listener (`tak_input.py`) is OUT OF SCOPE for this migration and is unchanged.
+
 ## TAK Input (Command Listener)
 
 When `listen_commands = true`, Hydra listens for incoming CoT events and dispatches commands.

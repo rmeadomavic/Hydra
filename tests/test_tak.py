@@ -13,7 +13,14 @@ from hydra_detect.tak.cot_builder import (
     build_self_sa,
     build_video_feed,
 )
-from hydra_detect.tak.tak_output import TAKOutput, _parse_unicast_targets
+# Import the legacy emitter explicitly. ``hydra_detect.tak.__init__`` rebinds
+# ``tak_output.TAKOutput`` to whichever backend ``HYDRA_COT_BACKEND`` selects
+# (PyTAKOutput by default), so we go through the stashed ``_LegacyTAKOutput``
+# alias to keep this file's coverage anchored on the legacy class — that
+# class is the one-week safety net and must keep working.
+import hydra_detect.tak  # noqa: F401 — triggers backend bind + stash
+from hydra_detect.tak.tak_output import _LegacyTAKOutput as TAKOutput
+from hydra_detect.tak.tak_output import _parse_unicast_targets
 from hydra_detect.tak.type_mapping import DEFAULT_COT_TYPE, get_cot_type
 from hydra_detect.tracker import TrackedObject, TrackingResult
 

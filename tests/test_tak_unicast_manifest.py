@@ -10,7 +10,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from hydra_detect.model_manifest import auto_update_manifest, load_manifest
-from hydra_detect.tak.tak_output import TAKOutput
+# Anchor on the original legacy emitter regardless of HYDRA_COT_BACKEND;
+# these manifest-management tests don't open a network socket and rely on
+# the legacy class's synchronous add_/remove_unicast_target signatures.
+import hydra_detect.tak  # noqa: F401 — triggers backend bind + stash
+from hydra_detect.tak.tak_output import _LegacyTAKOutput as TAKOutput
 
 
 # =====================================================================
