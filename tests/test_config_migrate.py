@@ -293,19 +293,75 @@ class TestV2ToV3Migration:
         assert cfg.get("guidance", "gimbal_stabilized") == "false"
 
     def test_v0_chains_through_all_migrations(self, tmp_config):
-        """A v0 config must walk through 001 then 002 then 003 to reach
-        current. Verifies the chain is contiguous."""
+        """A v0 config must walk every migration step in order to reach the
+        current schema version. Verifies the chain is contiguous."""
         p = tmp_config(GOLDEN_V0)
         result = run_migrations(p)
 
         assert result.from_version == 0
         assert result.to_version == CURRENT_SCHEMA_VERSION
         assert len(result.applied) == CURRENT_SCHEMA_VERSION
-        # Final state has both predictor and attitude keys.
+        # Final state should hold every key inserted along the chain.
         cfg = configparser.ConfigParser()
         cfg.read(p)
         assert cfg.has_option("guidance", "predictor_enabled")
         assert cfg.has_option("guidance", "attitude_compensation_enabled")
+        assert cfg.has_option("tracker", "reid_enabled")
+
+
+class TestV3ToV4Migration:
+    """Migration 004: re-ID keys are inserted into [tracker]."""
+
+    def test_v3_picks_up_reid_keys(self, tmp_config):
+        v3 = textwrap.dedent("""\
+            [meta]
+            schema_version = 3
+
+            [tracker]
+            track_thresh = 0.5
+        """)
+        p = tmp_config(v3)
+        run_migrations(p)
+
+        cfg = configparser.ConfigParser()
+        cfg.read(p)
+
+        assert cfg.get("tracker", "reid_enabled") == "false"
+        assert cfg.get("tracker", "reid_tracker_type") == "botsort"
+        # Existing keys preserved.
+        assert cfg.get("tracker", "track_thresh") == "0.5"
+
+    def test_v3_existing_reid_value_preserved(self, tmp_config):
+        v3 = textwrap.dedent("""\
+            [meta]
+            schema_version = 3
+
+            [tracker]
+            reid_enabled = true
+        """)
+        p = tmp_config(v3)
+        run_migrations(p)
+
+        cfg = configparser.ConfigParser()
+        cfg.read(p)
+
+        assert cfg.get("tracker", "reid_enabled") == "true"
+        # Missing key still gets filled in.
+        assert cfg.get("tracker", "reid_tracker_type") == "botsort"
+
+    def test_v3_no_tracker_section_creates_one(self, tmp_config):
+        v3 = textwrap.dedent("""\
+            [meta]
+            schema_version = 3
+        """)
+        p = tmp_config(v3)
+        run_migrations(p)
+
+        cfg = configparser.ConfigParser()
+        cfg.read(p)
+
+        assert cfg.has_section("tracker")
+        assert cfg.get("tracker", "reid_enabled") == "false"
 
 
 # ---------------------------------------------------------------------------

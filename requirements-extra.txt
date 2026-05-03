@@ -1,0 +1,24 @@
+# Optional dependencies. NOT installed by default — base requirements.txt
+# omits these so deployed units that do not need them pay zero install
+# weight.
+#
+# Install when enabling specific opt-in features:
+#
+#   pip install -r requirements-extra.txt
+#
+# Then flip the corresponding flag in config.ini.
+
+# ── Re-ID layer for cluttered-scene Follow-mode tracking ────────────────────
+# Activates with [tracker] reid_enabled = true. Pulls in BoT-SORT and the
+# OSNet appearance embedding. Default OSNet weights (osnet_x0_25_msmt17.pt,
+# ~1.1 MB) are auto-downloaded on first use; cache the file in the deployed
+# image so Jetsons running offline do not need network access at start.
+#
+# Upper bound is intentional. boxmot v16.0.0 (2025-12-19) was a major
+# repo refactor that changed the BoTSORT class signature — the tracker
+# now expects a pre-built ReID backend object (reid_model=) instead of
+# reid_weights=/half=/device=. ReIDTracker.init() in this repo still
+# uses the v10-v15 create_tracker() signature, so unpinning above v16
+# will silently break the wrapper. Re-evaluate the pin when porting the
+# wrapper to the v18+ Boxmot() Python API.
+boxmot>=12.0.0,<16

@@ -173,6 +173,22 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             default=0.8,
             description="IOU match threshold",
         ),
+        "reid_enabled": FieldSpec(
+            FieldType.BOOL,
+            default=False,
+            description=(
+                "Enable BoT-SORT + OSNet re-ID via boxmot. "
+                "Requires optional boxmot package."
+            ),
+        ),
+        "reid_tracker_type": FieldSpec(
+            FieldType.STRING,
+            default="botsort",
+            description=(
+                "boxmot tracker variant: botsort, bytetrack, deepocsort, "
+                "ocsort, strongsort, hybridsort, imprassoc."
+            ),
+        ),
     },
     "mavlink": {
         "enabled": FieldSpec(FieldType.BOOL, default=True, description="Enable MAVLink connection"),
