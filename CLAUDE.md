@@ -51,7 +51,7 @@ Kismet (WiFi/SDR) → RF Hunt Controller → RSSI Gradient Ascent → MAVLink Na
 
 ## SORCC Course Context
 
-**SORCC** (Special Operations Robotics Capabilities Course) is a 6-week IQT
+**SORCC** (Special Operations Robotics Capability Course) is a 6-week IQT
 program at a military training facility. 15 students in 5 teams of 3,
 active-duty SOF operators. They are technically capable and mission-focused
 but most have never touched a Jetson, config file, or terminal before this course.
