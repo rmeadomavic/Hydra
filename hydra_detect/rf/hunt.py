@@ -554,19 +554,30 @@ class RFHuntController:
         Also bails if a mid-loop state transition (e.g.
         ``_geofence_waypoint`` pushing to CONVERGED after
         ``_MAX_CONSECUTIVE_CLIPS``) moves the controller out of
-        ``SEARCHING``.
+        ``SEARCHING``. A clipped (out-of-fence) waypoint counts as
+        "sent but degenerate" — the loop keeps advancing so the
+        consecutive-clip counter can climb to the CONVERGED threshold
+        within a single advance call when the entire remaining pattern
+        sits outside the fence. A clean (in-fence) send always halts
+        the loop.
         """
         while self._wp_index < len(self._waypoints):
             if self.state != HuntState.SEARCHING:
                 return
             wp = self._waypoints[self._wp_index]
-            if self._geofence_waypoint(wp[0], wp[1], wp[2]):
+            clips_before = self._consecutive_clips
+            sent = self._geofence_waypoint(wp[0], wp[1], wp[2])
+            if sent and self._consecutive_clips <= clips_before:
+                # Clean in-fence send — halt the loop on the commanded wp.
                 logger.debug(
                     "Search WP %d/%d",
                     self._wp_index + 1, len(self._waypoints),
                 )
                 return
-            # Waypoint suppressed — advance and retry with the next one.
+            # Waypoint suppressed (return False) or clipped to the fence
+            # boundary (return True with clip counter incremented). Either
+            # way, advance and try the next one so MAX_CONSECUTIVE_CLIPS
+            # can fire within this call when the whole pattern is OOF.
             self._wp_index += 1
             self._effective_wp = None
 
