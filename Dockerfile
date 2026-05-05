@@ -18,13 +18,22 @@ WORKDIR /app
 # Strategy: install ultralytics and supervision with --no-deps (they both
 # pull opencv-python transitively), then install everything else normally
 # with numpy pinned to <2.
-COPY requirements.txt .
+COPY requirements.txt requirements-extra.txt ./
 RUN pip3 install --no-cache-dir --no-deps ultralytics supervision && \
     grep -v "opencv-python\|ultralytics\|supervision" requirements.txt | \
     sed 's/numpy>=1.24,<3.0/numpy>=1.24,<2.0/' > /tmp/reqs-filtered.txt && \
     pip3 install --no-cache-dir -r /tmp/reqs-filtered.txt && \
     pip3 install --no-cache-dir scipy polars ultralytics-thop defusedxml pyDeprecate matplotlib tqdm && \
     rm /tmp/reqs-filtered.txt
+
+# Optional dependencies — installed unconditionally because the runtime
+# imports them lazily (boxmot is only imported inside ReIDTracker.init(),
+# guarded by [tracker] reid_enabled). Cost on units that leave the flag
+# off is disk space only; runtime cost is zero. Closes adversarial finding
+# R3-1 from PR #184: requirements-extra.txt was previously installed by
+# no deploy or CI path, making the reid_enabled=true feature flag
+# permanently unreachable in any deployed image.
+RUN pip3 install --no-cache-dir -r requirements-extra.txt
 
 # GStreamer RTSP server + RTL-SDR debug tools. Kismet runs on the host;
 # rtl_test / rtl_fm / rtl_power let you debug the dongle from inside the

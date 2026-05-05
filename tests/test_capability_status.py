@@ -617,6 +617,64 @@ class TestPerformanceEvaluator:
         r = next(r for r in reports if r.name == "Performance")
         assert r.status == CapabilityStatus.WARN
 
+    # ── R3-4 branch-coverage: reason text branches on SoC temp ────────────
+    #
+    # Closes adversarial finding R3-4 from PR #183. The prior unconditional
+    # "Likely thermal throttling or detector overload" misdirected operators
+    # on three legitimate config combinations (heavy model + 8GB Jetson,
+    # marine telephoto USV, low-confidence wide-class surveillance). The
+    # fix branches on whether observed SoC temp is within
+    # _PERF_THERMAL_HINT_C of the thermal WARN threshold.
+
+    def test_warn_text_cites_thermal_when_soc_hot(self):
+        # CPU at 71 C is within 5 C of the 75 C thermal WARN threshold.
+        state = _make_state(
+            fps_below_target_sustained_sec=45.0,
+            cpu_temp_c=71.0,
+            gpu_temp_c=68.0,
+        )
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Performance")
+        assert r.status == CapabilityStatus.WARN
+        text = " ".join(r.reasons).lower()
+        assert "thermal throttling" in text
+        assert "config under-provisioning" not in text
+        assert "active profile may be heavier" not in text
+
+    def test_warn_text_cites_config_when_soc_benign(self):
+        # CPU at 55 C and GPU at 50 C are both well below the thermal hint
+        # threshold (75 - 5 == 70 C). Reason text must point operator at
+        # config, not thermal.
+        state = _make_state(
+            fps_below_target_sustained_sec=45.0,
+            cpu_temp_c=55.0,
+            gpu_temp_c=50.0,
+        )
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Performance")
+        assert r.status == CapabilityStatus.WARN
+        text = " ".join(r.reasons).lower()
+        assert "thermal cause unlikely" in text
+        assert "active profile may be heavier" in text
+        # The operator should NOT be told to land/shade when SoC is benign.
+        assert "land" not in text
+        assert "shade" not in text
+
+    def test_warn_text_handles_missing_temps(self):
+        # Dev box / SITL host with no thermal sensors. Cannot rule out
+        # thermal cause, but cannot point at it confidently either.
+        state = _make_state(
+            fps_below_target_sustained_sec=45.0,
+            cpu_temp_c=None,
+            gpu_temp_c=None,
+        )
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Performance")
+        assert r.status == CapabilityStatus.WARN
+        text = " ".join(r.reasons).lower()
+        assert "soc temperature unavailable" in text
+        assert "active profile" in text
+
 
 # ---------------------------------------------------------------------------
 # Placeholder capabilities — Autonomy Live, Drop, RF Hunt
