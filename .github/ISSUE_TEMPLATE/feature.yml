@@ -1,0 +1,63 @@
+name: Feature request
+description: Propose a new capability, control mode, or improvement.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What operational problem does this solve? Why does it matter?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed capability
+      description: What should the feature do? Sketch the interface (CLI, config, dashboard tab, vehicle control mode, etc.).
+    validations:
+      required: true
+
+  - type: dropdown
+    id: subsystem
+    attributes:
+      label: Affected subsystem
+      multiple: true
+      options:
+        - Detection / tracking pipeline
+        - RF / Kismet integration
+        - TAK / CoT output
+        - GeoChat / inbound
+        - Operator dashboard (web)
+        - Autonomy gates
+        - Vehicle control modes
+        - MAVLink integration
+        - Post-mission review / replay
+        - Build / CI / Docker
+        - New subsystem
+    validations:
+      required: true
+
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety considerations
+      description: Could this affect flight safety, operator authority, or audit integrity? What gates apply?
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else did you think about? Why is this the right approach?
+    validations:
+      required: false
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What is in scope, what is explicitly out of scope?
+    validations:
+      required: false
