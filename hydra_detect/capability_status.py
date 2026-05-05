@@ -316,9 +316,26 @@ def sustained_fps_below_sec(now_s: float | None = None) -> float:
     )
 
 
-def reset_fps_tracker_for_test() -> None:
-    """Test-only — zero the FPS tracker between tests."""
+def reset_fps_tracker() -> None:
+    """Public API: zero the sustained-below window.
+
+    Production callers: model-swap and pipeline-restart paths in
+    ``hydra_detect/pipeline/facade.py``. A model swap drops the pipeline
+    FPS for the duration of the new model load (typically 5-15 s on
+    Jetson Orin Nano); without this reset the dip accumulates into the
+    sustained-below window and produces a 30 s false WARN labelled as
+    thermal throttling on the readiness page. Same reasoning for in-
+    process pipeline restart via ``/api/restart`` — operators who restart
+    *because* of a WARN must see the WARN clear rather than persist.
+
+    Closes adversarial findings R3-2 + R3-8 from PR #183.
+    """
     _fps_tracker.reset()
+
+
+def reset_fps_tracker_for_test() -> None:
+    """Test-only alias — kept for backwards compat with existing tests."""
+    reset_fps_tracker()
 
 
 # ── Evaluators ────────────────────────────────────────────────────────────────

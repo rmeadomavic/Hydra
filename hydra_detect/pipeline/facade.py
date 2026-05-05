@@ -43,7 +43,10 @@ from ..system import (
     refresh_nvpmodel_async as _refresh_nvpmodel_async,
     set_power_mode as _set_power_mode,
 )
-from ..capability_status import record_fps as _record_fps
+from ..capability_status import (
+    record_fps as _record_fps,
+    reset_fps_tracker as _reset_fps_tracker,
+)
 from ..rtsp_server import RTSPServer
 from ..mavlink_video import MAVLinkVideoSender
 from ..tak.mavlink_relay import MAVLinkRelayOutput
@@ -2357,6 +2360,12 @@ class Pipeline:
                         logger.info("Model hash updated (%s): %s", candidate.name, new_hash[:16])
                     except Exception as exc:
                         logger.warning("Could not update model hash: %s", exc)
+                    # Clear the sustained-FPS-below window: a successful
+                    # model swap pauses the detector for 5-15 s during the
+                    # new model load and that legitimate pause must not
+                    # accumulate into the Performance evaluator's WARN
+                    # window (closes adversarial finding R3-2 from PR #183).
+                    _reset_fps_tracker()
                 return success
         logger.error("Model not found: %s", model_name)
         return False
@@ -2830,6 +2839,13 @@ class Pipeline:
     def _handle_restart_command(self) -> None:
         """Request a pipeline restart. Sets a flag; the main loop handles the actual restart."""
         logger.info("Restart command received from web UI.")
+        # Clear the sustained-FPS-below window before the restart so an
+        # operator who restarts *because* of a Performance WARN sees the
+        # WARN clear rather than persist past the restart. The pipeline
+        # hot loop is the sole producer of FPS samples; module-level
+        # singleton state must be reset out-of-band (closes adversarial
+        # finding R3-8 from PR #183).
+        _reset_fps_tracker()
         self._restart_requested = True
         self._running = False
 

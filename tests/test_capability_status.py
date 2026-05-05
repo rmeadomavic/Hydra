@@ -519,6 +519,31 @@ class TestSustainedFpsTracker:
         record_fps(None, now_s=10.0)  # pipeline transient
         assert sustained_fps_below_sec(now_s=15.0) == pytest.approx(15.0, abs=0.01)
 
+    def test_public_reset_clears_sustained_window(self):
+        """Closes adversarial findings R3-2 + R3-8 from PR #183.
+
+        Production callers (model swap, restart-command handler) call
+        ``reset_fps_tracker()`` to clear the window so a legitimate
+        detector pause (model load, pipeline restart) does not accumulate
+        into a 30 s false WARN labelled as thermal throttling.
+        """
+        from hydra_detect.capability_status import (
+            record_fps, sustained_fps_below_sec, reset_fps_tracker,
+        )
+        # Drive the tracker into a deep below-threshold state.
+        record_fps(2.0, now_s=0.0)
+        record_fps(2.0, now_s=45.0)
+        assert sustained_fps_below_sec(now_s=45.0) == pytest.approx(45.0, abs=0.01)
+
+        # Production reset (e.g. _handle_model_switch success path).
+        reset_fps_tracker()
+        assert sustained_fps_below_sec(now_s=46.0) == 0.0
+
+        # Subsequent samples re-arm the window from the new now_s anchor —
+        # no leakage of pre-reset state.
+        record_fps(2.0, now_s=50.0)
+        assert sustained_fps_below_sec(now_s=55.0) == pytest.approx(5.0, abs=0.01)
+
     def test_build_system_state_does_not_advance_tracker(self):
         """Regression test for PR #183 Codex review: build_system_state must
         be a pure reader of the FPS tracker. Re-feeding stream_state's cached
