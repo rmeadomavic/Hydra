@@ -88,13 +88,13 @@
 
         <span class="tb-divider" aria-hidden="true"></span>
 
-        <!-- Battery indicator (vehicle MAVLink battery, NOT Jetson power).
+        <!-- Battery indicator (platform MAVLink battery, NOT Jetson power).
              Tone follows /api/stats battery.level: OK=olive, LOW=amber,
              CRITICAL=red, UNKNOWN=dim. Hidden until the first message
              so it doesn't claim "0%" before MAVLink hands us data. -->
         <div class="tb-battery" id="tb-battery" hidden
-             aria-label="Vehicle battery"
-             title="Vehicle battery (MAVLink SYS_STATUS — may differ from Jetson power source)">
+             aria-label="Platform battery"
+             title="Platform battery (MAVLink SYS_STATUS — may differ from Jetson power source)">
             <span class="tb-dot dim" id="tb-battery-dot"></span>
             <span class="tb-battery-pct" id="tb-battery-pct">--%</span>
         </div>

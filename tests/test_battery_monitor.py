@@ -484,6 +484,7 @@ class TestApiStatsBatteryField:
         assert body["battery"] is None
 
     def test_battery_field_populated_when_monitor_attached(self):
+        import time
         from fastapi.testclient import TestClient
         from hydra_detect.mavlink_io import MAVLinkIO
         from hydra_detect.web import server as web_server
@@ -491,7 +492,10 @@ class TestApiStatsBatteryField:
         mav = MAVLinkIO(connection_string="/dev/null", baud=115200)
         mon, _ = _make_monitor()
         mav.attach_battery_monitor(mon)
-        mon.update_from_sys_status(12000, 18, now=100.0)
+        # Stamp the update with the real monotonic clock so the GET
+        # request (which uses time.monotonic() under the hood) sees a
+        # fresh sample, not a 30s-stale one demoted to UNKNOWN.
+        mon.update_from_sys_status(12000, 18, now=time.monotonic())
         web_server.set_mavlink(mav)
 
         client = TestClient(web_server.app)
