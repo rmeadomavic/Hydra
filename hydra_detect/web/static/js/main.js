@@ -92,6 +92,37 @@
             else simPill.setAttribute('hidden', '');
         }
 
+        // Battery indicator — uses structured `battery` block when present,
+        // falls back to legacy battery_pct/battery_v keys for back-compat.
+        const battEl = document.getElementById('tb-battery');
+        const battDot = document.getElementById('tb-battery-dot');
+        const battPct = document.getElementById('tb-battery-pct');
+        if (battEl && battDot && battPct) {
+            const battery = data.battery;
+            let level = (battery && battery.level) || null;
+            let pct = battery && battery.remaining_pct != null
+                ? battery.remaining_pct
+                : (data.battery_pct != null ? data.battery_pct : null);
+            if (!level && pct != null) {
+                // Legacy fallback: derive a coarse tone from raw pct only.
+                level = pct <= 10 ? 'CRITICAL' : (pct <= 20 ? 'LOW' : 'OK');
+            }
+            const haveBattery = (battery && (battery.voltage_v != null
+                || battery.remaining_pct != null)) || pct != null;
+            if (haveBattery) {
+                battEl.removeAttribute('hidden');
+                battPct.textContent = pct != null ? pct + '%' : '--%';
+                let tone = 'dim';
+                if (level === 'OK') tone = 'olive';
+                else if (level === 'LOW') tone = 'amber';
+                else if (level === 'CRITICAL') tone = 'red';
+                setDotClass(battDot, tone);
+                battEl.setAttribute('data-level', level || 'UNKNOWN');
+            } else {
+                battEl.setAttribute('hidden', '');
+            }
+        }
+
         // Latency readout — prefer mavlink latency, fall back to inference_ms.
         const latEl = document.getElementById('tb-latency-value');
         if (latEl) {

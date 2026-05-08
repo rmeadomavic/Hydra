@@ -260,6 +260,49 @@ class Pipeline:
                 else None,
             )
 
+        # Battery monitor — attached to MAVLinkIO so SYS_STATUS messages
+        # produce a level (OK/LOW/CRITICAL/UNKNOWN) plus threshold-driven
+        # STATUSTEXT alerts to the GCS. Disabled when no MAVLink is built.
+        self._battery_monitor = None
+        if (
+            self._mavlink is not None
+            and self._cfg.getboolean("battery", "enabled", fallback=True)
+        ):
+            from ..battery_monitor import BatteryMonitor
+            mav_for_battery = self._mavlink
+
+            def _battery_send_statustext(text: str, severity: int) -> None:
+                mav_for_battery.send_statustext(text, severity=severity)
+
+            try:
+                self._battery_monitor = BatteryMonitor(
+                    low_threshold_pct=self._cfg.getint(
+                        "battery", "low_threshold_pct", fallback=20,
+                    ),
+                    critical_threshold_pct=self._cfg.getint(
+                        "battery", "critical_threshold_pct", fallback=10,
+                    ),
+                    callsign=self._callsign,
+                    send_statustext=_battery_send_statustext,
+                    stale_after_sec=self._cfg.getfloat(
+                        "battery", "stale_after_sec", fallback=30.0,
+                    ),
+                    critical_reissue_sec=self._cfg.getfloat(
+                        "battery", "critical_reissue_sec", fallback=0.0,
+                    ),
+                    enabled=True,
+                )
+                self._mavlink.attach_battery_monitor(self._battery_monitor)
+                logger.info(
+                    "Battery monitor enabled: low=%d%% crit=%d%% callsign=%s",
+                    self._battery_monitor.low_threshold_pct,
+                    self._battery_monitor.critical_threshold_pct,
+                    self._callsign,
+                )
+            except Exception as exc:
+                logger.warning("Battery monitor disabled: %s", exc)
+                self._battery_monitor = None
+
         # FPV OSD overlay (requires MAVLink and FC with OSD chip)
         self._osd: FpvOsd | None = None
         if (
@@ -1610,9 +1653,16 @@ class Pipeline:
 
             # FPV OSD update (sends to FC onboard OSD chip via MAVLink)
             if self._osd is not None:
+                battery_dict = None
+                if self._battery_monitor is not None:
+                    try:
+                        battery_dict = self._battery_monitor.get_state().to_api()
+                    except Exception:
+                        battery_dict = None
                 osd_state = build_osd_state(
                     track_result, fps, det_result.inference_ms,
                     render_lock_id, render_lock_mode, cached_gps,
+                    battery=battery_dict,
                 )
                 self._osd.update(osd_state)
 
