@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import configparser
 import datetime
 import hashlib
 import hmac
@@ -28,11 +29,15 @@ from fastapi.templating import Jinja2Templates
 
 from hydra_detect.web.config_api import (
     MAX_BODY_SIZE,
+    export_config_payload,
+    export_filename,
+    factory_reset_with_backup,
     has_backup,
     has_factory,
     read_config,
     restore_backup,
     restore_factory,
+    validate_import_payload,
     write_config,
     validate_config_updates,
 )
@@ -3187,35 +3192,66 @@ async def api_restore_config_backup(request: Request, authorization: str | None 
 
 @app.post("/api/config/factory-reset")
 async def api_factory_reset(request: Request, authorization: str | None = Header(None)):
-    """Restore factory defaults from config.ini.factory."""
+    """Restore factory defaults from config.ini.factory.
+
+    Issue #75 — student recovery. Snapshots current config to
+    config.ini.before-reset.<utc> before overwriting (the rolling .bak is
+    not enough; the next save clobbers it). Always returns
+    restart_required=true — the running pipeline still holds the
+    pre-reset values in memory and the operator must restart to apply.
+    """
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     if not has_factory():
+        _audit(request, "config_factory_reset", outcome="no_factory_file")
         return JSONResponse({"error": "No factory defaults available"}, status_code=404)
     try:
-        restore_factory()
-        _audit(request, "config_factory_reset")
-        # Trigger pipeline restart
-        cb = stream_state.get_callback("on_restart_command")
-        if cb:
-            cb()
-        return {"status": "ok", "message": "Factory defaults restored"}
+        result = factory_reset_with_backup()
+        _audit(request, "config_factory_reset", target=result.get("backup_path", ""))
+        return {
+            "status": "ok",
+            "backup_path": result["backup_path"],
+            "restart_required": result["restart_required"],
+            "message": "Factory defaults restored — restart the service to apply.",
+        }
+    except FileNotFoundError as e:
+        _audit(request, "config_factory_reset", outcome="missing_factory")
+        return JSONResponse({"error": str(e)}, status_code=404)
+    except configparser.Error as e:
+        _audit(request, "config_factory_reset", outcome="bad_factory")
+        logger.error("Factory defaults file is corrupt: %s", e)
+        return JSONResponse(
+            {"error": f"Factory defaults are corrupt: {e}"}, status_code=500,
+        )
     except Exception as e:
+        _audit(request, "config_factory_reset", outcome="failed")
         logger.error("Failed to restore factory defaults: %s", e)
         return JSONResponse({"error": f"Failed to restore: {e}"}, status_code=500)
 
 
 @app.get("/api/config/export")
 async def api_config_export(request: Request, authorization: str | None = Header(None)):
-    """Export current config as JSON download."""
+    """Export current config as a JSON download.
+
+    Issue #75 — student recovery. Returns a versioned envelope with
+    schema_version, exported_at, callsign, and the redacted config
+    sections. The Content-Disposition header sets the suggested filename
+    so browsers save it sensibly when the user clicks Export.
+    """
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     try:
-        config = read_config()
-        _audit(request, "config_export")
-        return config
+        payload = export_config_payload()
+        filename = export_filename(payload)
+        body = json.dumps(payload, indent=2, sort_keys=True)
+        _audit(request, "config_export", target=filename)
+        return Response(
+            content=body,
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
     except Exception as e:
         logger.error("Failed to export config: %s", e)
         return JSONResponse({"error": "Failed to export configuration"}, status_code=500)
@@ -3223,7 +3259,14 @@ async def api_config_export(request: Request, authorization: str | None = Header
 
 @app.post("/api/config/import")
 async def api_config_import(request: Request, authorization: str | None = Header(None)):
-    """Import config from uploaded JSON."""
+    """Import config from uploaded JSON.
+
+    Issue #75 — student recovery. Strict validation: rejects unknown
+    sections, unknown keys, forbidden sections (identity), and any value
+    that fails schema validation. Nothing is written to disk until the
+    payload passes both gates. Restart is required for any field in
+    RESTART_REQUIRED_FIELDS that actually changed.
+    """
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
@@ -3235,19 +3278,23 @@ async def api_config_import(request: Request, authorization: str | None = Header
         body = _json.loads(body_bytes)
     except (ValueError, _json.JSONDecodeError):
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
-    if not isinstance(body, dict):
-        return JSONResponse({"error": "Expected JSON object with config sections"}, status_code=400)
-    field_errors = validate_config_updates(body)
-    if field_errors:
-        return JSONResponse(
-            {"error": "Validation failed", "field_errors": field_errors},
-            status_code=400,
-        )
+
+    validation = validate_import_payload(body)
+    if not validation["ok"]:
+        _audit(request, "config_import", outcome="invalid")
+        resp: dict[str, Any] = {"error": "Validation failed"}
+        if validation["errors"]:
+            resp["errors"] = validation["errors"]
+        if validation["field_errors"]:
+            resp["field_errors"] = validation["field_errors"]
+        return JSONResponse(resp, status_code=400)
+
     try:
-        result = write_config(body)
-        _audit(request, "config_import", target=str(len(body)))
-        return {"status": "imported", **result}
+        result = write_config(validation["updates"])
+        _audit(request, "config_import", target=str(len(validation["updates"])))
+        return {"status": "imported", "restart_required_fields": result.get("restart_required", []), **result}
     except Exception as e:
+        _audit(request, "config_import", outcome="write_failed")
         logger.error("Failed to import config: %s", e)
         return JSONResponse({"error": f"Failed to import configuration: {e}"}, status_code=500)
 

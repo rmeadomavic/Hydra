@@ -5,6 +5,7 @@ from __future__ import annotations
 import configparser
 import os
 import stat
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,6 +13,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 from hydra_detect.web.server import app, configure_auth, stream_state
+
+# write_config holds an open file descriptor for advisory flock on POSIX,
+# then calls os.replace on the same path. Linux is fine; Windows refuses
+# to rename over an open file (WinError 5). The production target is
+# Jetson/Linux — these tests just skip on Windows dev workstations.
+_WINDOWS = sys.platform.startswith("win")
+_skip_on_windows = pytest.mark.skipif(
+    _WINDOWS,
+    reason="write_config flock pattern incompatible with Windows os.replace",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -163,7 +174,14 @@ class TestConfigAuthPositiveCases:
 
 
 class TestConfigAtomicWrite:
-    @pytest.mark.skipif(os.getuid() == 0, reason="chmod has no effect when running as root")
+    @pytest.mark.skipif(
+        getattr(os, "getuid", lambda: 1)() == 0,
+        reason="chmod has no effect when running as root",
+    )
+    @pytest.mark.skipif(
+        not hasattr(os, "getuid"),
+        reason="POSIX-only chmod semantics — Windows test runner",
+    )
     def test_failed_write_does_not_corrupt_original(self, client, tmp_config):
         original_content = tmp_config.read_text()
         tmp_config.parent.chmod(stat.S_IRUSR | stat.S_IXUSR)
@@ -300,3 +318,312 @@ class TestConfigImportValidation:
         assert data["error"] == "Validation failed"
         assert field in data["field_errors"]
         assert tmp_config.read_text() == original_content
+
+
+# ── Issue #75 — Student config recovery ─────────────────────────────────────
+
+
+@pytest.fixture
+def tmp_config_with_factory(tmp_path):
+    """Create config.ini AND config.ini.factory for recovery tests."""
+    factory = configparser.ConfigParser()
+    factory["meta"] = {"schema_version": "1"}
+    factory["camera"] = {"source": "auto", "width": "640", "height": "480", "fps": "30"}
+    factory["detector"] = {"yolo_model": "yolov8s.pt", "yolo_confidence": "0.45"}
+    factory["web"] = {"host": "0.0.0.0", "port": "8080"}
+    factory["tracker"] = {"track_thresh": "0.5", "track_buffer": "30"}
+    factory["tak"] = {"callsign": "HYDRA-TEST"}
+    factory_path = tmp_path / "config.ini.factory"
+    with open(factory_path, "w") as f:
+        factory.write(f)
+
+    # Current config — student has changed fps + port from factory.
+    current = configparser.ConfigParser()
+    current["meta"] = {"schema_version": "1"}
+    current["camera"] = {"source": "auto", "width": "640", "height": "480", "fps": "15"}
+    current["detector"] = {"yolo_model": "yolov8s.pt", "yolo_confidence": "0.45"}
+    current["web"] = {"host": "0.0.0.0", "port": "9999"}
+    current["tracker"] = {"track_thresh": "0.5", "track_buffer": "30"}
+    current["tak"] = {"callsign": "HYDRA-TEST"}
+    cfg_path = tmp_path / "config.ini"
+    with open(cfg_path, "w") as f:
+        current.write(f)
+
+    return cfg_path
+
+
+class TestFactoryReset:
+    """Issue #75 — student-facing factory reset."""
+
+    def test_factory_reset_restores_defaults(self, client, tmp_config_with_factory):
+        with patch(
+            "hydra_detect.web.config_api.get_config_path",
+            return_value=tmp_config_with_factory,
+        ):
+            resp = client.post("/api/config/factory-reset")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["restart_required"] is True
+        assert data["backup_path"]  # non-empty path
+
+        cfg = configparser.ConfigParser()
+        cfg.read(tmp_config_with_factory)
+        # fps was 15 in current, 30 in factory — must now be 30.
+        assert cfg["camera"]["fps"] == "30"
+        # port was 9999, factory says 8080.
+        assert cfg["web"]["port"] == "8080"
+
+    def test_factory_reset_creates_timestamped_backup(
+        self, client, tmp_config_with_factory,
+    ):
+        original_content = tmp_config_with_factory.read_text()
+        with patch(
+            "hydra_detect.web.config_api.get_config_path",
+            return_value=tmp_config_with_factory,
+        ):
+            resp = client.post("/api/config/factory-reset")
+
+        assert resp.status_code == 200
+        backup_path = Path(resp.json()["backup_path"])
+        assert backup_path.exists()
+        assert backup_path.name.startswith("config.ini.before-reset.")
+        # The student's pre-reset config must be recoverable byte-for-byte.
+        assert backup_path.read_text() == original_content
+
+    def test_factory_reset_fails_when_factory_missing(self, client, tmp_path):
+        # Only config.ini exists; no .factory companion.
+        cfg_path = tmp_path / "config.ini"
+        cfg = configparser.ConfigParser()
+        cfg["camera"] = {"fps": "30"}
+        with open(cfg_path, "w") as f:
+            cfg.write(f)
+
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=cfg_path,
+        ):
+            resp = client.post("/api/config/factory-reset")
+
+        assert resp.status_code == 404
+        # Original config must be untouched.
+        cfg2 = configparser.ConfigParser()
+        cfg2.read(cfg_path)
+        assert cfg2["camera"]["fps"] == "30"
+
+    def test_factory_reset_requires_auth_when_enabled(
+        self, client, tmp_config_with_factory,
+    ):
+        configure_auth("my-token", require_auth_for_control=True)
+        with patch(
+            "hydra_detect.web.config_api.get_config_path",
+            return_value=tmp_config_with_factory,
+        ):
+            resp = client.post("/api/config/factory-reset")
+        assert resp.status_code in (401, 403)
+        # Original content untouched — auth check happens before reset.
+        cfg = configparser.ConfigParser()
+        cfg.read(tmp_config_with_factory)
+        assert cfg["camera"]["fps"] == "15"
+
+    def test_factory_reset_with_corrupt_factory_preserves_current(
+        self, client, tmp_config_with_factory,
+    ):
+        # Write garbage into config.ini.factory.
+        factory_path = tmp_config_with_factory.parent / "config.ini.factory"
+        factory_path.write_text("not a config\nrandom bytes\n")
+        original_content = tmp_config_with_factory.read_text()
+
+        with patch(
+            "hydra_detect.web.config_api.get_config_path",
+            return_value=tmp_config_with_factory,
+        ):
+            resp = client.post("/api/config/factory-reset")
+
+        # configparser may parse zero-section files without raising; the
+        # endpoint should still refuse to overwrite with an empty config.
+        assert resp.status_code in (400, 500)
+        assert tmp_config_with_factory.read_text() == original_content
+
+
+class TestConfigExport:
+    """Issue #75 — config export downloads versioned JSON."""
+
+    def test_export_returns_json_envelope(self, client, tmp_config):
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.get("/api/config/export")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "schema_version" in data
+        assert "exported_at" in data
+        assert "callsign" in data
+        assert "sections" in data
+        assert "camera" in data["sections"]
+
+    def test_export_sets_content_disposition(self, client, tmp_config):
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.get("/api/config/export")
+
+        assert resp.status_code == 200
+        cd = resp.headers.get("content-disposition", "")
+        assert "attachment" in cd
+        assert "filename=" in cd
+        assert "hydra-config-" in cd
+        assert ".json" in cd
+
+    def test_export_redacts_api_token(self, client, tmp_config):
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.get("/api/config/export")
+
+        assert resp.status_code == 200
+        assert resp.json()["sections"]["web"]["api_token"] == "***"
+
+    @_skip_on_windows
+    def test_export_round_trip_preserves_non_secret_values(
+        self, client, tmp_config,
+    ):
+        """Export then re-import must leave config equivalent (secrets aside)."""
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            export_resp = client.get("/api/config/export")
+            assert export_resp.status_code == 200
+            payload = export_resp.json()
+
+            # Mutate the live file so we can prove import restored values.
+            cfg = configparser.ConfigParser()
+            cfg.read(tmp_config)
+            cfg["camera"]["fps"] = "12"
+            with open(tmp_config, "w") as f:
+                cfg.write(f)
+
+            import_resp = client.post("/api/config/import", json=payload)
+
+        assert import_resp.status_code == 200
+        cfg2 = configparser.ConfigParser()
+        cfg2.read(tmp_config)
+        assert cfg2["camera"]["fps"] == "30"  # restored from export
+
+    def test_export_requires_auth_when_enabled(self, client, tmp_config):
+        configure_auth("my-token", require_auth_for_control=True)
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.get("/api/config/export")
+        assert resp.status_code in (401, 403)
+
+
+class TestConfigImportStrict:
+    """Issue #75 — strict import validation."""
+
+    def test_import_rejects_unknown_section(self, client, tmp_config):
+        original_content = tmp_config.read_text()
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.post(
+                "/api/config/import",
+                json={"sections": {"bogus_section": {"foo": "bar"}}},
+            )
+
+        assert resp.status_code == 400
+        data = resp.json()
+        assert "errors" in data
+        assert any("bogus_section" in e for e in data["errors"])
+        # Untouched.
+        assert tmp_config.read_text() == original_content
+
+    def test_import_rejects_unknown_key(self, client, tmp_config):
+        original_content = tmp_config.read_text()
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.post(
+                "/api/config/import",
+                json={"sections": {"camera": {"fps": "30", "made_up_key": "x"}}},
+            )
+
+        assert resp.status_code == 400
+        data = resp.json()
+        assert any("camera.made_up_key" in e for e in data["errors"])
+        assert tmp_config.read_text() == original_content
+
+    def test_import_rejects_identity_section(self, client, tmp_config):
+        """[identity] is set by Platform Setup — never importable."""
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.post(
+                "/api/config/import",
+                json={"sections": {"identity": {"callsign": "HACKER-1"}}},
+            )
+
+        assert resp.status_code == 400
+        data = resp.json()
+        assert any("identity" in e for e in data["errors"])
+
+    @_skip_on_windows
+    def test_import_accepts_full_export_envelope(self, client, tmp_config):
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            payload = {
+                "export_version": 1,
+                "schema_version": 1,
+                "callsign": "HYDRA-TEST",
+                "exported_at": "2026-01-01T00:00:00Z",
+                "sections": {"camera": {"fps": "20"}},
+            }
+            resp = client.post("/api/config/import", json=payload)
+
+        assert resp.status_code == 200
+        cfg = configparser.ConfigParser()
+        cfg.read(tmp_config)
+        assert cfg["camera"]["fps"] == "20"
+
+    def test_import_requires_auth_when_enabled(self, client, tmp_config):
+        configure_auth("my-token", require_auth_for_control=True)
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.post(
+                "/api/config/import", json={"camera": {"fps": "20"}},
+            )
+        assert resp.status_code in (401, 403)
+
+
+class TestConfigRecoveryHelpers:
+    """Direct unit tests for the helper functions in config_api."""
+
+    def test_safe_callsign_strips_path_chars(self):
+        from hydra_detect.web.config_api import _safe_callsign
+        assert _safe_callsign("../../../etc/passwd") == "etc-passwd"
+        assert _safe_callsign('foo"bar') == "foo-bar"
+        assert _safe_callsign("HYDRA-1") == "HYDRA-1"
+        assert _safe_callsign("") == "HYDRA"
+        assert _safe_callsign(None) == "HYDRA"
+
+    def test_export_filename_uses_callsign_and_stamp(self):
+        from hydra_detect.web.config_api import export_filename
+        name = export_filename({"callsign": "HYDRA-7"})
+        assert name.startswith("hydra-config-HYDRA-7-")
+        assert name.endswith(".json")
+
+    def test_validate_import_payload_accepts_bare_dict(self):
+        from hydra_detect.web.config_api import validate_import_payload
+        result = validate_import_payload({"camera": {"fps": "30"}})
+        assert result["ok"] is True
+        assert "camera" in result["updates"]
+
+    def test_validate_import_payload_rejects_non_dict(self):
+        from hydra_detect.web.config_api import validate_import_payload
+        result = validate_import_payload(["not", "a", "dict"])
+        assert result["ok"] is False
+        assert result["errors"]

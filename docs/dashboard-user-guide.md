@@ -240,12 +240,36 @@ Sections mirror `config.ini`: `[camera]`, `[detector]`, `[tracker]`,
 `[tak]`, `[vehicle.*]`.
 
 Fields flagged as "restart required" tell the operator so; a banner
-appears after saving. Three big buttons at the bottom: Factory Reset,
-Restore Backup, Export / Import. Factory reset triggers a pipeline
-restart automatically.
+appears after saving. Four big buttons at the bottom: **Factory Reset**,
+**Export Config**, **Import Config**, **Restore Backup**.
+
+- **Factory Reset** — copies `config.ini.factory` over `config.ini`.
+  Saves the current config to `config.ini.before-reset.<utc>` so an
+  instructor can roll back. Returns `restart_required: true`; the
+  operator must restart the service for changes to take effect.
+- **Export Config** — downloads the current configuration as a
+  versioned JSON file (`hydra-config-<callsign>-<utc>.json`).
+  Sensitive fields like `api_token` are redacted to `***`.
+- **Import Config** — upload a JSON file to restore a working config.
+  Strict validation: unknown sections, unknown keys, and the
+  `[identity]` section are rejected with a 400 and a per-field error
+  list. Round-trips with Export.
+- **Restore Backup** — restore from the rolling `.bak` written on
+  every save. For a known-good fallback further back in time, use the
+  pre-reset snapshot (`config.ini.before-reset.<utc>`).
+
+Recovery for stuck students: if a student has changed many settings
+and nothing works, click Factory Reset and restart the service. Their
+pre-reset config remains on disk as a timestamped snapshot for
+post-mortem.
 
 Safety-critical fields (anything under `[autonomous]`) are frozen
 while a mission is active. Unfreeze by ending the mission first.
+
+> **Golden image (deferred ops work):** golden Jetson SD card imaging
+> and physical hot-spare swaps are documented separately in
+> [`docs/setup/jetson-flash.md`](setup/jetson-flash.md). Issue #75
+> covers only the in-app recovery (factory reset / export / import).
 
 ---
 
