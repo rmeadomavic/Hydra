@@ -409,8 +409,20 @@ autonomous.post_drop_mode = SMART_RTL
 autonomous.post_strike_mode = HOLD
 
 [vehicle.fw]
+reserved_channels = 1,2,3,4
 autonomous.post_action_mode = LOITER
 autonomous.min_track_frames = 2
+autonomous.allowed_vehicle_modes = AUTO,LOITER,CRUISE
 ```
 
 `reserved_channels` prevents servo tracking from using motor output channels. If a servo channel conflicts with a reserved channel, Hydra disables servo tracking and logs a CRITICAL safety message.
+
+### Fixed-wing profile is detection + TAK only
+
+Fixed-wing platforms (Heewing T1, ZOHD Talon GT Rebel) fly at 15-25 m/s. Targets enter and leave the camera FOV in seconds, the airframe cannot hover, and approach radii are wider than the autonomy geofence. The `vehicle.fw` profile is therefore **detection + TAK marking only**:
+
+- `min_track_frames = 2` accepts brief overpasses that 5-frame multirotor settings would discard.
+- `allowed_vehicle_modes = AUTO,LOITER,CRUISE` keeps autonomy bound to autopilot-managed modes — never `GUIDED`.
+- The pipeline **refuses** the `follow`, `drop`, `strike`, and `pixel_lock` approach commands when this profile is active. Each refusal logs to `hydra.audit` and emits a `STATUSTEXT` so the operator sees why nothing happened. Fixed-wing cues effector platforms (USV, UGV, multirotor) over TAK; it never closes on a target itself.
+
+To activate the profile: `--vehicle fw` or `HYDRA_VEHICLE=fw`.

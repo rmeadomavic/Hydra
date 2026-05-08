@@ -273,8 +273,14 @@ autonomous.safe_mode = LOITER
 autonomous.default_features = detect,mavlink,tak_output,logging
 
 [vehicle.fw]
+; Fixed wing is detection + TAK marking only. Speed (15-25 m/s) makes hover,
+; follow, drop, and strike physically infeasible — see issue #70. The pipeline
+; refuses approach commands (follow/drop/strike/pixel-lock) when this profile
+; is active and only the modes listed below qualify for autonomous evaluation.
+reserved_channels = 1,2,3,4
 autonomous.post_action_mode = LOITER
 autonomous.min_track_frames = 2
+autonomous.allowed_vehicle_modes = AUTO,LOITER,CRUISE
 autonomous.platform_role = aerial_isr
 autonomous.safe_mode = LOITER
 autonomous.default_features = detect,mavlink,tak_output,logging

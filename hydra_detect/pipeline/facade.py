@@ -71,6 +71,7 @@ from .integrations import PipelineIntegrations
 from .runtime import PipelineRuntime
 
 logger = logging.getLogger(__name__)
+audit_log = logging.getLogger("hydra.audit")
 
 
 def _get_rf_hunt_controller_cls():
@@ -112,6 +113,19 @@ def _resolve_post_action_mode(
         return None
     val = cfg.get("autonomous", key, fallback="").strip()
     return val or None
+
+
+# Approach modes that fixed-wing platforms must refuse. Speed (15-25 m/s)
+# makes hover, follow, drop, strike, and pixel-lock physically infeasible —
+# fixed wing is detection + TAK marking only. See issue #70.
+_FW_FORBIDDEN_APPROACH_MODES: frozenset[str] = frozenset(
+    {"follow", "drop", "strike", "pixel_lock"}
+)
+
+
+def _is_fw_profile(vehicle_type: str | None) -> bool:
+    """Return True if the active vehicle profile is fixed-wing."""
+    return (vehicle_type or "").strip().lower() == "fw"
 
 
 class Pipeline:
@@ -2047,8 +2061,42 @@ class Pipeline:
 
         return {"checks": checks, "overall": overall}
 
+    def _refuse_approach_for_fw(self, action: str) -> bool:
+        """Reject follow/drop/strike/pixel-lock when fixed-wing profile is active.
+
+        Fixed wing flies at 15-25 m/s, so close-range engagement modes are
+        physically infeasible. The profile is detection + TAK marking only;
+        the fixed wing cues effector platforms (USV/UGV/multirotor). See
+        issue #70.
+
+        Returns True if the command was refused (caller should bail out).
+        """
+        if not _is_fw_profile(self._vehicle):
+            return False
+        if action not in _FW_FORBIDDEN_APPROACH_MODES:
+            return False
+        msg = (
+            f"{action.upper()} refused: fixed-wing profile is detection + TAK "
+            f"only (15-25 m/s flight speed makes {action} infeasible). "
+            f"Hand off to an effector platform."
+        )
+        logger.warning(msg)
+        audit_log.info(
+            "FW_PROFILE_REFUSED action=%s reason=detection_only", action,
+        )
+        if self._mavlink is not None:
+            try:
+                self._mavlink.send_statustext(
+                    f"FW: {action.upper()} not supported", severity=4,
+                )
+            except Exception:
+                pass  # statustext is best-effort
+        return True
+
     def _handle_drop_command(self, track_id: int) -> bool:
         """Command vehicle to approach target and release drop servo on arrival."""
+        if self._refuse_approach_for_fw("drop"):
+            return False
         if self._approach is None:
             logger.warning("Drop failed: approach controller not available")
             return False
@@ -2108,6 +2156,8 @@ class Pipeline:
 
     def _handle_follow_command(self, track_id: int) -> bool:
         """Command vehicle to follow a tracked target continuously."""
+        if self._refuse_approach_for_fw("follow"):
+            return False
         if self._approach is None:
             logger.warning("Follow failed: approach controller not available")
             return False
@@ -2144,6 +2194,8 @@ class Pipeline:
 
     def _handle_approach_strike_command(self, track_id: int) -> bool:
         """Command vehicle into continuous strike approach mode."""
+        if self._refuse_approach_for_fw("strike"):
+            return False
         if self._approach is None:
             logger.warning("Approach strike failed: approach controller not available")
             return False
@@ -2182,6 +2234,8 @@ class Pipeline:
 
     def _handle_pixel_lock_command(self, track_id: int) -> bool:
         """Command vehicle into pixel-lock visual servoing mode."""
+        if self._refuse_approach_for_fw("pixel_lock"):
+            return False
         if self._approach is None:
             logger.warning("Pixel-lock failed: approach controller not available")
             return False
