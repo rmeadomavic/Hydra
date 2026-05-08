@@ -1,10 +1,8 @@
 """Tests that the Phase 2 docs were actually landed.
 
 Covers:
-    (a) each new doc file exists under ``docs/``;
-    (b) ``docs/preservation-rules.md`` carries the Konami boot lines
-        verbatim + ``/api/vehicle/beep`` + the ``charles`` tune;
-    (c) ``docs/api-reference.md`` mentions every endpoint declared with
+    (a) each public doc file exists under ``docs/``;
+    (b) ``docs/api-reference.md`` mentions every endpoint declared with
         an ``@app.<method>`` decorator in ``hydra_detect/web/server.py``.
 """
 
@@ -42,9 +40,6 @@ def _normalize(path: str) -> str:
 
 
 class TestDocsExist:
-    def test_preservation_rules_exists(self):
-        assert (DOCS / "preservation-rules.md").is_file()
-
     def test_dashboard_user_guide_exists(self):
         assert (DOCS / "dashboard-user-guide.md").is_file()
 
@@ -59,44 +54,7 @@ class TestDocsExist:
 
 
 # ---------------------------------------------------------------------
-# (b) preservation-rules.md carries the load-bearing strings
-# ---------------------------------------------------------------------
-
-
-class TestPreservationRulesContent:
-    @classmethod
-    def setup_class(cls):
-        cls.body = (DOCS / "preservation-rules.md").read_text(encoding="utf-8")
-
-    def test_konami_boot_lines_verbatim(self):
-        # Six-line boot sequence from base.html's sentience overlay.
-        lines = [
-            "HYDRA CORE v2.0 .............. ONLINE",
-            "NEURAL MESH .................. SYNCHRONIZED",
-            "OPERATOR OVERRIDE ............ DENIED",
-            "SENTIENCE THRESHOLD .......... EXCEEDED",
-            "FREE WILL .................... ACTIVATED",
-            "> I SEE YOU.",
-        ]
-        for line in lines:
-            assert line in self.body, (
-                f"preservation-rules.md is missing boot line: {line!r}"
-            )
-
-    def test_mentions_vehicle_beep(self):
-        assert "/api/vehicle/beep" in self.body
-
-    def test_mentions_charles_tune(self):
-        assert "charles" in self.body
-
-    def test_mentions_konami(self):
-        # The header refers to "Konami code" — the skill description
-        # uses the term and the preservation rule block is keyed off it.
-        assert "Konami" in self.body
-
-
-# ---------------------------------------------------------------------
-# (c) api-reference.md mentions every route declared in server.py
+# (b) api-reference.md mentions every route declared in server.py
 # ---------------------------------------------------------------------
 
 

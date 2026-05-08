@@ -65,9 +65,12 @@ keytool -genkeypair -dname "CN=Hydra,O=SORCC,C=US" \
 ```properties
 sdk.dir=/path/to/android/sdk
 takDebugKeyFile=/absolute/path/to/debug.keystore
-takDebugKeyFilePassword=android
+# Debug-only keystore. The Android SDK ships a default debug.keystore at
+# ~/.android/debug.keystore with the well-known password "android" — use that
+# for local builds. NEVER reuse debug creds for release signing.
+takDebugKeyFilePassword=<your-debug-keystore-password>
 takDebugKeyAlias=androiddebugkey
-takDebugKeyPassword=android
+takDebugKeyPassword=<your-debug-keystore-password>
 ```
 
 ### 6. Build
