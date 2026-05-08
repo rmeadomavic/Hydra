@@ -42,7 +42,7 @@
             }
             window.location.hash = v;
         };
-        return [
+        const items = [
             { label: 'Switch to Ops',      hint: 'view · 1', kind: 'action', run: () => switchView('ops') },
             { label: 'Switch to TAK',      hint: 'view · 2', kind: 'action', run: () => switchView('tak') },
             { label: 'Switch to Systems',  hint: 'view · 3', kind: 'action', run: () => switchView('systems') },
@@ -54,12 +54,20 @@
                     window.HydraKeybinds.toggleHelp();
                 }
             }},
-            { label: 'Toggle Konami sentience', hint: 'easter', kind: 'action', run: () => {
-                if (window.HydraApp && typeof window.HydraApp.showToast === 'function') {
-                    window.HydraApp.showToast('Try: ↑ ↑ ↓ ↓ ← → ← → B A', 'info');
-                }
-            }},
         ];
+        // Konami palette entry only appears on dev images where the easter
+        // listener is loaded. Field images (morale_features_enabled = false)
+        // omit easter.js → window.HydraEaster is undefined → no entry. (#150)
+        if (window.HydraEaster && window.HydraEaster.attached) {
+            items.push({
+                label: 'Toggle Konami sentience', hint: 'easter', kind: 'action', run: () => {
+                    if (window.HydraApp && typeof window.HydraApp.showToast === 'function') {
+                        window.HydraApp.showToast('Try: ↑ ↑ ↓ ↓ ← → ← → B A', 'info');
+                    }
+                },
+            });
+        }
+        return items;
     }
 
     function buildTrackItems() {

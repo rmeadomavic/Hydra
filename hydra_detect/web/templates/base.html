@@ -115,6 +115,22 @@
     <!-- ── Emergency Flash Overlay (activates when body[data-emerg="1"]) ── -->
     <div id="emergency-flash" aria-hidden="true"></div>
 
+    {% if remote_abort_reachable %}
+    <!-- ── Remote Abort Reachable Banner (issue #150) ──
+         /api/abort is intentionally unauthenticated as a safety override.
+         When the dashboard is loaded from a non-loopback host, surface a
+         visible reminder so the operator knows any peer on the network
+         can issue an RTL/LOITER on this vehicle. -->
+    <div id="remote-abort-banner" class="remote-abort-banner" role="status" aria-live="polite">
+        <span class="remote-abort-banner-text">
+            Remote abort reachable: <code>POST /api/abort</code> on this dashboard is
+            unauthenticated by design. Any device on the network can trigger RTL.
+        </span>
+        <button class="remote-abort-banner-close" id="remote-abort-banner-close"
+                type="button" aria-label="Dismiss banner">×</button>
+    </div>
+    {% endif %}
+
     <!-- ── Toast Notifications ── -->
     <div class="toast-container" id="toast-container" role="alert" aria-live="polite"></div>
 
@@ -266,6 +282,21 @@
         <span class="footer-text" id="footer-right">SORCC Payload Integrator</span>
         <button class="footer-logout" id="footer-logout" style="display:none;" title="Log out">Logout</button>
     </footer>
+
+    {% if remote_abort_reachable %}
+    <!-- Remote abort banner dismiss handler (issue #150) — inline so it works
+         even before main.js parses; banner is purely informational. -->
+    <script>
+        (function () {
+            var btn = document.getElementById('remote-abort-banner-close');
+            if (!btn) return;
+            btn.addEventListener('click', function () {
+                var b = document.getElementById('remote-abort-banner');
+                if (b) b.style.display = 'none';
+            });
+        })();
+    </script>
+    {% endif %}
 
     <!-- ── Scripts ── -->
     <script src="/static/js/vendor/Sortable.min.js"></script>
