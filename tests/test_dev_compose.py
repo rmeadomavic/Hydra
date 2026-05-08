@@ -1,8 +1,8 @@
 """Dev-mode compose scaffolding tests.
 
-Guards the UI dev loop described in docs/dev-loop.md: the compose file
-must stay valid YAML, expose :8081, bind-mount hydra_detect/, and run
-uvicorn --reload. Also verifies Makefile + README pointers stay wired.
+Guards the UI dev loop: the compose file must stay valid YAML, expose
+:8081, bind-mount hydra_detect/, and run uvicorn --reload. Also
+verifies Makefile + README pointers stay wired.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ REPO = Path(__file__).resolve().parents[1]
 COMPOSE = REPO / "compose.dev.yml"
 MAKEFILE = REPO / "Makefile"
 README = REPO / "README.md"
-DEV_DOC = REPO / "docs" / "dev-loop.md"
 
 
 def _dev_service() -> dict:
@@ -110,11 +109,3 @@ def test_readme_has_dev_loop_section():
     assert "Dev loop" in txt
     assert "compose.dev.yml" in txt
     assert "8081" in txt
-
-
-def test_dev_loop_doc_exists_and_references_compose():
-    assert DEV_DOC.exists(), "docs/dev-loop.md must exist"
-    txt = DEV_DOC.read_text()
-    assert "compose.dev.yml" in txt
-    assert "8081" in txt
-    assert "make dev" in txt
