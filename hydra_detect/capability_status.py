@@ -249,6 +249,12 @@ _SOC_TEMP_BLOCK_C = 90.0
 # so a single transient dip does not flap the operator status.
 _FPS_WARN_THRESHOLD = 5.0
 _FPS_WARN_WINDOW_SEC = 30.0
+# Performance evaluator thermal-hint threshold. When the hottest reachable
+# SoC temp is within this many degrees of the thermal WARN threshold, the
+# Performance WARN reason text points at thermal causes; otherwise it points
+# at config under-provisioning. 5 °C below WARN gives the FPS-drop signal
+# room to lead the thermal signal under typical Jetson Orin thermal mass.
+_PERF_THERMAL_HINT_C = 5.0
 
 
 # ── Sustained-FPS tracker singleton ──────────────────────────────────────────
@@ -310,9 +316,26 @@ def sustained_fps_below_sec(now_s: float | None = None) -> float:
     )
 
 
-def reset_fps_tracker_for_test() -> None:
-    """Test-only — zero the FPS tracker between tests."""
+def reset_fps_tracker() -> None:
+    """Public API: zero the sustained-below window.
+
+    Production callers: model-swap and pipeline-restart paths in
+    ``hydra_detect/pipeline/facade.py``. A model swap drops the pipeline
+    FPS for the duration of the new model load (typically 5-15 s on
+    Jetson Orin Nano); without this reset the dip accumulates into the
+    sustained-below window and produces a 30 s false WARN labelled as
+    thermal throttling on the readiness page. Same reasoning for in-
+    process pipeline restart via ``/api/restart`` — operators who restart
+    *because* of a WARN must see the WARN clear rather than persist.
+
+    Closes adversarial findings R3-2 + R3-8 from PR #183.
+    """
     _fps_tracker.reset()
+
+
+def reset_fps_tracker_for_test() -> None:
+    """Test-only alias — kept for backwards compat with existing tests."""
+    reset_fps_tracker()
 
 
 # ── Evaluators ────────────────────────────────────────────────────────────────
@@ -546,20 +569,58 @@ def _eval_performance(state: SystemState) -> CapabilityReport:
     """WARN when pipeline FPS has been below the Jetson minimum for >= 30 s.
 
     A single transient dip is ignored — the tracker only counts continuous
-    below-threshold time. Reasons text steers the operator toward the most
-    common cause (thermal throttling) without claiming certainty.
+    below-threshold time. Reason text branches on observed SoC temperature:
+    when CPU or GPU is within ``_PERF_THERMAL_HINT_C`` of the thermal WARN
+    threshold (data already on SystemState from the Thermal evaluator), the
+    operator is pointed at thermal causes; otherwise the operator is pointed
+    at config under-provisioning (heavy model, telephoto USV, wide-class
+    surveillance — all legitimate sub-target FPS configurations).
+
+    Closes adversarial finding R3-4 from PR #183: the prior unconditional
+    "Likely thermal throttling or detector overload" reason text actively
+    misdirected operators on three legitimate config combinations.
     """
     sustained = state.fps_below_target_sustained_sec
-    if sustained >= _FPS_WARN_WINDOW_SEC:
-        reasons = [
-            f"Pipeline FPS below {_FPS_WARN_THRESHOLD:.0f} for "
-            f"{sustained:.0f}s (window {_FPS_WARN_WINDOW_SEC:.0f}s). "
-            "Likely thermal throttling or detector overload — check SoC "
-            "temperature and active model count."
-        ]
-        return CapabilityReport("Performance", CapabilityStatus.WARN, reasons)
+    if sustained < _FPS_WARN_WINDOW_SEC:
+        return CapabilityReport("Performance", CapabilityStatus.READY)
 
-    return CapabilityReport("Performance", CapabilityStatus.READY)
+    base_msg = (
+        f"Pipeline FPS below {_FPS_WARN_THRESHOLD:.0f} for "
+        f"{sustained:.0f}s (window {_FPS_WARN_WINDOW_SEC:.0f}s)."
+    )
+
+    cpu = state.cpu_temp_c
+    gpu = state.gpu_temp_c
+    available_temps = [t for t in (cpu, gpu) if t is not None]
+    hottest = max(available_temps) if available_temps else None
+    thermal_hint_threshold = _SOC_TEMP_WARN_C - _PERF_THERMAL_HINT_C
+
+    if hottest is not None and hottest >= thermal_hint_threshold:
+        cause = (
+            f" SoC at {hottest:.1f}C is within {_PERF_THERMAL_HINT_C:.0f}C "
+            f"of the thermal WARN threshold ({_SOC_TEMP_WARN_C:.0f}C) — "
+            "likely thermal throttling. Increase airflow, shade the unit, "
+            "or land."
+        )
+    elif hottest is not None:
+        cause = (
+            f" SoC at {hottest:.1f}C is below the thermal hint threshold — "
+            "thermal cause unlikely. Active profile may be heavier than "
+            "the platform supports: check model size, input resolution, "
+            "and active capability set."
+        )
+    else:
+        cause = (
+            " SoC temperature unavailable — cannot rule out thermal "
+            "cause. Check active profile (model size, input resolution, "
+            "active capability set) and SoC temps if reachable."
+        )
+
+    return CapabilityReport(
+        "Performance",
+        CapabilityStatus.WARN,
+        [base_msg + cause],
+    )
 
 
 def _eval_autonomy_live(state: SystemState) -> CapabilityReport:
