@@ -36,7 +36,6 @@ from hydra_detect.web.config_api import (
     has_factory,
     read_config,
     restore_backup,
-    restore_factory,
     validate_import_payload,
     write_config,
     validate_config_updates,
@@ -3292,7 +3291,12 @@ async def api_config_import(request: Request, authorization: str | None = Header
     try:
         result = write_config(validation["updates"])
         _audit(request, "config_import", target=str(len(validation["updates"])))
-        return {"status": "imported", "restart_required_fields": result.get("restart_required", []), **result}
+        restart_fields = result.get("restart_required", [])
+        return {
+            "status": "imported",
+            "restart_required_fields": restart_fields,
+            **result,
+        }
     except Exception as e:
         _audit(request, "config_import", outcome="write_failed")
         logger.error("Failed to import config: %s", e)

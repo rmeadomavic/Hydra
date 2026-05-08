@@ -490,10 +490,15 @@ def export_config_payload() -> dict[str, Any]:
         or "HYDRA"
     )
 
+    _now_utc = (
+        datetime.datetime.now(datetime.timezone.utc)
+        .replace(tzinfo=None)
+        .isoformat(timespec="seconds")
+        + "Z"
+    )
     return {
         "export_version": EXPORT_VERSION,
-        "exported_at": datetime.datetime.now(datetime.timezone.utc)
-            .replace(tzinfo=None).isoformat(timespec="seconds") + "Z",
+        "exported_at": _now_utc,
         "schema_version": schema_version,
         "callsign": _safe_callsign(callsign_raw),
         "sections": sections,
