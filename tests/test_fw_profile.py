@@ -170,7 +170,7 @@ class TestFWPipelineRefusal:
     """FW profile must refuse follow/drop/strike/pixel-lock at the pipeline."""
 
     @staticmethod
-    def _make_pipeline(vehicle: str | None) -> "Pipeline":  # type: ignore[name-defined]
+    def _make_pipeline(vehicle):
         """Build a mocked Pipeline with ``_vehicle = vehicle``.
 
         Same pattern as tests/test_pipeline_callbacks.py: monkey-patch
