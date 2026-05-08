@@ -204,10 +204,11 @@ echo "deb [signed-by=/usr/share/keyrings/kismet-archive-keyring.gpg arch=arm64] 
 sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y kismet
 
 # 5. Set Kismet credentials (must match config.ini [rf_homing] kismet_user/pass)
+# CHANGE BOTH on first deploy — Kismet's defaults are publicly documented.
 sudo mkdir -p /root/.kismet
-echo -e "httpd_username=kismet\nhttpd_password=kismet" | sudo tee /root/.kismet/kismet_httpd.conf
+echo -e "httpd_username=<choose-username>\nhttpd_password=<choose-strong-password>" | sudo tee /root/.kismet/kismet_httpd.conf
 # Also set in site config so it takes priority:
-echo -e "httpd_username=kismet\nhttpd_password=kismet" | sudo tee /etc/kismet/kismet_site.conf
+echo -e "httpd_username=<choose-username>\nhttpd_password=<choose-strong-password>" | sudo tee /etc/kismet/kismet_site.conf
 
 # 6. Start Kismet with RTL-433 source (use rtl433-0, NOT rtlsdr-0)
 sudo kismet -c rtl433-0 --no-ncurses --daemonize

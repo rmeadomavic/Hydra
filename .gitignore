@@ -53,5 +53,34 @@ coverage.xml
 htmlcov/
 .hypothesis/
 
-# Sub-agent worktrees from local /spawn-style workflows
-.claude/worktrees/
+# === INTERNAL — DO NOT COMMIT ===
+# These paths house AI-assistant scaffolding, internal dev journals,
+# session handoffs, and red-team specs. Kept locally for Kyle's workflow,
+# never pushed to the public repo. If you add a new agent/skill/plan,
+# put it here so it stays out of the public surface.
+
+# Claude Code & sub-agent scaffolding (covers .claude/worktrees/ too)
+.claude/
+.agents/
+
+# Repo-specific AI assistant guidelines (kept local)
+CLAUDE.md
+AGENTS.md
+
+# Personal dev journals & internal roadmaps
+CODE_REVIEW_TRACKER.md.local
+plan.md
+AUDIT_LOG.md
+
+# Internal dev / preservation / dashboard notes
+docs/dev-loop.md
+docs/development.md
+docs/preservation-rules.md
+docs/SORCC_DASHBOARD_AUDIT.md
+docs/sitl-testing.md
+
+# Claude session handoffs and design specs
+docs/superpowers/
+
+# Internal red-team / adversarial issue tracking
+docs/adversarial/
