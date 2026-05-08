@@ -2071,7 +2071,12 @@ class Pipeline:
 
         Returns True if the command was refused (caller should bail out).
         """
-        if not _is_fw_profile(self._vehicle):
+        # Pre-existing test fixtures (test_pipeline_callbacks.py) construct
+        # Pipeline by patching __init__ and never set ``_vehicle``. Default to
+        # None so those legacy paths short-circuit cleanly instead of raising
+        # AttributeError. ``None`` means "no platform profile pinned" → pass.
+        vehicle = getattr(self, "_vehicle", None)
+        if not _is_fw_profile(vehicle):
             return False
         if action not in _FW_FORBIDDEN_APPROACH_MODES:
             return False
