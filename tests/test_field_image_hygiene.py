@@ -12,11 +12,17 @@ Covers:
      safety override).
   8. Remote-abort banner: present in dashboard HTML when client is
      non-loopback; absent when loopback. /api/abort itself never gated.
+ 10. Bundle hygiene (R3-1 in docs/adversarial/210.md): with morale
+     disabled, the served HTML does not reference easter.js, and none
+     of the JS files it does load contain easter-only identifiers.
+     Enforces the build-pipeline contract that the other lexical gates
+     depend on.
 """
 
 from __future__ import annotations
 
 import configparser
+import re
 from pathlib import Path
 
 import pytest
@@ -345,3 +351,128 @@ class TestStrikeVocabularyScrub:
             f"({count}). Audit for vocab leak outside ARMED-mode "
             f"sections."
         )
+
+
+# ---------------------------------------------------------------------------
+# 10. Field-image JS bundle hygiene (R3-1 from docs/adversarial/210.md)
+# ---------------------------------------------------------------------------
+
+class TestFieldImageBundleHygiene:
+    """Enforce the build-pipeline contract that the lexical gates depend on.
+
+    The other tests in this module verify per-file lexical guards (Konami
+    palette entry behind `window.HydraEaster`, beep button absent, etc.).
+    Those guards all assume `easter.js` is not loaded by the field-image
+    HTML. This test verifies that assumption directly: when
+    `morale_features_enabled=False`, the served HTML does not pull in
+    easter.js, and none of the JS bundles it DOES load contain identifiers
+    that exist only in easter.js.
+
+    Catches regressions like: someone copy-pastes a morale routine into
+    a non-morale JS file, or the base template loses its `{% if %}` gate
+    around the easter.js script tag.
+    """
+
+    # Identifiers that appear ONLY in easter.js across the static tree.
+    # Verified via: grep -rln <sentinel> hydra_detect/web/static/
+    # Each must remain unique to easter.js — if a non-easter file starts
+    # using one of these, the test will fail and the identifier should
+    # be replaced with a different easter-exclusive sentinel.
+    _EASTER_ONLY_SENTINELS = (
+        "window.HydraEaster = ",       # the assignment, not the gate check
+        "KONAMI_CLASSIC",
+        "playSentienceSequence",
+        "2.0.0-konami-restored",       # version stamp on the global
+    )
+
+    _SCRIPT_SRC_RE = re.compile(
+        r'<script[^>]+src=["\'](/static/js/[^"\']+)["\']'
+    )
+
+    def _served_js_srcs(self, html: str) -> list[str]:
+        return self._SCRIPT_SRC_RE.findall(html)
+
+    def test_field_image_html_does_not_reference_easter_js(self, client):
+        """Base template gates the easter.js script tag on the morale flag."""
+        configure_morale_features(False)
+        html = client.get("/").text
+        srcs = self._served_js_srcs(html)
+        assert srcs, (
+            "field-image HTML loaded zero JS bundles — test cannot verify "
+            "bundle hygiene if the page renders no scripts"
+        )
+        assert not any("easter.js" in src for src in srcs), (
+            f"easter.js referenced from field-image HTML: {srcs}. "
+            "base.html should gate the <script> tag on morale_features_enabled."
+        )
+
+    def test_field_image_html_references_easter_js_when_enabled(self, client):
+        """Symmetric check — dev images DO pull easter.js, confirming the
+        gate flips both ways and isn't trivially passing."""
+        configure_morale_features(True)
+        html = client.get("/").text
+        srcs = self._served_js_srcs(html)
+        assert any("easter.js" in src for src in srcs), (
+            "dev image (morale=True) did not reference easter.js — the "
+            "negative test above might be trivially passing"
+        )
+
+    def test_field_image_loaded_bundles_contain_no_easter_sentinels(self, client):
+        """Concatenate every JS file the field-image HTML loads and assert
+        none contain identifiers exclusive to easter.js. This catches
+        accidental copy-paste of morale routines into non-morale files."""
+        configure_morale_features(False)
+        html = client.get("/").text
+        srcs = self._served_js_srcs(html)
+        assert srcs, "field-image HTML loaded zero JS bundles"
+
+        leaks: list[str] = []
+        for src in srcs:
+            resp = client.get(src)
+            assert resp.status_code == 200, (
+                f"{src} returned {resp.status_code} — JS bundle inventory "
+                "is wrong or static mount is broken"
+            )
+            body = resp.text
+            for sentinel in self._EASTER_ONLY_SENTINELS:
+                if sentinel in body:
+                    leaks.append(f"{src} contains {sentinel!r}")
+
+        assert not leaks, (
+            "morale-only identifiers leaked into field-image JS bundle:\n"
+            + "\n".join(f"  - {leak}" for leak in leaks)
+            + "\nThis usually means easter.js is being loaded by the "
+            "field-image HTML, or a morale routine was copy-pasted into "
+            "a non-morale JS file."
+        )
+
+    def test_easter_sentinels_are_unique_to_easter_js(self):
+        """Source-tree self-check: verify each sentinel still exists in
+        easter.js (so the test isn't trivially passing because of a
+        rename) and nowhere else under static/."""
+        static_dir = REPO_ROOT / "hydra_detect" / "web" / "static"
+        easter_path = static_dir / "js" / "easter.js"
+        assert easter_path.exists(), (
+            f"easter.js missing at {easter_path} — sentinels test cannot "
+            "self-validate"
+        )
+        easter_text = easter_path.read_text(encoding="utf-8")
+        for sentinel in self._EASTER_ONLY_SENTINELS:
+            assert sentinel in easter_text, (
+                f"sentinel {sentinel!r} no longer in easter.js — bundle "
+                "hygiene test is silently weakened, update the sentinel "
+                "list to a real easter-exclusive identifier"
+            )
+            # Walk every other JS/CSS/HTML file under static/ and
+            # confirm none contain this sentinel.
+            for other in static_dir.rglob("*"):
+                if not other.is_file() or other == easter_path:
+                    continue
+                if other.suffix not in (".js", ".html", ".css"):
+                    continue
+                other_text = other.read_text(encoding="utf-8", errors="replace")
+                assert sentinel not in other_text, (
+                    f"sentinel {sentinel!r} leaked into {other} — pick a "
+                    "different easter-exclusive identifier for the bundle "
+                    "hygiene check"
+                )
