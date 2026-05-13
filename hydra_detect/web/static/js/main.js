@@ -107,17 +107,38 @@
                 // Legacy fallback: derive a coarse tone from raw pct only.
                 level = pct <= 10 ? 'CRITICAL' : (pct <= 20 ? 'LOW' : 'OK');
             }
+            const uncalibrated = !!(battery && battery.uncalibrated);
             const haveBattery = (battery && (battery.voltage_v != null
-                || battery.remaining_pct != null)) || pct != null;
+                || battery.remaining_pct != null
+                || battery.uncalibrated)) || pct != null;
             if (haveBattery) {
                 battEl.removeAttribute('hidden');
-                battPct.textContent = pct != null ? pct + '%' : '--%';
                 let tone = 'dim';
-                if (level === 'OK') tone = 'olive';
-                else if (level === 'LOW') tone = 'amber';
-                else if (level === 'CRITICAL') tone = 'red';
+                if (uncalibrated && pct == null) {
+                    // Distinct from "monitor disabled" (widget hidden) and
+                    // from healthy OK (olive). Operator sees the unit is
+                    // talking but the percent path is silent. R1-1 (b).
+                    battPct.textContent = 'UNCAL';
+                    tone = 'amber';
+                    battEl.setAttribute(
+                        'title',
+                        'Battery monitor uncalibrated — set BATT_CAPACITY '
+                        + 'in ArduPilot and calibrate to enable percent alerts.',
+                    );
+                } else {
+                    battPct.textContent = pct != null ? pct + '%' : '--%';
+                    if (level === 'OK') tone = 'olive';
+                    else if (level === 'LOW') tone = 'amber';
+                    else if (level === 'CRITICAL') tone = 'red';
+                    battEl.removeAttribute('title');
+                }
                 setDotClass(battDot, tone);
-                battEl.setAttribute('data-level', level || 'UNKNOWN');
+                battEl.setAttribute(
+                    'data-level',
+                    uncalibrated && pct == null
+                        ? 'UNCALIBRATED'
+                        : (level || 'UNKNOWN'),
+                );
             } else {
                 battEl.setAttribute('hidden', '');
             }

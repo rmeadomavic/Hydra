@@ -34,6 +34,13 @@ LEVEL_LOW = "LOW"
 LEVEL_CRITICAL = "CRITICAL"
 LEVEL_UNKNOWN = "UNKNOWN"
 
+# Severity used for the one-time "BATT MONITOR UNCALIBRATED" STATUSTEXT.
+# Boots once when the FC starts reporting voltage but battery_remaining is
+# still the MAVLink "unknown" sentinel — flags to the operator that the
+# percent-driven alert path will stay silent on this unit until BATT_CAPACITY
+# is configured and the battery monitor is calibrated.
+_SEVERITY_UNCALIBRATED = 4  # WARNING — visible in Mission Planner, not alarming
+
 # MAVLink severity used by STATUSTEXT alerts. ArduPilot mapping:
 #   2 = MAV_SEVERITY_CRITICAL  (red in Mission Planner)
 #   4 = MAV_SEVERITY_WARNING   (amber)
@@ -52,6 +59,12 @@ class BatteryState:
     level: str = LEVEL_UNKNOWN
     last_update_ts: float = 0.0  # monotonic seconds; 0 = never
     source: str = "mavlink"
+    # True when SYS_STATUS has arrived but battery_remaining stays at the
+    # MAVLink "unknown" sentinel — i.e. the FC is talking but BATT_CAPACITY
+    # is unset / the battery monitor is uncalibrated, so the percent-driven
+    # alert path will never fire on this unit. Distinguishes "monitor is
+    # silent" from "monitor is fine and the cell is healthy."
+    uncalibrated: bool = False
 
     def to_api(self) -> dict:
         """Return the dict shape exposed on /api/stats."""
@@ -60,6 +73,7 @@ class BatteryState:
             "remaining_pct": self.remaining_pct,
             "level": self.level,
             "source": self.source,
+            "uncalibrated": self.uncalibrated,
         }
 
 
@@ -115,6 +129,10 @@ class BatteryMonitor:
         # ``None`` means we have not emitted any alert yet.
         self._last_alert_level: Optional[str] = None
         self._last_alert_ts: float = 0.0
+        # One-time flag: True after we have fired the "BATT MONITOR
+        # UNCALIBRATED" STATUSTEXT. Prevents the alert from re-emitting
+        # on every SYS_STATUS tick while the FC is still uncalibrated.
+        self._uncalibrated_alert_sent: bool = False
 
     # -- Configuration -------------------------------------------------
     @property
@@ -166,13 +184,34 @@ class BatteryMonitor:
         if battery_remaining != -1 and 0 <= battery_remaining <= 100:
             remaining_pct = int(battery_remaining)
 
+        # Detect "FC is reporting but battery is uncalibrated" — voltage
+        # present + percent sentinel. Fire the one-time UNCALIBRATED
+        # STATUSTEXT on the first such SYS_STATUS so the operator knows
+        # the percent-driven alert path will stay silent on this unit.
+        uncalibrated = (voltage_v is not None) and (remaining_pct is None)
+
+        uncalibrated_alert: Optional[tuple[str, int]] = None
         with self._lock:
             self._state.voltage_v = voltage_v
             self._state.remaining_pct = remaining_pct
             self._state.last_update_ts = now
+            self._state.uncalibrated = uncalibrated
             level = self._compute_level_locked(now)
             self._state.level = level
             transition = self._maybe_emit_alert_locked(level, now)
+            if uncalibrated and not self._uncalibrated_alert_sent:
+                self._uncalibrated_alert_sent = True
+                uncalibrated_alert = (
+                    f"{self._callsign}: BATT MONITOR UNCALIBRATED",
+                    _SEVERITY_UNCALIBRATED,
+                )
+
+        if uncalibrated_alert is not None and self._send is not None:
+            text, severity = uncalibrated_alert
+            try:
+                self._send(text, severity)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("battery STATUSTEXT send failed: %s", exc)
 
         if transition is not None:
             text, severity = transition
@@ -191,12 +230,18 @@ class BatteryMonitor:
         with self._lock:
             level = self._compute_level_locked(now)
             self._state.level = level
+            # uncalibrated is sticky once detected — even after the read-side
+            # staleness check would flip level to UNKNOWN, the dashboard
+            # should still surface "this unit is uncalibrated" so the
+            # operator does not interpret silence as health.
+            uncal = self._state.uncalibrated
             return BatteryState(
                 voltage_v=self._state.voltage_v,
                 remaining_pct=self._state.remaining_pct,
                 level=level,
                 last_update_ts=self._state.last_update_ts,
                 source=self._state.source,
+                uncalibrated=uncal,
             )
 
     def get_level(self, now: Optional[float] = None) -> str:

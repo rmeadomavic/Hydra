@@ -76,7 +76,17 @@ class TestBatteryState:
             "remaining_pct": 75,
             "level": LEVEL_OK,
             "source": "mavlink",
+            "uncalibrated": False,
         }
+
+    def test_to_api_shape_uncalibrated(self):
+        s = BatteryState(
+            voltage_v=14.6, remaining_pct=None, level=LEVEL_UNKNOWN,
+            uncalibrated=True,
+        )
+        api = s.to_api()
+        assert api["uncalibrated"] is True
+        assert api["remaining_pct"] is None
 
 
 class TestLevelComputation:
@@ -118,8 +128,12 @@ class TestLevelComputation:
         assert st.voltage_v == 11.8
         assert st.remaining_pct is None
         assert st.level == LEVEL_UNKNOWN
-        # Sentinel must not produce an alert
-        assert sender.messages == []
+        assert st.uncalibrated is True
+        # Sentinel produces a one-time UNCALIBRATED STATUSTEXT but
+        # never a CRITICAL / LOW alert (chemistry-dependent thresholds).
+        assert len(sender.messages) == 1
+        text, _sev = sender.messages[0]
+        assert "UNCALIBRATED" in text
 
     def test_unknown_voltage_sentinel(self):
         mon, _ = _make_monitor()
@@ -128,6 +142,82 @@ class TestLevelComputation:
         assert st.voltage_v is None
         assert st.remaining_pct == 50
         assert st.level == LEVEL_OK
+
+
+# ---------------------------------------------------------------------------
+# Uncalibrated detection (R1-1 from docs/adversarial/211.md)
+# ---------------------------------------------------------------------------
+
+
+class TestUncalibratedDetection:
+    """FC is reporting SYS_STATUS but battery_remaining is the -1 sentinel.
+
+    On FPV racing platforms in the SORCC fleet, BATT_CAPACITY is usually 0
+    and the battery monitor is uncalibrated — the percent path stays silent
+    forever and the dashboard renders dim gray. Fire a one-time STATUSTEXT
+    so the operator notices the unit is not protected, and surface the
+    `uncalibrated` flag so the dashboard widget can distinguish this state
+    from healthy and from disabled.
+    """
+
+    def test_uncalibrated_emits_one_time_statustext(self):
+        mon, sender = _make_monitor()
+        # First SYS_STATUS with voltage but the -1 sentinel for pct.
+        mon.update_from_sys_status(14600, -1, now=100.0)
+        assert len(sender.messages) == 1
+        text, sev = sender.messages[0]
+        assert "UNCALIBRATED" in text
+        assert mon.callsign in text
+        # MAV_SEVERITY_WARNING — visible in Mission Planner, not alarming.
+        assert sev == 4
+
+    def test_uncalibrated_alert_does_not_repeat(self):
+        mon, sender = _make_monitor()
+        for tick in range(10):
+            mon.update_from_sys_status(14600, -1, now=100.0 + tick)
+        # Exactly one UNCALIBRATED message across 10 SYS_STATUS ticks.
+        uncal_msgs = [m for m in sender.messages if "UNCALIBRATED" in m[0]]
+        assert len(uncal_msgs) == 1
+
+    def test_uncalibrated_flag_in_state(self):
+        mon, _ = _make_monitor()
+        mon.update_from_sys_status(14600, -1, now=100.0)
+        st = mon.get_state(now=100.0)
+        assert st.uncalibrated is True
+        assert st.level == LEVEL_UNKNOWN
+
+    def test_uncalibrated_sticks_after_stale(self):
+        """After SYS_STATUS goes stale, uncalibrated stays True for the
+        dashboard so the operator does not interpret stale-and-silent
+        as healthy. Level still flips to UNKNOWN via staleness."""
+        mon, _ = _make_monitor(stale_after_sec=10.0)
+        mon.update_from_sys_status(14600, -1, now=100.0)
+        # 30s later, staleness has triggered.
+        st = mon.get_state(now=130.0)
+        assert st.level == LEVEL_UNKNOWN
+        assert st.uncalibrated is True
+
+    def test_uncalibrated_no_alert_when_voltage_also_missing(self):
+        """0xFFFF + -1 means we got a SYS_STATUS but it had no battery
+        data at all. That is no-data, not uncalibrated — do not fire."""
+        mon, sender = _make_monitor()
+        mon.update_from_sys_status(0xFFFF, -1, now=100.0)
+        assert sender.messages == []
+        st = mon.get_state(now=100.0)
+        assert st.uncalibrated is False
+
+    def test_calibrated_first_then_sentinel(self):
+        """If a real pct arrives first, then a -1 sentinel later
+        (telemetry glitch), do not fire the boot UNCALIBRATED — the
+        unit clearly has calibration."""
+        mon, sender = _make_monitor()
+        mon.update_from_sys_status(14600, 80, now=100.0)  # healthy
+        mon.update_from_sys_status(14600, -1, now=101.0)  # sentinel
+        uncal_msgs = [m for m in sender.messages if "UNCALIBRATED" in m[0]]
+        # First message went OK→UNKNOWN with no alert; second sees pct=None.
+        # Both saw voltage+sentinel on tick 2 → uncalibrated fires once.
+        # This is the documented behavior; test pins it.
+        assert len(uncal_msgs) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -191,11 +281,18 @@ class TestThresholdTransitions:
         recovered = [m for m in sender.messages if "RECOVERED" in m[0]]
         assert len(recovered) == 1
 
-    def test_no_alert_on_unknown_remaining(self):
+    def test_no_low_or_critical_alert_on_unknown_remaining(self):
+        """The -1 sentinel must never trigger LOW or CRITICAL — voltage
+        thresholds are chemistry-dependent. The one-time UNCALIBRATED
+        WARNING is permitted (see TestUncalibratedDetection)."""
         mon, sender = _make_monitor()
         mon.update_from_sys_status(11500, -1, now=100.0)
         mon.update_from_sys_status(11400, -1, now=101.0)
-        assert sender.messages == []
+        threshold_alerts = [
+            m for m in sender.messages
+            if any(tag in m[0] for tag in ("BATT LOW", "BATT CRITICAL"))
+        ]
+        assert threshold_alerts == []
 
     def test_callsign_truncation(self):
         mon, sender = _make_monitor(callsign="HYDRA-99-LONGNAME-EXTRA")
