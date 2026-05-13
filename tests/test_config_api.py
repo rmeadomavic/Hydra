@@ -375,6 +375,80 @@ class TestFactoryReset:
         # port was 9999, factory says 8080.
         assert cfg["web"]["port"] == "8080"
 
+    def test_factory_reset_preserves_identity(self, client, tmp_path):
+        """R3-2: [identity] (api_token, hash, callsign) must survive reset.
+
+        The factory file (correctly) has no [identity] section. Without
+        preservation, every reset on a configured unit wipes API auth
+        until Platform Setup is re-run via shell — exactly the failure
+        mode the recovery control is meant to fix.
+        """
+        factory = configparser.ConfigParser()
+        factory["meta"] = {"schema_version": "1"}
+        factory["camera"] = {"fps": "30"}
+        factory["tak"] = {"callsign": "HYDRA-TEST"}
+        factory_path = tmp_path / "config.ini.factory"
+        with open(factory_path, "w") as f:
+            factory.write(f)
+
+        current = configparser.ConfigParser()
+        current["meta"] = {"schema_version": "1"}
+        current["camera"] = {"fps": "15"}
+        current["tak"] = {"callsign": "HYDRA-TEST"}
+        current["identity"] = {
+            "callsign": "HYDRA-UNIT-07",
+            "api_token": "platform-setup-token-DEADBEEF",
+            "web_password_hash": "pbkdf2:sha256:600000$salt$hash",
+            "software_version": "0.9.0",
+            "commit_hash": "abc123",
+        }
+        cfg_path = tmp_path / "config.ini"
+        with open(cfg_path, "w") as f:
+            current.write(f)
+
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=cfg_path,
+        ):
+            resp = client.post("/api/config/factory-reset")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["identity_preserved"] is True
+        assert "API token" in data["message"]
+
+        result_cfg = configparser.ConfigParser()
+        result_cfg.read(cfg_path)
+        # Factory defaults applied.
+        assert result_cfg["camera"]["fps"] == "30"
+        # Identity carried over byte-for-byte.
+        assert result_cfg.has_section("identity")
+        assert result_cfg["identity"]["api_token"] == "platform-setup-token-DEADBEEF"
+        assert result_cfg["identity"]["callsign"] == "HYDRA-UNIT-07"
+        assert (
+            result_cfg["identity"]["web_password_hash"]
+            == "pbkdf2:sha256:600000$salt$hash"
+        )
+
+    def test_factory_reset_no_identity_when_none_present(
+        self, client, tmp_config_with_factory,
+    ):
+        """No [identity] in current config -> identity_preserved=False, factory copied as-is."""
+        with patch(
+            "hydra_detect.web.config_api.get_config_path",
+            return_value=tmp_config_with_factory,
+        ):
+            resp = client.post("/api/config/factory-reset")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["identity_preserved"] is False
+        # Message reverts to the non-identity version.
+        assert "API token" not in data["message"]
+        cfg = configparser.ConfigParser()
+        cfg.read(tmp_config_with_factory)
+        assert not cfg.has_section("identity")
+        assert cfg["camera"]["fps"] == "30"
+
     def test_factory_reset_creates_timestamped_backup(
         self, client, tmp_config_with_factory,
     ):
@@ -484,6 +558,42 @@ class TestConfigExport:
 
         assert resp.status_code == 200
         assert resp.json()["sections"]["web"]["api_token"] == "***"
+
+    def test_export_omits_identity_section(self, tmp_path, client):
+        """R1-3: [identity] carries plaintext credentials — must never ship.
+
+        Mirrors config_lkg.py:77-83 which strips [identity] before writing
+        the LKG snapshot, for the same reason.
+        """
+        cfg = configparser.ConfigParser()
+        cfg["camera"] = {"source": "auto", "fps": "30"}
+        cfg["web"] = {"host": "0.0.0.0", "port": "8080", "api_token": "secret"}
+        cfg["tak"] = {"callsign": "HYDRA-TAK-FALLBACK"}
+        cfg["identity"] = {
+            "callsign": "HYDRA-IDENT-PRIMARY",
+            "api_token": "platform-setup-token-DEADBEEF",
+            "web_password_hash": "pbkdf2:sha256:600000$salt$hash",
+            "software_version": "0.9.0",
+        }
+        cfg_path = tmp_path / "config.ini"
+        with open(cfg_path, "w") as f:
+            cfg.write(f)
+
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=cfg_path,
+        ):
+            resp = client.get("/api/config/export")
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        # No [identity] keys leave the unit.
+        assert "identity" not in payload["sections"]
+        # Callsign came from [identity] (primary), not the [tak] fallback.
+        assert payload["callsign"] == "HYDRA-IDENT-PRIMARY"
+        # Serialized body must not contain the secrets even by accident.
+        body = resp.text
+        assert "platform-setup-token-DEADBEEF" not in body
+        assert "pbkdf2:sha256" not in body
 
     @_skip_on_windows
     def test_export_round_trip_preserves_non_secret_values(

@@ -3208,11 +3208,20 @@ async def api_factory_reset(request: Request, authorization: str | None = Header
     try:
         result = factory_reset_with_backup()
         _audit(request, "config_factory_reset", target=result.get("backup_path", ""))
+        identity_preserved = bool(result.get("identity_preserved", False))
+        if identity_preserved:
+            message = (
+                "Factory defaults restored — your unit's API token and "
+                "callsign were preserved. Restart the service to apply."
+            )
+        else:
+            message = "Factory defaults restored — restart the service to apply."
         return {
             "status": "ok",
             "backup_path": result["backup_path"],
             "restart_required": result["restart_required"],
-            "message": "Factory defaults restored — restart the service to apply.",
+            "identity_preserved": identity_preserved,
+            "message": message,
         }
     except FileNotFoundError as e:
         _audit(request, "config_factory_reset", outcome="missing_factory")

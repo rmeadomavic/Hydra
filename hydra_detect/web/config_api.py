@@ -403,18 +403,29 @@ def _atomic_copy(src: Path, dst: Path) -> None:
 
 def factory_reset_with_backup() -> dict[str, Any]:
     """Restore config.ini from config.ini.factory, archiving current to a
-    timestamped snapshot first.
+    timestamped snapshot first, and preserving the unit's [identity].
 
     Distinct from restore_factory() which only writes the rolling .bak —
     that file is clobbered by the next save, so it's not enough for a
     student who pushes [save] right after a reset. The snapshot lives at
     ``config.ini.before-reset.<utc>`` and is never touched by write_config.
 
+    [identity] is per-unit state set by Platform Setup (api_token,
+    web_password_hash, callsign, software_version, commit_hash) — it is
+    NOT factory-resettable behavior. config.ini.factory deliberately
+    omits the section. Without preservation, a reset on a configured
+    unit wipes dashboard auth on the next boot, which turns the
+    "recovery" control into a unit-bricking one. So: read [identity]
+    from the current config before the copy, then re-inject it into
+    the factory result and write atomically.
+
     Returns a dict with keys:
       - backup_path: str — absolute path to the snapshot, or "" if no
         prior config existed (fresh-install reset).
       - restart_required: bool — always True; the running service still
         holds the pre-reset values in memory.
+      - identity_preserved: bool — True when [identity] from the prior
+        config was carried into the new file.
 
     Raises:
       FileNotFoundError if config.ini.factory does not exist.
@@ -436,6 +447,23 @@ def factory_reset_with_backup() -> dict[str, Any]:
             f"factory defaults at {factory_path} parsed to zero sections"
         )
 
+    # Capture [identity] from the current config (if any) so we can carry
+    # it across the reset. Read happens before the snapshot to keep the
+    # window between "we know identity exists" and "we write the new
+    # file" as tight as possible.
+    preserved_identity: dict[str, str] = {}
+    if path.exists():
+        current_cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
+        try:
+            current_cfg.read(path)
+            if current_cfg.has_section("identity"):
+                preserved_identity = dict(current_cfg["identity"])
+        except configparser.Error as exc:
+            logger.warning(
+                "factory reset: current config unreadable, "
+                "[identity] cannot be preserved: %s", exc,
+            )
+
     backup_path = ""
     if path.exists():
         snapshot = path.parent / f"{PRE_RESET_PREFIX}{_utc_stamp()}"
@@ -448,13 +476,45 @@ def factory_reset_with_backup() -> dict[str, Any]:
         backup_path = str(snapshot.resolve())
         logger.info("Pre-reset snapshot saved to %s", snapshot)
 
-    # Atomic factory copy. If this raises after the snapshot, the snapshot
-    # is still on disk and the current config is untouched.
-    _atomic_copy(factory_path, path)
-    audit_log.warning("CONFIG FACTORY RESET (backup=%s)", backup_path or "<none>")
-    logger.info("Config restored from factory defaults: %s", factory_path)
+    if preserved_identity:
+        # Merge [identity] into the in-memory factory config and write
+        # the result atomically (tmp -> fsync -> os.replace).
+        factory_cfg["identity"] = preserved_identity
+        tmp_path = Path(str(path) + ".tmp")
+        try:
+            with open(tmp_path, "w") as f:
+                factory_cfg.write(f)
+                f.flush()
+                try:
+                    os.fsync(f.fileno())
+                except OSError:
+                    pass
+            os.replace(tmp_path, path)
+        finally:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+        logger.info(
+            "Config reset to factory defaults with [identity] preserved: %s",
+            path,
+        )
+    else:
+        # No prior identity to preserve — keep the original atomic copy.
+        _atomic_copy(factory_path, path)
+        logger.info("Config restored from factory defaults: %s", factory_path)
 
-    return {"backup_path": backup_path, "restart_required": True}
+    audit_log.warning(
+        "CONFIG FACTORY RESET (backup=%s, identity_preserved=%s)",
+        backup_path or "<none>", bool(preserved_identity),
+    )
+
+    return {
+        "backup_path": backup_path,
+        "restart_required": True,
+        "identity_preserved": bool(preserved_identity),
+    }
 
 
 def export_config_payload() -> dict[str, Any]:
@@ -466,12 +526,16 @@ def export_config_payload() -> dict[str, Any]:
         "exported_at": "<UTC ISO-8601>",
         "schema_version": <int from [meta]>,
         "callsign": "<sanitized callsign or HYDRA>",
-        "sections": { ... read_config() output, secrets redacted ... }
+        "sections": { ... read_config() output, secrets redacted,
+                      [identity] omitted ... }
       }
 
     Secrets remain redacted ("***") — same contract as GET /api/config/full.
-    Round-trip via /api/config/import preserves redacted values because
-    write_config() leaves "***" placeholders untouched.
+    The [identity] section is stripped entirely: it contains api_token and
+    web_password_hash in plaintext, and the import path already refuses it
+    (set by Platform Setup, not by users). Mirrors config_lkg.py:77-83.
+    Round-trip preserves the schema-validated subset; identity, any
+    [vehicle.<name>] profile, and non-schema sections are not re-importable.
     """
     sections = read_config()  # already redacts api_token / kismet_pass
     schema_version = 0
@@ -483,12 +547,15 @@ def export_config_payload() -> dict[str, Any]:
         except (TypeError, ValueError):
             schema_version = 0
 
-    # Prefer [identity].callsign (set by Platform Setup) over [tak].callsign.
+    # Capture callsign BEFORE stripping [identity]: Platform Setup writes
+    # [identity].callsign; fall back to [tak].callsign for pre-setup units.
     callsign_raw = (
         (sections.get("identity") or {}).get("callsign")
         or (sections.get("tak") or {}).get("callsign")
         or "HYDRA"
     )
+
+    sections.pop("identity", None)
 
     _now_utc = (
         datetime.datetime.now(datetime.timezone.utc)

@@ -645,8 +645,8 @@ const HydraSettings = (() => {
     }
 
     async function handleFactoryReset() {
-        if (!confirm('FACTORY RESET: This will restore all settings to factory defaults. Your current config will be saved as a timestamped backup. Continue?')) return;
-        if (!confirm('Are you sure? All custom configuration will be reset to defaults.')) return;
+        if (!confirm('FACTORY RESET: This will restore all settings to factory defaults. Your unit\'s API token and callsign will be preserved. Your current config will be saved as a timestamped backup. Continue?')) return;
+        if (!confirm('Are you sure? All custom configuration except [identity] will be reset to defaults.')) return;
         const result = await HydraApp.apiPost('/api/config/factory-reset', {});
         if (result && result.status === 'ok') {
             hasUnsavedChanges = false;
@@ -654,7 +654,10 @@ const HydraSettings = (() => {
             const restartMsg = result.restart_required
                 ? ' Restart Hydra to apply.'
                 : '';
-            HydraApp.showToast('Factory defaults restored.' + restartMsg, 'success');
+            const baseMsg = result.identity_preserved
+                ? 'Factory defaults restored — API token and callsign preserved.'
+                : 'Factory defaults restored.';
+            HydraApp.showToast(baseMsg + restartMsg, 'success');
             if (result.restart_required) {
                 const restart = document.getElementById('settings-restart');
                 const fields = document.getElementById('restart-fields');
