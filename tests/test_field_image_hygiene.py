@@ -310,8 +310,12 @@ class TestRemoteAbortBanner:
             )
         assert _is_remote_client(_FakeRequest("10.0.0.5")) is True
         assert _is_remote_client(_FakeRequest("100.87.134.108")) is True
-        assert _is_remote_client(_FakeRequest(None)) is False
-        assert _is_remote_client(_FakeRequest("")) is False
+        # R1-2: missing client info is "unable to classify" — fail loud and
+        # show the banner. The previous behavior (return False) silently
+        # suppressed the security-state notice on synthetic/ASGI-lifespan
+        # paths, contradicting the docstring's "fail-loud" claim.
+        assert _is_remote_client(_FakeRequest(None)) is True
+        assert _is_remote_client(_FakeRequest("")) is True
 
 
 # ---------------------------------------------------------------------------

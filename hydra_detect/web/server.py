@@ -301,11 +301,16 @@ def _is_remote_client(request: Request) -> bool:
     Used to surface the "remote abort reachable" banner. Robust to a missing
     request.client (TestClient with no scope, ASGI lifespan calls). Treats
     unknown / missing client host as remote — fail-loud rather than fail-quiet.
+
+    PR #210 R1-2 from docs/adversarial/210.md: missing client info now returns
+    True. The banner is informational about a security state; showing it once
+    extra (e.g. on the synthetic / ASGI-lifespan path) is harmless, whereas
+    suppressing it when we genuinely can't classify the viewer was the bug.
     """
     client = getattr(request, "client", None)
     host = getattr(client, "host", None) if client else None
     if not host:
-        return False  # no client info → can't classify; don't false-alarm
+        return True  # no client info → fail-loud, surface the banner
     return host not in _LOOPBACK_HOSTS
 
 
