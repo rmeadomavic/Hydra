@@ -2395,9 +2395,14 @@ class Pipeline:
         """
         pre_v = snapshot.voltage_v if snapshot is not None else None
         pre_pct = snapshot.remaining_pct if snapshot is not None else None
+        # SCHEMA default for [autonomous].safe_mode is LOITER (drone fallback).
+        # USV/UGV profiles override to HOLD via [vehicle.<name>].autonomous.safe_mode
+        # which is merged into [autonomous] before this method ever runs.
+        # Keep the runtime fallback aligned with SCHEMA to satisfy the
+        # config-consistency check.
         safe_mode = self._cfg.get(
-            "autonomous", "safe_mode", fallback="HOLD",
-        ).strip() or "HOLD"
+            "autonomous", "safe_mode", fallback="LOITER",
+        ).strip() or "LOITER"
 
         audit_log.warning(
             "BATTERY_GRACEFUL_STOP vehicle=%s callsign=%s pre_voltage_v=%s "
