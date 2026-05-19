@@ -460,17 +460,37 @@ class DetectionLogger:
         return True
 
     def _prune_old_logs(self) -> None:
-        """Delete the oldest log files beyond the configured retention limit."""
+        """Delete the oldest log files beyond the configured retention limit.
+
+        After any successful delete, invalidate the mission-summary cache —
+        the cache signature (file count + mtime sum + size sum) can match a
+        stale entry for the now-truncated dataset, silently serving wrong
+        numbers for the 30s TTL. R1-1 in docs/adversarial/230.md.
+        """
         ext = "csv" if self._log_format == "csv" else "jsonl"
         pattern = f"detections_*.{ext}"
         files = sorted(self._log_dir.glob(pattern), key=lambda p: p.stat().st_mtime)
         excess = len(files) - self._max_log_files
+        deleted_any = False
         for path in files[:excess]:
             try:
                 path.unlink()
+                deleted_any = True
                 logger.info("Pruned old log file: %s", path)
             except OSError as exc:
                 logger.warning("Failed to delete old log file %s: %s", path, exc)
+        if deleted_any:
+            # Local import to avoid a hard cycle (mission_summary may import
+            # detection helpers in the future). Lazy + cheap on the rare
+            # prune path.
+            try:
+                from hydra_detect.mission_summary import invalidate_for_log_dir
+                invalidate_for_log_dir(self._log_dir)
+            except Exception as exc:  # pragma: no cover — defensive
+                logger.warning(
+                    "Could not invalidate mission_summary cache after prune: %s",
+                    exc,
+                )
 
     def _prune_old_images(self) -> None:
         """Delete oldest JPEG snapshots beyond the per-log-file average budget.

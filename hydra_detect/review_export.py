@@ -86,6 +86,43 @@ def _polygon_area_m2(hull_latlon: list[tuple[float, float]]) -> float:
     return abs(area2) / 2.0
 
 
+_EARTH_RADIUS_M = 6_371_000.0
+
+
+def _haversine_m(p1: tuple[float, float], p2: tuple[float, float]) -> float:
+    """Great-circle distance in meters between two ``(lat, lon)`` points.
+
+    Standard haversine — good to ~0.5% at SORCC sortie scales (<10 km),
+    cheap enough to run over 600 GPS points per summary call.
+    """
+    lat1 = math.radians(p1[0])
+    lat2 = math.radians(p2[0])
+    dlat = math.radians(p2[0] - p1[0])
+    dlon = math.radians(p2[1] - p1[1])
+    a = (
+        math.sin(dlat / 2.0) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2.0) ** 2
+    )
+    c = 2.0 * math.asin(min(1.0, math.sqrt(a)))
+    return _EARTH_RADIUS_M * c
+
+
+def _track_length_m(points: list[tuple[float, float]]) -> float:
+    """Total path length in meters along ``points`` in order.
+
+    Sequential point-to-point haversine. Returns 0.0 for fewer than 2
+    points. Surfaces a useful number when the track is collinear (a UGV
+    that hugs one road) and ``_polygon_area_m2`` rounds the hull down to
+    zero. R3-2 in docs/adversarial/230.md.
+    """
+    if len(points) < 2:
+        return 0.0
+    total = 0.0
+    for i in range(1, len(points)):
+        total += _haversine_m(points[i - 1], points[i])
+    return total
+
+
 def gps_coverage(points: list[tuple[float, float]]) -> dict:
     """Return convex-hull-based GPS coverage stats for a list of lat/lon points.
 
@@ -95,12 +132,24 @@ def gps_coverage(points: list[tuple[float, float]]) -> dict:
             "point_count": int,
             "hull": [[lat, lon], ...],   # CCW, may be 0/1/2 points if degenerate
             "area_m2": float,
+            "track_length_m": float,     # haversine sum across `points` in order
             "bbox": {"min_lat": ..., "max_lat": ..., "min_lon": ..., "max_lon": ...}
                 or None if no points,
         }
+
+    ``track_length_m`` covers the R3-2 collinear-degenerate case where a
+    vehicle that drives a straight line for 10 minutes produced 600 GPS
+    points but ``area_m2`` rounds to 0 — the operator needs *some* number
+    bigger than zero so they don't assume the GPS dropped.
     """
     if not points:
-        return {"point_count": 0, "hull": [], "area_m2": 0.0, "bbox": None}
+        return {
+            "point_count": 0,
+            "hull": [],
+            "area_m2": 0.0,
+            "track_length_m": 0.0,
+            "bbox": None,
+        }
 
     hull = _convex_hull(points)
     bbox = {
@@ -113,6 +162,7 @@ def gps_coverage(points: list[tuple[float, float]]) -> dict:
         "point_count": len(points),
         "hull": [list(p) for p in hull],
         "area_m2": _polygon_area_m2(hull),
+        "track_length_m": round(_track_length_m(points), 3),
         "bbox": bbox,
     }
 

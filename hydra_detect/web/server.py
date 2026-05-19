@@ -2653,6 +2653,39 @@ async def api_abort(request: Request):
 
 # ── Mission Tagging ────────────────────────────────────────────────
 
+# Rate-limit /api/mission/start to one call per 5 s per remote IP.
+# R2-1 in docs/adversarial/230.md: each successful call opens a new event
+# JSONL with a fresh UUID. A rapid-clicking operator (or scripted attacker)
+# can otherwise drive the DetectionLogger rotation policy into deleting
+# prior sorties' event logs as it makes room for the synthetic backlog.
+_MISSION_START_WINDOW_SEC = 5.0
+_mission_start_hits: Dict[str, float] = {}
+_mission_start_lock = threading.Lock()
+
+
+def _mission_start_retry_after(client_ip: str, now: float) -> float | None:
+    """Return seconds-until-allowed if ``client_ip`` is still in cooldown.
+
+    Records the hit when allowed. Returns the float Retry-After hint
+    (always >0) when the call should be rejected; returns ``None`` when
+    the call may proceed.
+    """
+    with _mission_start_lock:
+        last = _mission_start_hits.get(client_ip)
+        if last is not None and (now - last) < _MISSION_START_WINDOW_SEC:
+            return round(_MISSION_START_WINDOW_SEC - (now - last), 3)
+        _mission_start_hits[client_ip] = now
+        # Compact stale entries so this dict cannot grow without bound on a
+        # busy network. Cheap O(n) on each successful start — the dict is
+        # already small because entries expire after 5 s.
+        for k in [
+            ip for ip, ts in _mission_start_hits.items()
+            if (now - ts) > _MISSION_START_WINDOW_SEC * 4
+        ]:
+            _mission_start_hits.pop(k, None)
+        return None
+
+
 @app.post("/api/mission/start")
 async def api_start_mission(request: Request, authorization: Optional[str] = Header(None)):
     """Start a named mission. Body: {"name": "mission-alpha"} (name optional).
@@ -2660,10 +2693,29 @@ async def api_start_mission(request: Request, authorization: Optional[str] = Hea
     Returns ``{"status": "started", "name": <name>, "mission_id": <uuid>}``
     so the operator UI can surface the id and use it for ``/api/summary``
     queries later.
+
+    Rate-limited to one call per 5 s per remote IP. Repeat callers within
+    the window get ``429 Too Many Requests`` with a ``Retry-After`` header.
     """
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
+    client_ip = request.client.host if request.client else "unknown"
+    retry_after = _mission_start_retry_after(client_ip, time.monotonic())
+    if retry_after is not None:
+        return JSONResponse(
+            {
+                "error": (
+                    "Too many mission start requests. "
+                    "Wait at least 5 seconds between starts."
+                ),
+                "retry_after_sec": retry_after,
+            },
+            status_code=429,
+            # Retry-After is an integer-seconds HTTP header; round up so a
+            # 0.4s remaining wait still surfaces as "wait 1s" (RFC 7231).
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
     body = await _parse_json(request)
     # Empty body is allowed — operator can hit Start without naming the sortie.
     if body is None:
