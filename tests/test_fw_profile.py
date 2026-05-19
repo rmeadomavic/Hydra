@@ -222,6 +222,8 @@ class TestFWPipelineRefusal:
         p._autonomous = None
         p._event_logger = MagicMock()
         p._drop_distance_m = 3.0
+        p._strike_distance_m = 3.0
+        p._servo_tracker = MagicMock()
         p._init_target_state()
         p._last_track_result = TrackingResult(
             tracks=[TrackedObject(
@@ -257,6 +259,40 @@ class TestFWPipelineRefusal:
         assert p._handle_pixel_lock_command(3) is False
         p._approach.start_pixel_lock.assert_not_called()
         assert p._locked_track_id is None
+
+    def test_fw_refuses_strike_command(self):
+        """Regression for issue #246: _handle_strike_command also bypasses GUIDED.
+
+        Sibling handlers (_handle_drop_command, _handle_follow_command,
+        _handle_approach_strike_command, _handle_pixel_lock_command) all carry
+        the FW guard; _handle_strike_command was missing it and could still
+        command GUIDED nav + fire the strike servo on fixed-wing.
+        """
+        p = self._make_pipeline("fw")
+        assert p._handle_strike_command(3) is False
+        # No GUIDED command should reach mavlink.
+        p._mavlink.command_guided_to.assert_not_called()
+        # Strike servo must not fire on refusal.
+        p._servo_tracker.fire_strike.assert_not_called()
+        # No lock should be set on refusal.
+        assert p._locked_track_id is None
+
+    def test_fw_strike_command_refusal_emits_audit_log(self, caplog):
+        """Strike-command refusal lands on hydra.audit, same as siblings."""
+        import logging
+        with caplog.at_level(logging.INFO, logger="hydra.audit"):
+            p = self._make_pipeline("fw")
+            p._handle_strike_command(3)
+        joined = " ".join(r.getMessage() for r in caplog.records)
+        assert "FW_PROFILE_REFUSED" in joined
+        assert "strike" in joined
+
+    def test_drone_profile_still_allows_strike_command(self):
+        """Regression: drone profile is unaffected — strike command still runs."""
+        p = self._make_pipeline("drone")
+        assert p._handle_strike_command(3) is True
+        p._mavlink.command_guided_to.assert_called_once()
+        p._servo_tracker.fire_strike.assert_called_once()
 
     def test_fw_refusal_emits_statustext(self):
         """Operator gets a STATUSTEXT explaining the refusal — not silent."""
