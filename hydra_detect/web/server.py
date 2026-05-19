@@ -288,6 +288,32 @@ def _check_auth(
     return None
 
 
+# Loopback hosts that should NOT trigger the "remote abort reachable" banner
+# on the dashboard. Anything else (LAN IP, Tailscale IP, public DNS) counts
+# as a remote viewer and the banner is shown to remind the operator that
+# /api/abort is intentionally unauthenticated. (issue #150)
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def _is_remote_client(request: Request) -> bool:
+    """Return True when the dashboard is being viewed from a non-loopback host.
+
+    Used to surface the "remote abort reachable" banner. Robust to a missing
+    request.client (TestClient with no scope, ASGI lifespan calls). Treats
+    unknown / missing client host as remote — fail-loud rather than fail-quiet.
+
+    PR #210 R1-2 from docs/adversarial/210.md: missing client info now returns
+    True. The banner is informational about a security state; showing it once
+    extra (e.g. on the synthetic / ASGI-lifespan path) is harmless, whereas
+    suppressing it when we genuinely can't classify the viewer was the bug.
+    """
+    client = getattr(request, "client", None)
+    host = getattr(client, "host", None) if client else None
+    if not host:
+        return True  # no client info → fail-loud, surface the banner
+    return host not in _LOOPBACK_HOSTS
+
+
 def _origin_matches_request(origin: str, request: Request) -> bool:
     """Return True when Origin exactly matches request scheme + host + port."""
     try:
@@ -848,10 +874,19 @@ async def auth_status(request: Request):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    """Serve the operator dashboard SPA."""
+    """Serve the operator dashboard SPA.
+
+    Passes ``morale_features_enabled`` so dev-image easter eggs render only
+    on dev builds, and ``remote_abort_reachable`` so the dashboard surfaces
+    a banner reminding the operator that /api/abort is intentionally
+    unauthenticated whenever a non-loopback browser loads the page (#150).
+    """
     return templates.TemplateResponse(
         request, "base.html",
-        {"morale_features_enabled": _morale_features_enabled},
+        {
+            "morale_features_enabled": _morale_features_enabled,
+            "remote_abort_reachable": _is_remote_client(request),
+        },
     )
 
 

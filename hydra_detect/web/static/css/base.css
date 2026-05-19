@@ -488,6 +488,50 @@ input[type="range"]::-webkit-slider-thumb {
     100% { transform: translate(0); filter: hue-rotate(0deg); opacity: 0; }
 }
 
+/* ── Remote Abort Reachable Banner (issue #150) ──
+   Yellow strip across the top of the page reminding the operator that
+   /api/abort is unauthenticated when the dashboard is opened from a
+   non-loopback host. Server-side gated; absent on localhost views. */
+.remote-abort-banner {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--s-3, 12px);
+    padding: 6px 14px;
+    background: rgba(255, 159, 28, 0.92);
+    color: #1b1b1b;
+    font-family: var(--font-mono);
+    font-size: var(--font-sm, 13px);
+    font-weight: 600;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.25);
+    z-index: 90;
+}
+.remote-abort-banner code {
+    background: rgba(0, 0, 0, 0.18);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: inherit;
+}
+.remote-abort-banner-text {
+    flex: 1;
+    text-align: center;
+}
+.remote-abort-banner-close {
+    background: transparent;
+    border: 1px solid rgba(0, 0, 0, 0.35);
+    color: #1b1b1b;
+    width: 22px;
+    height: 22px;
+    line-height: 1;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 16px;
+}
+.remote-abort-banner-close:hover {
+    background: rgba(0, 0, 0, 0.1);
+}
+
 /* ── Stale Video Overlay ── */
 .stale-overlay {
     position: absolute;
