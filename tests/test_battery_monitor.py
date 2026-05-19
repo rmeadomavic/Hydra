@@ -1132,7 +1132,15 @@ class TestGracefulStopFacadeCallback:
         return pipe
 
     def test_callback_calls_servo_safe_and_disable_pan(self):
+        from hydra_detect.mavlink_io import SetModeResult
         mav = MagicMock()
+        # Pre-check returns a non-recovery mode so we exercise the
+        # set_mode path (PR #240 R3-2).
+        mav.get_vehicle_mode.return_value = "MANUAL"
+        mav.set_mode.return_value = SetModeResult(
+            accepted=True, realized_mode="HOLD",
+            ack_received=True, timeout=False,
+        )
         servo = MagicMock()
         servo.disable_pan.return_value = True
         pipe = self._make_pipeline_stub(mav, servo)
@@ -1143,7 +1151,12 @@ class TestGracefulStopFacadeCallback:
         assert result == "graceful_stop"
         servo.safe.assert_called_once()
         servo.disable_pan.assert_called_once()
-        mav.set_mode.assert_called_once_with("HOLD")
+        # set_mode is now called with wait_for_ack=True for confirmation
+        # (PR #240 R1-2 / R3-4).
+        mav.set_mode.assert_called_once()
+        args, kwargs = mav.set_mode.call_args
+        assert args[0] == "HOLD"
+        assert kwargs.get("wait_for_ack") is True
 
     def test_callback_records_pan_disabled_true_in_audit(self, caplog):
         import logging
@@ -1205,6 +1218,92 @@ class TestGracefulStopFacadeCallback:
         # Must not raise
         result = pipe._graceful_stop_for_shared_battery(snapshot)
         assert result == "graceful_stop"
+
+    def test_callback_skips_set_mode_when_fc_already_in_recovery(self, caplog):
+        """PR #240 R3-2: if FC is already in RTL/LAND/HOLD/etc., don't
+        fight the autopilot — skip the set_mode override and record why."""
+        import logging
+        mav = MagicMock()
+        mav.get_vehicle_mode.return_value = "RTL"  # autopilot-driven
+        servo = MagicMock()
+        servo.disable_pan.return_value = True
+        pipe = self._make_pipeline_stub(mav, servo)
+        snapshot = BatteryState(
+            voltage_v=11.8, remaining_pct=19, level=LEVEL_LOW,
+        )
+        with caplog.at_level(logging.WARNING, logger="hydra.audit"):
+            result = pipe._graceful_stop_for_shared_battery(snapshot)
+        assert result == "graceful_stop"
+        # set_mode must NOT be called — autopilot is already driving recovery
+        mav.set_mode.assert_not_called()
+        # Servo ladder still runs (pan disable is independent of FC mode)
+        servo.safe.assert_called_once()
+        servo.disable_pan.assert_called_once()
+        # Post-action audit row records the skip reason
+        audit = [r for r in caplog.records if "BATTERY_GRACEFUL_STOP" in r.message]
+        result_rows = [r for r in audit if "_RESULT" in r.message]
+        assert result_rows, "expected BATTERY_GRACEFUL_STOP_RESULT row"
+        assert any(
+            "set_mode_skipped=already_in_RTL" in r.message
+            for r in result_rows
+        )
+
+    def test_callback_writes_post_action_result_row(self, caplog):
+        """PR #240 R1-4: post-action audit row records realized outcomes."""
+        import logging
+        from hydra_detect.mavlink_io import SetModeResult
+        mav = MagicMock()
+        mav.get_vehicle_mode.return_value = "MANUAL"
+        mav.set_mode.return_value = SetModeResult(
+            accepted=True, realized_mode="HOLD",
+            ack_received=True, timeout=False,
+        )
+        servo = MagicMock()
+        servo.disable_pan.return_value = True
+        pipe = self._make_pipeline_stub(mav, servo)
+        snapshot = BatteryState(
+            voltage_v=11.8, remaining_pct=19, level=LEVEL_LOW,
+        )
+        with caplog.at_level(logging.WARNING, logger="hydra.audit"):
+            pipe._graceful_stop_for_shared_battery(snapshot)
+        rows = [r for r in caplog.records if "BATTERY_GRACEFUL_STOP" in r.message]
+        # Pre-action AND post-action rows are present
+        pre = [r for r in rows if "_RESULT" not in r.message]
+        post = [r for r in rows if "_RESULT" in r.message]
+        assert pre, "pre-action BATTERY_GRACEFUL_STOP row missing"
+        assert post, "post-action BATTERY_GRACEFUL_STOP_RESULT row missing"
+        msg = post[0].message
+        assert "set_mode_ok=True" in msg
+        assert "set_mode_realized=HOLD" in msg
+        assert "servo_safe_ok=True" in msg
+        assert "pan_disabled=True" in msg
+        assert "statustext_sent=True" in msg
+
+    def test_callback_result_row_records_set_mode_timeout(self, caplog):
+        """If the FC never confirms mode change, post-action row shows
+        set_mode_ok=False (PR #240 R1-2 / R1-4)."""
+        import logging
+        from hydra_detect.mavlink_io import SetModeResult
+        mav = MagicMock()
+        mav.get_vehicle_mode.return_value = "MANUAL"
+        mav.set_mode.return_value = SetModeResult(
+            accepted=False, realized_mode="MANUAL",
+            ack_received=False, timeout=True,
+        )
+        servo = MagicMock()
+        servo.disable_pan.return_value = True
+        pipe = self._make_pipeline_stub(mav, servo)
+        snapshot = BatteryState(
+            voltage_v=11.8, remaining_pct=19, level=LEVEL_LOW,
+        )
+        with caplog.at_level(logging.WARNING, logger="hydra.audit"):
+            pipe._graceful_stop_for_shared_battery(snapshot)
+        rows = [
+            r for r in caplog.records
+            if "BATTERY_GRACEFUL_STOP_RESULT" in r.message
+        ]
+        assert rows
+        assert "set_mode_ok=False" in rows[0].message
 
     def test_audit_action_cleared_writes_audit_row(self, caplog):
         import logging

@@ -104,6 +104,93 @@ class TestSetMode:
 
 
 # ---------------------------------------------------------------------------
+# set_mode confirmation path (PR #240 R1-2 / R3-4 / issue #241)
+# ---------------------------------------------------------------------------
+
+
+class TestSetModeWithAck:
+    def test_wait_for_ack_no_connection_returns_result(self):
+        from hydra_detect.mavlink_io import SetModeResult
+        m = _make_mavlink()
+        r = m.set_mode("HOLD", wait_for_ack=True, ack_timeout_sec=0.1)
+        assert isinstance(r, SetModeResult)
+        assert r.accepted is False
+        assert r.realized_mode is None
+        assert r.ack_received is False
+
+    def test_wait_for_ack_unknown_mode_returns_result(self):
+        from hydra_detect.mavlink_io import SetModeResult
+        m = _make_mavlink()
+        m._mav = MagicMock()
+        m._mav.mode_mapping.return_value = {"AUTO": 3}
+        r = m.set_mode("HOLD", wait_for_ack=True, ack_timeout_sec=0.1)
+        assert isinstance(r, SetModeResult)
+        assert r.accepted is False
+
+    def test_wait_for_ack_heartbeat_confirms(self):
+        from hydra_detect.mavlink_io import SetModeResult
+        m = _make_mavlink()
+        m._mav = MagicMock()
+        m._mav.mode_mapping.return_value = {"HOLD": 4}
+
+        # Simulate a HEARTBEAT arriving immediately after set_mode_apm:
+        # set the cached mode and signal the event the reader normally
+        # would.
+        def _send_and_signal(_mode_int):
+            m._vehicle_mode = "HOLD"
+            m._mode_change_event.set()
+        m._mav.set_mode_apm.side_effect = _send_and_signal
+        r = m.set_mode("HOLD", wait_for_ack=True, ack_timeout_sec=1.0)
+        assert isinstance(r, SetModeResult)
+        assert r.accepted is True
+        assert r.realized_mode == "HOLD"
+        assert r.ack_received is True
+        assert r.timeout is False
+
+    def test_wait_for_ack_timeout(self):
+        from hydra_detect.mavlink_io import SetModeResult
+        m = _make_mavlink()
+        m._mav = MagicMock()
+        m._mav.mode_mapping.return_value = {"HOLD": 4}
+        # No HEARTBEAT signal — should time out.
+        r = m.set_mode("HOLD", wait_for_ack=True, ack_timeout_sec=0.15)
+        assert isinstance(r, SetModeResult)
+        assert r.accepted is False
+        assert r.ack_received is False
+        assert r.timeout is True
+
+    def test_wait_for_ack_other_mode_observed(self):
+        """If the FC ends up in a DIFFERENT mode (e.g. autopilot-driven
+        RTL beat us), ack_received is True but accepted is False."""
+        from hydra_detect.mavlink_io import SetModeResult
+        m = _make_mavlink()
+        m._mav = MagicMock()
+        m._mav.mode_mapping.return_value = {"HOLD": 4}
+        # Simulate the autopilot winning the race — HEARTBEAT carries
+        # a DIFFERENT mode than what we asked for.
+
+        def _send_and_signal(_mode_int):
+            m._vehicle_mode = "RTL"  # autopilot won the race
+            m._mode_change_event.set()
+        m._mav.set_mode_apm.side_effect = _send_and_signal
+        r = m.set_mode("HOLD", wait_for_ack=True, ack_timeout_sec=1.0)
+        assert isinstance(r, SetModeResult)
+        assert r.accepted is False
+        assert r.realized_mode == "RTL"
+        assert r.ack_received is True
+
+    def test_legacy_fire_and_forget_still_returns_bool(self):
+        """Existing callers that don't pass wait_for_ack must still
+        get bool (back-compat for approach.py / dogleg_rtl.py / web).
+        """
+        m = _make_mavlink()
+        m._mav = MagicMock()
+        m._mav.mode_mapping.return_value = {"HOLD": 4}
+        assert m.set_mode("HOLD") is True
+        assert m.set_mode("HOLD", wait_for_ack=False) is True
+
+
+# ---------------------------------------------------------------------------
 # Target position estimation
 # ---------------------------------------------------------------------------
 

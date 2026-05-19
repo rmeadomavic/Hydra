@@ -2502,15 +2502,80 @@ class Pipeline:
             )
             return None
 
+        # Pre-action audit row records the intent and the snapshot at
+        # decision time. The realized outcomes (set_mode_ok, servo_safe_ok,
+        # pan_disabled, statustext_sent) are written in the post-action
+        # row below (issue #241 / PR #240 R1-4).
+        audit_log.warning(
+            "BATTERY_GRACEFUL_STOP vehicle=%s callsign=%s pre_voltage_v=%s "
+            "pre_pct=%s safe_mode=%s",
+            getattr(self, "_vehicle", None),
+            self._callsign,
+            pre_v,
+            pre_pct,
+            safe_mode,
+        )
+
         # 1) Mode change first — gets the FC into a stable hold while
-        # Jetson still has rail. set_mode is best-effort but logs.
+        # Jetson still has rail. Now uses wait_for_ack=True so the
+        # post-action audit row reflects ground truth, not just the
+        # send (PR #240 R1-2 / R3-4).
+        #
+        # FC-mode precedence (PR #240 R3-2): if the autopilot is already
+        # in a recovery or hold mode (RTL/LAND/HOLD/SMART_RTL/BRAKE),
+        # don't fight it — Jetson set_mode(HOLD) competing with an
+        # autopilot-driven RTL from BATT_FS_LOW_ACT=2 cancels the
+        # safer behaviour. Skip the override and record why.
+        ack_timeout = self._cfg.getfloat(
+            "battery", "set_mode_ack_timeout_sec", fallback=2.0,
+        )
+        recovery_modes = {"RTL", "LAND", "HOLD", "SMART_RTL", "BRAKE"}
+        current_mode = None
         try:
-            self._mavlink.set_mode(safe_mode)
+            current_mode = self._mavlink.get_vehicle_mode()
         except Exception as exc:
             logger.warning(
-                "Shared-battery LOW: set_mode(%s) raised %s",
-                safe_mode, exc,
+                "Shared-battery LOW: get_vehicle_mode raised %s", exc,
             )
+
+        set_mode_skipped_reason = None
+        set_mode_ok = False
+        set_mode_realized = current_mode
+        if current_mode in recovery_modes:
+            set_mode_skipped_reason = f"already_in_{current_mode}"
+            # An autopilot-driven recovery counts as a successful safe
+            # state from the operator's perspective — record realized=
+            # current mode and set_mode_ok=True so downstream logic
+            # doesn't try a second override.
+            set_mode_ok = True
+            set_mode_realized = current_mode
+            logger.info(
+                "Shared-battery LOW: FC already in %s — skipping "
+                "set_mode(%s) override.",
+                current_mode, safe_mode,
+            )
+        else:
+            try:
+                result = self._mavlink.set_mode(
+                    safe_mode,
+                    wait_for_ack=True,
+                    ack_timeout_sec=ack_timeout,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Shared-battery LOW: set_mode(%s) raised %s",
+                    safe_mode, exc,
+                )
+                result = None
+            # Back-compat: legacy fire-and-forget returns bool. The
+            # wait_for_ack=True path returns SetModeResult; tolerate
+            # either shape so mocked tests don't break.
+            if hasattr(result, "accepted"):
+                set_mode_ok = bool(result.accepted)
+                set_mode_realized = result.realized_mode
+            else:
+                set_mode_ok = bool(result)
+                set_mode_realized = None
 
         # 2) Zero the servo tracker if it's holding a pan/strike PWM —
         # otherwise the platform sits at the last commanded angle until
@@ -2518,10 +2583,12 @@ class Pipeline:
         # but does NOT prevent the frame loop from re-driving the pan
         # channel — disable_pan() gates further update() calls so a pan
         # sweep can't be the load draining the pack (issue #234 R3-1).
+        servo_safe_ok = False
         pan_disabled = False
         if self._servo_tracker is not None:
             try:
                 self._servo_tracker.safe()
+                servo_safe_ok = True
             except Exception as exc:
                 logger.warning(
                     "Shared-battery LOW: servo.safe() raised %s", exc,
@@ -2533,26 +2600,37 @@ class Pipeline:
                     "Shared-battery LOW: servo.disable_pan() raised %s", exc,
                 )
 
-        audit_log.warning(
-            "BATTERY_GRACEFUL_STOP vehicle=%s callsign=%s pre_voltage_v=%s "
-            "pre_pct=%s safe_mode=%s pan_disabled=%s",
-            getattr(self, "_vehicle", None),
-            self._callsign,
-            pre_v,
-            pre_pct,
-            safe_mode,
-            pan_disabled,
-        )
-
         # 3) Best-effort operator notification beyond the STATUSTEXT path
         # (which the battery monitor itself emits on the LOW transition).
+        statustext_sent = False
         try:
             self._mavlink.send_statustext(
                 f"{self._callsign}: GRACEFUL STOP (shared batt)",
                 severity=2,  # CRITICAL — paints red in Mission Planner
             )
+            statustext_sent = True
         except Exception:
             pass  # send is best-effort
+
+        # Post-action audit row: realized outcomes, not just intent
+        # (PR #240 R1-4). Pairs with the pre-action row above so
+        # post-incident replay can see what was attempted AND what
+        # actually happened.
+        audit_log.warning(
+            "BATTERY_GRACEFUL_STOP_RESULT vehicle=%s callsign=%s "
+            "safe_mode=%s set_mode_ok=%s set_mode_realized=%s "
+            "set_mode_skipped=%s servo_safe_ok=%s pan_disabled=%s "
+            "statustext_sent=%s",
+            getattr(self, "_vehicle", None),
+            self._callsign,
+            safe_mode,
+            set_mode_ok,
+            set_mode_realized,
+            set_mode_skipped_reason,
+            servo_safe_ok,
+            pan_disabled,
+            statustext_sent,
+        )
         return "graceful_stop"
 
     def _audit_action_cleared(self, label: str) -> None:

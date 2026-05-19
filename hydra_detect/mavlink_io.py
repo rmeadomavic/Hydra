@@ -7,10 +7,21 @@ import logging
 import math
 import threading
 import time
-from collections import deque
+from collections import deque, namedtuple
 from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+
+# Result of a confirmed set_mode call. ``accepted`` is True only when the
+# HEARTBEAT-mode-change ground truth (or COMMAND_ACK ACCEPTED, where the
+# autopilot emits one) was observed before the timeout. ``realized_mode`` is
+# the mode name observed in the next HEARTBEAT after the call. ``timeout`` is
+# True when neither signal arrived within the window.
+SetModeResult = namedtuple(
+    "SetModeResult",
+    ["accepted", "realized_mode", "ack_received", "timeout"],
+)
 
 
 class MAVLinkIO:
@@ -110,6 +121,9 @@ class MAVLinkIO:
         self._vehicle_mode: Optional[str] = None
         self._vehicle_mode_lock = threading.Lock()
         self._reverse_mode_map: dict[int, str] | None = None
+        # Signaled by _update_vehicle_mode whenever the cached mode changes.
+        # set_mode(wait_for_ack=True) waits on this to confirm realization.
+        self._mode_change_event = threading.Event()
 
         # MAVLink command callbacks (set by pipeline)
         self._cmd_callbacks: Dict[str, Callable] = {}
@@ -371,8 +385,15 @@ class MAVLinkIO:
                 else:
                     return
             mode_name = self._reverse_mode_map.get(heartbeat_msg.custom_mode)
+            changed = False
             with self._vehicle_mode_lock:
-                self._vehicle_mode = mode_name
+                if self._vehicle_mode != mode_name:
+                    self._vehicle_mode = mode_name
+                    changed = True
+            if changed:
+                # Wake any set_mode(wait_for_ack=True) caller blocked on
+                # HEARTBEAT-mode-change ground truth (issue #241).
+                self._mode_change_event.set()
         except Exception as exc:
             logger.warning("Failed to parse vehicle mode from heartbeat: %s", exc)
 
@@ -1129,21 +1150,92 @@ class MAVLinkIO:
         else:
             logger.info("Alert class filter cleared — alerting on all classes.")
 
-    def set_mode(self, mode_name: str) -> bool:
-        """Set the vehicle flight mode by name. Returns True on success."""
+    def set_mode(
+        self,
+        mode_name: str,
+        wait_for_ack: bool = False,
+        ack_timeout_sec: float = 2.0,
+    ):
+        """Set the vehicle flight mode by name.
+
+        Args:
+            mode_name: ArduPilot mode name (e.g. ``"HOLD"``, ``"LOITER"``).
+            wait_for_ack: When False (default), behaves exactly like the
+                legacy fire-and-forget surface — sends SET_MODE, returns
+                ``True`` if the send went out cleanly. When True, blocks
+                up to ``ack_timeout_sec`` for HEARTBEAT-mode-change ground
+                truth and returns a :class:`SetModeResult`.
+            ack_timeout_sec: Wall-clock seconds to wait for the next
+                HEARTBEAT carrying the new mode (or any mode change, in
+                case the FC went to a different mode like an in-flight
+                failsafe). Ignored when ``wait_for_ack`` is False.
+
+        Returns:
+            ``bool`` when ``wait_for_ack`` is False (back-compat), or
+            :class:`SetModeResult` when ``wait_for_ack`` is True.
+
+        Safety note: callers that need the legacy fire-and-forget contract
+        (approach.py, dogleg_rtl.py, web mode_api) keep their current
+        behaviour. New safety-critical paths (graceful-stop) should pass
+        ``wait_for_ack=True`` and inspect the result.
+        """
         if self._mav is None:
+            if wait_for_ack:
+                return SetModeResult(
+                    accepted=False,
+                    realized_mode=None,
+                    ack_received=False,
+                    timeout=False,
+                )
             return False
         try:
             mode_map = self._mav.mode_mapping()
-            if mode_name in mode_map:
-                with self._send_lock:
-                    self._mav.set_mode_apm(mode_map[mode_name])
-                logger.info("Vehicle set to %s mode.", mode_name)
+            if mode_name not in mode_map:
+                logger.warning("Mode %s not found in mode mapping.", mode_name)
+                if wait_for_ack:
+                    return SetModeResult(
+                        accepted=False,
+                        realized_mode=self.get_vehicle_mode(),
+                        ack_received=False,
+                        timeout=False,
+                    )
+                return False
+
+            # Clear the mode-change event BEFORE sending so we don't
+            # mis-attribute a prior HEARTBEAT to this set_mode call.
+            if wait_for_ack:
+                self._mode_change_event.clear()
+
+            with self._send_lock:
+                self._mav.set_mode_apm(mode_map[mode_name])
+            logger.info("Vehicle set to %s mode.", mode_name)
+
+            if not wait_for_ack:
                 return True
-            logger.warning("Mode %s not found in mode mapping.", mode_name)
-            return False
+
+            # Wait for HEARTBEAT-mode-change ground truth. ArduPilot does
+            # not reliably emit COMMAND_ACK for SET_MODE — the next
+            # HEARTBEAT carrying the new custom_mode is the source of
+            # truth. Cap the wait so the caller never blocks forever.
+            timeout = max(0.1, min(10.0, float(ack_timeout_sec)))
+            signalled = self._mode_change_event.wait(timeout=timeout)
+            realized = self.get_vehicle_mode()
+            accepted = signalled and realized == mode_name
+            return SetModeResult(
+                accepted=accepted,
+                realized_mode=realized,
+                ack_received=signalled,
+                timeout=not signalled,
+            )
         except Exception as exc:
             logger.warning("Failed to set mode %s: %s", mode_name, exc)
+            if wait_for_ack:
+                return SetModeResult(
+                    accepted=False,
+                    realized_mode=self.get_vehicle_mode(),
+                    ack_received=False,
+                    timeout=False,
+                )
             return False
 
     def get_rc_channels(self) -> list[int]:
