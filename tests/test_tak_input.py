@@ -587,3 +587,70 @@ class TestPeerRoster:
         assert len(peers) == 1
         assert peers[0]["lat"] == 20.0
         assert peers[0]["lon"] == 20.0
+
+
+# =====================================================================
+# Group J: Duplicate callsign detection (issue #48)
+# =====================================================================
+
+class TestDuplicateCallsign:
+    """SA events from another node with the same callsign must trip the flag."""
+
+    def test_matching_callsign_other_uid_trips_flag(self):
+        ti = _make_input(my_callsign="HYDRA-2-USV")
+        # Another node broadcasting our callsign — UID is not ours.
+        ti._handle_datagram(_build_sa_event(
+            uid="ANDROID-XYZ-9999",
+            callsign="HYDRA-2-USV",
+            cot_type="a-f-G-U-C",
+        ))
+        status = ti.get_status()
+        assert status["duplicate_callsign"] is True
+        assert ti._duplicate_callsign is True
+
+    def test_our_own_sa_does_not_trip(self):
+        ti = _make_input(my_callsign="HYDRA-2-USV")
+        # Our own SA beacon: UID starts with our callsign.
+        ti._handle_datagram(_build_sa_event(
+            uid="HYDRA-2-USV.SA.1",
+            callsign="HYDRA-2-USV",
+            cot_type="a-f-G-U-C",
+        ))
+        assert ti._duplicate_callsign is False
+
+    def test_different_callsign_does_not_trip(self):
+        ti = _make_input(my_callsign="HYDRA-2-USV")
+        ti._handle_datagram(_build_sa_event(
+            uid="OTHER-1", callsign="HYDRA-3-USV", cot_type="a-f-G-U-C",
+        ))
+        assert ti._duplicate_callsign is False
+
+    def test_case_insensitive_match(self):
+        ti = _make_input(my_callsign="HYDRA-2-USV")
+        ti._handle_datagram(_build_sa_event(
+            uid="OTHER-1", callsign="hydra-2-usv", cot_type="a-f-G-U-C",
+        ))
+        assert ti._duplicate_callsign is True
+
+    def test_hostile_sa_with_same_callsign_also_trips(self):
+        # Adversarial: a hostile-track SA carrying our callsign as a spoof.
+        ti = _make_input(my_callsign="HYDRA-2-USV")
+        ti._handle_datagram(_build_sa_event(
+            uid="HOSTILE-A", callsign="HYDRA-2-USV", cot_type="a-h-G",
+        ))
+        assert ti._duplicate_callsign is True
+
+    def test_flag_auto_clears_after_60s(self, monkeypatch):
+        ti = _make_input(my_callsign="HYDRA-2-USV")
+        ti._handle_datagram(_build_sa_event(
+            uid="OTHER-1", callsign="HYDRA-2-USV", cot_type="a-f-G-U-C",
+        ))
+        assert ti._duplicate_callsign is True
+        # Fast-forward monotonic by 61 s — flag should clear in get_status.
+        original = time.monotonic
+        monkeypatch.setattr(
+            "hydra_detect.tak.tak_input.time.monotonic",
+            lambda: original() + 61.0,
+        )
+        status = ti.get_status()
+        assert status["duplicate_callsign"] is False

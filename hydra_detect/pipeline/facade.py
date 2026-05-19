@@ -169,17 +169,46 @@ class Pipeline:
                     vehicle, vehicle_section,
                 )
 
-        # Callsign-based identity: used in STATUSTEXT, logs, TAK, web UI
-        self._callsign = self._cfg.get("tak", "callsign", fallback="HYDRA-1")
-        # Auto-generate callsign from vehicle flag if still default
-        if self._callsign == "HYDRA-1" and vehicle:
-            self._callsign = f"HYDRA-{vehicle.upper()}"
+        # Callsign-based identity: used in STATUSTEXT, logs, TAK, web UI.
+        # Resolution precedence (issue #48):
+        #   1. [identity].callsign — set by Platform Setup, format
+        #      HYDRA-NN-PLATFORM. Authoritative for multi-instance ops.
+        #   2. [tak].callsign — operator override. Honoured if not the
+        #      factory default "HYDRA-1".
+        #   3. HYDRA-1-<VEHICLE> — derived from --vehicle when neither
+        #      identity nor an explicit tak override is set.
+        #   4. "HYDRA-1" — factory default (last resort).
+        _identity_cs = self._cfg.get(
+            "identity", "callsign", fallback="",
+        ).strip()
+        _tak_cs = self._cfg.get("tak", "callsign", fallback="HYDRA-1").strip()
+        if _identity_cs and _identity_cs.upper().startswith("HYDRA-"):
+            self._callsign = _identity_cs
+            if _tak_cs and _tak_cs != "HYDRA-1" and _tak_cs != _identity_cs:
+                logger.warning(
+                    "Both [identity].callsign=%s and [tak].callsign=%s set; "
+                    "using [identity].callsign as authoritative.",
+                    _identity_cs, _tak_cs,
+                )
+        elif _tak_cs and _tak_cs != "HYDRA-1":
+            self._callsign = _tak_cs
+        elif vehicle:
+            # HYDRA-1-<PLATFORM> keeps the team segment as "1" so the
+            # multi-segment wildcard matcher (HYDRA-ALL-USV etc.) still
+            # works against this dev/golden-image callsign.
+            self._callsign = f"HYDRA-1-{vehicle.upper()}"
             logger.info("Auto-callsign from vehicle flag: %s", self._callsign)
+        else:
+            self._callsign = "HYDRA-1"
         # Sync derived callsign back to config so TAK output reads it
         if not self._cfg.has_section("tak"):
             self._cfg.add_section("tak")
         self._cfg.set("tak", "callsign", self._callsign)
         self._vehicle = vehicle
+        # Edge-trigger latch for the DUPLICATE CALLSIGN STATUSTEXT emit.
+        # Set True the first time _tak_input flips _duplicate_callsign on,
+        # cleared when the flag clears (auto-clears after 60 s in TAKInput).
+        self._duplicate_callsign_statustext_sent = False
 
         # Wire the config API to the actual file so the web settings page
         # reads and writes the correct path when --config is non-default.
@@ -1839,7 +1868,27 @@ class Pipeline:
                 }
                 # Expose duplicate callsign flag from TAK input
                 if self._tak_input is not None:
-                    stats_update["duplicate_callsign"] = self._tak_input._duplicate_callsign
+                    _dup = self._tak_input._duplicate_callsign
+                    stats_update["duplicate_callsign"] = _dup
+                    # Emit STATUSTEXT once on the rising edge so the GCS
+                    # operator sees the conflict the same way they see CAM
+                    # LOST. Reset on falling edge so a future re-detection
+                    # (after the 60 s auto-clear in TAKInput) re-alerts.
+                    if _dup and not self._duplicate_callsign_statustext_sent:
+                        if self._mavlink is not None:
+                            try:
+                                self._mavlink.send_statustext(
+                                    f"{self._callsign}: DUPLICATE CALLSIGN",
+                                    severity=4,
+                                )
+                            except Exception as exc:
+                                logger.warning(
+                                    "Failed to emit DUPLICATE CALLSIGN STATUSTEXT: %s",
+                                    exc,
+                                )
+                        self._duplicate_callsign_statustext_sent = True
+                    elif not _dup and self._duplicate_callsign_statustext_sent:
+                        self._duplicate_callsign_statustext_sent = False
                 if self._mavlink is not None:
                     stats_update["vehicle_mode"] = cached_telem.get("vehicle_mode")
                     stats_update["armed"] = cached_telem.get("armed", False)

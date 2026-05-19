@@ -178,6 +178,58 @@ class TestUnknownProfile:
         assert not cfg.has_section("vehicle.unknown_profile")
 
 
+# ── 4b. Callsign precedence (issue #48) ─────────────────────────────────────
+
+
+class TestCallsignPrecedence:
+    """Bootstrap callsign resolution order: identity > tak override > vehicle."""
+
+    def test_identity_callsign_wins_over_tak_default(self):
+        """[identity].callsign=HYDRA-2-USV beats stock [tak].callsign=HYDRA-1."""
+        from hydra_detect.pipeline.bootstrap import PipelineBootstrap
+        path = _base_ini({"identity": {"callsign": "HYDRA-2-USV"}})
+        ctx = PipelineBootstrap().load_config(path, vehicle="ugv")
+        # Identity wins; vehicle flag does NOT override.
+        assert ctx.callsign == "HYDRA-2-USV"
+        assert ctx.cfg.get("tak", "callsign") == "HYDRA-2-USV"
+
+    def test_tak_override_used_when_identity_missing(self):
+        """A non-default [tak].callsign is honoured if [identity] is unset."""
+        from hydra_detect.pipeline.bootstrap import PipelineBootstrap
+        # No [identity] section. Operator hand-set [tak].callsign.
+        path = _base_ini()
+        # Patch the file to overwrite [tak].callsign to a custom value
+        cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
+        cfg.read(path)
+        cfg.set("tak", "callsign", "HYDRA-9-CUSTOM")
+        with open(path, "w") as f:
+            cfg.write(f)
+        ctx = PipelineBootstrap().load_config(path, vehicle="usv")
+        assert ctx.callsign == "HYDRA-9-CUSTOM"
+
+    def test_vehicle_flag_builds_hydra_1_platform(self):
+        """No identity, factory tak default → HYDRA-1-<VEHICLE>."""
+        from hydra_detect.pipeline.bootstrap import PipelineBootstrap
+        path = _base_ini()
+        ctx = PipelineBootstrap().load_config(path, vehicle="ugv")
+        assert ctx.callsign == "HYDRA-1-UGV"
+
+    def test_no_vehicle_no_identity_keeps_factory_default(self):
+        """Neither identity nor --vehicle → callsign stays HYDRA-1."""
+        from hydra_detect.pipeline.bootstrap import PipelineBootstrap
+        path = _base_ini()
+        ctx = PipelineBootstrap().load_config(path, vehicle=None)
+        assert ctx.callsign == "HYDRA-1"
+
+    def test_identity_callsign_propagates_to_tak_section(self):
+        """The bootstrap MUST write the resolved callsign back to [tak]
+        so TAK output, STATUSTEXT, and the dashboard read a single value."""
+        from hydra_detect.pipeline.bootstrap import PipelineBootstrap
+        path = _base_ini({"identity": {"callsign": "HYDRA-4-DRONE"}})
+        ctx = PipelineBootstrap().load_config(path)
+        assert ctx.cfg.get("tak", "callsign") == "HYDRA-4-DRONE"
+
+
 # ── 5. No env var → base config only ────────────────────────────────────────
 
 class TestNoProfile:
