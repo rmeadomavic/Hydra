@@ -737,3 +737,345 @@ class TestConfigRecoveryHelpers:
         result = validate_import_payload(["not", "a", "dict"])
         assert result["ok"] is False
         assert result["errors"]
+
+
+# ── Issue #224 — Runtime drift surface + opt-in auto_restart ────────────────
+
+
+class TestRuntimeConfigDiff:
+    """Issue #224 — /api/config/diff surfaces disk vs in-memory drift.
+
+    The diff endpoint is the Layer-1 signal that the operator sees in
+    the dashboard banner after factory-reset / import. These tests pin
+    the contract: empty diff when configs agree, populated diff when
+    they don't, runtime-empty when no pipeline callback is registered.
+    No actual config writes — the Windows os.replace flake is avoided
+    by mocking the in-memory snapshot callback.
+    """
+
+    def _make_cfg(self, **sections):
+        import configparser
+        cfg = configparser.ConfigParser()
+        for name, kvs in sections.items():
+            cfg[name] = kvs
+        return cfg
+
+    def test_diff_empty_when_disk_and_runtime_match(self, client, tmp_config):
+        # Build an in-memory ConfigParser that mirrors tmp_config exactly.
+        import configparser
+        runtime_cfg = configparser.ConfigParser()
+        runtime_cfg.read(tmp_config)
+        stream_state.set_callbacks(get_in_memory_config=lambda: runtime_cfg)
+
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.get("/api/config/diff")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["diff"] == {}
+        # Both sides populated — runtime is not empty when callback registered.
+        assert data["disk"]
+        assert data["runtime"]
+
+    def test_diff_non_empty_after_manual_disk_edit(
+        self, client, tmp_config, tmp_path, monkeypatch,
+    ):
+        # Snapshot the in-memory state, then mutate the disk file directly.
+        import configparser
+        runtime_cfg = configparser.ConfigParser()
+        runtime_cfg.read(tmp_config)
+        stream_state.set_callbacks(get_in_memory_config=lambda: runtime_cfg)
+
+        # Mutate disk without going through write_config (simulates the
+        # post-factory-reset state: file changed, in-memory cfg stale).
+        disk_cfg = configparser.ConfigParser()
+        disk_cfg.read(tmp_config)
+        disk_cfg["camera"]["fps"] = "12"  # was "30"
+        disk_cfg["web"]["port"] = "9999"  # was "8080"
+        with open(tmp_config, "w") as f:
+            disk_cfg.write(f)
+
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.get("/api/config/diff")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "camera" in data["diff"]
+        assert "fps" in data["diff"]["camera"]
+        assert data["diff"]["camera"]["fps"] == {"disk": "12", "runtime": "30"}
+        assert data["diff"]["web"]["port"] == {"disk": "9999", "runtime": "8080"}
+
+    def test_diff_empty_runtime_when_no_pipeline_callback(self, client, tmp_config):
+        # No pipeline registered (fresh boot or test harness) — runtime
+        # is empty, diff is empty, dashboard suppresses the banner.
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.get("/api/config/diff")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["runtime"] == {}
+        assert data["diff"] == {}
+
+    def test_diff_redacted_field_drift_is_suppressed(self, client, tmp_config):
+        # Both sides redact api_token to "***"; the diff must NOT report
+        # spurious drift even when the underlying values differ — we
+        # cannot tell from the redacted projection alone.
+        import configparser
+        runtime_cfg = configparser.ConfigParser()
+        runtime_cfg.read(tmp_config)
+        # Mutate the runtime token only; disk side is unchanged.
+        runtime_cfg["web"]["api_token"] = "a-different-token"
+        stream_state.set_callbacks(get_in_memory_config=lambda: runtime_cfg)
+
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.get("/api/config/diff")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        # Both sides redact api_token -> diff suppresses this key.
+        web_diff = data["diff"].get("web", {})
+        assert "api_token" not in web_diff
+
+
+class TestFactoryResetAutoRestart:
+    """Issue #224 — factory-reset accepts an opt-in auto_restart flag.
+
+    The default behavior (no body, or body without auto_restart) MUST
+    remain unchanged — the existing
+    `test_factory_reset_does_not_trigger_in_process_restart` test in
+    test_zero_touch.py pins this. The new test class adds coverage for
+    the opt-in path.
+    """
+
+    def test_factory_reset_no_auto_restart_does_not_fire_callback(
+        self, client, tmp_config_with_factory,
+    ):
+        # Regression: default behavior MUST NOT call the restart callback.
+        # Mirrors test_zero_touch.py:207-219 but on the recovery fixture.
+        from unittest.mock import MagicMock
+        restart_cb = MagicMock()
+        stream_state.set_callbacks(on_restart_command=restart_cb)
+        with patch(
+            "hydra_detect.web.config_api.get_config_path",
+            return_value=tmp_config_with_factory,
+        ):
+            # No body at all — backward-compat with PR #212 callers.
+            resp = client.post("/api/config/factory-reset")
+        # Status check is OS-dependent due to the Windows os.replace flake;
+        # the assertion that MATTERS for this test is the restart cb.
+        restart_cb.assert_not_called()
+        # Also verify the response reports restart_triggered=false when
+        # the request itself succeeded.
+        if resp.status_code == 200:
+            assert resp.json()["restart_triggered"] is False
+
+    @_skip_on_windows
+    def test_factory_reset_with_auto_restart_fires_callback_once(
+        self, client, tmp_config_with_factory,
+    ):
+        from unittest.mock import MagicMock
+        restart_cb = MagicMock()
+        stream_state.set_callbacks(on_restart_command=restart_cb)
+        with patch(
+            "hydra_detect.web.config_api.get_config_path",
+            return_value=tmp_config_with_factory,
+        ):
+            resp = client.post(
+                "/api/config/factory-reset", json={"auto_restart": True},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["restart_triggered"] is True
+        assert data["restart_suppressed_reason"] is None
+        assert "Pipeline restart triggered" in data["message"]
+        restart_cb.assert_called_once()
+
+    @_skip_on_windows
+    def test_factory_reset_auto_restart_suppressed_when_engagement_active(
+        self, client, tmp_config_with_factory,
+    ):
+        """Adversarial finding R3-1 in docs/adversarial/228.md:
+        auto_restart=true while autonomous engagement is active would
+        drop the engagement mid-cycle. The disk reset goes through;
+        the restart is suppressed with an operator-facing reason."""
+        from unittest.mock import MagicMock
+        from hydra_detect.web import config_api as _cfg_api
+
+        restart_cb = MagicMock()
+        stream_state.set_callbacks(on_restart_command=restart_cb)
+        prior_cb = _cfg_api._engagement_active_cb
+        _cfg_api._engagement_active_cb = lambda: True
+        try:
+            with patch(
+                "hydra_detect.web.config_api.get_config_path",
+                return_value=tmp_config_with_factory,
+            ):
+                resp = client.post(
+                    "/api/config/factory-reset", json={"auto_restart": True},
+                )
+            assert resp.status_code == 200, resp.text
+            data = resp.json()
+            # Disk reset still went through.
+            assert data["status"] == "ok"
+            # Restart was suppressed.
+            assert data["restart_triggered"] is False
+            assert data["restart_suppressed_reason"] is not None
+            assert "engagement active" in data["restart_suppressed_reason"].lower()
+            restart_cb.assert_not_called()
+        finally:
+            _cfg_api._engagement_active_cb = prior_cb
+
+    @_skip_on_windows
+    def test_factory_reset_with_auto_restart_false_does_not_fire(
+        self, client, tmp_config_with_factory,
+    ):
+        from unittest.mock import MagicMock
+        restart_cb = MagicMock()
+        stream_state.set_callbacks(on_restart_command=restart_cb)
+        with patch(
+            "hydra_detect.web.config_api.get_config_path",
+            return_value=tmp_config_with_factory,
+        ):
+            resp = client.post(
+                "/api/config/factory-reset", json={"auto_restart": False},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["restart_triggered"] is False
+        restart_cb.assert_not_called()
+
+    def test_factory_reset_auto_restart_requires_auth_when_enabled(
+        self, client, tmp_config_with_factory,
+    ):
+        # Auth gate fires before any restart callback consideration.
+        configure_auth("my-token", require_auth_for_control=True)
+        from unittest.mock import MagicMock
+        restart_cb = MagicMock()
+        stream_state.set_callbacks(on_restart_command=restart_cb)
+        with patch(
+            "hydra_detect.web.config_api.get_config_path",
+            return_value=tmp_config_with_factory,
+        ):
+            resp = client.post(
+                "/api/config/factory-reset", json={"auto_restart": True},
+            )
+        assert resp.status_code in (401, 403)
+        # Auth-gated request must NOT fire the restart even when asked.
+        restart_cb.assert_not_called()
+
+
+class TestConfigImportAutoRestart:
+    """Issue #224 — import accepts the same opt-in auto_restart flag."""
+
+    @_skip_on_windows
+    def test_import_no_auto_restart_does_not_fire_callback(
+        self, client, tmp_config,
+    ):
+        from unittest.mock import MagicMock
+        restart_cb = MagicMock()
+        stream_state.set_callbacks(on_restart_command=restart_cb)
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.post(
+                "/api/config/import", json={"camera": {"fps": "20"}},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["restart_triggered"] is False
+        restart_cb.assert_not_called()
+
+    @_skip_on_windows
+    def test_import_with_auto_restart_fires_callback_once(
+        self, client, tmp_config,
+    ):
+        from unittest.mock import MagicMock
+        restart_cb = MagicMock()
+        stream_state.set_callbacks(on_restart_command=restart_cb)
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.post(
+                "/api/config/import",
+                json={"auto_restart": True, "sections": {"camera": {"fps": "20"}}},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["restart_triggered"] is True
+        restart_cb.assert_called_once()
+
+    @_skip_on_windows
+    def test_import_auto_restart_with_bare_dict_envelope(
+        self, client, tmp_config,
+    ):
+        # The bare-dict path (no `sections` wrapper) still accepts
+        # auto_restart as a sibling key.
+        from unittest.mock import MagicMock
+        restart_cb = MagicMock()
+        stream_state.set_callbacks(on_restart_command=restart_cb)
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.post(
+                "/api/config/import",
+                json={"auto_restart": True, "camera": {"fps": "20"}},
+            )
+        assert resp.status_code == 200
+        # auto_restart should be popped from the validation surface — it
+        # is NOT a config section, so import validation must not reject
+        # the request with "unknown section: auto_restart".
+        assert resp.json()["restart_triggered"] is True
+        restart_cb.assert_called_once()
+
+    def test_import_auto_restart_requires_auth_when_enabled(
+        self, client, tmp_config,
+    ):
+        configure_auth("my-token", require_auth_for_control=True)
+        from unittest.mock import MagicMock
+        restart_cb = MagicMock()
+        stream_state.set_callbacks(on_restart_command=restart_cb)
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.post(
+                "/api/config/import",
+                json={"auto_restart": True, "camera": {"fps": "20"}},
+            )
+        assert resp.status_code in (401, 403)
+        restart_cb.assert_not_called()
+
+
+class TestComputeConfigDiff:
+    """Direct unit tests for compute_config_diff()."""
+
+    def test_diff_empty_when_dicts_equal(self):
+        from hydra_detect.web.config_api import compute_config_diff
+        d = {"camera": {"fps": "30"}}
+        assert compute_config_diff(d, d) == {}
+
+    def test_diff_reports_changed_value(self):
+        from hydra_detect.web.config_api import compute_config_diff
+        disk = {"camera": {"fps": "12"}}
+        runtime = {"camera": {"fps": "30"}}
+        assert compute_config_diff(disk, runtime) == {
+            "camera": {"fps": {"disk": "12", "runtime": "30"}},
+        }
+
+    def test_diff_reports_section_added_on_disk(self):
+        from hydra_detect.web.config_api import compute_config_diff
+        disk = {"camera": {"fps": "30"}, "new_section": {"a": "1"}}
+        runtime = {"camera": {"fps": "30"}}
+        result = compute_config_diff(disk, runtime)
+        assert "new_section" in result
+        assert result["new_section"]["a"] == {"disk": "1", "runtime": ""}
+
+    def test_diff_suppresses_both_redacted(self):
+        from hydra_detect.web.config_api import compute_config_diff
+        disk = {"web": {"api_token": "***"}}
+        runtime = {"web": {"api_token": "***"}}
+        assert compute_config_diff(disk, runtime) == {}

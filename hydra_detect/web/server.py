@@ -29,12 +29,14 @@ from fastapi.templating import Jinja2Templates
 
 from hydra_detect.web.config_api import (
     MAX_BODY_SIZE,
+    compute_config_diff,
     export_config_payload,
     export_filename,
     factory_reset_with_backup,
     has_backup,
     has_factory,
     read_config,
+    read_runtime_config,
     restore_backup,
     validate_import_payload,
     write_config,
@@ -3241,6 +3243,106 @@ async def api_restore_config_backup(request: Request, authorization: str | None 
         return JSONResponse({"error": f"Failed to restore: {e}"}, status_code=500)
 
 
+@app.get("/api/config/diff")
+async def api_config_diff():
+    """Return disk vs in-memory runtime config + per-key diff.
+
+    Issue #224 — factory-reset and import write to disk but do not
+    trigger the on_restart_command callback. The running pipeline keeps
+    using the boot-time values until the operator restarts the service,
+    which is the failure mode the operator hits when "Factory Reset"
+    succeeds in the UI but the pipeline still runs on pre-reset
+    detection thresholds, MAVLink port, camera source, etc.
+
+    Shape::
+
+        {
+          "disk":    {section: {key: value}, ...},
+          "runtime": {section: {key: value}, ...},
+          "diff":    {section: {key: {"disk": "...", "runtime": "..."}}}
+        }
+
+    Empty ``diff`` means disk and runtime agree (no restart needed). A
+    non-empty ``diff`` is the signal for the dashboard to surface the
+    "Restart Hydra to apply" banner.
+
+    ``runtime`` is empty when no pipeline callback is registered (test
+    harness, fresh boot before pipeline registers itself). The
+    dashboard treats that as "no runtime snapshot available" and
+    suppresses the banner — better than false-positive drift on every
+    fresh-boot poll. No auth required: read-only, secrets already
+    redacted by read_config / read_runtime_config.
+    """
+    try:
+        disk = read_config()
+    except Exception as e:
+        logger.error("Failed to read disk config for diff: %s", e)
+        return JSONResponse({"error": "Failed to read configuration"}, status_code=500)
+    cb = stream_state.get_callback("get_in_memory_config")
+    runtime: dict[str, dict[str, str]] = {}
+    if cb is not None:
+        try:
+            cfg = cb()
+            runtime = read_runtime_config(cfg)
+        except Exception as e:
+            # Don't fail the whole diff if the pipeline snapshot is unreadable;
+            # logging is enough — disk-side is still useful to the dashboard.
+            logger.warning("Failed to snapshot in-memory config: %s", e)
+    diff = compute_config_diff(disk, runtime)
+    return {"disk": disk, "runtime": runtime, "diff": diff}
+
+
+def _maybe_auto_restart(body: dict | None) -> tuple[bool, str | None]:
+    """Pop auto_restart from a request body and fire the restart callback.
+
+    Returns ``(restart_triggered, suppression_reason)``. ``restart_triggered``
+    is True only when the restart callback actually fired. When suppressed
+    by the engagement-active safety gate (PR #228 review-pass), the second
+    tuple element is a short human-readable reason; otherwise None.
+
+    Used by factory-reset and import to opt into the same
+    on_restart_command surface /api/restart uses (server.py:2344, :3532
+    pattern). Default — no auto_restart key, or auto_restart=false —
+    is unchanged: the operator must restart explicitly. (Issue #224.)
+
+    Safety: refuses to auto-fire the restart while an autonomous
+    engagement is active. Dropping an in-flight engagement mid-cycle
+    with one dashboard click would bypass the PR #212 engagement-safety
+    gate. The disk reset itself still goes through (callers do that
+    before invoking this helper); only the auto-restart is suppressed.
+    (Adversarial finding R3-1 in docs/adversarial/228.md.)
+    """
+    if not isinstance(body, dict):
+        return False, None
+    auto = body.get("auto_restart")
+    if not bool(auto):
+        return False, None
+    engagement_active_cb = _engagement_active_cb_or_none()
+    if engagement_active_cb is not None and engagement_active_cb():
+        return False, (
+            "Autonomous engagement active — auto-restart suppressed. "
+            "Disengage and restart manually."
+        )
+    cb = stream_state.get_callback("on_restart_command")
+    if cb is None:
+        return False, None
+    try:
+        cb()
+    except Exception as e:
+        logger.error("auto_restart callback raised: %s", e)
+        return False, None
+    return True, None
+
+
+def _engagement_active_cb_or_none():
+    """Return the engagement-active callback registered by the pipeline,
+    or None when no callback has been wired (e.g. test harness, cold-boot
+    web-server-only mode). Re-imported each call so tests that patch
+    `hydra_detect.web.config_api._engagement_active_cb` are honored."""
+    from hydra_detect.web import config_api as _cfg_api
+    return getattr(_cfg_api, "_engagement_active_cb", None)
+
+
 @app.post("/api/config/factory-reset")
 async def api_factory_reset(request: Request, authorization: str | None = Header(None)):
     """Restore factory defaults from config.ini.factory.
@@ -3250,6 +3352,11 @@ async def api_factory_reset(request: Request, authorization: str | None = Header
     not enough; the next save clobbers it). Always returns
     restart_required=true — the running pipeline still holds the
     pre-reset values in memory and the operator must restart to apply.
+
+    Issue #224 — accepts an optional JSON body ``{"auto_restart": true}``
+    to fire the on_restart_command callback after the write. Default
+    false preserves the explicit-confirm UX from PR #212; existing
+    callers that send no body get the original behavior unchanged.
     """
     auth_err = _check_auth(authorization, request)
     if auth_err:
@@ -3257,21 +3364,46 @@ async def api_factory_reset(request: Request, authorization: str | None = Header
     if not has_factory():
         _audit(request, "config_factory_reset", outcome="no_factory_file")
         return JSONResponse({"error": "No factory defaults available"}, status_code=404)
+    # Body is optional for backward-compat: existing callers send no body.
+    body: dict | None = None
+    body_bytes = await request.body()
+    if body_bytes:
+        if len(body_bytes) > MAX_BODY_SIZE:
+            return JSONResponse({"error": "Request body too large"}, status_code=413)
+        import json as _json
+        try:
+            body = _json.loads(body_bytes)
+        except (ValueError, _json.JSONDecodeError):
+            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
     try:
         result = factory_reset_with_backup()
         _audit(request, "config_factory_reset", target=result.get("backup_path", ""))
         identity_preserved = bool(result.get("identity_preserved", False))
+        restart_triggered, restart_suppressed_reason = _maybe_auto_restart(body)
+        if restart_triggered:
+            _audit(request, "config_factory_reset_restart")
+            message_suffix = " Pipeline restart triggered."
+        elif restart_suppressed_reason is not None:
+            _audit(
+                request, "config_factory_reset_restart_suppressed",
+                target=restart_suppressed_reason,
+            )
+            message_suffix = " " + restart_suppressed_reason
+        else:
+            message_suffix = " Restart the service to apply."
         if identity_preserved:
             message = (
                 "Factory defaults restored — your unit's API token and "
-                "callsign were preserved. Restart the service to apply."
-            )
+                "callsign were preserved."
+            ) + message_suffix
         else:
-            message = "Factory defaults restored — restart the service to apply."
+            message = "Factory defaults restored." + message_suffix
         return {
             "status": "ok",
             "backup_path": result["backup_path"],
             "restart_required": result["restart_required"],
+            "restart_triggered": restart_triggered,
+            "restart_suppressed_reason": restart_suppressed_reason,
             "identity_preserved": identity_preserved,
             "message": message,
         }
@@ -3326,6 +3458,11 @@ async def api_config_import(request: Request, authorization: str | None = Header
     that fails schema validation. Nothing is written to disk until the
     payload passes both gates. Restart is required for any field in
     RESTART_REQUIRED_FIELDS that actually changed.
+
+    Issue #224 — accepts an optional top-level ``auto_restart`` flag in
+    the request body (sibling to ``sections`` in the export envelope).
+    When true, fires the on_restart_command callback after the write
+    completes. Default false preserves the PR #212 explicit-confirm UX.
     """
     auth_err = _check_auth(authorization, request)
     if auth_err:
@@ -3338,6 +3475,19 @@ async def api_config_import(request: Request, authorization: str | None = Header
         body = _json.loads(body_bytes)
     except (ValueError, _json.JSONDecodeError):
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    # Strip the envelope-level auto_restart flag before validation so the
+    # bare-dict import path ({"auto_restart": true, "camera": {...}})
+    # doesn't trip "unknown section: auto_restart". The full-envelope
+    # path ({"sections": {...}, "auto_restart": true}) is already safe
+    # because validate_import_payload only descends into "sections".
+    auto_restart_flag = None
+    if isinstance(body, dict) and "auto_restart" in body:
+        auto_restart_flag = body.get("auto_restart")
+        # Only strip from the bare-dict case so we don't mutate the
+        # envelope shape that ships back to the operator on error.
+        if "sections" not in body:
+            body = {k: v for k, v in body.items() if k != "auto_restart"}
 
     validation = validate_import_payload(body)
     if not validation["ok"]:
@@ -3353,9 +3503,21 @@ async def api_config_import(request: Request, authorization: str | None = Header
         result = write_config(validation["updates"])
         _audit(request, "config_import", target=str(len(validation["updates"])))
         restart_fields = result.get("restart_required", [])
+        restart_triggered, restart_suppressed_reason = _maybe_auto_restart(
+            {"auto_restart": auto_restart_flag} if auto_restart_flag is not None else None
+        )
+        if restart_triggered:
+            _audit(request, "config_import_restart")
+        elif restart_suppressed_reason is not None:
+            _audit(
+                request, "config_import_restart_suppressed",
+                target=restart_suppressed_reason,
+            )
         return {
             "status": "imported",
             "restart_required_fields": restart_fields,
+            "restart_triggered": restart_triggered,
+            "restart_suppressed_reason": restart_suppressed_reason,
             **result,
         }
     except Exception as e:
