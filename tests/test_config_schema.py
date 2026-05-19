@@ -537,6 +537,34 @@ class TestVehicleSectionValidation:
                    if "reserved_channels" in w and "[vehicle.drone]" in w]
         assert not matched, f"reserved_channels should not warn; got {matched}"
 
+    def test_shared_battery_accepted_as_local_key(self):
+        """shared_battery is a vehicle-local bool (#222)."""
+        cfg = self._base()
+        cfg.add_section("vehicle.usv")
+        cfg.set("vehicle.usv", "shared_battery", "true")
+        result = validate_config(cfg)
+        assert result.ok, f"unexpected errors: {result.errors}"
+        matched = [w for w in result.warnings
+                   if "shared_battery" in w and "[vehicle.usv]" in w]
+        assert not matched, f"shared_battery should not warn; got {matched}"
+
+    def test_shared_battery_accepts_false(self):
+        cfg = self._base()
+        cfg.add_section("vehicle.drone")
+        cfg.set("vehicle.drone", "shared_battery", "false")
+        result = validate_config(cfg)
+        assert result.ok, f"unexpected errors: {result.errors}"
+
+    def test_shared_battery_rejects_non_bool(self):
+        """Typo like ``shared_battery = ture`` must error, not silently pass."""
+        cfg = self._base()
+        cfg.add_section("vehicle.usv")
+        cfg.set("vehicle.usv", "shared_battery", "ture")
+        result = validate_config(cfg)
+        matched = [e for e in result.errors
+                   if "shared_battery" in e and "[vehicle.usv]" in e]
+        assert matched, f"expected error for bad bool; got {result.errors}"
+
     def test_out_of_range_override_errors(self):
         cfg = self._base()
         cfg.add_section("vehicle.drone")

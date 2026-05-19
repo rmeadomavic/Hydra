@@ -212,8 +212,23 @@ never reaches the GCS. Operator implications:
 2. **Configure ArduPilot failsafes** (`BATT_FS_LOW_ACT = 2` for RTL on
    the FC side — see the `pixhawk-prereqs-*.md` guides). These do not
    depend on the Jetson surviving long enough to deliver the alert.
-3. **Tracked follow-up** — automatic graceful-stop on `LOW` for shared
-   battery profiles is tracked in [issue #222](https://github.com/rmeadomavic/Hydra/issues/222).
+3. **Jetson-side graceful-stop on `LOW`** (#222). The `[vehicle.<name>]`
+   profile schema carries a `shared_battery` bool. When `true` and the
+   monitor transitions to `LOW`, the pipeline routes through the
+   autonomous engine to:
+   - audit-log `BATTERY_GRACEFUL_STOP` with pre-action voltage / pct,
+   - command the per-platform `autonomous.safe_mode` (HOLD for USV/UGV,
+     LOITER for air),
+   - drive any active servo tracker to safe PWM,
+   - emit a `GRACEFUL STOP (shared batt)` STATUSTEXT (best-effort —
+     fires before the brownout race),
+   - expose `battery.action_taken = "graceful_stop"` on `/api/stats`.
+
+   Factory defaults: `usv` and `ugv` profiles ship with
+   `shared_battery = true`; `drone`, `drone_10in`, and `fw` ship with
+   `shared_battery = false` (the PR #211 STATUSTEXT-only path is
+   preserved exactly when the flag is false). Operator can override
+   per-deployment in `config.ini`.
 
 ## [alerts]
 

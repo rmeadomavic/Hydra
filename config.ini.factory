@@ -234,6 +234,9 @@ retention_ceiling_days = 730
 
 [vehicle.drone]
 reserved_channels = 1,2,3,4
+; Quad with a dedicated companion BEC — Jetson does not share the LiPo.
+; STATUSTEXT-only on LOW/CRITICAL (PR #211). See issue #222.
+shared_battery = false
 autonomous.post_drop_mode = DOGLEG_RTL
 autonomous.post_strike_mode = LOITER
 autonomous.platform_role = aerial_isr
@@ -244,6 +247,10 @@ autonomous.default_features = detect,mavlink,tak_output,logging
 
 [vehicle.usv]
 reserved_channels = 1,3
+; Bonzi Sport Boat: Jetson rides the same pack as the propulsion motors.
+; LOW transition triggers graceful-stop (HOLD + zero servo PWM) while rail
+; is still up — Jetson brownout (~7 V) precedes LiPo LVC. See issue #222.
+shared_battery = true
 autonomous.post_drop_mode = SMART_RTL
 autonomous.post_strike_mode = LOITER
 autonomous.platform_role = water_isr
@@ -255,6 +262,9 @@ autonomous.default_features = detect,mavlink,tak_output,logging,geofence_warning
 
 [vehicle.ugv]
 reserved_channels = 1,3
+; Axial SCX6: Jetson on the same pack as the drive ESC. LOW transition
+; triggers graceful-stop (HOLD + zero servo PWM). See issue #222.
+shared_battery = true
 autonomous.post_drop_mode = SMART_RTL
 autonomous.post_strike_mode = HOLD
 autonomous.platform_role = ground_isr
@@ -266,6 +276,9 @@ autonomous.default_features = detect,mavlink,tak_output,logging
 
 [vehicle.drone_10in]
 reserved_channels = 1,2,3,4
+; 10" platform — companion BEC, Jetson off the propulsion pack.
+; STATUSTEXT-only on LOW/CRITICAL. See issue #222.
+shared_battery = false
 autonomous.post_drop_mode = DOGLEG_RTL
 autonomous.post_strike_mode = LOITER
 autonomous.platform_role = aerial_isr
@@ -278,6 +291,10 @@ autonomous.default_features = detect,mavlink,tak_output,logging
 ; refuses approach commands (follow/drop/strike/pixel-lock) when this profile
 ; is active and only the modes listed below qualify for autonomous evaluation.
 reserved_channels = 1,2,3,4
+; Fixed-wing runs the Jetson off a dedicated companion battery — graceful-stop
+; on LOW would force-LOITER mid-mission. Operator surfaces LOW via STATUSTEXT
+; and decides whether to RTL. See issue #222.
+shared_battery = false
 autonomous.post_action_mode = LOITER
 autonomous.min_track_frames = 2
 autonomous.allowed_vehicle_modes = AUTO,LOITER,CRUISE

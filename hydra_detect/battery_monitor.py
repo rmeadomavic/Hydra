@@ -65,6 +65,12 @@ class BatteryState:
     # alert path will never fire on this unit. Distinguishes "monitor is
     # silent" from "monitor is fine and the cell is healthy."
     uncalibrated: bool = False
+    # Set after a shared-battery graceful-stop has been triggered for this
+    # unit. ``None`` while nothing has fired; ``"graceful_stop"`` once the
+    # LOW-transition callback has run. Sticky — the dashboard surfaces it
+    # for the remainder of the session so the operator sees what happened.
+    # See issue #222.
+    action_taken: Optional[str] = None
 
     def to_api(self) -> dict:
         """Return the dict shape exposed on /api/stats."""
@@ -74,6 +80,7 @@ class BatteryState:
             "level": self.level,
             "source": self.source,
             "uncalibrated": self.uncalibrated,
+            "action_taken": self.action_taken,
         }
 
 
@@ -97,6 +104,15 @@ class BatteryMonitor:
             notice if they tuned out the first alert.
         enabled: Master switch. When False, ``update_from_sys_status``
             is a no-op and ``get_state`` returns an empty/UNKNOWN state.
+        on_low_transition: Callback invoked exactly once on the first
+            transition into ``LOW``. Receives a pre-action ``BatteryState``
+            snapshot so the callback can audit-log voltage / pct before
+            the autonomous engine acts. Returning a string sets
+            ``BatteryState.action_taken`` to that value (e.g.
+            ``"graceful_stop"``) so the dashboard can surface it.
+            ``None`` disables the hook entirely — used by drone profiles
+            with ``shared_battery=false`` so behavior matches PR #211.
+            See issue #222.
     """
 
     def __init__(
@@ -109,6 +125,7 @@ class BatteryMonitor:
         stale_after_sec: float = 30.0,
         critical_reissue_sec: float = 0.0,
         enabled: bool = True,
+        on_low_transition: Optional[Callable[["BatteryState"], Optional[str]]] = None,
     ):
         if critical_threshold_pct >= low_threshold_pct:
             raise ValueError(
@@ -138,6 +155,7 @@ class BatteryMonitor:
         else:
             self._reissue = requested_reissue
         self._enabled = enabled
+        self._on_low_transition = on_low_transition
 
         self._lock = threading.Lock()
         self._state = BatteryState()
@@ -149,6 +167,12 @@ class BatteryMonitor:
         # UNCALIBRATED" STATUSTEXT. Prevents the alert from re-emitting
         # on every SYS_STATUS tick while the FC is still uncalibrated.
         self._uncalibrated_alert_sent: bool = False
+        # One-time flag: True after we have fired the shared-battery
+        # LOW-transition callback. Prevents the callback from re-firing
+        # on subsequent ticks while we're still in LOW (it's a one-shot
+        # graceful-stop, not a repeating alert). Re-armed only after the
+        # level recovers above LOW. See issue #222.
+        self._low_callback_fired: bool = False
 
     # -- Configuration -------------------------------------------------
     @property
@@ -223,6 +247,7 @@ class BatteryMonitor:
         )
 
         uncalibrated_alert: Optional[tuple[str, int]] = None
+        low_callback_snapshot: Optional[BatteryState] = None
         with self._lock:
             self._state.voltage_v = voltage_v
             self._state.remaining_pct = remaining_pct
@@ -237,6 +262,7 @@ class BatteryMonitor:
                 )
             else:
                 self._state.uncalibrated = uncalibrated
+            prev_alert_level = self._last_alert_level
             level = self._compute_level_locked(now)
             self._state.level = level
             transition = self._maybe_emit_alert_locked(level, now)
@@ -246,6 +272,32 @@ class BatteryMonitor:
                     f"{self._callsign}: BATT MONITOR UNCALIBRATED",
                     _SEVERITY_UNCALIBRATED,
                 )
+            # Issue #222: fire the LOW-transition callback exactly once per
+            # LOW episode. CRITICAL alone never triggers (by the time
+            # CRITICAL hits on a shared-battery platform, brownout is
+            # already imminent; LOW gives the Jetson margin to act while
+            # it still has rail). Re-arm only on recovery to OK.
+            if (
+                self._on_low_transition is not None
+                and level == LEVEL_LOW
+                and prev_alert_level != LEVEL_LOW
+                and not self._low_callback_fired
+            ):
+                self._low_callback_fired = True
+                low_callback_snapshot = BatteryState(
+                    voltage_v=self._state.voltage_v,
+                    remaining_pct=self._state.remaining_pct,
+                    level=level,
+                    last_update_ts=self._state.last_update_ts,
+                    source=self._state.source,
+                    uncalibrated=self._state.uncalibrated,
+                    action_taken=self._state.action_taken,
+                )
+            # Re-arm the LOW-transition callback when level recovers to OK
+            # so a subsequent LOW dip (rare but possible on a noisy pack)
+            # can fire it again.
+            if level == LEVEL_OK and self._low_callback_fired:
+                self._low_callback_fired = False
 
         if uncalibrated_alert is not None and self._send is not None:
             text, severity = uncalibrated_alert
@@ -261,6 +313,21 @@ class BatteryMonitor:
                     self._send(text, severity)
                 except Exception as exc:  # pragma: no cover - defensive
                     logger.warning("battery STATUSTEXT send failed: %s", exc)
+
+        # Invoke the LOW-transition callback OUTSIDE the lock — the
+        # callback may do MAVLink I/O and audit-log work that should not
+        # block the next SYS_STATUS update. Caller-supplied callback
+        # may return an action label ("graceful_stop") which we record
+        # on the state for /api/stats consumption.
+        if low_callback_snapshot is not None and self._on_low_transition is not None:
+            try:
+                result = self._on_low_transition(low_callback_snapshot)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("battery LOW callback failed: %s", exc)
+                result = None
+            if isinstance(result, str) and result:
+                with self._lock:
+                    self._state.action_taken = result
 
     # -- Read-side -----------------------------------------------------
     def get_state(self, now: Optional[float] = None) -> BatteryState:
@@ -283,6 +350,7 @@ class BatteryMonitor:
                 last_update_ts=self._state.last_update_ts,
                 source=self._state.source,
                 uncalibrated=uncal,
+                action_taken=self._state.action_taken,
             )
 
     def get_level(self, now: Optional[float] = None) -> str:
