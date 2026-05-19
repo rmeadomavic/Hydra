@@ -304,8 +304,10 @@ class TestMissionSummary:
         mid_a = str(uuid.uuid4())
         mid_b = str(uuid.uuid4())
         _write_detection_jsonl(tmp_path, mid_a, [
-            {"timestamp": "2026-05-19T10:00:01Z", "track_id": 1, "label": "person", "mission_id": mid_a},
-            {"timestamp": "2026-05-19T10:00:02Z", "track_id": 2, "label": "person", "mission_id": mid_b},
+            {"timestamp": "2026-05-19T10:00:01Z", "track_id": 1,
+             "label": "person", "mission_id": mid_a},
+            {"timestamp": "2026-05-19T10:00:02Z", "track_id": 2,
+             "label": "person", "mission_id": mid_b},
         ])
         out_a = compute_summary(mid_a, tmp_path)
         out_b = compute_summary(mid_b, tmp_path)
