@@ -43,6 +43,8 @@ def _make_pipeline(**overrides) -> Pipeline:
     p._event_logger = MagicMock()
     p._init_target_state()
     p._running = False
+    # _shutdown idempotency guard (issue #54)
+    p._shutdown_complete = False
     return p
 
 
@@ -340,6 +342,7 @@ class TestServoTrackerIntegration:
 
     def test_shutdown_safes_servo(self):
         p = self._pipeline_with_servo()
+        p._rf_tak_emitter = None
         p._rf_hunt = None
         p._kismet_manager = None
         p._rtsp = None
