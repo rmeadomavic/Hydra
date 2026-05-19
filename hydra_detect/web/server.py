@@ -3292,29 +3292,55 @@ async def api_config_diff():
     return {"disk": disk, "runtime": runtime, "diff": diff}
 
 
-def _maybe_auto_restart(body: dict | None) -> bool:
+def _maybe_auto_restart(body: dict | None) -> tuple[bool, str | None]:
     """Pop auto_restart from a request body and fire the restart callback.
 
-    Returns True when the restart callback actually fired. Used by
-    factory-reset and import to opt into the same on_restart_command
-    surface /api/restart uses (server.py:2344, :3532 pattern). Default
-    behavior — no auto_restart key, or auto_restart=false — is
-    unchanged: the operator must restart explicitly. (Issue #224.)
+    Returns ``(restart_triggered, suppression_reason)``. ``restart_triggered``
+    is True only when the restart callback actually fired. When suppressed
+    by the engagement-active safety gate (PR #228 review-pass), the second
+    tuple element is a short human-readable reason; otherwise None.
+
+    Used by factory-reset and import to opt into the same
+    on_restart_command surface /api/restart uses (server.py:2344, :3532
+    pattern). Default — no auto_restart key, or auto_restart=false —
+    is unchanged: the operator must restart explicitly. (Issue #224.)
+
+    Safety: refuses to auto-fire the restart while an autonomous
+    engagement is active. Dropping an in-flight engagement mid-cycle
+    with one dashboard click would bypass the PR #212 engagement-safety
+    gate. The disk reset itself still goes through (callers do that
+    before invoking this helper); only the auto-restart is suppressed.
+    (Adversarial finding R3-1 in docs/adversarial/228.md.)
     """
     if not isinstance(body, dict):
-        return False
+        return False, None
     auto = body.get("auto_restart")
     if not bool(auto):
-        return False
+        return False, None
+    engagement_active_cb = _engagement_active_cb_or_none()
+    if engagement_active_cb is not None and engagement_active_cb():
+        return False, (
+            "Autonomous engagement active — auto-restart suppressed. "
+            "Disengage and restart manually."
+        )
     cb = stream_state.get_callback("on_restart_command")
     if cb is None:
-        return False
+        return False, None
     try:
         cb()
     except Exception as e:
         logger.error("auto_restart callback raised: %s", e)
-        return False
-    return True
+        return False, None
+    return True, None
+
+
+def _engagement_active_cb_or_none():
+    """Return the engagement-active callback registered by the pipeline,
+    or None when no callback has been wired (e.g. test harness, cold-boot
+    web-server-only mode). Re-imported each call so tests that patch
+    `hydra_detect.web.config_api._engagement_active_cb` are honored."""
+    from hydra_detect.web import config_api as _cfg_api
+    return getattr(_cfg_api, "_engagement_active_cb", None)
 
 
 @app.post("/api/config/factory-reset")
@@ -3353,10 +3379,16 @@ async def api_factory_reset(request: Request, authorization: str | None = Header
         result = factory_reset_with_backup()
         _audit(request, "config_factory_reset", target=result.get("backup_path", ""))
         identity_preserved = bool(result.get("identity_preserved", False))
-        restart_triggered = _maybe_auto_restart(body)
+        restart_triggered, restart_suppressed_reason = _maybe_auto_restart(body)
         if restart_triggered:
             _audit(request, "config_factory_reset_restart")
             message_suffix = " Pipeline restart triggered."
+        elif restart_suppressed_reason is not None:
+            _audit(
+                request, "config_factory_reset_restart_suppressed",
+                target=restart_suppressed_reason,
+            )
+            message_suffix = " " + restart_suppressed_reason
         else:
             message_suffix = " Restart the service to apply."
         if identity_preserved:
@@ -3371,6 +3403,7 @@ async def api_factory_reset(request: Request, authorization: str | None = Header
             "backup_path": result["backup_path"],
             "restart_required": result["restart_required"],
             "restart_triggered": restart_triggered,
+            "restart_suppressed_reason": restart_suppressed_reason,
             "identity_preserved": identity_preserved,
             "message": message,
         }
@@ -3470,15 +3503,21 @@ async def api_config_import(request: Request, authorization: str | None = Header
         result = write_config(validation["updates"])
         _audit(request, "config_import", target=str(len(validation["updates"])))
         restart_fields = result.get("restart_required", [])
-        restart_triggered = _maybe_auto_restart(
+        restart_triggered, restart_suppressed_reason = _maybe_auto_restart(
             {"auto_restart": auto_restart_flag} if auto_restart_flag is not None else None
         )
         if restart_triggered:
             _audit(request, "config_import_restart")
+        elif restart_suppressed_reason is not None:
+            _audit(
+                request, "config_import_restart_suppressed",
+                target=restart_suppressed_reason,
+            )
         return {
             "status": "imported",
             "restart_required_fields": restart_fields,
             "restart_triggered": restart_triggered,
+            "restart_suppressed_reason": restart_suppressed_reason,
             **result,
         }
     except Exception as e:

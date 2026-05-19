@@ -893,8 +893,44 @@ class TestFactoryResetAutoRestart:
         assert resp.status_code == 200
         data = resp.json()
         assert data["restart_triggered"] is True
+        assert data["restart_suppressed_reason"] is None
         assert "Pipeline restart triggered" in data["message"]
         restart_cb.assert_called_once()
+
+    @_skip_on_windows
+    def test_factory_reset_auto_restart_suppressed_when_engagement_active(
+        self, client, tmp_config_with_factory,
+    ):
+        """Adversarial finding R3-1 in docs/adversarial/228.md:
+        auto_restart=true while autonomous engagement is active would
+        drop the engagement mid-cycle. The disk reset goes through;
+        the restart is suppressed with an operator-facing reason."""
+        from unittest.mock import MagicMock
+        from hydra_detect.web import config_api as _cfg_api
+
+        restart_cb = MagicMock()
+        stream_state.set_callbacks(on_restart_command=restart_cb)
+        prior_cb = _cfg_api._engagement_active_cb
+        _cfg_api._engagement_active_cb = lambda: True
+        try:
+            with patch(
+                "hydra_detect.web.config_api.get_config_path",
+                return_value=tmp_config_with_factory,
+            ):
+                resp = client.post(
+                    "/api/config/factory-reset", json={"auto_restart": True},
+                )
+            assert resp.status_code == 200, resp.text
+            data = resp.json()
+            # Disk reset still went through.
+            assert data["status"] == "ok"
+            # Restart was suppressed.
+            assert data["restart_triggered"] is False
+            assert data["restart_suppressed_reason"] is not None
+            assert "engagement active" in data["restart_suppressed_reason"].lower()
+            restart_cb.assert_not_called()
+        finally:
+            _cfg_api._engagement_active_cb = prior_cb
 
     @_skip_on_windows
     def test_factory_reset_with_auto_restart_false_does_not_fire(
