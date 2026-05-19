@@ -285,6 +285,14 @@ def compute_disk_bytes(
     downstream Capability Status gates (#226) set platform-aware BLOCKED
     thresholds. (See adversarial finding R3-1 on #227.)
 
+    The bytes and percent surfaces are computed from the same underlying
+    ``shutil.disk_usage`` call and are guaranteed internally consistent
+    within rounding (``disk_free_pct`` is rounded to 2 decimal places;
+    ``disk_bytes`` carries integer bytes). At the rounding boundary the
+    two may report slightly different sides of a threshold — consumers
+    should pick one canonical surface for gating decisions and stick with
+    it. (See adversarial finding R3-1 on PR #236.)
+
     Args:
         partitions: Optional override mapping ``{label: path}``. When None,
             uses ``_DISK_FREE_PARTITIONS`` defaults (root + output_data).
