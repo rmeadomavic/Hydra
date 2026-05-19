@@ -336,6 +336,19 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
                 "alert per transition only)."
             ),
         ),
+        "min_callback_interval_sec": FieldSpec(
+            FieldType.FLOAT,
+            min_val=0.0,
+            max_val=3600.0,
+            default=60.0,
+            description=(
+                "Wall-clock rate cap on the shared-battery LOW-transition "
+                "callback. After a fire, further fires within this many "
+                "seconds are suppressed (absorbs OK->LOW->OK->LOW "
+                "oscillation on a noisy pack at the knee). 0 disables the "
+                "rate cap. Issue #234 R1-1."
+            ),
+        ),
     },
     "alerts": {
         "light_bar_enabled": FieldSpec(
@@ -1763,4 +1776,69 @@ def validate_config(cfg: configparser.ConfigParser) -> ValidationResult:
     # Vehicle-profile sections: dotted overrides validated against base schema
     _validate_vehicle_sections(cfg, result)
 
+    # Issue #234 R3-3 (tuning-trap): low_threshold_pct > 50 combined with
+    # ANY vehicle.* profile shipping shared_battery=true means the
+    # graceful-stop callback fires on a near-fresh pack — the operator
+    # tunes low_threshold_pct expecting a STATUSTEXT-only alert but on
+    # a USV/UGV it triggers the autonomous engine. Schema only enforces
+    # critical < low; this layer surfaces the operational hazard.
+    _check_shared_battery_threshold_warning(cfg, result)
+
     return result
+
+
+# Issue #234 R3-3: operator-visible threshold above which the soft warning
+# fires. 50% is the boundary where "this is a low-battery alert" stops
+# matching common operator intuition — a USV that triggers graceful-stop
+# at 51% will spend most of every mission in HOLD.
+_SHARED_BATTERY_LOW_PCT_WARN = 50
+
+
+def _check_shared_battery_threshold_warning(
+    cfg: configparser.ConfigParser, result: ValidationResult,
+) -> None:
+    """Warn when low_threshold_pct is too high for a shared-battery profile.
+
+    Issue #234 R3-3 (tuning-trap). Fires when:
+      - ``[battery] low_threshold_pct`` > 50, AND
+      - ANY ``[vehicle.*]`` section sets ``shared_battery=true`` (either
+        the local key or the dotted ``shared_battery`` form), OR
+      - ``[vehicle.fw]`` carries ``shared_battery=true`` (explicit
+        schema field).
+
+    The warning surfaces via ``logger.warning`` at boot (the facade's
+    ``validation.warnings`` loop) AND in the pre-flight checklist on
+    ``/api/preflight``, which already iterates ``result.warnings``. No
+    new surface needed — the existing config-warning path is the right
+    home.
+    """
+    if not cfg.has_section("battery"):
+        return
+    if not cfg.has_option("battery", "low_threshold_pct"):
+        return
+    try:
+        low_pct = int(cfg.get("battery", "low_threshold_pct").strip())
+    except (ValueError, AttributeError):
+        return  # invalid value will already be flagged by the main loop
+    if low_pct <= _SHARED_BATTERY_LOW_PCT_WARN:
+        return
+
+    shared_profiles: list[str] = []
+    for section in cfg.sections():
+        if not section.startswith("vehicle."):
+            continue
+        if not cfg.has_option(section, "shared_battery"):
+            continue
+        raw = cfg.get(section, "shared_battery").strip().lower()
+        if raw in ("true", "yes", "1", "on"):
+            shared_profiles.append(section)
+
+    if not shared_profiles:
+        return
+
+    result.warnings.append(
+        f"[battery] low_threshold_pct={low_pct} (>{_SHARED_BATTERY_LOW_PCT_WARN}) "
+        f"with shared_battery=true on {', '.join(shared_profiles)} — "
+        "graceful-stop will fire on a near-fresh pack. Lower this "
+        "threshold (default 20) or disable shared_battery on the profile."
+    )

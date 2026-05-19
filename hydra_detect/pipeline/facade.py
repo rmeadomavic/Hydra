@@ -322,6 +322,11 @@ class Pipeline:
                 else None
             )
 
+            # Issue #234 R2-1: pair the LOW-fire path with an audit row
+            # on the OK-recovery clear of action_taken. Only wired when
+            # the LOW callback itself is wired (drone profiles get None
+            # for both — behavior matches PR #211).
+            cleared_cb = self._audit_action_cleared if self._shared_battery else None
             try:
                 self._battery_monitor = BatteryMonitor(
                     low_threshold_pct=self._cfg.getint(
@@ -340,6 +345,11 @@ class Pipeline:
                     ),
                     enabled=True,
                     on_low_transition=low_cb,
+                    min_callback_interval_sec=self._cfg.getfloat(
+                        "battery", "min_callback_interval_sec",
+                        fallback=60.0,
+                    ),
+                    on_action_cleared=cleared_cb,
                 )
                 self._mavlink.attach_battery_monitor(self._battery_monitor)
                 logger.info(
@@ -2398,12 +2408,12 @@ class Pipeline:
         ``LOW`` and the active profile carries ``shared_battery=true``.
         ``snapshot`` is the pre-action BatteryState (voltage / pct as of
         the SYS_STATUS that triggered the transition). The autonomous
-        engine integration intentionally uses the simplest existing
-        primitive: set the per-platform safe mode (HOLD for ground/water,
-        LOITER for air if a drone is ever flagged shared) via MAVLink and
-        zero the servo tracker PWM if servo tracking is active. A richer
-        graceful-stop ladder (mode → throttle ramp → arm-cut) belongs in
-        a follow-up issue. See issue #222.
+        engine integration uses the existing primitives: set the
+        per-platform safe mode (HOLD for ground/water, LOITER for air if
+        a drone is ever flagged shared) via MAVLink, then run the
+        graceful-stop ladder on the servo tracker — ``safe()`` for
+        strike/arm channels followed by ``disable_pan()`` so a stuck
+        pan sweep can't keep draining the pack. See issues #222, #234.
 
         Returns ``"graceful_stop"`` so BatteryMonitor records the action
         on its state for /api/stats. Returns ``None`` if the engine
@@ -2421,16 +2431,17 @@ class Pipeline:
             "autonomous", "safe_mode", fallback="LOITER",
         ).strip() or "LOITER"
 
-        audit_log.warning(
-            "BATTERY_GRACEFUL_STOP vehicle=%s callsign=%s pre_voltage_v=%s "
-            "pre_pct=%s safe_mode=%s",
-            getattr(self, "_vehicle", None),
-            self._callsign,
-            pre_v,
-            pre_pct,
-            safe_mode,
-        )
         if self._mavlink is None:
+            audit_log.warning(
+                "BATTERY_GRACEFUL_STOP vehicle=%s callsign=%s pre_voltage_v=%s "
+                "pre_pct=%s safe_mode=%s pan_disabled=%s mavlink=absent",
+                getattr(self, "_vehicle", None),
+                self._callsign,
+                pre_v,
+                pre_pct,
+                safe_mode,
+                False,
+            )
             logger.warning(
                 "Shared-battery LOW: no MAVLink — graceful-stop skipped."
             )
@@ -2448,7 +2459,11 @@ class Pipeline:
 
         # 2) Zero the servo tracker if it's holding a pan/strike PWM —
         # otherwise the platform sits at the last commanded angle until
-        # the FC takes over. servo.safe() drives strike/arm to safe PWM.
+        # the FC takes over. servo.safe() drives strike/arm to safe PWM
+        # but does NOT prevent the frame loop from re-driving the pan
+        # channel — disable_pan() gates further update() calls so a pan
+        # sweep can't be the load draining the pack (issue #234 R3-1).
+        pan_disabled = False
         if self._servo_tracker is not None:
             try:
                 self._servo_tracker.safe()
@@ -2456,6 +2471,23 @@ class Pipeline:
                 logger.warning(
                     "Shared-battery LOW: servo.safe() raised %s", exc,
                 )
+            try:
+                pan_disabled = bool(self._servo_tracker.disable_pan())
+            except Exception as exc:
+                logger.warning(
+                    "Shared-battery LOW: servo.disable_pan() raised %s", exc,
+                )
+
+        audit_log.warning(
+            "BATTERY_GRACEFUL_STOP vehicle=%s callsign=%s pre_voltage_v=%s "
+            "pre_pct=%s safe_mode=%s pan_disabled=%s",
+            getattr(self, "_vehicle", None),
+            self._callsign,
+            pre_v,
+            pre_pct,
+            safe_mode,
+            pan_disabled,
+        )
 
         # 3) Best-effort operator notification beyond the STATUSTEXT path
         # (which the battery monitor itself emits on the LOW transition).
@@ -2467,6 +2499,21 @@ class Pipeline:
         except Exception:
             pass  # send is best-effort
         return "graceful_stop"
+
+    def _audit_action_cleared(self, label: str) -> None:
+        """Write the ACTION_CLEARED audit row on level-recovery (issue #234 R2-1).
+
+        Fired by BatteryMonitor on the OK transition that clears a
+        previously-set ``action_taken``. Pairs with the original
+        BATTERY_GRACEFUL_STOP row so post-incident replay shows both
+        the fire and the recovery / clear timestamps.
+        """
+        audit_log.warning(
+            "BATTERY_ACTION_CLEARED vehicle=%s callsign=%s prior_action=%s",
+            getattr(self, "_vehicle", None),
+            self._callsign,
+            label,
+        )
 
     def _get_approach_status(self) -> dict:
         """Return approach controller status for the web API."""

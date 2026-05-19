@@ -113,6 +113,20 @@ class BatteryMonitor:
             ``None`` disables the hook entirely — used by drone profiles
             with ``shared_battery=false`` so behavior matches PR #211.
             See issue #222.
+        min_callback_interval_sec: Wall-clock rate cap on
+            ``on_low_transition`` invocations. After a fire, further fires
+            within this many seconds are suppressed even if the level
+            re-arms (OK→LOW oscillation on a noisy pack at the knee). The
+            single fire still records ``action_taken`` and emits the
+            STATUSTEXT once — the rate cap only suppresses duplicate
+            callback invocations. Default 60.0 s; must be ``>= 0``. 0
+            disables the rate cap (callback fires on every LOW transition
+            after re-arm, original PR #229 behavior). Configurable via
+            ``[battery] min_callback_interval_sec``. Issue #234 R1-1.
+        on_action_cleared: Optional callback fired on the OK transition
+            that clears a previously-set ``action_taken``. Receives the
+            cleared label (e.g. ``"graceful_stop"``) so the caller can
+            write a corresponding audit row. Issue #234 R2-1.
     """
 
     def __init__(
@@ -126,6 +140,8 @@ class BatteryMonitor:
         critical_reissue_sec: float = 0.0,
         enabled: bool = True,
         on_low_transition: Optional[Callable[["BatteryState"], Optional[str]]] = None,
+        min_callback_interval_sec: float = 60.0,
+        on_action_cleared: Optional[Callable[[str], None]] = None,
     ):
         if critical_threshold_pct >= low_threshold_pct:
             raise ValueError(
@@ -156,6 +172,16 @@ class BatteryMonitor:
             self._reissue = requested_reissue
         self._enabled = enabled
         self._on_low_transition = on_low_transition
+        # Issue #234 R1-1: wall-clock rate cap on LOW-callback fires to
+        # absorb OK→LOW→OK→LOW oscillation on a noisy pack at the knee.
+        # Coerce to a non-negative float; negative input is treated as 0
+        # (disabled) so a typo doesn't silently invert the gate.
+        self._min_callback_interval_sec = max(
+            0.0, float(min_callback_interval_sec),
+        )
+        # Issue #234 R2-1: notified on the OK transition that clears a
+        # previously-set ``action_taken``. Caller writes the audit row.
+        self._on_action_cleared = on_action_cleared
 
         self._lock = threading.Lock()
         self._state = BatteryState()
@@ -173,6 +199,11 @@ class BatteryMonitor:
         # graceful-stop, not a repeating alert). Re-armed only after the
         # level recovers above LOW. See issue #222.
         self._low_callback_fired: bool = False
+        # Issue #234 R1-1: monotonic timestamp of the last fired LOW
+        # callback. Compared against ``min_callback_interval_sec`` to
+        # suppress duplicate fires from OK→LOW oscillation. ``0.0`` = no
+        # prior fire (the first ever LOW transition always fires).
+        self._last_low_callback_ts: float = 0.0
 
     # -- Configuration -------------------------------------------------
     @property
@@ -196,6 +227,11 @@ class BatteryMonitor:
         """Effective reissue cadence after R1-4 floor clamp (may differ
         from the configured value if it was below the safety floor)."""
         return self._reissue
+
+    @property
+    def min_callback_interval_sec(self) -> float:
+        """LOW-callback rate cap (issue #234 R1-1). 0 disables."""
+        return self._min_callback_interval_sec
 
     def set_callsign(self, callsign: str) -> None:
         with self._lock:
@@ -248,6 +284,7 @@ class BatteryMonitor:
 
         uncalibrated_alert: Optional[tuple[str, int]] = None
         low_callback_snapshot: Optional[BatteryState] = None
+        cleared_action_label: Optional[str] = None
         with self._lock:
             self._state.voltage_v = voltage_v
             self._state.remaining_pct = remaining_pct
@@ -277,13 +314,36 @@ class BatteryMonitor:
             # CRITICAL hits on a shared-battery platform, brownout is
             # already imminent; LOW gives the Jetson margin to act while
             # it still has rail). Re-arm only on recovery to OK.
-            if (
+            #
+            # Issue #234 R1-1: even after re-arm on OK, suppress fires
+            # that fall inside the wall-clock rate cap window. Pinning
+            # to a single fire per ``min_callback_interval_sec`` absorbs
+            # noisy-pack oscillation (OK→LOW→OK→LOW within 30s) which
+            # would otherwise produce duplicate audit rows and duplicate
+            # set_mode(HOLD) calls. The first LOW transition ever (no
+            # prior fire) always fires regardless of the cap.
+            should_fire_low_cb = (
                 self._on_low_transition is not None
                 and level == LEVEL_LOW
                 and prev_alert_level != LEVEL_LOW
                 and not self._low_callback_fired
-            ):
+            )
+            if should_fire_low_cb and self._min_callback_interval_sec > 0.0:
+                last = self._last_low_callback_ts
+                if last > 0.0 and (now - last) < self._min_callback_interval_sec:
+                    # Inside the rate-cap window — suppress this fire but
+                    # still latch ``_low_callback_fired`` so we don't drop
+                    # into the no-rate-cap branch on the next tick.
+                    should_fire_low_cb = False
+                    self._low_callback_fired = True
+                    logger.info(
+                        "battery: LOW callback rate-capped "
+                        "(last fire %.1fs ago, cap=%.1fs).",
+                        now - last, self._min_callback_interval_sec,
+                    )
+            if should_fire_low_cb:
                 self._low_callback_fired = True
+                self._last_low_callback_ts = now
                 low_callback_snapshot = BatteryState(
                     voltage_v=self._state.voltage_v,
                     remaining_pct=self._state.remaining_pct,
@@ -296,8 +356,17 @@ class BatteryMonitor:
             # Re-arm the LOW-transition callback when level recovers to OK
             # so a subsequent LOW dip (rare but possible on a noisy pack)
             # can fire it again.
+            #
+            # Issue #234 R2-1: also clear the sticky ``action_taken`` flag
+            # on recovery so a multi-mission day (drive boat back, swap
+            # pack, redeploy) does not show stale "graceful_stop" on the
+            # dashboard. Surface the cleared label outside the lock so
+            # the caller can write a paired audit row.
             if level == LEVEL_OK and self._low_callback_fired:
                 self._low_callback_fired = False
+            if level == LEVEL_OK and self._state.action_taken is not None:
+                cleared_action_label = self._state.action_taken
+                self._state.action_taken = None
 
         if uncalibrated_alert is not None and self._send is not None:
             text, severity = uncalibrated_alert
@@ -328,6 +397,18 @@ class BatteryMonitor:
             if isinstance(result, str) and result:
                 with self._lock:
                     self._state.action_taken = result
+
+        # Issue #234 R2-1: notify the action-cleared callback OUTSIDE the
+        # lock so the caller can write an audit row without blocking the
+        # next SYS_STATUS update. Idempotent — only fires when the OK
+        # transition actually cleared a previously-set label.
+        if cleared_action_label is not None and self._on_action_cleared is not None:
+            try:
+                self._on_action_cleared(cleared_action_label)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "battery action-cleared callback failed: %s", exc,
+                )
 
     # -- Read-side -----------------------------------------------------
     def get_state(self, now: Optional[float] = None) -> BatteryState:
