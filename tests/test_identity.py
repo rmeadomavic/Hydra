@@ -5,9 +5,12 @@ Covers:
 - API token has minimum entropy and valid charset
 - Password hash round-trip (generate -> hash -> verify)
 - maybe_generate_identity logs warning on missing identity, noop on populated
-- snapshot_if_healthy writes config.ini.lkg atomically
-- restore_lkg restores atomically, noop if no snapshot
 - Config schema accepts empty [identity] (fresh install) and fully populated
+
+LKG (config.ini.lkg) snapshot/restore tests were removed in PR #231 along
+with the config_lkg module — the production boot path uses config.ini.bak
+(written by facade.Pipeline.start and restored by attempt_corrupt_recovery)
+as the single rollback file. See docs/adversarial/231.md, R2-2/R3-3.
 """
 
 from __future__ import annotations
@@ -315,106 +318,6 @@ class TestMaybeGenerateIdentity:
         with caplog.at_level(logging.WARNING):
             maybe_generate_identity(config_path)
         assert any("invalid" in r.message for r in caplog.records)
-
-
-# ---------------------------------------------------------------------------
-# config_lkg.py
-# ---------------------------------------------------------------------------
-
-class TestSnapshotIfHealthy:
-    def test_writes_lkg_on_healthy(self, tmp_path):
-        from hydra_detect.config_lkg import snapshot_if_healthy, has_lkg
-        config_path = tmp_path / "config.ini"
-        config_path.write_text("[camera]\nsource = auto\n")
-        result = snapshot_if_healthy(config_path, lambda: True)
-        assert result is True
-        assert has_lkg(config_path)
-        lkg = tmp_path / "config.ini.lkg"
-        assert lkg.exists()
-        assert "camera" in lkg.read_text()
-
-    def test_no_lkg_when_unhealthy(self, tmp_path):
-        from hydra_detect.config_lkg import snapshot_if_healthy, has_lkg
-        config_path = tmp_path / "config.ini"
-        config_path.write_text("[camera]\nsource = auto\n")
-        result = snapshot_if_healthy(config_path, lambda: False)
-        assert result is False
-        assert not has_lkg(config_path)
-
-    def test_no_lkg_when_health_check_raises(self, tmp_path):
-        from hydra_detect.config_lkg import snapshot_if_healthy, has_lkg
-        config_path = tmp_path / "config.ini"
-        config_path.write_text("[camera]\nsource = auto\n")
-
-        def bad_check():
-            raise RuntimeError("health check failed")
-
-        result = snapshot_if_healthy(config_path, bad_check)
-        assert result is False
-        assert not has_lkg(config_path)
-
-    def test_no_tmp_left_after_write(self, tmp_path):
-        from hydra_detect.config_lkg import snapshot_if_healthy
-        config_path = tmp_path / "config.ini"
-        config_path.write_text("[camera]\nsource = auto\n")
-        snapshot_if_healthy(config_path, lambda: True)
-        tmp = tmp_path / "config.ini.lkg.tmp"
-        assert not tmp.exists()
-
-    def test_missing_config_returns_false(self, tmp_path):
-        from hydra_detect.config_lkg import snapshot_if_healthy
-        config_path = tmp_path / "nonexistent.ini"
-        result = snapshot_if_healthy(config_path, lambda: True)
-        assert result is False
-
-    def test_overwrites_stale_lkg(self, tmp_path):
-        from hydra_detect.config_lkg import snapshot_if_healthy
-        config_path = tmp_path / "config.ini"
-        config_path.write_text("[camera]\nsource = auto\n")
-        snapshot_if_healthy(config_path, lambda: True)
-
-        config_path.write_text("[camera]\nsource = /dev/video0\n")
-        snapshot_if_healthy(config_path, lambda: True)
-
-        lkg = tmp_path / "config.ini.lkg"
-        assert "/dev/video0" in lkg.read_text()
-
-
-class TestRestoreLkg:
-    def test_restores_from_lkg(self, tmp_path):
-        from hydra_detect.config_lkg import snapshot_if_healthy, restore_lkg
-        config_path = tmp_path / "config.ini"
-        config_path.write_text("[camera]\nsource = auto\n")
-        snapshot_if_healthy(config_path, lambda: True)
-
-        config_path.write_text("[camera]\nsource = /dev/video9\n")
-        result = restore_lkg(config_path)
-        assert result is True
-        assert "auto" in config_path.read_text()
-
-    def test_returns_false_when_no_lkg(self, tmp_path):
-        from hydra_detect.config_lkg import restore_lkg
-        config_path = tmp_path / "config.ini"
-        config_path.write_text("[camera]\nsource = auto\n")
-        result = restore_lkg(config_path)
-        assert result is False
-
-    def test_no_tmp_left_after_restore(self, tmp_path):
-        from hydra_detect.config_lkg import snapshot_if_healthy, restore_lkg
-        config_path = tmp_path / "config.ini"
-        config_path.write_text("[camera]\nsource = auto\n")
-        snapshot_if_healthy(config_path, lambda: True)
-        restore_lkg(config_path)
-        tmp = tmp_path / "config.ini.tmp"
-        assert not tmp.exists()
-
-    def test_has_lkg(self, tmp_path):
-        from hydra_detect.config_lkg import snapshot_if_healthy, has_lkg
-        config_path = tmp_path / "config.ini"
-        config_path.write_text("[camera]\nsource = auto\n")
-        assert not has_lkg(config_path)
-        snapshot_if_healthy(config_path, lambda: True)
-        assert has_lkg(config_path)
 
 
 # ---------------------------------------------------------------------------

@@ -199,6 +199,16 @@ def main():
     # from config.ini.bak (written at the end of the previous successful boot
     # by Pipeline.start -> backup_on_boot). Must run before migrations and
     # the pre-load below, both of which call cfg.read() with no fallback.
+    #
+    # Attach the in-memory audit ring BEFORE recovery runs so the
+    # RECOVERY_FROM_BAK event emitted by attempt_corrupt_recovery is
+    # captured for `/api/audit/summary` (PR #231, R3-1). The durable
+    # JSONL file sink still attaches later via _wire_audit_file_sink —
+    # it needs the parsed config to know where to write — so a recovery
+    # event from THIS boot is ring-only. Subsequent boot events flow to
+    # both sinks normally.
+    from .audit import attach_to_logger as _attach_audit
+    _attach_audit()
     from .web.config_api import attempt_corrupt_recovery
     if not attempt_corrupt_recovery(args.config):
         logger.critical(
