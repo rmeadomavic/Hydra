@@ -6,7 +6,7 @@ All members are stdlib-only; no external dependency is introduced.
 
 from __future__ import annotations
 
-from .health import compute_disk_free, health_snapshot, SUBSYSTEMS
+from .health import compute_disk_bytes, compute_disk_free, health_snapshot, SUBSYSTEMS
 from .metrics import (
     ClientErrorSink,
     Counter,
@@ -33,6 +33,7 @@ __all__ = [
     "Gauge",
     "SUBSYSTEMS",
     "attach_audit_counters",
+    "compute_disk_bytes",
     "compute_disk_free",
     "get_client_error_sink",
     "health_snapshot",
