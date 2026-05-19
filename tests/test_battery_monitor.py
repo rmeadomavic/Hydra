@@ -727,8 +727,13 @@ class TestSharedBatteryGracefulStop:
     - Callback raising does not break the monitor (best-effort)
     """
 
-    def _wire(self, **overrides) -> tuple[BatteryMonitor, list, list]:
-        """Build a monitor with a recording callback. Returns (mon, sender, calls)."""
+    def _wire(self, **overrides) -> tuple[BatteryMonitor, _Sender, list]:
+        """Build a monitor with a recording callback. Returns (mon, sender, calls).
+
+        Default ``min_callback_interval_sec=0.0`` keeps the legacy
+        re-entrancy-on-re-arm tests honest. Rate-cap behavior gets its
+        own dedicated test block (TestSharedBatteryRateCap).
+        """
         sender = _Sender()
         calls: list[BatteryState] = []
 
@@ -745,6 +750,7 @@ class TestSharedBatteryGracefulStop:
             critical_reissue_sec=0.0,
             enabled=True,
             on_low_transition=_cb,
+            min_callback_interval_sec=0.0,
         )
         kwargs.update(overrides)
         return BatteryMonitor(**kwargs), sender, calls
@@ -820,8 +826,13 @@ class TestSharedBatteryGracefulStop:
         assert len(calls) == 1  # no new call
 
     def test_recovery_then_relow_refires_callback(self):
-        """Re-arm after OK: a second LOW dip can fire the callback again."""
-        mon, _, calls = self._wire()
+        """Re-arm after OK: a second LOW dip can fire the callback again.
+
+        Rate cap disabled (issue #234 R1-1 default is 60s — would suppress
+        the immediate re-fire); this test pins the underlying re-arm
+        primitive in isolation.
+        """
+        mon, _, calls = self._wire(min_callback_interval_sec=0.0)
         mon.update_from_sys_status(11800, 19, now=100.0)
         mon.update_from_sys_status(12400, 80, now=101.0)
         # Second LOW dip — re-armed
@@ -834,8 +845,14 @@ class TestSharedBatteryGracefulStop:
         st = mon.get_state(now=100.0)
         assert st.action_taken == "graceful_stop"
 
-    def test_action_taken_not_overwritten_by_none_return(self):
-        """Callback returning None or non-string leaves action_taken alone."""
+    def test_action_taken_cleared_on_recovery(self):
+        """Issue #234 R2-1: action_taken is cleared on OK-recovery.
+
+        Recovery must clear the sticky flag so multi-mission days
+        (drive USV back, swap pack, redeploy) do not show stale
+        graceful_stop on /api/stats. Replaces the prior "sticky for
+        the session" behavior which produced dashboard staleness.
+        """
         sender = _Sender()
         results = iter(["graceful_stop", None])
 
@@ -848,15 +865,19 @@ class TestSharedBatteryGracefulStop:
             callsign="HYDRA-2-UGV",
             send_statustext=sender,
             on_low_transition=_cb,
+            min_callback_interval_sec=0.0,  # let the re-LOW fire
         )
         # First LOW transition — callback returns "graceful_stop"
         mon.update_from_sys_status(11800, 19, now=100.0)
         assert mon.get_state(now=100.0).action_taken == "graceful_stop"
-        # Recover, then re-LOW — callback returns None, but the prior
-        # action_taken should remain set (it's sticky for the session)
+        # Recover → action_taken clears
         mon.update_from_sys_status(12400, 80, now=101.0)
+        assert mon.get_state(now=101.0).action_taken is None
+        # Re-LOW with callback returning None — action_taken stays None
+        # (the prior label was cleared on the OK transition, not on this
+        # subsequent re-fire that produced no new label).
         mon.update_from_sys_status(11700, 18, now=102.0)
-        assert mon.get_state(now=102.0).action_taken == "graceful_stop"
+        assert mon.get_state(now=102.0).action_taken is None
 
     def test_callback_exception_swallowed(self):
         """Callback raising must not break the monitor (defensive)."""
@@ -885,3 +906,313 @@ class TestSharedBatteryGracefulStop:
         mon.update_from_sys_status(11700, 15, now=101.0)
         assert calls[0].voltage_v == 11.8
         assert calls[0].remaining_pct == 19
+
+
+# ---------------------------------------------------------------------------
+# Issue #234 R1-1 — LOW-callback rate cap on noisy-pack oscillation
+# ---------------------------------------------------------------------------
+
+
+class TestSharedBatteryRateCap:
+    """Wall-clock rate cap on the LOW-transition callback (issue #234 R1-1).
+
+    OK→LOW→OK→LOW oscillation on a noisy pack at the knee voltage fires
+    the callback multiple times under PR #229's re-arm-on-OK primitive.
+    Each fire produces a duplicate audit row, duplicate STATUSTEXT, and
+    possibly duplicate set_mode(HOLD). The rate cap absorbs this by
+    suppressing further fires within ``min_callback_interval_sec``.
+    """
+
+    def _wire(self, **overrides):
+        sender = _Sender()
+        calls: list[BatteryState] = []
+
+        def _cb(snapshot: BatteryState) -> str:
+            calls.append(snapshot)
+            return "graceful_stop"
+
+        kwargs = dict(
+            low_threshold_pct=20,
+            critical_threshold_pct=10,
+            callsign="HYDRA-2-USV",
+            send_statustext=sender,
+            stale_after_sec=30.0,
+            enabled=True,
+            on_low_transition=_cb,
+            min_callback_interval_sec=60.0,
+        )
+        kwargs.update(overrides)
+        return BatteryMonitor(**kwargs), sender, calls
+
+    def test_default_is_60s(self):
+        mon, _, _ = self._wire()
+        assert mon.min_callback_interval_sec == 60.0
+
+    def test_oscillation_within_window_fires_once(self):
+        """OK→LOW→OK→LOW→OK→LOW inside 30s: exactly one fire."""
+        mon, _, calls = self._wire(min_callback_interval_sec=60.0)
+        # First LOW transition fires (no prior fire).
+        mon.update_from_sys_status(11800, 19, now=100.0)
+        assert len(calls) == 1
+        # Recover and re-dip within the rate-cap window.
+        mon.update_from_sys_status(12400, 80, now=105.0)
+        mon.update_from_sys_status(11700, 18, now=110.0)
+        # Suppressed — within 60s of last fire.
+        assert len(calls) == 1
+        # Another oscillation, still inside window.
+        mon.update_from_sys_status(12400, 80, now=120.0)
+        mon.update_from_sys_status(11600, 17, now=130.0)
+        assert len(calls) == 1, (
+            f"Rate cap failed: {len(calls)} fires within 60s window, "
+            "expected 1."
+        )
+
+    def test_fires_again_after_window_elapses(self):
+        """OK→LOW outside the rate-cap window fires the callback again."""
+        mon, _, calls = self._wire(min_callback_interval_sec=60.0)
+        mon.update_from_sys_status(11800, 19, now=100.0)
+        assert len(calls) == 1
+        # Recover, then re-LOW past the 60s cap.
+        mon.update_from_sys_status(12400, 80, now=110.0)
+        mon.update_from_sys_status(11700, 18, now=170.0)
+        assert len(calls) == 2
+
+    def test_zero_disables_cap(self):
+        """min_callback_interval_sec=0 reverts to PR #229 re-arm behavior."""
+        mon, _, calls = self._wire(min_callback_interval_sec=0.0)
+        mon.update_from_sys_status(11800, 19, now=100.0)
+        mon.update_from_sys_status(12400, 80, now=101.0)
+        mon.update_from_sys_status(11700, 18, now=102.0)
+        assert len(calls) == 2
+
+    def test_negative_input_treated_as_zero(self):
+        """Defensive: bad input does not silently invert the gate."""
+        mon, _, _ = self._wire(min_callback_interval_sec=-10.0)
+        assert mon.min_callback_interval_sec == 0.0
+
+    def test_action_taken_set_on_initial_fire_only(self):
+        """Suppressed re-fires must not overwrite action_taken (still set)."""
+        mon, _, calls = self._wire(min_callback_interval_sec=60.0)
+        mon.update_from_sys_status(11800, 19, now=100.0)
+        assert mon.get_state(now=100.0).action_taken == "graceful_stop"
+        # Recover (clears action_taken per R2-1) and re-LOW within the cap.
+        mon.update_from_sys_status(12400, 80, now=105.0)
+        assert mon.get_state(now=105.0).action_taken is None
+        mon.update_from_sys_status(11700, 18, now=110.0)
+        # Suppressed fire → no new callback → action_taken stays None.
+        assert mon.get_state(now=110.0).action_taken is None
+        assert len(calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# Issue #234 R2-1 — sticky-flag clear + on_action_cleared callback
+# ---------------------------------------------------------------------------
+
+
+class TestActionClearedCallback:
+    """OK-recovery clears action_taken and notifies on_action_cleared (#234 R2-1)."""
+
+    def _wire(self, **overrides):
+        sender = _Sender()
+        low_calls: list[BatteryState] = []
+        cleared_calls: list[str] = []
+
+        def _low_cb(snapshot: BatteryState) -> str:
+            low_calls.append(snapshot)
+            return "graceful_stop"
+
+        def _cleared_cb(label: str) -> None:
+            cleared_calls.append(label)
+
+        kwargs = dict(
+            low_threshold_pct=20,
+            critical_threshold_pct=10,
+            callsign="HYDRA-2-USV",
+            send_statustext=sender,
+            stale_after_sec=30.0,
+            enabled=True,
+            on_low_transition=_low_cb,
+            on_action_cleared=_cleared_cb,
+            min_callback_interval_sec=0.0,
+        )
+        kwargs.update(overrides)
+        return BatteryMonitor(**kwargs), low_calls, cleared_calls
+
+    def test_clear_fires_on_ok_transition(self):
+        mon, low_calls, cleared = self._wire()
+        mon.update_from_sys_status(11800, 19, now=100.0)
+        assert len(low_calls) == 1
+        assert cleared == []
+        # Recover to OK → cleared callback fires with the prior label.
+        mon.update_from_sys_status(12400, 80, now=101.0)
+        assert cleared == ["graceful_stop"]
+        assert mon.get_state(now=101.0).action_taken is None
+
+    def test_clear_does_not_fire_without_prior_action(self):
+        """OK boot path: no LOW ever happened → no clear callback."""
+        mon, low_calls, cleared = self._wire()
+        mon.update_from_sys_status(12400, 80, now=100.0)
+        assert low_calls == []
+        assert cleared == []
+
+    def test_clear_does_not_fire_on_critical_to_low(self):
+        """CRITICAL→LOW is not OK-recovery — must not clear."""
+        mon, _, cleared = self._wire()
+        mon.update_from_sys_status(11800, 19, now=100.0)  # LOW → action set
+        mon.update_from_sys_status(10400, 8, now=101.0)   # → CRITICAL
+        mon.update_from_sys_status(11700, 18, now=102.0)  # → LOW (no OK seen)
+        assert cleared == []
+        assert mon.get_state(now=102.0).action_taken == "graceful_stop"
+
+    def test_clear_callback_exception_does_not_break_monitor(self):
+        sender = _Sender()
+
+        def _cleared(_label: str) -> None:
+            raise RuntimeError("audit sink unavailable")
+
+        def _low(_s):
+            return "graceful_stop"
+
+        mon = BatteryMonitor(
+            low_threshold_pct=20,
+            critical_threshold_pct=10,
+            callsign="HYDRA-2-USV",
+            send_statustext=sender,
+            on_low_transition=_low,
+            on_action_cleared=_cleared,
+            min_callback_interval_sec=0.0,
+        )
+        mon.update_from_sys_status(11800, 19, now=100.0)
+        # Must not raise out
+        mon.update_from_sys_status(12400, 80, now=101.0)
+        # Monitor still functional
+        assert mon.get_state(now=101.0).action_taken is None
+
+    def test_clear_fires_exactly_once_per_action(self):
+        """OK→OK ticks after the initial clear must not refire."""
+        mon, _, cleared = self._wire()
+        mon.update_from_sys_status(11800, 19, now=100.0)
+        mon.update_from_sys_status(12400, 80, now=101.0)
+        assert cleared == ["graceful_stop"]
+        mon.update_from_sys_status(12500, 75, now=102.0)
+        mon.update_from_sys_status(12500, 70, now=103.0)
+        assert cleared == ["graceful_stop"]
+
+
+# ---------------------------------------------------------------------------
+# Issue #234 R3-1 — facade graceful-stop callback wiring
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    not _FCNTL_AVAILABLE,
+    reason="facade imports modules that pull fcntl (Linux-only); covered on Jetson CI",
+)
+class TestGracefulStopFacadeCallback:
+    """Confirm Pipeline._graceful_stop_for_shared_battery invokes the
+    new pan-disable primitive and records the audit field. Constructs
+    a bare Pipeline via __new__ + attribute injection so we don't pay
+    the cost of the full __init__ (camera, detector, MAVLinkIO).
+    """
+
+    @staticmethod
+    def _make_pipeline_stub(mavlink, servo_tracker, *, no_mavlink: bool = False):
+        from hydra_detect.pipeline.facade import Pipeline
+        import configparser
+
+        pipe = Pipeline.__new__(Pipeline)
+        cfg = configparser.ConfigParser()
+        cfg.add_section("autonomous")
+        cfg.set("autonomous", "safe_mode", "HOLD")
+        pipe._cfg = cfg
+        pipe._callsign = "HYDRA-2-USV"
+        pipe._vehicle = "usv"
+        pipe._mavlink = None if no_mavlink else mavlink
+        pipe._servo_tracker = servo_tracker
+        return pipe
+
+    def test_callback_calls_servo_safe_and_disable_pan(self):
+        mav = MagicMock()
+        servo = MagicMock()
+        servo.disable_pan.return_value = True
+        pipe = self._make_pipeline_stub(mav, servo)
+        snapshot = BatteryState(
+            voltage_v=11.8, remaining_pct=19, level=LEVEL_LOW,
+        )
+        result = pipe._graceful_stop_for_shared_battery(snapshot)
+        assert result == "graceful_stop"
+        servo.safe.assert_called_once()
+        servo.disable_pan.assert_called_once()
+        mav.set_mode.assert_called_once_with("HOLD")
+
+    def test_callback_records_pan_disabled_true_in_audit(self, caplog):
+        import logging
+        mav = MagicMock()
+        servo = MagicMock()
+        servo.disable_pan.return_value = True
+        pipe = self._make_pipeline_stub(mav, servo)
+        snapshot = BatteryState(
+            voltage_v=11.8, remaining_pct=19, level=LEVEL_LOW,
+        )
+        with caplog.at_level(logging.WARNING, logger="hydra.audit"):
+            pipe._graceful_stop_for_shared_battery(snapshot)
+        audit = [r for r in caplog.records if "BATTERY_GRACEFUL_STOP" in r.message]
+        assert audit, f"expected audit row; got {[r.message for r in caplog.records]}"
+        assert any("pan_disabled=True" in r.message for r in audit)
+
+    def test_callback_records_pan_disabled_false_when_disable_fails(self, caplog):
+        import logging
+        mav = MagicMock()
+        servo = MagicMock()
+        servo.disable_pan.return_value = False  # set_servo raised inside
+        pipe = self._make_pipeline_stub(mav, servo)
+        snapshot = BatteryState(
+            voltage_v=11.8, remaining_pct=19, level=LEVEL_LOW,
+        )
+        with caplog.at_level(logging.WARNING, logger="hydra.audit"):
+            pipe._graceful_stop_for_shared_battery(snapshot)
+        audit = [r for r in caplog.records if "BATTERY_GRACEFUL_STOP" in r.message]
+        assert any("pan_disabled=False" in r.message for r in audit)
+
+    def test_callback_returns_none_when_mavlink_absent(self, caplog):
+        import logging
+        servo = MagicMock()
+        pipe = self._make_pipeline_stub(None, servo, no_mavlink=True)
+        snapshot = BatteryState(
+            voltage_v=11.8, remaining_pct=19, level=LEVEL_LOW,
+        )
+        with caplog.at_level(logging.WARNING, logger="hydra.audit"):
+            result = pipe._graceful_stop_for_shared_battery(snapshot)
+        # No MAVLink → dashboard does not claim graceful_stop
+        assert result is None
+        # And servo is NOT touched (we early-return before reaching it)
+        servo.safe.assert_not_called()
+        servo.disable_pan.assert_not_called()
+        # Audit row still written so the operator sees the attempt
+        audit = [r for r in caplog.records if "BATTERY_GRACEFUL_STOP" in r.message]
+        assert audit
+        assert any("mavlink=absent" in r.message for r in audit)
+
+    def test_callback_continues_when_disable_pan_raises(self):
+        """Defensive: an exception from disable_pan must not break the callback."""
+        mav = MagicMock()
+        servo = MagicMock()
+        servo.disable_pan.side_effect = RuntimeError("pan-disable boom")
+        pipe = self._make_pipeline_stub(mav, servo)
+        snapshot = BatteryState(
+            voltage_v=11.8, remaining_pct=19, level=LEVEL_LOW,
+        )
+        # Must not raise
+        result = pipe._graceful_stop_for_shared_battery(snapshot)
+        assert result == "graceful_stop"
+
+    def test_audit_action_cleared_writes_audit_row(self, caplog):
+        import logging
+        mav = MagicMock()
+        servo = MagicMock()
+        pipe = self._make_pipeline_stub(mav, servo)
+        with caplog.at_level(logging.WARNING, logger="hydra.audit"):
+            pipe._audit_action_cleared("graceful_stop")
+        audit = [r for r in caplog.records if "BATTERY_ACTION_CLEARED" in r.message]
+        assert audit
+        assert any("prior_action=graceful_stop" in r.message for r in audit)

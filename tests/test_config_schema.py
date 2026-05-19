@@ -585,6 +585,171 @@ class TestVehicleSectionValidation:
 
 
 # ---------------------------------------------------------------------------
+# Issue #234 R1-1 — battery.min_callback_interval_sec schema field
+# ---------------------------------------------------------------------------
+
+
+class TestBatteryMinCallbackIntervalSchema:
+    """Schema validation for the new LOW-callback rate cap field."""
+
+    @staticmethod
+    def _cfg_with_battery(value: str):
+        cfg = _valid_config()
+        if not cfg.has_section("battery"):
+            cfg.add_section("battery")
+        cfg.set("battery", "min_callback_interval_sec", value)
+        return cfg
+
+    def test_default_is_60s_when_omitted(self):
+        """Field is optional — defaults satisfy the schema."""
+        cfg = _valid_config()
+        result = validate_config(cfg)
+        assert result.ok, f"unexpected errors: {result.errors}"
+
+    def test_positive_float_accepted(self):
+        cfg = self._cfg_with_battery("30.0")
+        result = validate_config(cfg)
+        errs = [e for e in result.errors if "min_callback_interval_sec" in e]
+        assert errs == []
+
+    def test_zero_accepted(self):
+        """0 disables the cap — must validate (rate cap off, PR #229 behavior)."""
+        cfg = self._cfg_with_battery("0.0")
+        result = validate_config(cfg)
+        errs = [e for e in result.errors if "min_callback_interval_sec" in e]
+        assert errs == []
+
+    def test_negative_rejected(self):
+        cfg = self._cfg_with_battery("-5.0")
+        result = validate_config(cfg)
+        assert any(
+            "min_callback_interval_sec" in e for e in result.errors
+        ), f"expected negative-value error; got {result.errors}"
+
+    def test_non_numeric_rejected(self):
+        cfg = self._cfg_with_battery("soon")
+        result = validate_config(cfg)
+        assert any(
+            "min_callback_interval_sec" in e for e in result.errors
+        ), f"expected non-numeric error; got {result.errors}"
+
+    def test_max_clamp_at_3600(self):
+        """3600s is the upper bound (an hour is generous for a noisy pack)."""
+        cfg = self._cfg_with_battery("99999")
+        result = validate_config(cfg)
+        assert any(
+            "min_callback_interval_sec" in e and "at most" in e
+            for e in result.errors
+        )
+
+
+# ---------------------------------------------------------------------------
+# Issue #234 R3-3 — shared-battery + low_threshold_pct soft warning
+# ---------------------------------------------------------------------------
+
+
+class TestSharedBatteryThresholdWarning:
+    """Soft-validation warning when low_threshold_pct interacts poorly with
+    a shared-battery vehicle profile (issue #234 R3-3 tuning-trap).
+
+    Schema only enforces critical < low; an operator setting
+    low_threshold_pct=95 on a USV with shared_battery=true gets
+    immediate graceful-stop on a fresh pack. This layer surfaces that.
+    """
+
+    @staticmethod
+    def _set_low(cfg, value: str) -> None:
+        if not cfg.has_section("battery"):
+            cfg.add_section("battery")
+        cfg.set("battery", "low_threshold_pct", value)
+
+    def test_warn_fires_when_low_above_50_and_shared_true(self):
+        cfg = _valid_config()
+        self._set_low(cfg, "95")
+        cfg.add_section("vehicle.usv")
+        cfg.set("vehicle.usv", "shared_battery", "true")
+        result = validate_config(cfg)
+        matched = [w for w in result.warnings if "low_threshold_pct" in w]
+        assert matched, f"expected R3-3 warning; got {result.warnings}"
+        assert any("graceful-stop" in w for w in matched)
+        assert any("vehicle.usv" in w for w in matched)
+
+    def test_warn_silent_when_shared_battery_false(self):
+        cfg = _valid_config()
+        self._set_low(cfg, "95")
+        cfg.add_section("vehicle.drone")
+        cfg.set("vehicle.drone", "shared_battery", "false")
+        result = validate_config(cfg)
+        matched = [
+            w for w in result.warnings
+            if "low_threshold_pct" in w and "graceful-stop" in w
+        ]
+        assert matched == [], (
+            f"R3-3 warning should not fire when shared_battery=false; "
+            f"got {result.warnings}"
+        )
+
+    def test_warn_silent_when_low_pct_in_safe_range(self):
+        """low_threshold_pct=20 (default) with shared_battery=true is fine."""
+        cfg = _valid_config()
+        self._set_low(cfg, "20")
+        cfg.add_section("vehicle.usv")
+        cfg.set("vehicle.usv", "shared_battery", "true")
+        result = validate_config(cfg)
+        matched = [
+            w for w in result.warnings
+            if "low_threshold_pct" in w and "graceful-stop" in w
+        ]
+        assert matched == [], f"unexpected R3-3 warning; got {matched}"
+
+    def test_warn_boundary_at_50(self):
+        """50 is the boundary — strictly greater than fires."""
+        cfg = _valid_config()
+        self._set_low(cfg, "50")
+        cfg.add_section("vehicle.usv")
+        cfg.set("vehicle.usv", "shared_battery", "true")
+        result = validate_config(cfg)
+        matched = [
+            w for w in result.warnings
+            if "low_threshold_pct" in w and "graceful-stop" in w
+        ]
+        assert matched == [], f"50 should be at-boundary safe; got {matched}"
+
+        cfg.set("battery", "low_threshold_pct", "51")
+        result = validate_config(cfg)
+        matched = [
+            w for w in result.warnings
+            if "low_threshold_pct" in w and "graceful-stop" in w
+        ]
+        assert matched, f"51 should fire warning; got {result.warnings}"
+
+    def test_warn_fires_for_vehicle_fw_shared_true(self):
+        """vehicle.fw has explicit schema — warning still catches it."""
+        cfg = _valid_config()
+        self._set_low(cfg, "80")
+        cfg.add_section("vehicle.fw")
+        cfg.set("vehicle.fw", "shared_battery", "true")
+        result = validate_config(cfg)
+        matched = [
+            w for w in result.warnings
+            if "low_threshold_pct" in w and "graceful-stop" in w
+        ]
+        assert matched, f"expected R3-3 warning; got {result.warnings}"
+        assert any("vehicle.fw" in w for w in matched)
+
+    def test_warn_silent_when_no_vehicle_profile_present(self):
+        """No vehicle.* sections at all → no shared-battery context → no warn."""
+        cfg = _valid_config()
+        self._set_low(cfg, "95")
+        result = validate_config(cfg)
+        matched = [
+            w for w in result.warnings
+            if "low_threshold_pct" in w and "graceful-stop" in w
+        ]
+        assert matched == [], f"unexpected R3-3 warning; got {matched}"
+
+
+# ---------------------------------------------------------------------------
 # Property-based tests via hypothesis
 # ---------------------------------------------------------------------------
 

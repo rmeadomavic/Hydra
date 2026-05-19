@@ -196,3 +196,116 @@ class TestGetStatus:
         assert tracker.replaces_yaw is True
         s = tracker.get_status()
         assert s["replaces_yaw"] is True
+
+
+# ---------------------------------------------------------------------------
+# Issue #234 R3-1 — disable_pan() for shared-battery graceful-stop
+# ---------------------------------------------------------------------------
+
+
+class TestDisablePan:
+    """Shared-battery graceful-stop primitive (issue #234 R3-1).
+
+    safe() centers pan PWM but does not prevent the per-frame update()
+    from re-driving the channel. disable_pan() adds a gate so a pan
+    sweep cannot be the load draining the pack after LOW transition.
+    """
+
+    def test_status_default_is_enabled(self):
+        tracker, _ = _make_tracker()
+        s = tracker.get_status()
+        assert s["pan_disabled"] is False
+
+    def test_disable_pan_centers_pan_pwm(self):
+        tracker, mav = _make_tracker()
+        # Drive the pan off-center first.
+        tracker.update(0.8)
+        mav.reset_mock()
+        # Disable → center PWM should be emitted exactly once.
+        result = tracker.disable_pan()
+        assert result is True
+        mav.set_servo.assert_called_once_with(1, 1500)
+
+    def test_disable_pan_surfaces_in_status(self):
+        tracker, _ = _make_tracker()
+        tracker.disable_pan()
+        s = tracker.get_status()
+        assert s["pan_disabled"] is True
+
+    def test_update_is_noop_when_disabled(self):
+        """After disable_pan, update() must NOT emit servo commands."""
+        tracker, mav = _make_tracker()
+        tracker.disable_pan()
+        mav.reset_mock()
+        tracker.update(0.9)
+        tracker.update(-0.6)
+        tracker.update(1.0)
+        mav.set_servo.assert_not_called()
+
+    def test_update_records_error_when_disabled(self):
+        """Status still reflects the latest error for the operator UI."""
+        tracker, _ = _make_tracker()
+        tracker.disable_pan()
+        tracker.update(0.42)
+        s = tracker.get_status()
+        assert s["error_x"] == 0.42
+        # Tracking flag must read False while disabled — UI can show
+        # "pan tracker held" instead of "actively tracking."
+        assert s["tracking"] is False
+
+    def test_disable_pan_is_idempotent(self):
+        tracker, mav = _make_tracker()
+        first = tracker.disable_pan()
+        mav.reset_mock()
+        second = tracker.disable_pan()
+        assert first is True
+        assert second is True
+        # Second call must NOT re-emit the set_servo (already at center).
+        mav.set_servo.assert_not_called()
+
+    def test_enable_pan_restores_update_path(self):
+        tracker, mav = _make_tracker()
+        tracker.disable_pan()
+        tracker.enable_pan()
+        mav.reset_mock()
+        tracker.update(1.0)
+        # Full-right error → PWM 2000 (range 500 + center 1500).
+        mav.set_servo.assert_called_with(1, 2000)
+        assert tracker.get_status()["pan_disabled"] is False
+
+    def test_enable_pan_is_noop_when_already_enabled(self):
+        tracker, mav = _make_tracker()
+        mav.reset_mock()
+        tracker.enable_pan()  # Already enabled.
+        mav.set_servo.assert_not_called()
+
+    def test_disable_pan_after_safe(self):
+        """safe() + disable_pan() is the documented graceful-stop ladder."""
+        tracker, mav = _make_tracker()
+        tracker.update(0.7)
+        tracker.safe()
+        mav.reset_mock()
+        tracker.disable_pan()
+        # disable_pan re-centers (idempotent emit) — that's acceptable;
+        # the load-bearing assertion is that subsequent update() emits nothing.
+        tracker.update(0.5)
+        # set_servo must have at most one call (from disable_pan), not
+        # one-per-update from the frame-loop call.
+        assert mav.set_servo.call_count <= 1
+
+    def test_disable_pan_handles_set_servo_failure(self):
+        """If set_servo raises, disable_pan returns False but state stays disabled.
+
+        The pan-disabled gate is more important than the PWM emit — we
+        prefer "no further updates" over "pretend everything is fine."
+        """
+        tracker, mav = _make_tracker()
+        mav.set_servo.side_effect = RuntimeError("uart down")
+        result = tracker.disable_pan()
+        assert result is False
+        assert tracker.get_status()["pan_disabled"] is True
+        # Frame-loop calls still get gated.
+        mav.set_servo.side_effect = None
+        mav.reset_mock()
+        tracker.update(0.4)
+        mav.set_servo.assert_not_called()
