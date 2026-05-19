@@ -40,6 +40,9 @@ _mavlink_ref: Any = None
 _tak_output_ref: Any = None
 _tak_input_ref: Any = None
 _cfg_ref: Any = None
+_servo_state_ref: Any = None
+_autonomy_ref: Any = None
+_operating_mode_getter: Any = None
 
 
 def wire_components(
@@ -48,18 +51,29 @@ def wire_components(
     tak_output_ref: Any | None = None,
     tak_input_ref: Any | None = None,
     cfg: Any | None = None,
+    servo_state_ref: Any | None = None,
+    autonomy_ref: Any | None = None,
+    operating_mode_getter: Any | None = None,
 ) -> None:
     """Connect live Hydra component references so evaluators read real signals.
 
     Called once from server.py after the pipeline is wired. Safe to call
     multiple times — later calls overwrite earlier ones.
+
+    operating_mode_getter is a no-arg callable returning the current mode
+    string (e.g. ``lambda: _read_current_mode().value``). Decoupled so the
+    capability_api module does not import operating_mode at startup.
     """
     global _stream_state_ref, _mavlink_ref, _tak_output_ref, _tak_input_ref, _cfg_ref
+    global _servo_state_ref, _autonomy_ref, _operating_mode_getter
     _stream_state_ref = stream_state
     _mavlink_ref = mavlink_ref
     _tak_output_ref = tak_output_ref
     _tak_input_ref = tak_input_ref
     _cfg_ref = cfg
+    _servo_state_ref = servo_state_ref
+    _autonomy_ref = autonomy_ref
+    _operating_mode_getter = operating_mode_getter
 
 
 def reset_cache() -> None:
@@ -80,12 +94,21 @@ def _serialize_report(r: CapabilityReport) -> dict[str, Any]:
 
 
 def _build_response() -> dict[str, Any]:
+    op_mode: str | None = None
+    if _operating_mode_getter is not None:
+        try:
+            op_mode = _operating_mode_getter()
+        except Exception:
+            op_mode = None
     state: SystemState = build_system_state(
         stream_state=_stream_state_ref,
         mavlink_ref=_mavlink_ref,
         tak_output_ref=_tak_output_ref,
         tak_input_ref=_tak_input_ref,
         cfg=_cfg_ref,
+        servo_state_ref=_servo_state_ref,
+        autonomy_ref=_autonomy_ref,
+        operating_mode=op_mode,
     )
     reports = evaluate_all(state)
     return {
