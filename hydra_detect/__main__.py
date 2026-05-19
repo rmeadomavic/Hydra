@@ -195,6 +195,19 @@ def main():
     )
     args = parser.parse_args()
 
+    # Power-loss recovery: if config.ini was truncated mid-write, restore
+    # from config.ini.bak (written at the end of the previous successful boot
+    # by Pipeline.start -> backup_on_boot). Must run before migrations and
+    # the pre-load below, both of which call cfg.read() with no fallback.
+    from .web.config_api import attempt_corrupt_recovery
+    if not attempt_corrupt_recovery(args.config):
+        logger.critical(
+            "Config recovery exhausted — refusing to start with no usable "
+            "config at %s. Restore from factory defaults via the dashboard "
+            "or re-run Platform Setup.", args.config,
+        )
+        sys.exit(1)
+
     # Run config schema migrations before anything reads config values.
     # Must happen before cfg.read() so the pipeline sees the migrated file.
     _run_boot_migrations(args.config)
