@@ -162,6 +162,40 @@ class DetectionLogger:
 
         self._close_log_file()
 
+    def flush(self, timeout: float = 2.0) -> bool:
+        """Block until every queued work item has been processed.
+
+        Used by ``_handle_mission_end`` to guarantee detection rows
+        stamped with the active mission_id reach disk BEFORE the
+        ``mission_end`` event lands in the event log. Without this,
+        the writer thread can drain queued items after the boundary
+        event, producing rows that appear to occur "after" mission end
+        with the old mission_id — an audit-trail correctness gap
+        flagged in docs/adversarial/230.md R3-1.
+
+        Args:
+            timeout: Max seconds to wait. Returns False on timeout.
+
+        Returns:
+            True if the queue drained within the timeout; False if it
+            did not (the caller should still proceed but log a warning —
+            losing strict ordering is better than wedging mission_end).
+        """
+        if self._writer_thread is None or not self._writer_thread.is_alive():
+            return True
+
+        done = threading.Event()
+
+        def _await_drain() -> None:
+            self._write_queue.join()
+            done.set()
+
+        waiter = threading.Thread(
+            target=_await_drain, daemon=True, name="det-logger-flush",
+        )
+        waiter.start()
+        return done.wait(timeout=timeout)
+
     # ------------------------------------------------------------------
     # Hot-path method (called from the detection thread)
     # ------------------------------------------------------------------
@@ -464,26 +498,37 @@ class DetectionLogger:
     # ------------------------------------------------------------------
 
     def _writer_loop(self) -> None:
-        """Consume work items from the queue and perform all file I/O."""
+        """Consume work items from the queue and perform all file I/O.
+
+        task_done() is called for every queue.get() so callers can
+        synchronize on flush() via Queue.join() (used by mission-end to
+        guarantee detection rows with the active mission_id reach disk
+        before the mission_end event lands).
+        """
         while True:
             try:
                 item = self._write_queue.get(timeout=1.0)
             except queue.Empty:
                 continue
 
-            if item is _STOP:
-                # Drain any remaining items before exiting so stop() is a
-                # clean flush — no detections are silently discarded.
-                while True:
-                    try:
-                        remaining = self._write_queue.get_nowait()
-                    except queue.Empty:
-                        break
-                    if remaining is not _STOP:
-                        self._safe_process(remaining)
-                break
-
-            self._safe_process(item)
+            try:
+                if item is _STOP:
+                    # Drain any remaining items before exiting so stop() is a
+                    # clean flush — no detections are silently discarded.
+                    while True:
+                        try:
+                            remaining = self._write_queue.get_nowait()
+                        except queue.Empty:
+                            break
+                        try:
+                            if remaining is not _STOP:
+                                self._safe_process(remaining)
+                        finally:
+                            self._write_queue.task_done()
+                    break
+                self._safe_process(item)
+            finally:
+                self._write_queue.task_done()
 
     def _safe_process(self, item: Dict[str, Any]) -> None:
         """Run _process_work_item with a hard guard against any exception.

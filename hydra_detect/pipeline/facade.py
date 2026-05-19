@@ -3058,12 +3058,27 @@ class Pipeline:
                 self._mavlink.send_statustext(
                     f"{callsign}: MISSION END - {self._mission_name}", severity=5
                 )
-        # Tear down in a fixed order: stop stamping detection rows first so
-        # any in-flight log() calls land with mission_id=None, THEN close
-        # the event JSONL via end_mission(). Reverse order would leave a
-        # short window where new detections get stamped with an id whose
-        # event file is already closed.
+        # Tear down in a fixed order:
+        # 1. Stop stamping NEW detection rows so any in-flight log() calls
+        #    land with mission_id=None.
+        # 2. Flush the detection writer queue — items ALREADY queued were
+        #    stamped with the active mission_id; they must reach disk
+        #    BEFORE mission_end is written to the event log, otherwise
+        #    the summary endpoint sees detections with this mission_id
+        #    timestamped after mission_end. Bounded 2s drain — on
+        #    timeout we still close cleanly, just with a warning.
+        #    (Adversarial finding R3-1 in docs/adversarial/230.md.)
+        # 3. Close the event JSONL via end_mission().
+        # Reverse order would leave a short window where new detections
+        # get stamped with an id whose event file is already closed.
         self._det_logger.set_mission_id(None)
+        if not self._det_logger.flush(timeout=2.0):
+            logger.warning(
+                "mission_end: detection logger queue did not drain within "
+                "2s; mission_id=%s may have rows timestamped after "
+                "mission_end in the summary view.",
+                self._mission_id,
+            )
         self._event_logger.end_mission()
         stream_state.update_runtime_config({
             "mission_id": None,

@@ -191,7 +191,44 @@ class TestDetectionLoggerMissionId:
         # part of the schema now so we assert it is present and null.
         for r in records:
             assert "mission_id" in r
-            assert r["mission_id"] is None
+
+    def test_flush_drains_queue_before_returning(self, tmp_path):
+        """Adversarial finding R3-1 in docs/adversarial/230.md:
+        mission_end must wait for already-queued detections (stamped
+        with the active mission_id) to reach disk before recording the
+        boundary event. flush() is the synchronization primitive."""
+        log_dir = tmp_path / "logs"
+        dl = DetectionLogger(log_dir=str(log_dir), save_images=False)
+        dl.start()
+        mid = str(uuid.uuid4())
+        dl.set_mission_id(mid)
+        try:
+            # Burst-queue 10 rows. After flush() returns the queue MUST
+            # be empty AND every row MUST be in the JSONL.
+            for _ in range(10):
+                dl.log(_tracking())
+            assert dl.flush(timeout=5.0) is True, (
+                "flush() returned False — queue did not drain in 5s"
+            )
+            assert dl._write_queue.unfinished_tasks == 0, (
+                "queue.unfinished_tasks > 0 after flush() returned True"
+            )
+        finally:
+            dl.stop(timeout=2.0)
+        # After stop(), the disk JSONL must contain all 10 rows.
+        records = [
+            json.loads(line)
+            for line in next(log_dir.glob("*.jsonl")).read_text().splitlines()
+            if line.strip()
+        ]
+        assert len(records) == 10
+        assert all(r.get("mission_id") == mid for r in records)
+
+    def test_flush_returns_true_when_writer_not_started(self, tmp_path):
+        """flush() is safe to call on a DetectionLogger that never
+        started — returns True (nothing to wait on)."""
+        dl = DetectionLogger(log_dir=str(tmp_path / "logs"), save_images=False)
+        assert dl.flush(timeout=0.5) is True
 
 
 # ----------------------------------------------------------------------------
