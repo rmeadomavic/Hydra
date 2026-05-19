@@ -219,6 +219,79 @@ class TestUncalibratedDetection:
         # This is the documented behavior; test pins it.
         assert len(uncal_msgs) == 1
 
+    def test_mid_session_calibration_clears_uncalibrated(self):
+        """Once UNCAL has fired and the operator runs Mission Planner to
+        calibrate mid-session, the next SYS_STATUS with a real pct must
+        clear the sticky flag AND reset the alert latch — otherwise the
+        dashboard shows UNCAL forever and a future calibration loss
+        would stay silent."""
+        mon, sender = _make_monitor()
+        # Uncalibrated boot.
+        mon.update_from_sys_status(14600, -1, now=100.0)
+        assert mon.get_state(now=100.0).uncalibrated is True
+        first_uncal_count = sum(
+            1 for m in sender.messages if "UNCALIBRATED" in m[0]
+        )
+        assert first_uncal_count == 1
+
+        # Operator calibrates; real pct arrives.
+        mon.update_from_sys_status(14600, 75, now=110.0)
+        st = mon.get_state(now=110.0)
+        assert st.uncalibrated is False
+        assert st.remaining_pct == 75
+        assert st.level == LEVEL_OK
+
+        # Calibration drops again (BATT_CAPACITY reset / FC reboot).
+        # UNCAL must re-fire — latch was reset.
+        mon.update_from_sys_status(14600, -1, now=120.0)
+        uncal_count_after = sum(
+            1 for m in sender.messages if "UNCALIBRATED" in m[0]
+        )
+        assert uncal_count_after == 2, (
+            "Auto-clear failed: second calibration-loss did not re-fire "
+            "UNCALIBRATED. Latch was not reset on recovery."
+        )
+        assert mon.get_state(now=120.0).uncalibrated is True
+
+
+class TestReissueFloor:
+    """PR #211 R1-4: critical_reissue_sec below the safety floor is
+    clamped to prevent STATUSTEXT spam from misconfiguration."""
+
+    def test_below_floor_is_clamped(self):
+        # Below the 10s floor — clamps to 10.0.
+        mon, _ = _make_monitor(critical_reissue_sec=1.0)
+        assert mon.critical_reissue_sec == 10.0
+
+    def test_at_or_above_floor_is_preserved(self):
+        mon, _ = _make_monitor(critical_reissue_sec=10.0)
+        assert mon.critical_reissue_sec == 10.0
+        mon, _ = _make_monitor(critical_reissue_sec=60.0)
+        assert mon.critical_reissue_sec == 60.0
+
+    def test_zero_disables_reissue_and_is_not_clamped(self):
+        mon, _ = _make_monitor(critical_reissue_sec=0.0)
+        assert mon.critical_reissue_sec == 0.0
+
+    def test_clamping_prevents_fast_reissue_spam(self):
+        # Misconfigured: 2s reissue requested, floor clamps to 10s.
+        mon, sender = _make_monitor(critical_reissue_sec=2.0)
+        mon.update_from_sys_status(11500, 5, now=100.0)  # → CRITICAL transition
+        # Tick faster than the floor cadence; should NOT emit reissues
+        # until 10s has elapsed.
+        for t in (101.0, 103.0, 105.0, 107.0, 109.0):
+            mon.tick(now=t)
+        crit_msgs = [m for m in sender.messages if "CRITICAL" in m[0]]
+        # 1 transition emission + 0 reissues at t<110.
+        assert len(crit_msgs) == 1, (
+            f"Reissue floor failed: {len(crit_msgs)} CRITICAL emissions "
+            f"in 10s window, expected 1 (the initial transition)."
+        )
+        # After the floor elapses, one reissue allowed.
+        mon.tick(now=111.0)
+        crit_msgs = [m for m in sender.messages if "CRITICAL" in m[0]]
+        assert len(crit_msgs) == 2
+
 
 # ---------------------------------------------------------------------------
 # Hysteresis / STATUSTEXT emission

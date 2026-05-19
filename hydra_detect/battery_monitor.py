@@ -120,7 +120,23 @@ class BatteryMonitor:
         self._callsign = (callsign or "HYDRA")[:16]
         self._send = send_statustext
         self._stale = max(0.0, float(stale_after_sec))
-        self._reissue = max(0.0, float(critical_reissue_sec))
+        # PR #211 R1-4 from docs/adversarial/211.md: clamp the CRITICAL
+        # reissue cadence to a safety floor so a misconfigured value (e.g.
+        # 1.0s) cannot saturate the MAVLink STATUSTEXT path. The floor is
+        # comfortably above the mavlink_io _global_max_per_sec ceiling of
+        # 2.0/s — at one reissue per 10s the battery path contributes
+        # 0.1/s, well under the cap even with detection traffic competing.
+        reissue_floor_sec = 10.0
+        requested_reissue = max(0.0, float(critical_reissue_sec))
+        if 0.0 < requested_reissue < reissue_floor_sec:
+            logger.warning(
+                "battery: critical_reissue_sec=%.2f below safety floor "
+                "%.1fs; clamping to floor to prevent STATUSTEXT spam.",
+                requested_reissue, reissue_floor_sec,
+            )
+            self._reissue = reissue_floor_sec
+        else:
+            self._reissue = requested_reissue
         self._enabled = enabled
 
         self._lock = threading.Lock()
@@ -150,6 +166,12 @@ class BatteryMonitor:
     @property
     def callsign(self) -> str:
         return self._callsign
+
+    @property
+    def critical_reissue_sec(self) -> float:
+        """Effective reissue cadence after R1-4 floor clamp (may differ
+        from the configured value if it was below the safety floor)."""
+        return self._reissue
 
     def set_callsign(self, callsign: str) -> None:
         with self._lock:
@@ -190,12 +212,31 @@ class BatteryMonitor:
         # the percent-driven alert path will stay silent on this unit.
         uncalibrated = (voltage_v is not None) and (remaining_pct is None)
 
+        # Mid-session calibration recovery: if a real percent arrives after
+        # we've been in uncalibrated state, clear both the sticky state
+        # flag and the one-time-alert latch. A future calibration loss
+        # (FC reboot, BATT_CAPACITY reset) then re-fires the warning
+        # rather than staying silent. (PR #211 review pass — was a UX bug
+        # in the originally-shipped fix.)
+        recovered_to_calibrated = (
+            remaining_pct is not None and self._state.uncalibrated
+        )
+
         uncalibrated_alert: Optional[tuple[str, int]] = None
         with self._lock:
             self._state.voltage_v = voltage_v
             self._state.remaining_pct = remaining_pct
             self._state.last_update_ts = now
-            self._state.uncalibrated = uncalibrated
+            if recovered_to_calibrated:
+                self._state.uncalibrated = False
+                self._uncalibrated_alert_sent = False
+                logger.info(
+                    "battery: calibrated SYS_STATUS recovered (pct=%d) — "
+                    "UNCALIBRATED state cleared, alert latch reset.",
+                    remaining_pct,
+                )
+            else:
+                self._state.uncalibrated = uncalibrated
             level = self._compute_level_locked(now)
             self._state.level = level
             transition = self._maybe_emit_alert_locked(level, now)
