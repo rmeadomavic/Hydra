@@ -49,6 +49,13 @@ def _make_state(**overrides) -> SystemState:
         cpu_temp_c=50.0,
         gpu_temp_c=55.0,
         fps_below_target_sustained_sec=0.0,
+        servo_enabled=True,
+        servo_locked_track_id=42,
+        autonomy_mode="dryrun",
+        autonomy_enabled=True,
+        autonomy_geofence_present=True,
+        operating_mode="ARMED",
+        identity_callsign="HYDRA-01-DRONE",
         cfg=None,
     )
     defaults.update(overrides)
@@ -114,9 +121,15 @@ EXPECTED_CAPABILITIES = [
     "Schema Version",
     "Thermal",
     "Performance",
+    "Servo Tracking",
+    "Follow",
+    "Autonomy Dryrun",
+    "Autonomy Shadow",
     "Autonomy Live",
     "Drop",
     "RF Hunt",
+    "Log Export",
+    "Fleet View",
 ]
 
 
@@ -702,17 +715,354 @@ class TestPerformanceEvaluator:
 
 
 # ---------------------------------------------------------------------------
-# Placeholder capabilities — Autonomy Live, Drop, RF Hunt
+# Follow evaluator — GPS + MAVLink + servo lock
 # ---------------------------------------------------------------------------
 
-class TestPlaceholderCapabilities:
-    def test_autonomy_live_is_blocked_placeholder(self):
-        state = _make_state()
+class TestFollowEvaluator:
+    def test_ready_with_full_stack(self):
+        state = _make_state(
+            mavlink_connected=True, gps_fix=3, servo_locked_track_id=7,
+        )
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Follow")
+        assert r.status == CapabilityStatus.READY
+
+    def test_blocked_without_mavlink(self):
+        state = _make_state(mavlink_connected=False)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Follow")
+        assert r.status == CapabilityStatus.BLOCKED
+        assert any("MAVLink" in reason for reason in r.reasons)
+
+    def test_blocked_without_gps(self):
+        state = _make_state(gps_fix=1)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Follow")
+        assert r.status == CapabilityStatus.BLOCKED
+        assert any("GPS" in reason or "fix" in reason for reason in r.reasons)
+
+    def test_warn_without_lock(self):
+        state = _make_state(servo_locked_track_id=None)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Follow")
+        assert r.status == CapabilityStatus.WARN
+        assert any("lock" in reason.lower() for reason in r.reasons)
+
+
+# ---------------------------------------------------------------------------
+# Servo Tracking evaluator
+# ---------------------------------------------------------------------------
+
+class TestServoTrackingEvaluator:
+    def test_ready_when_enabled_and_locked(self):
+        state = _make_state(servo_enabled=True, servo_locked_track_id=3)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Servo Tracking")
+        assert r.status == CapabilityStatus.READY
+
+    def test_blocked_when_disabled(self):
+        state = _make_state(servo_enabled=False)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Servo Tracking")
+        assert r.status == CapabilityStatus.BLOCKED
+        assert len(r.reasons) > 0
+
+    def test_warn_when_enabled_but_scanning(self):
+        state = _make_state(servo_enabled=True, servo_locked_track_id=None)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Servo Tracking")
+        assert r.status == CapabilityStatus.WARN
+
+
+# ---------------------------------------------------------------------------
+# Autonomy Dryrun + Shadow evaluators
+# ---------------------------------------------------------------------------
+
+class TestAutonomyDryrunEvaluator:
+    def test_ready_with_mavlink_and_geofence(self):
+        state = _make_state(
+            mavlink_connected=True, autonomy_geofence_present=True,
+        )
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Autonomy Dryrun")
+        assert r.status == CapabilityStatus.READY
+
+    def test_blocked_without_mavlink(self):
+        state = _make_state(mavlink_connected=False)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Autonomy Dryrun")
+        assert r.status == CapabilityStatus.BLOCKED
+
+    def test_blocked_without_geofence(self):
+        state = _make_state(autonomy_geofence_present=False)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Autonomy Dryrun")
+        assert r.status == CapabilityStatus.BLOCKED
+        assert any("geofence" in reason.lower() for reason in r.reasons)
+
+
+class TestAutonomyShadowEvaluator:
+    def test_ready_with_mavlink_geofence_servo(self):
+        state = _make_state(
+            mavlink_connected=True,
+            autonomy_geofence_present=True,
+            servo_enabled=True,
+        )
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Autonomy Shadow")
+        assert r.status == CapabilityStatus.READY
+
+    def test_blocked_without_geofence(self):
+        state = _make_state(autonomy_geofence_present=False, servo_enabled=True)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Autonomy Shadow")
+        assert r.status == CapabilityStatus.BLOCKED
+
+    def test_blocked_without_servo(self):
+        """Shadow without servo is indistinguishable from Dryrun."""
+        state = _make_state(
+            mavlink_connected=True,
+            autonomy_geofence_present=True,
+            servo_enabled=False,
+        )
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Autonomy Shadow")
+        assert r.status == CapabilityStatus.BLOCKED
+        assert r.fix_target == "Servo Tracking"
+
+
+# ---------------------------------------------------------------------------
+# Autonomy Live evaluator — full gating chain
+# ---------------------------------------------------------------------------
+
+class TestAutonomyLiveEvaluator:
+    def test_ready_with_full_stack_and_armed(self):
+        state = _make_state(
+            mavlink_connected=True,
+            gps_fix=3,
+            autonomy_geofence_present=True,
+            autonomy_enabled=True,
+            operating_mode="ARMED",
+        )
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Autonomy Live")
+        assert r.status == CapabilityStatus.READY
+
+    def test_blocked_without_armed(self):
+        state = _make_state(operating_mode="OBSERVE")
         reports = evaluate_all(state)
         r = next(r for r in reports if r.name == "Autonomy Live")
         assert r.status == CapabilityStatus.BLOCKED
-        assert any("#147" in reason for reason in r.reasons)
+        assert any("ARMED" in reason for reason in r.reasons)
 
+    def test_blocked_without_autonomy_enabled(self):
+        state = _make_state(autonomy_enabled=False)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Autonomy Live")
+        assert r.status == CapabilityStatus.BLOCKED
+        assert any("autonomy" in reason.lower() for reason in r.reasons)
+
+    def test_blocked_without_geofence(self):
+        state = _make_state(autonomy_geofence_present=False)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Autonomy Live")
+        assert r.status == CapabilityStatus.BLOCKED
+
+    def test_blocked_without_gps(self):
+        state = _make_state(gps_fix=2)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Autonomy Live")
+        assert r.status == CapabilityStatus.BLOCKED
+
+    def test_blocked_without_mavlink(self):
+        state = _make_state(mavlink_connected=False)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Autonomy Live")
+        assert r.status == CapabilityStatus.BLOCKED
+
+
+# ---------------------------------------------------------------------------
+# Log Export evaluator — disk + output dir
+# ---------------------------------------------------------------------------
+
+class TestLogExportEvaluator:
+    def test_ready_when_disk_healthy(self):
+        state = _make_state(disk_free_gb=20.0)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Log Export")
+        assert r.status == CapabilityStatus.READY
+
+    def test_warn_when_disk_low(self):
+        state = _make_state(disk_free_gb=1.5)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Log Export")
+        assert r.status == CapabilityStatus.WARN
+
+    def test_blocked_when_disk_critical(self):
+        state = _make_state(disk_free_gb=0.2)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Log Export")
+        assert r.status == CapabilityStatus.BLOCKED
+
+    def test_blocked_when_disk_unreadable(self):
+        state = _make_state(disk_free_gb=None)
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Log Export")
+        assert r.status == CapabilityStatus.BLOCKED
+
+
+# ---------------------------------------------------------------------------
+# Fleet View evaluator — identity callsign
+# ---------------------------------------------------------------------------
+
+class TestFleetViewEvaluator:
+    def test_ready_with_callsign(self):
+        state = _make_state(identity_callsign="HYDRA-01-DRONE")
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Fleet View")
+        assert r.status == CapabilityStatus.READY
+
+    def test_blocked_without_callsign(self):
+        state = _make_state(identity_callsign="")
+        reports = evaluate_all(state)
+        r = next(r for r in reports if r.name == "Fleet View")
+        assert r.status == CapabilityStatus.BLOCKED
+        assert any("callsign" in reason.lower() for reason in r.reasons)
+
+
+# ---------------------------------------------------------------------------
+# Aggregator — overall state derivation from mixed provider states
+# ---------------------------------------------------------------------------
+
+class TestAggregator:
+    """Verify that evaluate_all() composes per-provider states correctly.
+
+    The endpoint does NOT compute an "overall" rollup today — each provider
+    surfaces its own state and the frontend renders them as rows. These tests
+    pin the aggregator behaviour that the dashboard depends on: every
+    provider always returns a CapabilityReport, never None, and a broken
+    evaluator becomes a WARN row rather than crashing the page.
+    """
+
+    def test_all_providers_return_reports(self):
+        state = _make_state()
+        reports = evaluate_all(state)
+        assert len(reports) == len(EXPECTED_CAPABILITIES)
+        assert all(isinstance(r, CapabilityReport) for r in reports)
+
+    def test_one_blocked_provider_does_not_block_others(self):
+        """A BLOCKED on one provider must not affect READY siblings."""
+        state = _make_state(gps_fix=0)
+        reports = evaluate_all(state)
+        gps = next(r for r in reports if r.name == "GPS")
+        det = next(r for r in reports if r.name == "Detection")
+        assert gps.status == CapabilityStatus.BLOCKED
+        assert det.status == CapabilityStatus.READY
+
+    def test_all_warn_still_returns_reports(self):
+        """A mix of WARN providers still produces a full report set."""
+        state = _make_state(
+            disk_free_gb=1.5,        # Disk WARN
+            servo_locked_track_id=None,  # Servo + Follow WARN
+        )
+        reports = evaluate_all(state)
+        assert len(reports) == len(EXPECTED_CAPABILITIES)
+        statuses = {r.name: r.status for r in reports}
+        assert statuses["Disk"] == CapabilityStatus.WARN
+        assert statuses["Servo Tracking"] == CapabilityStatus.WARN
+
+    def test_broken_evaluator_returns_warn_not_crash(self):
+        """Closes the never-crash-the-status-page contract."""
+        # Use a stub state object that raises on attribute access for a
+        # field one evaluator reads. Instead of constructing one, we patch
+        # an evaluator to raise and confirm the rollup recovers.
+        from hydra_detect import capability_status as cs
+
+        original = cs._EVALUATORS
+        try:
+            def _boom(_state):
+                raise RuntimeError("synthetic evaluator failure")
+            cs._EVALUATORS = original + [("__synthetic__", _boom)]
+            reports = evaluate_all(_make_state())
+            r = next(r for r in reports if r.name == "__synthetic__")
+            assert r.status == CapabilityStatus.WARN
+            assert any("Evaluator error" in reason for reason in r.reasons)
+        finally:
+            cs._EVALUATORS = original
+
+
+# ---------------------------------------------------------------------------
+# build_system_state — wiring for new refs
+# ---------------------------------------------------------------------------
+
+class TestBuildSystemStateExtensions:
+    """Verify build_system_state populates the new fields from live refs."""
+
+    def test_servo_state_ref_populates_fields(self):
+        from hydra_detect.capability_status import build_system_state
+
+        class FakeServo:
+            def get_api_status(self):
+                return {"enabled": True, "locked_track_id": 11}
+
+        state = build_system_state(servo_state_ref=FakeServo())
+        assert state.servo_enabled is True
+        assert state.servo_locked_track_id == 11
+
+    def test_servo_state_ref_no_lock(self):
+        from hydra_detect.capability_status import build_system_state
+
+        class FakeServo:
+            def get_api_status(self):
+                return {"enabled": True, "locked_track_id": None}
+
+        state = build_system_state(servo_state_ref=FakeServo())
+        assert state.servo_enabled is True
+        assert state.servo_locked_track_id is None
+
+    def test_autonomy_ref_populates_fields(self):
+        from hydra_detect.capability_status import build_system_state
+
+        class FakeAutonomy:
+            enabled = True
+
+            def get_mode(self):
+                return "shadow"
+
+            def _has_valid_geofence(self):
+                return True
+
+        state = build_system_state(autonomy_ref=FakeAutonomy())
+        assert state.autonomy_mode == "shadow"
+        assert state.autonomy_enabled is True
+        assert state.autonomy_geofence_present is True
+
+    def test_operating_mode_string(self):
+        from hydra_detect.capability_status import build_system_state
+        state = build_system_state(operating_mode="ARMED")
+        assert state.operating_mode == "ARMED"
+
+    def test_operating_mode_normalises_case(self):
+        from hydra_detect.capability_status import build_system_state
+        state = build_system_state(operating_mode="armed")
+        assert state.operating_mode == "ARMED"
+
+    def test_all_none_returns_conservative_defaults(self):
+        """Safety net: with no refs wired, every field is at a 'block' default."""
+        from hydra_detect.capability_status import build_system_state
+        state = build_system_state()
+        assert state.servo_enabled is False
+        assert state.servo_locked_track_id is None
+        assert state.autonomy_enabled is False
+        assert state.autonomy_geofence_present is False
+        assert state.identity_callsign == ""
+
+
+# ---------------------------------------------------------------------------
+# Placeholder capabilities — Drop, RF Hunt
+# ---------------------------------------------------------------------------
+
+class TestPlaceholderCapabilities:
     def test_drop_is_blocked_placeholder(self):
         state = _make_state()
         reports = evaluate_all(state)

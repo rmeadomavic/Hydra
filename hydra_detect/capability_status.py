@@ -96,6 +96,29 @@ class SystemState:
     # record_fps() each time it pushes new pipeline stats.
     fps_below_target_sustained_sec: float = 0.0
 
+    # Servo / pan-tilt tracker. Powered by ServoState (servo/servo_state.py).
+    # ``servo_enabled`` reflects whether a controller has claimed the servo
+    # channel; ``servo_locked_track_id`` is the track the gimbal is currently
+    # centered on (None when scanning / no lock).
+    servo_enabled: bool = False
+    servo_locked_track_id: int | None = None
+
+    # Autonomy module state. ``autonomy_mode`` is one of dryrun / shadow /
+    # live (display-level state machine — see autonomous.set_mode).
+    # ``autonomy_enabled`` reflects the boot-time enable flag.
+    # ``autonomy_geofence_present`` is True when a valid polygon (>=3 pts)
+    # or non-zero centre+radius is configured. Autonomy Live also needs
+    # operator confirmation that we are in OperatingMode.ARMED.
+    autonomy_mode: str = "dryrun"
+    autonomy_enabled: bool = False
+    autonomy_geofence_present: bool = False
+    operating_mode: str = "OBSERVE"
+
+    # Fleet view. ``identity_callsign`` is read from config or identity.ini;
+    # blank when first-boot identity has not been generated yet (see
+    # identity_boot.py).
+    identity_callsign: str = ""
+
     # Raw config parser (optional — used by some evaluators)
     cfg: Any = None
 
@@ -108,6 +131,9 @@ def build_system_state(
     tak_output_ref: Any | None = None,
     tak_input_ref: Any | None = None,
     cfg: Any | None = None,
+    servo_state_ref: Any | None = None,
+    autonomy_ref: Any | None = None,
+    operating_mode: str | None = None,
 ) -> SystemState:
     """Build a SystemState from live Hydra component references.
 
@@ -214,6 +240,72 @@ def build_system_state(
             ver = cfg.get("meta", "schema_version", fallback="").strip()
             state.schema_version = ver if ver else None
             state.schema_version_present = bool(ver)
+        except Exception:
+            pass
+
+    # ── Servo / Follow ────────────────────────────────────────────────────
+    if servo_state_ref is not None:
+        try:
+            servo_info = servo_state_ref.get_api_status()
+            state.servo_enabled = bool(servo_info.get("enabled", False))
+            lock = servo_info.get("locked_track_id")
+            state.servo_locked_track_id = (
+                int(lock) if lock is not None else None
+            )
+        except Exception:
+            pass
+
+    # ── Autonomy ──────────────────────────────────────────────────────────
+    if autonomy_ref is not None:
+        try:
+            getter = getattr(autonomy_ref, "get_mode", None)
+            if callable(getter):
+                state.autonomy_mode = str(getter())
+            state.autonomy_enabled = bool(getattr(autonomy_ref, "enabled", False))
+            has_fence = getattr(autonomy_ref, "_has_valid_geofence", None)
+            if callable(has_fence):
+                state.autonomy_geofence_present = bool(has_fence())
+        except Exception:
+            pass
+    elif cfg is not None:
+        try:
+            mode_raw = cfg.get("autonomy", "mode", fallback="dryrun").strip().lower()
+            if mode_raw in ("dryrun", "shadow", "live"):
+                state.autonomy_mode = mode_raw
+            enabled_raw = cfg.get("autonomy", "enabled", fallback="false").strip()
+            state.autonomy_enabled = enabled_raw.lower() in ("1", "true", "yes")
+            # Geofence presence: any non-zero centre, or a polygon with 3+ pts.
+            poly_raw = cfg.get("autonomy", "geofence_polygon", fallback="").strip()
+            if poly_raw:
+                pts = [p for p in poly_raw.split(";") if "," in p]
+                state.autonomy_geofence_present = len(pts) >= 3
+            if not state.autonomy_geofence_present:
+                try:
+                    lat = float(cfg.get("autonomy", "geofence_lat", fallback="0").strip())
+                    lon = float(cfg.get("autonomy", "geofence_lon", fallback="0").strip())
+                    state.autonomy_geofence_present = (lat != 0.0 or lon != 0.0)
+                except (ValueError, TypeError):
+                    pass
+        except Exception:
+            pass
+
+    # ── Operating mode ────────────────────────────────────────────────────
+    if operating_mode is not None:
+        state.operating_mode = str(operating_mode).upper()
+    elif cfg is not None:
+        try:
+            state.operating_mode = cfg.get(
+                "system", "mode", fallback="OBSERVE",
+            ).strip().upper()
+        except Exception:
+            pass
+
+    # ── Identity / Fleet View ─────────────────────────────────────────────
+    if cfg is not None:
+        try:
+            state.identity_callsign = cfg.get(
+                "identity", "callsign", fallback="",
+            ).strip()
         except Exception:
             pass
 
@@ -623,13 +715,259 @@ def _eval_performance(state: SystemState) -> CapabilityReport:
     )
 
 
+def _eval_follow(state: SystemState) -> CapabilityReport:
+    """Follow needs GPS + MAVLink + an operator-confirmed track lock.
+
+    The minimum operational set is documented in the issue body:
+    "Follow READY = GPS + MAVLink + target lock available".
+    """
+    reasons: list[str] = []
+
+    if not state.mavlink_connected:
+        reasons.append("MAVLink not connected — cannot command vehicle.")
+        return CapabilityReport(
+            "Follow", CapabilityStatus.BLOCKED, reasons, fix_target="MAVLink",
+        )
+
+    if state.gps_fix < 3:
+        reasons.append(
+            f"GPS fix={state.gps_fix}. Follow needs 3D fix (type 3 or higher) "
+            "for position-based commands."
+        )
+        return CapabilityReport(
+            "Follow", CapabilityStatus.BLOCKED, reasons, fix_target="GPS",
+        )
+
+    if state.servo_locked_track_id is None:
+        reasons.append(
+            "No target lock. Operator must select a track in the dashboard "
+            "before Follow can engage."
+        )
+        return CapabilityReport("Follow", CapabilityStatus.WARN, reasons)
+
+    return CapabilityReport("Follow", CapabilityStatus.READY)
+
+
+def _eval_servo_tracking(state: SystemState) -> CapabilityReport:
+    """Servo Tracking READY when a controller has claimed the servo channel.
+
+    WARN when channel is enabled but no track is locked (idle scan). BLOCKED
+    when no controller is wired at all — the operator gets a precise reason
+    pointing at servo config.
+    """
+    reasons: list[str] = []
+
+    if not state.servo_enabled:
+        reasons.append(
+            "Servo channel not claimed. Enable servo_tracker in [servo] config "
+            "or check that the pan-tilt controller is wired."
+        )
+        return CapabilityReport(
+            "Servo Tracking", CapabilityStatus.BLOCKED, reasons,
+        )
+
+    if state.servo_locked_track_id is None:
+        reasons.append(
+            "Servo enabled but scanning — no track lock. Select a track in "
+            "the dashboard or wait for autonomous lock."
+        )
+        return CapabilityReport(
+            "Servo Tracking", CapabilityStatus.WARN, reasons,
+        )
+
+    return CapabilityReport("Servo Tracking", CapabilityStatus.READY)
+
+
+def _eval_autonomy_dryrun(state: SystemState) -> CapabilityReport:
+    """Dryrun autonomy: evaluator runs, no MAVLink commands fire.
+
+    Always READY when MAVLink is up (we still read MAVLink to read GPS), and
+    a geofence is present. The dryrun mode is exactly the safe default — it
+    needs the LEAST gating. BLOCKED only when prerequisites that even the
+    evaluator can't run without are missing.
+    """
+    reasons: list[str] = []
+
+    if not state.mavlink_connected:
+        reasons.append(
+            "MAVLink not connected. Dryrun evaluator needs GPS + vehicle "
+            "mode data to score detections."
+        )
+        return CapabilityReport(
+            "Autonomy Dryrun", CapabilityStatus.BLOCKED, reasons,
+            fix_target="MAVLink",
+        )
+
+    if not state.autonomy_geofence_present:
+        reasons.append(
+            "No geofence configured. Set geofence_polygon or geofence_lat/lon "
+            "+ radius in [autonomy] config — dryrun rejects every detection "
+            "without one."
+        )
+        return CapabilityReport(
+            "Autonomy Dryrun", CapabilityStatus.BLOCKED, reasons,
+        )
+
+    return CapabilityReport("Autonomy Dryrun", CapabilityStatus.READY)
+
+
+def _eval_autonomy_shadow(state: SystemState) -> CapabilityReport:
+    """Shadow autonomy: full evaluation runs, servo can lock but no command fires.
+
+    Same preconditions as Dryrun plus a servo channel — Shadow is the bridge
+    between Dryrun (read-only) and Live (full engagement). Without servo,
+    Shadow is indistinguishable from Dryrun, so we BLOCK it to keep the
+    distinction meaningful to the operator.
+    """
+    reasons: list[str] = []
+
+    if not state.mavlink_connected:
+        reasons.append(
+            "MAVLink not connected. Shadow needs GPS + vehicle mode data."
+        )
+        return CapabilityReport(
+            "Autonomy Shadow", CapabilityStatus.BLOCKED, reasons,
+            fix_target="MAVLink",
+        )
+
+    if not state.autonomy_geofence_present:
+        reasons.append(
+            "No geofence configured. Shadow requires the same geofence as "
+            "Dryrun — set geofence in [autonomy] config."
+        )
+        return CapabilityReport(
+            "Autonomy Shadow", CapabilityStatus.BLOCKED, reasons,
+        )
+
+    if not state.servo_enabled:
+        reasons.append(
+            "Shadow without servo is identical to Dryrun. Enable the servo "
+            "channel so Shadow can demonstrate the lock behaviour Live will use."
+        )
+        return CapabilityReport(
+            "Autonomy Shadow", CapabilityStatus.BLOCKED, reasons,
+            fix_target="Servo Tracking",
+        )
+
+    return CapabilityReport("Autonomy Shadow", CapabilityStatus.READY)
+
+
+def _eval_log_export(state: SystemState) -> CapabilityReport:
+    """Log Export readiness — disk space + writable output dir.
+
+    The CLI exporter (review_export.py) writes HTML reports to the same
+    output_dir the detection logger feeds. If the disk is full or the
+    directory is unreadable, the export will fail silently mid-flight; this
+    evaluator surfaces the precondition before the operator clicks Export.
+    """
+    reasons: list[str] = []
+
+    if state.disk_free_gb is None:
+        reasons.append(
+            f"Cannot read output dir: {state.disk_output_dir}. "
+            "Export will fail. Verify path exists and is readable."
+        )
+        return CapabilityReport(
+            "Log Export", CapabilityStatus.BLOCKED, reasons,
+        )
+
+    if state.disk_free_gb < _DISK_BLOCKED_GB:
+        reasons.append(
+            f"Disk critically low: {state.disk_free_gb:.1f} GB. "
+            "Export will fail mid-write. Clear space before exporting."
+        )
+        return CapabilityReport(
+            "Log Export", CapabilityStatus.BLOCKED, reasons,
+            fix_target="Disk",
+        )
+
+    if state.disk_free_gb < _DISK_WARN_GB:
+        reasons.append(
+            f"Disk low: {state.disk_free_gb:.1f} GB. "
+            "Large exports may run out of space."
+        )
+        return CapabilityReport("Log Export", CapabilityStatus.WARN, reasons)
+
+    return CapabilityReport("Log Export", CapabilityStatus.READY)
+
+
+def _eval_fleet_view(state: SystemState) -> CapabilityReport:
+    """Fleet View needs a unit identity (callsign).
+
+    The fleet page polls peer Hydra instances and labels them by callsign.
+    Without an identity, this unit cannot identify itself to peers and the
+    fleet page will not render this row in any neighbour's table. Identity
+    is generated by first-boot Platform Setup (identity_boot.py).
+    """
+    reasons: list[str] = []
+
+    if not state.identity_callsign:
+        reasons.append(
+            "Unit callsign not set. Run Platform Setup or set "
+            "[identity].callsign to register this unit on the fleet view."
+        )
+        return CapabilityReport(
+            "Fleet View", CapabilityStatus.BLOCKED, reasons,
+        )
+
+    return CapabilityReport("Fleet View", CapabilityStatus.READY)
+
+
 def _eval_autonomy_live(state: SystemState) -> CapabilityReport:
-    return CapabilityReport(
-        "Autonomy Live",
-        CapabilityStatus.BLOCKED,
-        reasons=["ARMED mode not implemented. Autonomous engagement gated on #147."],
-        fix_target="#147",
-    )
+    """Live autonomy: real MAVLink commands fire.
+
+    Live is the most-gated capability. Preconditions: MAVLink + 3D GPS +
+    geofence + servo + autonomy.enabled=true + OperatingMode=ARMED.
+    The ARMED mode requirement is the operator's explicit two-step confirm
+    — see operating_mode.set_mode(confirmed_twice=True).
+    """
+    reasons: list[str] = []
+
+    if not state.mavlink_connected:
+        reasons.append("MAVLink not connected — cannot command vehicle.")
+        return CapabilityReport(
+            "Autonomy Live", CapabilityStatus.BLOCKED, reasons,
+            fix_target="MAVLink",
+        )
+
+    if state.gps_fix < 3:
+        reasons.append(
+            f"GPS fix={state.gps_fix}. Live needs 3D fix for position math."
+        )
+        return CapabilityReport(
+            "Autonomy Live", CapabilityStatus.BLOCKED, reasons,
+            fix_target="GPS",
+        )
+
+    if not state.autonomy_geofence_present:
+        reasons.append(
+            "No geofence configured. Live without a geofence is rejected by "
+            "the evaluator — set geofence in [autonomy] config."
+        )
+        return CapabilityReport(
+            "Autonomy Live", CapabilityStatus.BLOCKED, reasons,
+        )
+
+    if not state.autonomy_enabled:
+        reasons.append(
+            "Autonomy disabled. Set [autonomy].enabled=true in config."
+        )
+        return CapabilityReport(
+            "Autonomy Live", CapabilityStatus.BLOCKED, reasons,
+        )
+
+    if state.operating_mode != "ARMED":
+        reasons.append(
+            f"Operating mode is {state.operating_mode}. Live engagement is "
+            "gated on OperatingMode.ARMED — operator must confirm twice from "
+            "the mode panel."
+        )
+        return CapabilityReport(
+            "Autonomy Live", CapabilityStatus.BLOCKED, reasons,
+            fix_target="#147",
+        )
+
+    return CapabilityReport("Autonomy Live", CapabilityStatus.READY)
 
 
 def _eval_drop(state: SystemState) -> CapabilityReport:
@@ -664,9 +1002,15 @@ _EVALUATORS: list[tuple[str, Any]] = [
     ("Schema Version", _eval_schema_version),
     ("Thermal", _eval_thermal),
     ("Performance", _eval_performance),
+    ("Servo Tracking", _eval_servo_tracking),
+    ("Follow", _eval_follow),
+    ("Autonomy Dryrun", _eval_autonomy_dryrun),
+    ("Autonomy Shadow", _eval_autonomy_shadow),
     ("Autonomy Live", _eval_autonomy_live),
     ("Drop", _eval_drop),
     ("RF Hunt", _eval_rf_hunt),
+    ("Log Export", _eval_log_export),
+    ("Fleet View", _eval_fleet_view),
 ]
 
 #: Ordered list of all registered capability names.
