@@ -175,22 +175,31 @@ class TestComputeDiskFree:
         assert "root" not in result
         assert "output_data" not in result
 
-    def test_missing_path_falls_back_to_existing_ancestor(self, tmp_path):
-        # Deeply non-existent path under a real tmpdir — falls back to tmpdir.
+    def test_missing_path_is_omitted_not_ancestor_rewritten(self, tmp_path, caplog):
+        # Issue #248: a configured partition path that does not exist must be
+        # OMITTED from the output (with a structured warning), not silently
+        # rewritten to an existing ancestor partition. The old ancestor
+        # fallback masked mount failures — a missing /mnt/data would report
+        # the root partition under the "data" label.
         nonexistent = tmp_path / "does" / "not" / "exist"
-        result = compute_disk_free({"phantom": str(nonexistent)})
-        # Fallback found tmp_path; we get a real number, not a missing key.
-        assert "phantom" in result
-        assert 0.0 <= result["phantom"] <= 100.0
+        with caplog.at_level(
+            logging.WARNING, logger="hydra_detect.observability.health",
+        ):
+            result = compute_disk_free({"phantom": str(nonexistent)})
+        # Label is absent, NOT mapped to tmp_path's free pct.
+        assert "phantom" not in result
+        # A structured warning was emitted naming the probe.
+        warnings = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING and "disk_probe" in r.getMessage()
+        ]
+        assert len(warnings) >= 1, [r.getMessage() for r in caplog.records]
 
     def test_unreadable_path_is_omitted_not_zeroed(self):
-        # An absolute path whose parents also don't exist returns nothing.
-        # Use a label so completely synthetic that no ancestor can match.
+        # An absolute path that can never resolve — label is omitted, never
+        # zeroed (zero would falsely trigger "disk full" alarms).
         result = compute_disk_free({"nope": "\x00invalid\x00"})
-        # Either omitted (preferred) or a real number. Never a zero placeholder
-        # that would falsely trigger "disk full" alarms.
-        if "nope" in result:
-            assert result["nope"] > 0.0
+        assert "nope" not in result
 
 
 class TestHealthSnapshotDiskFreePct:
@@ -254,11 +263,16 @@ class TestComputeDiskBytes:
         assert "root" not in result
 
     def test_unreadable_path_is_omitted(self):
-        # Synthetic path with NUL bytes — no ancestor can resolve.
+        # Synthetic path that cannot resolve — issue #248 contract: omitted,
+        # not rewritten to an ancestor. No zero placeholder either.
         result = compute_disk_bytes({"nope": "\x00invalid\x00"})
-        # Omitted (preferred) or fell back; never a zero placeholder.
-        if "nope" in result:
-            assert result["nope"]["total"] > 0
+        assert "nope" not in result
+
+    def test_missing_path_is_omitted_not_ancestor_rewritten(self, tmp_path):
+        # Issue #248: same contract for the bytes surface.
+        nonexistent = tmp_path / "does" / "not" / "exist"
+        result = compute_disk_bytes({"phantom": str(nonexistent)})
+        assert "phantom" not in result
 
 
 class TestPartitionResolvesToCorrectMount:

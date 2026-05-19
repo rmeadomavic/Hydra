@@ -164,13 +164,11 @@ def _probe_disk(path: str = "/") -> Dict[str, str]:
 # ``subsystems.disk`` status string — phone-home consumers want a number, not
 # a sentence.
 #
-# The ``output_data`` default path is relative — ``_partition_usage`` walks
-# ancestors when it doesn't exist, which means CWD at probe time decides
-# which partition gets reported. Inside the production Docker container,
-# ``output_data/`` lives at ``/data`` (bind-mounted from the host) and the
-# CWD is ``/app`` where ``./output_data`` does not exist, so the probe would
-# silently fall back to ``/app`` (the container root partition) and mislabel
-# it as ``output_data``. Set ``HYDRA_OUTPUT_DATA_PATH`` in the unit/env to
+# The ``output_data`` default path is relative — when the configured path
+# does not exist, ``_partition_usage`` now omits the label entirely (with a
+# warning) instead of walking up to an ancestor partition. Issue #248: the
+# old ancestor fallback masked mount failures (a missing /data mount would
+# silently report /). Set ``HYDRA_OUTPUT_DATA_PATH`` in the unit/env to
 # anchor the probe at an absolute mount point. See systemd/hydra-detect.service
 # and adversarial finding R3-3 on #227.
 _DEFAULT_OUTPUT_DATA_PATH = "./output_data"
@@ -196,39 +194,33 @@ _DISK_FREE_PARTITIONS: tuple[tuple[str, str], ...] = _default_partitions()
 def _partition_usage(path: str) -> Optional[tuple[float, int, int]]:
     """Return ``(free_pct, free_bytes, total_bytes)`` for ``path``, or None.
 
-    Falls back to the parent directory when ``path`` does not exist yet
-    (output_data/ may not be created on first boot). Returns None only when
-    even the fallback fails — the field is omitted in that case, not zeroed,
-    so consumers can distinguish "really full" from "no data".
+    Returns None when the path does not exist or ``shutil.disk_usage`` fails
+    — the field is omitted in that case, not zeroed, so consumers can
+    distinguish "really full" from "no data" AND so a missing mount surfaces
+    as an absent label rather than being silently rewritten to an ancestor
+    partition (which masked mount failures — see issue #248).
 
-    Emits a single ``logger.warning`` when the probe ultimately fails, so an
-    operator looking at "why did output_data disappear from phone-home" has
-    something to grep for.
+    Emits a single ``logger.warning`` when the probe fails, so an operator
+    looking at "why did output_data disappear from phone-home" has something
+    to grep for.
     """
     p = Path(path)
-    target: Optional[Path] = p if p.exists() else None
-    if target is None:
-        # Walk up to the first existing ancestor; usually p.parent suffices
-        # but we guard against deep config paths in tests / fresh installs.
-        for ancestor in p.parents:
-            if ancestor.exists():
-                target = ancestor
-                break
-    if target is None:
-        _log.warning("disk_probe: no existing ancestor for path=%r", path)
+    if not p.exists():
+        _log.warning(
+            "disk_probe: path does not exist, omitting label path=%r", path,
+        )
         return None
     try:
-        usage = shutil.disk_usage(os.fspath(target))
+        usage = shutil.disk_usage(os.fspath(p))
     except OSError as exc:
         _log.warning(
-            "disk_probe: shutil.disk_usage failed for path=%r target=%r err=%s",
-            path, os.fspath(target), exc,
+            "disk_probe: shutil.disk_usage failed for path=%r err=%s",
+            path, exc,
         )
         return None
     if usage.total <= 0:
         _log.warning(
-            "disk_probe: total bytes <= 0 for path=%r target=%r",
-            path, os.fspath(target),
+            "disk_probe: total bytes <= 0 for path=%r", path,
         )
         return None
     pct = round((usage.free / usage.total) * 100.0, 2)
