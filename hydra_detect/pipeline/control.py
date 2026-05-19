@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 
 
@@ -61,7 +62,14 @@ class PipelineControlAdapter:
             # Issue #224 — expose the boot-time ConfigParser so the web
             # diff endpoint can compare it against the on-disk file and
             # surface drift after factory-reset / import.
-            "get_in_memory_config": lambda: p._cfg,
+            #
+            # Issue #233 (R1-1) — deepcopy so a future contributor cannot
+            # accidentally mutate `p._cfg` through the diff endpoint and
+            # silently invalidate drift detection. The pipeline never
+            # mutates `_cfg` post-boot today; the copy guards the contract
+            # against drift in that invariant. ConfigParser of a typical
+            # config.ini is well under 5 KB so the per-call cost is noise.
+            "get_in_memory_config": lambda: copy.deepcopy(p._cfg),
             "on_drop_command": p._handle_drop_command,
             "on_follow_command": p._handle_follow_command,
             "on_approach_strike_command": p._handle_approach_strike_command,

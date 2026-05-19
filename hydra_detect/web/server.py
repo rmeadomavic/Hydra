@@ -3375,13 +3375,35 @@ async def api_config_diff():
     return {"disk": disk, "runtime": runtime, "diff": diff}
 
 
-def _maybe_auto_restart(body: dict | None) -> tuple[bool, str | None]:
+# Issue #233 (R3-3) — operator-facing note on the trigger-vs-apply
+# contract. The restart callback flips a flag the pipeline reads on
+# its next main-loop iteration (~200 ms on a 5 Hz pipeline). The
+# response returns BEFORE that iteration completes, so a brief window
+# exists where the API says "restart requested" while the pipeline is
+# still running the stale `_cfg`. Bounded but not zero.
+_AUTO_RESTART_NOTE = (
+    "Pipeline will pick up the new config on its next main-loop "
+    "iteration (~200ms)."
+)
+
+
+def _maybe_auto_restart(body: dict | None) -> tuple[bool, str | None, str | None]:
     """Pop auto_restart from a request body and fire the restart callback.
 
-    Returns ``(restart_triggered, suppression_reason)``. ``restart_triggered``
-    is True only when the restart callback actually fired. When suppressed
-    by the engagement-active safety gate (PR #228 review-pass), the second
-    tuple element is a short human-readable reason; otherwise None.
+    Returns ``(restart_requested, suppression_reason, failure_reason)``.
+
+    - ``restart_requested`` is True only when the restart callback was
+      invoked without raising. Note: this is "requested," not "applied" —
+      the pipeline applies the new config on its next main-loop iteration.
+      The response payload returns this value under both ``restart_requested``
+      (the canonical key) and ``restart_triggered`` (deprecated alias kept
+      for one release for backward compat).
+    - ``suppression_reason`` is a short human-readable string when the
+      engagement-active safety gate refused the restart; otherwise None.
+    - ``failure_reason`` is a short error string when the callback raised;
+      otherwise None. Callers MUST write a `*_restart_failed` audit row
+      when this is non-None (the disk write already succeeded, so the
+      failure is operator-actionable: re-run or restart manually).
 
     Used by factory-reset and import to opt into the same
     on_restart_command surface /api/restart uses (server.py:2344, :3532
@@ -3394,27 +3416,33 @@ def _maybe_auto_restart(body: dict | None) -> tuple[bool, str | None]:
     gate. The disk reset itself still goes through (callers do that
     before invoking this helper); only the auto-restart is suppressed.
     (Adversarial finding R3-1 in docs/adversarial/228.md.)
+
+    Issue #233 (R2-1) — when the callback raises, the original return
+    `(False, None)` masked the failure as "no restart requested." That
+    silently dropped the audit trail. Now we surface a third value so
+    callers can write a `_restart_failed` audit row and the response
+    payload can carry `restart_failed_reason` for the operator.
     """
     if not isinstance(body, dict):
-        return False, None
+        return False, None, None
     auto = body.get("auto_restart")
     if not bool(auto):
-        return False, None
+        return False, None, None
     engagement_active_cb = _engagement_active_cb_or_none()
     if engagement_active_cb is not None and engagement_active_cb():
         return False, (
             "Autonomous engagement active — auto-restart suppressed. "
             "Disengage and restart manually."
-        )
+        ), None
     cb = stream_state.get_callback("on_restart_command")
     if cb is None:
-        return False, None
+        return False, None, None
     try:
         cb()
     except Exception as e:
         logger.error("auto_restart callback raised: %s", e)
-        return False, None
-    return True, None
+        return False, None, str(e) or e.__class__.__name__
+    return True, None, None
 
 
 def _engagement_active_cb_or_none():
@@ -3460,12 +3488,35 @@ async def api_factory_reset(request: Request, authorization: str | None = Header
             return JSONResponse({"error": "Invalid JSON"}, status_code=400)
     try:
         result = factory_reset_with_backup()
-        _audit(request, "config_factory_reset", target=result.get("backup_path", ""))
+        # Issue #233 (R2-2) — include auto_restart flag in audit target so
+        # post-incident replay can distinguish operator-initiated restart
+        # from auto_restart firing. Format: "<backup_path> auto_restart=<bool>".
+        auto_restart_requested = bool(
+            isinstance(body, dict) and body.get("auto_restart")
+        )
+        audit_target = (
+            f"{result.get('backup_path', '')} "
+            f"auto_restart={str(auto_restart_requested).lower()}"
+        )
+        _audit(request, "config_factory_reset", target=audit_target)
         identity_preserved = bool(result.get("identity_preserved", False))
-        restart_triggered, restart_suppressed_reason = _maybe_auto_restart(body)
-        if restart_triggered:
+        restart_requested, restart_suppressed_reason, restart_failed_reason = (
+            _maybe_auto_restart(body)
+        )
+        if restart_requested:
             _audit(request, "config_factory_reset_restart")
-            message_suffix = " Pipeline restart triggered."
+            message_suffix = " Pipeline restart requested."
+        elif restart_failed_reason is not None:
+            # Issue #233 (R2-1) — disk reset succeeded but the restart
+            # callback raised. Operator needs a replayable trail.
+            _audit(
+                request, "config_factory_reset_restart_failed",
+                target=restart_failed_reason,
+            )
+            message_suffix = (
+                " Restart did not fire (callback error). "
+                "Restart manually to apply."
+            )
         elif restart_suppressed_reason is not None:
             _audit(
                 request, "config_factory_reset_restart_suppressed",
@@ -3485,8 +3536,14 @@ async def api_factory_reset(request: Request, authorization: str | None = Header
             "status": "ok",
             "backup_path": result["backup_path"],
             "restart_required": result["restart_required"],
-            "restart_triggered": restart_triggered,
+            # Issue #233 (R3-3) — `restart_requested` is the canonical
+            # key. `restart_triggered` is a deprecated alias kept for one
+            # release; remove after dashboard JS has been updated.
+            "restart_requested": restart_requested,
+            "restart_triggered": restart_requested,
+            "restart_note": _AUTO_RESTART_NOTE if restart_requested else None,
             "restart_suppressed_reason": restart_suppressed_reason,
+            "restart_failed_reason": restart_failed_reason,
             "identity_preserved": identity_preserved,
             "message": message,
         }
@@ -3584,13 +3641,30 @@ async def api_config_import(request: Request, authorization: str | None = Header
 
     try:
         result = write_config(validation["updates"])
-        _audit(request, "config_import", target=str(len(validation["updates"])))
-        restart_fields = result.get("restart_required", [])
-        restart_triggered, restart_suppressed_reason = _maybe_auto_restart(
-            {"auto_restart": auto_restart_flag} if auto_restart_flag is not None else None
+        # Issue #233 (R2-2) — include auto_restart in audit target.
+        auto_restart_requested = bool(auto_restart_flag)
+        _audit(
+            request, "config_import",
+            target=(
+                f"{len(validation['updates'])} "
+                f"auto_restart={str(auto_restart_requested).lower()}"
+            ),
         )
-        if restart_triggered:
+        restart_fields = result.get("restart_required", [])
+        restart_requested, restart_suppressed_reason, restart_failed_reason = (
+            _maybe_auto_restart(
+                {"auto_restart": auto_restart_flag}
+                if auto_restart_flag is not None else None
+            )
+        )
+        if restart_requested:
             _audit(request, "config_import_restart")
+        elif restart_failed_reason is not None:
+            # Issue #233 (R2-1) — disk write succeeded but restart callback raised.
+            _audit(
+                request, "config_import_restart_failed",
+                target=restart_failed_reason,
+            )
         elif restart_suppressed_reason is not None:
             _audit(
                 request, "config_import_restart_suppressed",
@@ -3599,8 +3673,12 @@ async def api_config_import(request: Request, authorization: str | None = Header
         return {
             "status": "imported",
             "restart_required_fields": restart_fields,
-            "restart_triggered": restart_triggered,
+            # Issue #233 (R3-3) — canonical key + deprecated alias.
+            "restart_requested": restart_requested,
+            "restart_triggered": restart_requested,
+            "restart_note": _AUTO_RESTART_NOTE if restart_requested else None,
             "restart_suppressed_reason": restart_suppressed_reason,
+            "restart_failed_reason": restart_failed_reason,
             **result,
         }
     except Exception as e:
