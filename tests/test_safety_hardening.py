@@ -229,6 +229,107 @@ class TestAttemptCorruptRecovery:
         attempt_corrupt_recovery(path)
         assert not (tmp_path / "config.ini.tmp").exists()
 
+    # PR #231, R2-1 — orphan .tmp from a SIGKILL between copy2 and replace
+    # in a prior boot's write_config / recovery is swept up on the next boot.
+    def test_orphan_tmp_swept_on_boot_with_valid_config(self, tmp_path):
+        """A leftover .tmp next to a healthy config.ini is removed on boot."""
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+        path = tmp_path / "config.ini"
+        tmp = tmp_path / "config.ini.tmp"
+        path.write_text("[camera]\nsource = auto\n")
+        tmp.write_text("[half-written\n")  # SIGKILL residue
+        assert attempt_corrupt_recovery(path) is True
+        assert not tmp.exists()
+        # Config itself must not be touched on the healthy path.
+        assert "[camera]" in path.read_text()
+
+    def test_orphan_tmp_swept_before_recovery(self, tmp_path):
+        """Orphan .tmp is removed even when the active config is corrupt."""
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+        path = tmp_path / "config.ini"
+        bak = tmp_path / "config.ini.bak"
+        tmp = tmp_path / "config.ini.tmp"
+        path.write_text("[bad")
+        bak.write_text("[camera]\nsource = auto\n")
+        tmp.write_text("[stale-orphan\n")
+        assert attempt_corrupt_recovery(path) is True
+        # Both the orphan AND the in-flight .tmp from THIS recovery must
+        # be gone — os.replace consumes the latter, the sweep handles the
+        # former.
+        assert not tmp.exists()
+        assert "[camera]" in path.read_text()
+
+    # PR #231, R3-1 — successful .bak restore emits a hydra.audit event
+    # so the dashboard /api/audit/summary endpoint can surface a banner.
+    def test_recovery_emits_audit_event(self, tmp_path):
+        """Successful .bak restore pushes a recovery_from_bak audit event."""
+        from hydra_detect.audit import attach_to_logger, get_default_sink
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+
+        attach_to_logger()  # idempotent — sets up the ring if not yet wired
+        sink = get_default_sink()
+        # Snapshot count BEFORE recovery so we don't depend on prior tests.
+        before = sink.summary(window_seconds=3600).get(
+            "counts", {}
+        ).get("recovery_from_bak", 0)
+
+        path = tmp_path / "config.ini"
+        bak = tmp_path / "config.ini.bak"
+        bak.write_text("[camera]\nsource = auto\n")
+        path.write_text("[bad")
+        assert attempt_corrupt_recovery(path) is True
+
+        after = sink.summary(window_seconds=3600).get(
+            "counts", {}
+        ).get("recovery_from_bak", 0)
+        assert after == before + 1, (
+            f"expected recovery_from_bak count to grow by 1, got {before} -> {after}"
+        )
+
+    def test_no_audit_event_on_healthy_config(self, tmp_path):
+        """No recovery event when config.ini parses on first try."""
+        from hydra_detect.audit import attach_to_logger, get_default_sink
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+
+        attach_to_logger()
+        sink = get_default_sink()
+        before = sink.summary(window_seconds=3600).get(
+            "counts", {}
+        ).get("recovery_from_bak", 0)
+
+        path = tmp_path / "config.ini"
+        path.write_text("[camera]\nsource = auto\n")
+        assert attempt_corrupt_recovery(path) is True
+
+        after = sink.summary(window_seconds=3600).get(
+            "counts", {}
+        ).get("recovery_from_bak", 0)
+        assert after == before, (
+            "healthy boot must not emit recovery_from_bak"
+        )
+
+    def test_no_audit_event_when_recovery_fails(self, tmp_path):
+        """No recovery event when no .bak is available (failure path)."""
+        from hydra_detect.audit import attach_to_logger, get_default_sink
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+
+        attach_to_logger()
+        sink = get_default_sink()
+        before = sink.summary(window_seconds=3600).get(
+            "counts", {}
+        ).get("recovery_from_bak", 0)
+
+        path = tmp_path / "config.ini"
+        path.write_text("[bad")  # corrupt, no .bak alongside
+        assert attempt_corrupt_recovery(path) is False
+
+        after = sink.summary(window_seconds=3600).get(
+            "counts", {}
+        ).get("recovery_from_bak", 0)
+        assert after == before, (
+            "failed recovery must not claim a successful restore"
+        )
+
 
 # ---------------------------------------------------------------------------
 # 4. restore_factory works

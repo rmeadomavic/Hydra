@@ -50,6 +50,7 @@ _KINDS = (
     "strike_events",
     "drop_events",
     "hmac_invalid_events",
+    "recovery_from_bak",
     "other",
 )
 
@@ -65,6 +66,11 @@ def _classify(message: str) -> str:
     if not message:
         return "other"
     upper = message.upper()
+    # Boot-time corrupt-config recovery (PR #231, R3-1). Match BEFORE the
+    # generic STRIKE/DROP checks below — the literal token would otherwise
+    # never appear there, but the explicit branch documents intent.
+    if upper.startswith("RECOVERY_FROM_BAK") or "RECOVERY FROM BAK" in upper:
+        return "recovery_from_bak"
     if "HMAC_INVALID" in upper or "HMAC VERIFICATION FAILED" in upper:
         return "hmac_invalid_events"
     if upper.startswith("TAK_CMD_REJECTED") or "TAK CMD REJECTED" in upper:

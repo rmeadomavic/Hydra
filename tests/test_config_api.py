@@ -562,8 +562,9 @@ class TestConfigExport:
     def test_export_omits_identity_section(self, tmp_path, client):
         """R1-3: [identity] carries plaintext credentials — must never ship.
 
-        Mirrors config_lkg.py:77-83 which strips [identity] before writing
-        the LKG snapshot, for the same reason.
+        The historical config_lkg snapshot module applied the same filter
+        before writing config.ini.lkg; the module was deleted in PR #231
+        but the stripping rule for [identity] still applies here.
         """
         cfg = configparser.ConfigParser()
         cfg["camera"] = {"source": "auto", "fps": "30"}

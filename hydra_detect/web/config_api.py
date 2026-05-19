@@ -416,7 +416,10 @@ def attempt_corrupt_recovery(config_path: Path | str) -> bool:
     config. If config.ini is truncated (power cut mid-write), unparseable, or
     empty-of-sections, restore from .bak in place — atomic copy via tmp +
     os.replace, same pattern as write_config — and log a loud WARNING so the
-    operator sees recovery happened.
+    operator sees recovery happened. A successful restore also emits a
+    ``recovery_from_bak`` audit event on the ``hydra.audit`` logger so the
+    dashboard `/api/audit/summary` endpoint surfaces a one-shot banner to
+    operators who only connect after the boot completes (PR #231, R3-1).
 
     Returns True if config is valid (either originally or after recovery),
     False if neither config.ini nor .bak is usable. The caller should log
@@ -424,6 +427,22 @@ def attempt_corrupt_recovery(config_path: Path | str) -> bool:
     no parseable config produces incomprehensible downstream errors.
     """
     path = Path(config_path)
+
+    # Sweep any orphan .tmp left by a SIGKILL between shutil.copy2 and
+    # os.replace in a prior write_config / recovery (PR #231, R2-1). The
+    # .tmp lives next to the target; leaving it around is cosmetic in
+    # practice but it can mask a separate "tmp leaked" symptom during
+    # postmortem. Best-effort: a non-removable .tmp does not block boot.
+    orphan_tmp = Path(str(path) + ".tmp")
+    if orphan_tmp.exists():
+        try:
+            orphan_tmp.unlink()
+            logger.info("Removed orphan tmp %s left by prior write", orphan_tmp)
+        except OSError as exc:
+            logger.warning(
+                "Orphan tmp %s could not be removed: %s", orphan_tmp, exc,
+            )
+
     if not path.exists():
         # Fresh install or first boot — let downstream handle missing-file.
         # Not a corruption case, not our responsibility.
@@ -488,6 +507,13 @@ def attempt_corrupt_recovery(config_path: Path | str) -> bool:
         "made since the last successful boot are LOST.",
         path, bak_path,
     )
+    # Emit a structured audit event so the dashboard /api/audit/summary
+    # surfaces "this unit booted from .bak" without forcing operators to
+    # tail hydra.log (PR #231, R3-1). The in-memory ring is attached by
+    # __main__ before this call so the event lands; the durable JSONL
+    # sink may not be wired yet on this boot — that is acceptable as
+    # the goal is dashboard signal, not retroactive disk capture.
+    audit_log.warning("RECOVERY_FROM_BAK target=%s", path)
     return True
 
 
@@ -721,9 +747,10 @@ def export_config_payload() -> dict[str, Any]:
     Secrets remain redacted ("***") — same contract as GET /api/config/full.
     The [identity] section is stripped entirely: it contains api_token and
     web_password_hash in plaintext, and the import path already refuses it
-    (set by Platform Setup, not by users). Mirrors config_lkg.py:77-83.
-    Round-trip preserves the schema-validated subset; identity, any
-    [vehicle.<name>] profile, and non-schema sections are not re-importable.
+    (set by Platform Setup, not by users). Round-trip preserves the
+    schema-validated subset; identity, any [vehicle.<name>] profile, and
+    non-schema sections are not re-importable. The historical config_lkg
+    snapshot module was deleted in PR #231 — see docs/adversarial/231.md.
     """
     sections = read_config()  # already redacts api_token / kismet_pass
     schema_version = 0
