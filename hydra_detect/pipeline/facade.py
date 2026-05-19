@@ -944,7 +944,14 @@ class Pipeline:
             ),
             callsign=self._cfg.get("tak", "callsign", fallback="HYDRA-1"),
         )
-        self._event_logger.start_mission("default")
+        # Bootstrap with a default mission so the event timeline captures
+        # operator actions even before /api/mission/start fires. The id is
+        # propagated to the detection logger so every row gets stamped.
+        _bootstrap_mid = self._event_logger.start_mission("default")
+        self._mission_id = _bootstrap_mid
+        self._mission_name = "default"
+        self._mission_start_time = time.monotonic()
+        self._det_logger.set_mission_id(_bootstrap_mid)
 
         # Web UI
         self._web_enabled = self._cfg.getboolean("web", "enabled", fallback=True)
@@ -1028,8 +1035,13 @@ class Pipeline:
                 if _cfg is not None else 3.0
             )
 
-        # Mission tagging state
+        # Mission tagging state (issue #72)
+        # `_mission_name` is the human-readable label shown in the dashboard.
+        # `_mission_id` is the UUID stamped onto every detection + event row
+        # while the mission is active. The EventLogger owns the ground truth
+        # for the id; we mirror it here for stats publication.
         self._mission_name: str | None = None
+        self._mission_id: str | None = None
         self._mission_start_time: float | None = None
 
     def _is_engagement_active(self) -> bool:
@@ -1741,6 +1753,11 @@ class Pipeline:
                     "camera_ok": not self._cam_lost,
                     "callsign": self._callsign,
                     "mission_name": self._mission_name,
+                    "mission_id": self._mission_id,
+                    "mission_elapsed_sec": (
+                        round(time.monotonic() - self._mission_start_time, 1)
+                        if self._mission_start_time is not None else None
+                    ),
                     # Active platform profile — drives the PLT chip in the topbar.
                     "platform": self._vehicle,
                 }
@@ -3106,28 +3123,83 @@ class Pipeline:
     # ------------------------------------------------------------------
     # Mission tagging
     # ------------------------------------------------------------------
-    def _handle_mission_start(self, name: str) -> None:
-        """Start a named mission session."""
+    def _handle_mission_start(self, name: str) -> str:
+        """Start a named mission session.
+
+        Generates a fresh UUID via ``EventLogger.start_mission`` and
+        propagates the id to the detection logger so every detection row
+        carries it. Closes any prior mission file as a side effect.
+
+        Returns the new ``mission_id`` (callers may surface it to the
+        operator UI).
+        """
+        # The event logger owns the id ground truth — accept whatever it
+        # returns so any future change (server-side override, replay) stays
+        # in lockstep with the on-disk filenames.
+        mission_id = self._event_logger.start_mission(name)
         self._mission_name = name
+        self._mission_id = mission_id
         self._mission_start_time = time.monotonic()
-        logger.info("Mission STARTED: %s", name)
+        self._det_logger.set_mission_id(mission_id)
+        stream_state.update_runtime_config({
+            "mission_id": mission_id,
+            "mission_name": name,
+        })
+        logger.info("Mission STARTED: %s (mission_id=%s)", name, mission_id)
         if self._mavlink is not None:
             callsign = self._cfg.get("tak", "callsign", fallback="HYDRA-1")
             self._mavlink.send_statustext(
                 f"{callsign}: MISSION START - {name}", severity=5
             )
+        return mission_id
 
     def _handle_mission_end(self) -> None:
-        """End the current mission session."""
+        """End the current mission session.
+
+        Writes the ``mission_end`` event, clears the active id from the
+        detection logger, and zeroes the in-memory mission state. The
+        next call to ``_handle_mission_start`` re-opens a fresh event
+        timeline JSONL.
+        """
         if self._mission_name:
             elapsed = time.monotonic() - (self._mission_start_time or 0)
-            logger.info("Mission ENDED: %s (%.0fs)", self._mission_name, elapsed)
+            logger.info(
+                "Mission ENDED: %s (mission_id=%s, %.0fs)",
+                self._mission_name, self._mission_id, elapsed,
+            )
             if self._mavlink is not None:
                 callsign = self._cfg.get("tak", "callsign", fallback="HYDRA-1")
                 self._mavlink.send_statustext(
                     f"{callsign}: MISSION END - {self._mission_name}", severity=5
                 )
+        # Tear down in a fixed order:
+        # 1. Stop stamping NEW detection rows so any in-flight log() calls
+        #    land with mission_id=None.
+        # 2. Flush the detection writer queue — items ALREADY queued were
+        #    stamped with the active mission_id; they must reach disk
+        #    BEFORE mission_end is written to the event log, otherwise
+        #    the summary endpoint sees detections with this mission_id
+        #    timestamped after mission_end. Bounded 2s drain — on
+        #    timeout we still close cleanly, just with a warning.
+        #    (Adversarial finding R3-1 in docs/adversarial/230.md.)
+        # 3. Close the event JSONL via end_mission().
+        # Reverse order would leave a short window where new detections
+        # get stamped with an id whose event file is already closed.
+        self._det_logger.set_mission_id(None)
+        if not self._det_logger.flush(timeout=2.0):
+            logger.warning(
+                "mission_end: detection logger queue did not drain within "
+                "2s; mission_id=%s may have rows timestamped after "
+                "mission_end in the summary view.",
+                self._mission_id,
+            )
+        self._event_logger.end_mission()
+        stream_state.update_runtime_config({
+            "mission_id": None,
+            "mission_name": None,
+        })
         self._mission_name = None
+        self._mission_id = None
         self._mission_start_time = None
 
     # ------------------------------------------------------------------

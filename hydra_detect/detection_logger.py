@@ -95,6 +95,14 @@ class DetectionLogger:
         self._model_hash = model_hash
         self._prev_chain_hash = "0" * 64  # genesis hash
 
+        # Mission tagging (issue #72) — every detection row carries the
+        # currently active mission_id, or null when no mission is running.
+        # The pipeline sets this via set_mission_id() after the event logger
+        # starts the mission. The id is intentionally not chained — it is
+        # operator metadata, not provenance.
+        self._mission_id: str | None = None
+        self._mission_id_lock = threading.Lock()
+
         # Recent detections ring buffer for web UI.
         # Updated on the caller thread so the web API sees results immediately.
         self._recent: deque[Dict[str, Any]] = deque(maxlen=self._max_recent)
@@ -154,6 +162,40 @@ class DetectionLogger:
 
         self._close_log_file()
 
+    def flush(self, timeout: float = 2.0) -> bool:
+        """Block until every queued work item has been processed.
+
+        Used by ``_handle_mission_end`` to guarantee detection rows
+        stamped with the active mission_id reach disk BEFORE the
+        ``mission_end`` event lands in the event log. Without this,
+        the writer thread can drain queued items after the boundary
+        event, producing rows that appear to occur "after" mission end
+        with the old mission_id — an audit-trail correctness gap
+        flagged in docs/adversarial/230.md R3-1.
+
+        Args:
+            timeout: Max seconds to wait. Returns False on timeout.
+
+        Returns:
+            True if the queue drained within the timeout; False if it
+            did not (the caller should still proceed but log a warning —
+            losing strict ordering is better than wedging mission_end).
+        """
+        if self._writer_thread is None or not self._writer_thread.is_alive():
+            return True
+
+        done = threading.Event()
+
+        def _await_drain() -> None:
+            self._write_queue.join()
+            done.set()
+
+        waiter = threading.Thread(
+            target=_await_drain, daemon=True, name="det-logger-flush",
+        )
+        waiter.start()
+        return done.wait(timeout=timeout)
+
     # ------------------------------------------------------------------
     # Hot-path method (called from the detection thread)
     # ------------------------------------------------------------------
@@ -208,6 +250,11 @@ class DetectionLogger:
             img_filename = f"{ts_file}_{frame_no:06d}.jpg"
             self._last_image_save_time = now_mono
 
+        # Snapshot the mission id once per frame so all detections in one
+        # frame share the same id even if the operator hits End mid-frame.
+        with self._mission_id_lock:
+            mission_id_snapshot = self._mission_id
+
         # Build records (do NOT update _recent yet — only after successful enqueue).
         records: list[Dict[str, Any]] = []
         chain_hash_before_loop = self._prev_chain_hash
@@ -229,6 +276,7 @@ class DetectionLogger:
                 "fix": fix,
                 "image": img_filename,
                 "model_hash": self._model_hash,
+                "mission_id": mission_id_snapshot,
             }
             # Optional time_source field — only present when a source is known.
             # Included before hashing so the chain is consistent.
@@ -278,6 +326,20 @@ class DetectionLogger:
     def set_model_hash(self, model_hash: str) -> None:
         """Update the model hash (e.g. after a runtime model switch)."""
         self._model_hash = model_hash
+
+    def set_mission_id(self, mission_id: str | None) -> None:
+        """Stamp every subsequent detection record with this mission_id.
+
+        Pass ``None`` to clear (records logged while no mission is active
+        will carry ``"mission_id": null``). Cheap — single guarded write.
+        """
+        with self._mission_id_lock:
+            self._mission_id = mission_id
+
+    def get_mission_id(self) -> str | None:
+        """Return the active mission_id, or None when no mission is active."""
+        with self._mission_id_lock:
+            return self._mission_id
 
     def get_recent(self, n: int = 20) -> list[Dict[str, Any]]:
         """Return the N most recent detection records (for web UI)."""
@@ -436,26 +498,37 @@ class DetectionLogger:
     # ------------------------------------------------------------------
 
     def _writer_loop(self) -> None:
-        """Consume work items from the queue and perform all file I/O."""
+        """Consume work items from the queue and perform all file I/O.
+
+        task_done() is called for every queue.get() so callers can
+        synchronize on flush() via Queue.join() (used by mission-end to
+        guarantee detection rows with the active mission_id reach disk
+        before the mission_end event lands).
+        """
         while True:
             try:
                 item = self._write_queue.get(timeout=1.0)
             except queue.Empty:
                 continue
 
-            if item is _STOP:
-                # Drain any remaining items before exiting so stop() is a
-                # clean flush — no detections are silently discarded.
-                while True:
-                    try:
-                        remaining = self._write_queue.get_nowait()
-                    except queue.Empty:
-                        break
-                    if remaining is not _STOP:
-                        self._safe_process(remaining)
-                break
-
-            self._safe_process(item)
+            try:
+                if item is _STOP:
+                    # Drain any remaining items before exiting so stop() is a
+                    # clean flush — no detections are silently discarded.
+                    while True:
+                        try:
+                            remaining = self._write_queue.get_nowait()
+                        except queue.Empty:
+                            break
+                        try:
+                            if remaining is not _STOP:
+                                self._safe_process(remaining)
+                        finally:
+                            self._write_queue.task_done()
+                    break
+                self._safe_process(item)
+            finally:
+                self._write_queue.task_done()
 
     def _safe_process(self, item: Dict[str, Any]) -> None:
         """Run _process_work_item with a hard guard against any exception.

@@ -16,10 +16,105 @@ import csv
 import html
 import json
 import logging
+import math
 import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+# --------------------------------------------------------------------------
+# Geo helpers (issue #72 — mission summary GPS coverage)
+# --------------------------------------------------------------------------
+
+def _convex_hull(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Return the convex hull of *points* in counter-clockwise order.
+
+    Uses the Andrew monotone-chain algorithm (O(n log n)). Pure-Python so
+    the mission summary endpoint does not require scipy. Duplicates are
+    dropped before sorting; degenerate inputs (fewer than 3 unique points)
+    are returned in sorted order as a line / point degenerate hull.
+    """
+    pts = sorted(set(points))
+    if len(pts) <= 1:
+        return list(pts)
+
+    def _cross(o: tuple[float, float], a: tuple[float, float], b: tuple[float, float]) -> float:
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower: list[tuple[float, float]] = []
+    for p in pts:
+        while len(lower) >= 2 and _cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+
+    upper: list[tuple[float, float]] = []
+    for p in reversed(pts):
+        while len(upper) >= 2 and _cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+
+    # last point of each list is omitted because it is repeated at the
+    # beginning of the other list.
+    return lower[:-1] + upper[:-1]
+
+
+def _polygon_area_m2(hull_latlon: list[tuple[float, float]]) -> float:
+    """Compute the area in square meters of a small lat/lon polygon.
+
+    Uses an equirectangular projection — accurate to <1% for spans under
+    ~10 km, which is well above SORCC sortie radii (line-of-sight). For
+    operational summaries, "convex hull area in m²" is the load-bearing
+    metric — exact ellipsoidal area is overkill.
+    """
+    if len(hull_latlon) < 3:
+        return 0.0
+    # Mean latitude — used to convert longitude to meters per degree.
+    lat0 = sum(p[0] for p in hull_latlon) / len(hull_latlon)
+    cos_lat0 = math.cos(math.radians(lat0))
+    # Project onto local-tangent meters.
+    m_per_deg_lat = 111_320.0
+    m_per_deg_lon = 111_320.0 * cos_lat0
+    proj = [(p[1] * m_per_deg_lon, p[0] * m_per_deg_lat) for p in hull_latlon]
+    # Shoelace formula.
+    area2 = 0.0
+    n = len(proj)
+    for i in range(n):
+        x1, y1 = proj[i]
+        x2, y2 = proj[(i + 1) % n]
+        area2 += x1 * y2 - x2 * y1
+    return abs(area2) / 2.0
+
+
+def gps_coverage(points: list[tuple[float, float]]) -> dict:
+    """Return convex-hull-based GPS coverage stats for a list of lat/lon points.
+
+    Output shape::
+
+        {
+            "point_count": int,
+            "hull": [[lat, lon], ...],   # CCW, may be 0/1/2 points if degenerate
+            "area_m2": float,
+            "bbox": {"min_lat": ..., "max_lat": ..., "min_lon": ..., "max_lon": ...}
+                or None if no points,
+        }
+    """
+    if not points:
+        return {"point_count": 0, "hull": [], "area_m2": 0.0, "bbox": None}
+
+    hull = _convex_hull(points)
+    bbox = {
+        "min_lat": min(p[0] for p in points),
+        "max_lat": max(p[0] for p in points),
+        "min_lon": min(p[1] for p in points),
+        "max_lon": max(p[1] for p in points),
+    }
+    return {
+        "point_count": len(points),
+        "hull": [list(p) for p in hull],
+        "area_m2": _polygon_area_m2(hull),
+        "bbox": bbox,
+    }
 
 
 def parse_jsonl(path: Path) -> list[dict]:

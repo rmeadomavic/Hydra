@@ -2655,22 +2655,36 @@ async def api_abort(request: Request):
 
 @app.post("/api/mission/start")
 async def api_start_mission(request: Request, authorization: Optional[str] = Header(None)):
-    """Start a named mission. Body: {"name": "mission-alpha"}"""
+    """Start a named mission. Body: {"name": "mission-alpha"} (name optional).
+
+    Returns ``{"status": "started", "name": <name>, "mission_id": <uuid>}``
+    so the operator UI can surface the id and use it for ``/api/summary``
+    queries later.
+    """
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
     body = await _parse_json(request)
+    # Empty body is allowed — operator can hit Start without naming the sortie.
     if body is None:
-        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
-    name = body.get("name", f"mission-{int(time.time())}")
-    if not isinstance(name, str) or not name.strip():
-        return JSONResponse({"error": "name must be a non-empty string"}, status_code=400)
+        body = {}
+    if "name" in body:
+        # Key present → must be a non-empty trimmed string. This preserves
+        # the legacy behavior the instructor-ops UI relies on.
+        name = body["name"]
+        if not isinstance(name, str) or not name.strip():
+            return JSONResponse({"error": "name must be a non-empty string"}, status_code=400)
+    else:
+        name = f"mission-{int(time.time())}"
     name = name.strip()[:100]  # Bound length
     cb = stream_state.get_callback("on_mission_start")
+    mission_id: str | None = None
     if cb:
-        cb(name)
+        result = cb(name)
+        if isinstance(result, str):
+            mission_id = result
     _audit(request, "mission_start", target=name)
-    return {"status": "started", "name": name}
+    return {"status": "started", "name": name, "mission_id": mission_id}
 
 
 @app.post("/api/mission/end")
@@ -2686,6 +2700,62 @@ async def api_end_mission(request: Request, authorization: Optional[str] = Heade
     return {"status": "ended"}
 
 
+@app.get("/api/mission/status")
+async def api_mission_status():
+    """Return the active mission_id, name, and start timestamp (or all None).
+
+    Cheap, unauthenticated — operators on read-only dashboards still need
+    to see which sortie they're looking at.
+    """
+    cb = stream_state.get_callback("get_event_status")
+    if cb:
+        return cb()
+    return {
+        "mission_active": False,
+        "mission_name": None,
+        "mission_id": None,
+        "mission_start_ts": None,
+        "mission_log": None,
+    }
+
+
+@app.get("/api/missions")
+async def api_list_missions():
+    """List recent missions discovered in the log directory."""
+    from hydra_detect.mission_summary import list_missions
+    cb = stream_state.get_callback("get_log_dir")
+    log_dir = cb() if cb else "./output_data/logs"
+    return {"missions": list_missions(log_dir)}
+
+
+@app.get("/api/summary")
+async def api_mission_summary(mission: str = ""):
+    """Return per-mission stats: detections by class, unique tracks, time
+    to first detection, GPS coverage convex hull (issue #72).
+
+    Query string: ``?mission=<mission_id>``. The id is the UUID returned
+    from ``/api/mission/start``. Results are cached for 30 s.
+    """
+    from hydra_detect.mission_summary import get_summary
+    if not mission:
+        return JSONResponse(
+            {"error": "mission query parameter required"}, status_code=400,
+        )
+    # Bound length to keep the cache key reasonable. UUIDs are 36 chars;
+    # we accept 64 to give a little slack for hyphen / case variants.
+    if len(mission) > 64:
+        return JSONResponse({"error": "mission id too long"}, status_code=400)
+    cb = stream_state.get_callback("get_log_dir")
+    log_dir = cb() if cb else "./output_data/logs"
+    try:
+        return get_summary(mission, log_dir)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.exception("Mission summary failed for %s: %s", mission, exc)
+        return JSONResponse({"error": "summary computation failed"}, status_code=500)
+
+
 # ── Mission Review ────────────────────────────────────────────────
 
 @app.get("/review", response_class=HTMLResponse)
@@ -2696,8 +2766,14 @@ async def review_page(request: Request):
 
 @app.get("/api/review/logs")
 async def api_review_logs():
-    """List available detection log files and event timeline files."""
+    """List available detection log files, event timeline files, and missions.
+
+    Returns ``{"logs": [...], "event_logs": [...], "missions": [...],
+    "image_dir": "..."}`` — ``missions`` is the new per-mission grouping
+    added in issue #72 so the review tab can offer a sortie picker.
+    """
     import json as _json
+    from hydra_detect.mission_summary import list_missions
 
     cb = stream_state.get_callback("get_log_dir")
     log_dir = cb() if cb else "/data/logs"
@@ -2729,7 +2805,14 @@ async def api_review_logs():
             except (_json.JSONDecodeError, OSError, UnicodeDecodeError):
                 logger.debug("Skipping unreadable event log: %s", f.name)
                 continue
-    return {"logs": result, "event_logs": event_logs, "image_dir": image_dir}
+    # Mission roll-up — drives the per-sortie picker in the review UI.
+    missions = list_missions(log_dir) if log_path.is_dir() else []
+    return {
+        "logs": result,
+        "event_logs": event_logs,
+        "missions": missions,
+        "image_dir": image_dir,
+    }
 
 
 @app.get("/api/review/log/{filename}")

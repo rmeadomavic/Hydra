@@ -24,12 +24,17 @@
                     <span class="ops-card-value mono" id="ops-mission-name">--</span>
                 </div>
                 <div class="ops-card-row">
+                    <span class="ops-card-label">ID</span>
+                    <span class="ops-card-value mono" id="ops-mission-id" title="Mission UUID — used for /api/summary queries">--</span>
+                </div>
+                <div class="ops-card-row">
                     <span class="ops-card-label">Elapsed</span>
                     <span class="ops-card-value mono" id="ops-mission-elapsed">--</span>
                     <span class="ops-card-label">Detections</span>
                     <span class="ops-card-value mono" id="ops-mission-dets">--</span>
                 </div>
                 <div class="ops-card-btns">
+                    <button class="btn btn-sm btn-primary" id="ops-btn-mission-start" title="Start a new sortie — bookmarks detection logs and event timeline">Start Sortie</button>
                     <button class="btn btn-sm" id="ops-btn-mission-end" disabled title="End current sortie">End Sortie</button>
                     <button class="btn btn-sm" id="ops-btn-mission-export" title="Export detection waypoints (QGC WPL 110)">Export Waypoints</button>
                 </div>

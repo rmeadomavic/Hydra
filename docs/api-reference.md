@@ -610,19 +610,39 @@ quality 5–50, max_fps 0.1–5.0.
 
 ### `POST /api/mission/start`
 **Auth:** bearer · `{"name": "mission-alpha"}` (optional; defaults
-to `mission-<unix>`).
+to `mission-<unix>`). Returns `{status, name, mission_id}` where
+`mission_id` is the UUID v4 stamped onto every detection and event
+record for the sortie.
 
 ### `POST /api/mission/end`
 **Auth:** bearer · End the active mission.
+
+### `GET /api/mission/status`
+**Auth:** none · `{mission_active, mission_name, mission_id,
+mission_start_ts, mission_log}`. Cheap status surface for the operator
+dashboard pill.
+
+### `GET /api/missions`
+**Auth:** none · List recent missions discovered in the log directory.
+Returns `{missions: [{mission_id, name, callsign, started_ts, ended_ts,
+log_file}]}`, newest first.
+
+### `GET /api/summary?mission=<mission_id>`
+**Auth:** none · Per-mission stats aggregated from detection JSONL and
+event timeline files on disk. Returns `{mission_id, detections:{total,
+by_class, unique_tracks}, time_to_first_detection_sec, mission_start_ts,
+mission_end_ts, duration_sec, operator_actions, state_changes,
+gps_coverage:{point_count, hull, area_m2, bbox}}`. Cached 30 s.
 
 ---
 
 ## Post-mission review
 
 ### `GET /api/review/logs`
-**Auth:** none · List available detection + event-timeline log files.
-Returns `{logs:[{filename,size_kb,modified}], event_logs:[...],
-image_dir:"..."}`.
+**Auth:** none · List available detection + event-timeline log files,
+plus a per-mission roll-up. Returns `{logs:[{filename,size_kb,modified}],
+event_logs:[...], missions:[{mission_id, name, started_ts, ended_ts,
+log_file}], image_dir:"..."}`.
 
 ### `GET /api/review/log/{filename}`
 **Auth:** none · Parse and return detections from a log file (JSONL
