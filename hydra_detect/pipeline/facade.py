@@ -1172,9 +1172,25 @@ class Pipeline:
         self._det_logger.start()
 
         if self._web_enabled:
-            # Auto-generate API token on first boot if not configured
+            # Identity-bridge precedence (issue #149): Platform Setup writes
+            # [identity].api_token and [identity].web_password_hash. The legacy
+            # path uses [web].api_token (auto-generated on first boot) and
+            # [web].web_password (plaintext). When [identity] is populated, it
+            # wins — that is the per-unit identity surface the operator
+            # configured during Platform Setup, and the legacy fields are
+            # treated as fallback for un-set-up dev units.
+            identity_token = self._cfg.get(
+                "identity", "api_token", fallback="",
+            ).strip()
+            identity_pw_hash = self._cfg.get(
+                "identity", "web_password_hash", fallback="",
+            ).strip()
+
+            # Auto-generate API token on first boot if not configured.
+            # Skip auto-gen if [identity].api_token is present — Platform Setup
+            # owns the token in that case and we route through it.
             api_token = self._cfg.get("web", "api_token", fallback="").strip()
-            if not api_token:
+            if not api_token and not identity_token:
                 from ..web.config_api import generate_api_token, get_config_path
                 api_token = generate_api_token()
                 self._cfg.set("web", "api_token", api_token)
@@ -1204,16 +1220,31 @@ class Pipeline:
                     )
                     self._cfg.set("web", "api_token", "")
                     api_token = ""
+            # Identity token wins; fall back to [web].api_token otherwise.
+            effective_token = identity_token or api_token
             require_auth = self._cfg.getboolean(
                 "web", "require_auth_for_control", fallback=False,
             )
-            configure_auth(api_token or None, require_auth_for_control=require_auth)
+            if identity_token:
+                logger.info(
+                    "API auth routed via [identity].api_token (first 4: %s***)",
+                    identity_token[:4],
+                )
+            configure_auth(effective_token or None, require_auth_for_control=require_auth)
 
-            # Web password login (empty = disabled, current behavior preserved)
+            # Web password login: [identity].web_password_hash wins over
+            # legacy [web].web_password plaintext. Empty on both -> disabled.
             web_password = self._cfg.get("web", "web_password", fallback="").strip()
             session_timeout = self._cfg.getint("web", "session_timeout_min", fallback=480)
             tls_on = self._cfg.getboolean("web", "tls_enabled", fallback=False)
-            configure_web_password(web_password or None, session_timeout, tls_on)
+            if identity_pw_hash:
+                logger.info("Web password auth routed via [identity].web_password_hash")
+                configure_web_password(
+                    None, session_timeout, tls_on,
+                    password_hash=identity_pw_hash,
+                )
+            else:
+                configure_web_password(web_password or None, session_timeout, tls_on)
 
             # Morale features; off by default on field images
             morale_on = self._cfg.getboolean("ui", "morale_features_enabled", fallback=False)
