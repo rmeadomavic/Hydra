@@ -645,29 +645,56 @@ const HydraSettings = (() => {
     }
 
     async function handleFactoryReset() {
-        if (!confirm('FACTORY RESET: This will restore all settings to factory defaults and restart the pipeline. Continue?')) return;
-        if (!confirm('Are you sure? All custom configuration will be lost.')) return;
+        if (!confirm('FACTORY RESET: This will restore all settings to factory defaults. Your unit\'s API token and callsign will be preserved. Your current config will be saved as a timestamped backup. Continue?')) return;
+        if (!confirm('Are you sure? All custom configuration except [identity] will be reset to defaults.')) return;
         const result = await HydraApp.apiPost('/api/config/factory-reset', {});
-        if (result) {
+        if (result && result.status === 'ok') {
             hasUnsavedChanges = false;
             await loadConfig();
-            HydraApp.showToast('Factory defaults restored — restarting pipeline', 'success');
+            const restartMsg = result.restart_required
+                ? ' Restart Hydra to apply.'
+                : '';
+            const baseMsg = result.identity_preserved
+                ? 'Factory defaults restored — API token and callsign preserved.'
+                : 'Factory defaults restored.';
+            HydraApp.showToast(baseMsg + restartMsg, 'success');
+            if (result.restart_required) {
+                const restart = document.getElementById('settings-restart');
+                const fields = document.getElementById('restart-fields');
+                if (restart && fields) {
+                    fields.textContent = 'Factory reset — full restart required';
+                    restart.style.display = '';
+                }
+            }
         }
     }
 
     async function handleExport() {
-        const config = await HydraApp.apiGet('/api/config/export');
-        if (!config) return;
-        const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'hydra-config-' + new Date().toISOString().slice(0, 10) + '.json';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        HydraApp.showToast('Config exported', 'success');
+        // Hit the endpoint directly so the browser honors Content-Disposition
+        // and we don't lose the server-suggested filename (callsign + UTC stamp).
+        try {
+            const resp = await fetch('/api/config/export', { credentials: 'same-origin' });
+            if (!resp.ok) {
+                HydraApp.showToast('Export failed (' + resp.status + ')', 'error');
+                return;
+            }
+            const text = await resp.text();
+            const cd = resp.headers.get('Content-Disposition') || '';
+            const match = cd.match(/filename="([^"]+)"/);
+            const filename = match ? match[1] : ('hydra-config-' + new Date().toISOString().slice(0, 10) + '.json');
+            const blob = new Blob([text], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            HydraApp.showToast('Config exported as ' + filename, 'success');
+        } catch (err) {
+            HydraApp.showToast('Export failed: ' + err.message, 'error');
+        }
     }
 
     async function handleImportFile(event) {
@@ -680,18 +707,38 @@ const HydraSettings = (() => {
         try {
             const text = await file.text();
             const data = JSON.parse(text);
-            const result = await HydraApp.apiPost('/api/config/import', data);
-            if (result) {
-                hasUnsavedChanges = false;
-                await loadConfig();
-                HydraApp.showToast('Configuration imported', 'success');
-                if (result.restart_required && result.restart_required.length > 0) {
-                    const restart = document.getElementById('settings-restart');
-                    const fields = document.getElementById('restart-fields');
-                    if (restart && fields) {
-                        fields.textContent = result.restart_required.join(', ');
-                        restart.style.display = '';
+            // Use fetch directly so we can read the structured 400 body — apiPost
+            // collapses errors to a generic toast and we'd lose the per-section detail.
+            const resp = await fetch('/api/config/import', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data),
+            });
+            const result = await resp.json().catch(() => ({}));
+            if (!resp.ok) {
+                let msg = result.error || ('Import failed (' + resp.status + ')');
+                if (result.errors && result.errors.length) {
+                    msg += ': ' + result.errors.slice(0, 3).join('; ');
+                } else if (result.field_errors) {
+                    const fieldKeys = Object.keys(result.field_errors).slice(0, 3);
+                    if (fieldKeys.length) {
+                        msg += ': ' + fieldKeys.map(k => k + ' (' + result.field_errors[k] + ')').join('; ');
                     }
+                }
+                HydraApp.showToast(msg, 'error');
+                return;
+            }
+            hasUnsavedChanges = false;
+            await loadConfig();
+            HydraApp.showToast('Configuration imported', 'success');
+            const restartFields = result.restart_required_fields || result.restart_required;
+            if (Array.isArray(restartFields) && restartFields.length > 0) {
+                const restart = document.getElementById('settings-restart');
+                const fields = document.getElementById('restart-fields');
+                if (restart && fields) {
+                    fields.textContent = restartFields.join(', ');
+                    restart.style.display = '';
                 }
             }
         } catch (err) {

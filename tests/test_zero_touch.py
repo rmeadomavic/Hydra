@@ -194,18 +194,29 @@ class TestFactoryReset:
         assert "No factory defaults" in resp.json()["error"]
 
     def test_factory_reset_creates_backup(self, client, tmp_config, tmp_factory):
+        # Issue #75 — factory-reset writes a timestamped pre-reset snapshot
+        # that survives the next save (the rolling .bak does not).
         with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
             resp = client.post("/api/config/factory-reset")
         assert resp.status_code == 200
-        assert Path(str(tmp_config) + ".bak").exists()
+        backup_path = resp.json().get("backup_path")
+        assert backup_path
+        assert Path(backup_path).exists()
+        assert "before-reset." in Path(backup_path).name
 
-    def test_factory_reset_triggers_restart(self, client, tmp_config, tmp_factory):
+    def test_factory_reset_does_not_trigger_in_process_restart(
+        self, client, tmp_config, tmp_factory,
+    ):
+        # Issue #75 — factory-reset must NOT runtime-mutate the running
+        # pipeline. Response signals restart_required so the operator can
+        # restart explicitly; partial mid-flight reconfig is dangerous.
         restart_cb = MagicMock()
         stream_state.set_callbacks(on_restart_command=restart_cb)
         with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
             resp = client.post("/api/config/factory-reset")
         assert resp.status_code == 200
-        restart_cb.assert_called_once()
+        assert resp.json()["restart_required"] is True
+        restart_cb.assert_not_called()
 
     def test_factory_reset_requires_auth_when_enabled(self, client, tmp_config, tmp_factory):
         configure_auth("secret-token")
@@ -236,14 +247,19 @@ class TestRestoreBackup:
 # ── Config Export ─────────────────────────────────────────────
 
 class TestConfigExport:
-    def test_export_returns_config_dict(self, client, tmp_config):
+    def test_export_returns_config_envelope(self, client, tmp_config):
+        # Issue #75 — export wraps sections in an envelope with metadata
+        # (schema_version, callsign, exported_at) so imports can validate.
         with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
             resp = client.get("/api/config/export")
         assert resp.status_code == 200
         data = resp.json()
-        assert "camera" in data
-        assert "mavlink" in data
-        assert data["camera"]["source"] == "auto"
+        assert "sections" in data
+        assert "schema_version" in data
+        assert "callsign" in data
+        assert "exported_at" in data
+        assert data["sections"]["camera"]["source"] == "auto"
+        assert "mavlink" in data["sections"]
 
     def test_export_requires_auth_when_enabled(self, client, tmp_config):
         configure_auth("secret-token")
