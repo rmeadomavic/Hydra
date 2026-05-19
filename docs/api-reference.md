@@ -195,14 +195,31 @@ and returns `{"status":"ok","restart_required":[...]}`.
 **Auth:** bearer · Restores the last backup. 404 if none exists.
 
 ### `POST /api/config/factory-reset`
-**Auth:** bearer · Restore `config.ini.factory` and trigger pipeline
-restart.
+**Auth:** bearer · Restore `config.ini.factory`. Snapshots the current
+config to `config.ini.before-reset.<utc>` first. Optional body
+`{"auto_restart": true}` fires the on_restart_command callback after
+the write completes (default false; the running pipeline keeps the
+pre-reset values in memory until the operator restarts the service).
+Response includes `restart_triggered: bool`.
+
+### `GET /api/config/diff`
+**Auth:** none · Compare on-disk config against the in-memory copy
+held by the running pipeline. Returns `{disk, runtime, diff}` where
+`diff` is `{section: {key: {"disk": "...", "runtime": "..."}}}` for
+keys that drifted. Empty `runtime` (no pipeline callback registered)
+returns an empty diff so cold-boot polls do not produce false-positive
+banners. Both sides go through the same secret-redaction as
+`/api/config/full`.
 
 ### `GET /api/config/export`
 **Auth:** bearer · Dump current config as JSON.
 
 ### `POST /api/config/import`
-**Auth:** bearer · Accept a previously exported config JSON.
+**Auth:** bearer · Accept a previously exported config JSON. Optional
+top-level `auto_restart: bool` (sibling to `sections` in the export
+envelope, or sibling to bare section keys) fires the on_restart_command
+callback after the write. Default false. Response includes
+`restart_triggered: bool`.
 
 ---
 
