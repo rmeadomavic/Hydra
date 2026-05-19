@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from hydra_detect.web.server import (
     _auth_failures,
+    _mission_start_hits,
     app,
     configure_auth,
     stream_state,
@@ -18,6 +19,7 @@ def _reset_state():
     """Reset stream_state and auth between tests."""
     configure_auth(None)
     _auth_failures.clear()
+    _mission_start_hits.clear()
     stream_state.target_lock = {
         "locked": False,
         "track_id": None,
