@@ -478,10 +478,17 @@ def factory_reset_with_backup() -> dict[str, Any]:
 
     if preserved_identity:
         # Merge [identity] into the in-memory factory config and write
-        # the result atomically (tmp -> fsync -> os.replace).
+        # the result atomically (tmp -> fsync -> os.replace) UNDER the same
+        # fcntl.flock ring write_config holds, so a concurrent Save from
+        # another tab serializes against this reset rather than racing it.
+        # Matches the write_config() pattern at lines 186-205. (PR #212
+        # adversarial-review atomic-write-divergence finding.)
         factory_cfg["identity"] = preserved_identity
         tmp_path = Path(str(path) + ".tmp")
+        lock_fd = os.open(str(path), os.O_RDWR | os.O_CREAT)
         try:
+            if _HAS_FCNTL:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX)
             with open(tmp_path, "w") as f:
                 factory_cfg.write(f)
                 f.flush()
@@ -491,6 +498,9 @@ def factory_reset_with_backup() -> dict[str, Any]:
                     pass
             os.replace(tmp_path, path)
         finally:
+            if _HAS_FCNTL:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            os.close(lock_fd)
             if tmp_path.exists():
                 try:
                     tmp_path.unlink()
@@ -502,7 +512,19 @@ def factory_reset_with_backup() -> dict[str, Any]:
         )
     else:
         # No prior identity to preserve — keep the original atomic copy.
-        _atomic_copy(factory_path, path)
+        # _atomic_copy is rename-based and the destination is unlocked here,
+        # so the same race window applies but the contents end up identical
+        # to factory either way; serializing this path is a nicety, not a
+        # correctness fix. Acquire the flock anyway for symmetry.
+        lock_fd = os.open(str(path), os.O_RDWR | os.O_CREAT)
+        try:
+            if _HAS_FCNTL:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            _atomic_copy(factory_path, path)
+        finally:
+            if _HAS_FCNTL:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            os.close(lock_fd)
         logger.info("Config restored from factory defaults: %s", factory_path)
 
     audit_log.warning(
