@@ -23,7 +23,10 @@ camera.source = 1
     )
     ctx = PipelineBootstrap().load_config(str(cfg_path), vehicle="alpha")
     assert ctx.cfg.get("camera", "source") == "1"
-    assert ctx.callsign == "HYDRA-ALPHA"
+    # Issue #48: --vehicle on factory-default callsign produces
+    # HYDRA-{TEAM}-{PLATFORM} with TEAM="1" so the segment-wildcard
+    # matcher (HYDRA-ALL-ALPHA, HYDRA-1-ALL) still works.
+    assert ctx.callsign == "HYDRA-1-ALPHA"
 
 
 def test_bootstrap_build_detector_uses_model_search_path(tmp_path: Path):

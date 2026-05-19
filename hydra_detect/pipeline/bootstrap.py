@@ -59,9 +59,19 @@ class PipelineBootstrap:
                     vehicle_section,
                 )
 
-        callsign = cfg.get("tak", "callsign", fallback="HYDRA-1")
-        if callsign == "HYDRA-1" and vehicle:
-            callsign = f"HYDRA-{vehicle.upper()}"
+        # Callsign resolution mirrors facade.Pipeline.__init__ — see issue #48.
+        # Precedence: [identity].callsign > [tak].callsign (override) >
+        # HYDRA-1-<VEHICLE> from --vehicle > HYDRA-1.
+        identity_cs = cfg.get("identity", "callsign", fallback="").strip()
+        tak_cs = cfg.get("tak", "callsign", fallback="HYDRA-1").strip()
+        if identity_cs and identity_cs.upper().startswith("HYDRA-"):
+            callsign = identity_cs
+        elif tak_cs and tak_cs != "HYDRA-1":
+            callsign = tak_cs
+        elif vehicle:
+            callsign = f"HYDRA-1-{vehicle.upper()}"
+        else:
+            callsign = "HYDRA-1"
         if not cfg.has_section("tak"):
             cfg.add_section("tak")
         cfg.set("tak", "callsign", callsign)
