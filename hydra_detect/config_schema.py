@@ -1342,6 +1342,8 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
         ),
     },
     "vehicle.fw": {
+        # Fixed-wing-only key — drop/strike collapse into a single
+        # post_action_mode (no hover-to-drop, no terminal dive).
         "autonomous.post_action_mode": FieldSpec(
             FieldType.STRING,
             default="LOITER",
@@ -1353,6 +1355,39 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             max_val=100,
             default=2,
             description="Minimum consecutive track frames before autonomous action (fixed-wing)",
+        ),
+        # Modes that qualify for autonomous evaluation. FW limits this to
+        # autopilot-managed modes — no GUIDED, no AUTO_TUNE — because the
+        # platform cannot loiter/follow a target. Defaults are the
+        # autopilot-managed set (#70).
+        "autonomous.allowed_vehicle_modes": FieldSpec(
+            FieldType.STRING,
+            default="AUTO,LOITER,CRUISE",
+            description="Comma-separated ArduPilot modes allowed for autonomy (fixed-wing)",
+        ),
+        # Shared vehicle-profile fields below — also defined in [autonomous]
+        # so post-merge validation is happy. Listed here so the
+        # vehicle.fw-specific schema lookup recognises them as known keys.
+        "autonomous.platform_role": FieldSpec(
+            FieldType.ENUM,
+            choices=["aerial_isr", "ground_isr", "water_isr"],
+            default="aerial_isr",
+            description="Platform role identifier (fixed-wing defaults to aerial_isr)",
+        ),
+        "autonomous.safe_mode": FieldSpec(
+            FieldType.STRING,
+            default="LOITER",
+            description="ArduPilot mode to enter on safety event (fixed-wing)",
+        ),
+        "autonomous.default_features": FieldSpec(
+            FieldType.STRING,
+            default="detect,mavlink,tak_output,logging",
+            description="Default features enabled for fixed-wing (detect + TAK only)",
+        ),
+        "reserved_channels": FieldSpec(
+            FieldType.STRING,
+            default="1,2,3,4",
+            description="RC channels reserved by the airframe (servo tracker avoids these)",
         ),
     },
     "system": {

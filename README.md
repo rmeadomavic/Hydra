@@ -103,15 +103,16 @@ dashboard. Full workflow + caveats: [docs/dev-loop.md](docs/dev-loop.md).
 
 | Feature | Drone | USV | UGV | Fixed-wing |
 |---------|:-----:|:---:|:---:|:----------:|
-| Follow | ✓ | ✓ | ✓ | ~ |
-| Drop | ✓ | ✓ | ✓ | ~ |
+| Detection + TAK | ✓ | ✓ | ✓ | ✓ |
+| Follow | ✓ | ✓ | ✓ | — |
+| Drop | ✓ | ✓ | ✓ | — |
 | Strike | ✓ | ✓ | ✓ | — |
 | Autonomy | ✓ | ✓ | ✓ | — |
 | Yaw control | CONDITION_YAW | Rudder | Steering | — |
 | Hold mode | LOITER | HOLD | HOLD | LOITER |
 | RF homing | ✓ | ✓ | ✓ | ✓ |
 
-`✓` supported · `~` limited · `—` not supported.
+`✓` supported · `~` limited · `—` not supported. Fixed-wing is detection + TAK marking only (15-25 m/s flight speed) — see [`vehicle.fw`](docs/configuration.md#fixed-wing-profile-is-detection--tak-only).
 
 ## Dependencies
 

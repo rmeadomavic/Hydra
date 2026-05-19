@@ -9,9 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Repository baseline scaffolding: SECURITY.md, ISSUE_TEMPLATE forms, dependabot config.
+- Fixed-wing detection-only platform profile (`[vehicle.fw]`). The pipeline
+  now refuses follow / drop / strike / pixel-lock approach commands when the
+  FW profile is active, lowers `min_track_frames` to 2 for brief overpasses,
+  and restricts `allowed_vehicle_modes` to `AUTO,LOITER,CRUISE`. Refusals are
+  logged to `hydra.audit` and surfaced via STATUSTEXT. Closes #70.
 
 ### Changed
--
+- `[vehicle.fw]` in `config.ini.factory` and `config.ini` now declares
+  `reserved_channels = 1,2,3,4` and `autonomous.allowed_vehicle_modes`. The
+  config schema recognises the additional vehicle.fw keys without warnings.
 
 ### Fixed
 - Bumped pytest to >=9.0.3 to resolve Dependabot CVE alert (medium, test-only).

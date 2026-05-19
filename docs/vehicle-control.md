@@ -163,9 +163,11 @@ On abort:
 
 | Feature | Drone (ArduCopter) | USV (ArduRover boat) | UGV (ArduRover) | Fixed Wing |
 |---------|:------------------:|:--------------------:|:---------------:|:----------:|
-| Follow mode | ✓ | ✓ | ✓ | ~ |
-| Drop mode | ✓ | ✓ | ✓ | ~ |
+| Detection + TAK | ✓ | ✓ | ✓ | ✓ |
+| Follow mode | ✓ | ✓ | ✓ | — |
+| Drop mode | ✓ | ✓ | ✓ | — |
 | Strike mode | ✓ | ✓ | ✓ | — |
+| Pixel-lock | ✓ | — | — | — |
 | Yaw control | CONDITION_YAW | Rudder | Steering | — |
 | Hold mode | LOITER | HOLD | HOLD | LOITER |
 | SmartRTL | ✓ | ✓ | ✓ | ✓ |
@@ -173,6 +175,8 @@ On abort:
 | Servo tracking | ✓ | ✓ | ✓ | ✓ |
 
 `✓` supported  `~` limited  `—` not supported
+
+Fixed wing is **sensor only** — flight speed (15-25 m/s) makes hover, follow, drop, and strike physically infeasible. Use it to mark targets over TAK; effector platforms (USV/UGV/multirotor) close the loop. See [issue #70](https://github.com/rmeadomavic/Hydra/issues/70) and `[vehicle.fw]` in [configuration.md](configuration.md).
 
 > [!TIP]
 > All vehicle control goes through MAVLink GUIDED mode. If you change the flight mode from your GCS at any time, it immediately overrides Hydra. Hydra never holds exclusive control.
