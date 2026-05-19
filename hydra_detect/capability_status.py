@@ -72,7 +72,16 @@ class SystemState:
 
     # Disk
     disk_free_gb: float | None = None
+    disk_total_gb: float | None = None
+    disk_free_pct: float | None = None
     disk_output_dir: str = "/tmp"
+    # Operator-tunable thresholds. Issue #226 ([capability.disk] section).
+    # Defaults match the storage-rotation gate; both pct AND absolute floor
+    # must trip for BLOCKED so 5% of a 4 TB NVMe (200 GB headroom) does not
+    # falsely flag a unit whose missions consume tens of GB.
+    disk_warn_pct: float = 15.0
+    disk_blocked_pct: float = 5.0
+    disk_blocked_min_free_gb: float = 5.0
 
     # Time source (stub — #155 will wire GPS-disciplined PPS / NTP)
     time_source: str = "RTC"
@@ -215,11 +224,33 @@ def build_system_state(
             state.disk_output_dir = cfg.get("logging", "output_dir", fallback="/tmp")
         except Exception:
             pass
+        # Operator-tunable thresholds. Prefer [capability.disk]; fall back to
+        # legacy [storage] keys so existing operator configs keep working
+        # without edit (backward compat per #226 acceptance criteria).
+        try:
+            state.disk_warn_pct = float(cfg.get(
+                "capability.disk", "warn_pct",
+                fallback=cfg.get("storage", "disk_warn_pct", fallback="15"),
+            ))
+            state.disk_blocked_pct = float(cfg.get(
+                "capability.disk", "blocked_pct",
+                fallback=cfg.get("storage", "disk_block_pct", fallback="5"),
+            ))
+            state.disk_blocked_min_free_gb = float(cfg.get(
+                "capability.disk", "blocked_min_free_gb", fallback="5",
+            ))
+        except Exception:
+            pass
     try:
         usage = shutil.disk_usage(state.disk_output_dir)
         state.disk_free_gb = usage.free / (1024 ** 3)
+        state.disk_total_gb = usage.total / (1024 ** 3)
+        if usage.total > 0:
+            state.disk_free_pct = (usage.free / usage.total) * 100.0
     except Exception:
         state.disk_free_gb = None
+        state.disk_total_gb = None
+        state.disk_free_pct = None
 
     # ── Vehicle Profile ───────────────────────────────────────────────────
     if cfg is not None:
@@ -541,6 +572,17 @@ def _eval_tak_commands(state: SystemState) -> CapabilityReport:
 
 
 def _eval_disk(state: SystemState) -> CapabilityReport:
+    """Platform-aware disk gate (#226).
+
+    BLOCKED requires BOTH ``disk_free_pct < blocked_pct`` AND
+    ``disk_free_gb < blocked_min_free_gb``. 5% of a 4 TB NVMe is 200 GB
+    of headroom and should not block missions; 5% of a 32 GB SD card is
+    1.6 GB and should. WARN fires on pct alone — operators get the
+    dashboard banner well before the absolute floor matters.
+
+    Falls back to absolute-GB legacy thresholds when ``disk_free_pct`` is
+    not available (test fixtures and older states that pre-date #226).
+    """
     reasons: list[str] = []
 
     if state.disk_free_gb is None:
@@ -550,6 +592,36 @@ def _eval_disk(state: SystemState) -> CapabilityReport:
         return CapabilityReport("Disk", CapabilityStatus.WARN, reasons)
 
     free = state.disk_free_gb
+
+    # Platform-aware path — preferred when pct + total are available.
+    if state.disk_free_pct is not None:
+        pct = state.disk_free_pct
+        warn_pct = state.disk_warn_pct
+        block_pct = state.disk_blocked_pct
+        block_min_gb = state.disk_blocked_min_free_gb
+
+        if pct < block_pct and free < block_min_gb:
+            reasons.append(
+                f"Disk critically low: {pct:.1f}% free ({free:.2f} GB). "
+                f"Below {block_pct:.0f}% and under {block_min_gb:.1f} GB floor. "
+                "Refusing new mission bundles and pausing crop emission. "
+                "Detection metadata logging continues. Run storage rotation."
+            )
+            return CapabilityReport(
+                "Disk", CapabilityStatus.BLOCKED, reasons,
+            )
+
+        if pct < warn_pct:
+            reasons.append(
+                f"Disk low: {pct:.1f}% free ({free:.2f} GB). "
+                f"Below WARN threshold ({warn_pct:.0f}%). "
+                "Consider running storage rotation before next sortie."
+            )
+            return CapabilityReport("Disk", CapabilityStatus.WARN, reasons)
+
+        return CapabilityReport("Disk", CapabilityStatus.READY)
+
+    # Legacy absolute-GB fallback (test fixtures without pct/total).
     if free < _DISK_BLOCKED_GB:
         reasons.append(
             f"Disk critically low: {free:.1f} GB free. "

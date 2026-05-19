@@ -963,6 +963,17 @@ class Pipeline:
         self._mission_start_time = time.monotonic()
         self._det_logger.set_mission_id(_bootstrap_mid)
 
+        # Subscribe DetectionLogger to the disk-BLOCKED gate (issue #226).
+        # When Capability Status reports disk BLOCKED, crop emission pauses;
+        # metadata logging continues. Auto-clears on recovery.
+        try:
+            from ..web.capability_api import register_disk_gate_listener
+            register_disk_gate_listener(
+                lambda blocked, _reason: self._det_logger.set_disk_blocked(blocked)
+            )
+        except Exception as exc:
+            logger.warning("Could not register disk-blocked listener: %s", exc)
+
         # Web UI
         self._web_enabled = self._cfg.getboolean("web", "enabled", fallback=True)
         self._web_host = self._cfg.get("web", "host", fallback="0.0.0.0")

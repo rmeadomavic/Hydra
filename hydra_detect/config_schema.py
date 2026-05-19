@@ -1491,6 +1491,39 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             description="Retention values above this are clamped with a warning",
         ),
     },
+    "capability.disk": {
+        # Issue #226 — Capability Status disk-free gates. Both pct AND
+        # absolute floor must trip for BLOCKED so 5% of a 4 TB NVMe
+        # (200 GB headroom) does not falsely block missions on units
+        # whose total sortie footprint is tens of GB.
+        "warn_pct": FieldSpec(
+            FieldType.FLOAT,
+            min_val=1.0,
+            max_val=50.0,
+            default=15.0,
+            description="Disk free percent below which Capability Status flips to WARN",
+        ),
+        "blocked_pct": FieldSpec(
+            FieldType.FLOAT,
+            min_val=1.0,
+            max_val=50.0,
+            default=5.0,
+            description=(
+                "Disk free percent below which Capability Status flips "
+                "to BLOCKED (requires absolute floor too)"
+            ),
+        ),
+        "blocked_min_free_gb": FieldSpec(
+            FieldType.FLOAT,
+            min_val=0.1,
+            max_val=1000.0,
+            default=5.0,
+            description=(
+                "Absolute free-space floor (GB) — BLOCKED requires both "
+                "pct AND this to trip"
+            ),
+        ),
+    },
     "time_sync": {
         "ntp_hosts": FieldSpec(
             FieldType.STRING,

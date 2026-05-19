@@ -347,6 +347,103 @@ class TestDiskEvaluator:
 
 
 # ---------------------------------------------------------------------------
+# Disk evaluator — platform-aware pct + absolute floor gates (#226)
+# ---------------------------------------------------------------------------
+
+class TestDiskPlatformAwareGates:
+    """Issue #226 — pct alone is not enough on heterogeneous storage.
+
+    5 % of a 32 GB SD card (1.6 GB) and 5 % of a 4 TB NVMe (200 GB) both
+    look identical on percent telemetry but only one of them is about to
+    actually run out of room. BLOCKED requires BOTH pct AND absolute floor
+    to trip; WARN trips on pct alone (dashboard banner is informational).
+    """
+
+    def _state(self, free_gb, total_gb, **kw):
+        free_pct = (free_gb / total_gb) * 100.0 if total_gb else None
+        return _make_state(
+            disk_free_gb=free_gb,
+            disk_total_gb=total_gb,
+            disk_free_pct=free_pct,
+            **kw,
+        )
+
+    def test_ready_at_50_pct_large_disk(self):
+        # 50 % of 4 TB = 2 TB free — fully READY
+        state = self._state(free_gb=2000.0, total_gb=4000.0)
+        r = next(r for r in evaluate_all(state) if r.name == "Disk")
+        assert r.status == CapabilityStatus.READY
+
+    def test_warn_at_10_pct_pct_alone(self):
+        # 10 % of 4 TB = 400 GB free — below warn pct (15), above block floor
+        state = self._state(free_gb=400.0, total_gb=4000.0)
+        r = next(r for r in evaluate_all(state) if r.name == "Disk")
+        assert r.status == CapabilityStatus.WARN
+
+    def test_4pct_large_disk_not_blocked_pct_alone(self):
+        # 4 % of 4 TB = 160 GB free — below BLOCKED pct but above abs floor.
+        # MUST NOT block: platform has 160 GB of operational headroom.
+        state = self._state(free_gb=160.0, total_gb=4000.0)
+        r = next(r for r in evaluate_all(state) if r.name == "Disk")
+        assert r.status == CapabilityStatus.WARN
+
+    def test_4pct_small_disk_blocked(self):
+        # 4 % of 32 GB = 1.28 GB free — both pct AND floor tripped.
+        state = self._state(free_gb=1.28, total_gb=32.0)
+        r = next(r for r in evaluate_all(state) if r.name == "Disk")
+        assert r.status == CapabilityStatus.BLOCKED
+        assert any("Refusing new mission bundles" in s for s in r.reasons)
+
+    def test_recovery_ladder_blocked_to_warn_to_ready(self):
+        """The full READY -> WARN -> BLOCKED -> WARN -> READY ladder.
+
+        Pinned scenario from issue #226 acceptance:
+        - 4 %, 1.28 GB free on a 32 GB SD card -> BLOCKED
+        - cleanup brings the unit to 20 % (6.4 GB) -> READY (above 15 % warn)
+        - the intermediate WARN window at 10 % (3.2 GB) was observed too
+        """
+        # Start BLOCKED
+        s_blocked = self._state(free_gb=1.28, total_gb=32.0)
+        assert next(
+            r for r in evaluate_all(s_blocked) if r.name == "Disk"
+        ).status == CapabilityStatus.BLOCKED
+        # Operator runs cleanup — disk recovers into WARN window (10 %).
+        s_warn = self._state(free_gb=3.2, total_gb=32.0)
+        assert next(
+            r for r in evaluate_all(s_warn) if r.name == "Disk"
+        ).status == CapabilityStatus.WARN
+        # More cleanup — disk fully recovered into READY (20 %).
+        s_ready = self._state(free_gb=6.4, total_gb=32.0)
+        assert next(
+            r for r in evaluate_all(s_ready) if r.name == "Disk"
+        ).status == CapabilityStatus.READY
+
+    def test_custom_thresholds_via_state(self):
+        # Operator sets a strict 25 % WARN — 20 % free should already WARN.
+        state = self._state(
+            free_gb=6.4, total_gb=32.0,
+            disk_warn_pct=25.0, disk_blocked_pct=5.0,
+            disk_blocked_min_free_gb=5.0,
+        )
+        r = next(r for r in evaluate_all(state) if r.name == "Disk")
+        assert r.status == CapabilityStatus.WARN
+
+    def test_blocked_requires_both_pct_and_floor(self):
+        # Disk at 3 % pct (below blocked_pct) but free_gb of 10 GB (above
+        # absolute floor of 5 GB) — must NOT block. Platform-aware gate.
+        state = self._state(free_gb=10.0, total_gb=400.0)
+        r = next(r for r in evaluate_all(state) if r.name == "Disk")
+        assert r.status == CapabilityStatus.WARN
+        # And the inverse: free_gb=2 (below floor) but pct=20 (above warn) —
+        # not BLOCKED because pct did not trip.
+        state = self._state(free_gb=2.0, total_gb=10.0)
+        r = next(r for r in evaluate_all(state) if r.name == "Disk")
+        # 20 % free, but only 2 GB absolute. Pct says READY, floor would
+        # block only if pct also fell. Must be READY in the pct-only path.
+        assert r.status == CapabilityStatus.READY
+
+
+# ---------------------------------------------------------------------------
 # Time Source evaluator (stub — #155 will wire real NTP/PPS)
 # ---------------------------------------------------------------------------
 
@@ -1200,3 +1297,103 @@ class TestCapabilityAPIRouter:
         r1 = client.get("/api/capabilities").json()
         r2 = client.get("/api/capabilities").json()
         assert r1["generated_at"] == r2["generated_at"]
+
+
+# ---------------------------------------------------------------------------
+# Disk-BLOCKED gate (issue #226): mission-start refusal + listener notification
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(_SKIP_SERVER, reason=_skip_server_reason)
+class TestDiskBlockedGate:
+    """End-to-end: when the registry reports disk BLOCKED, the mission-start
+    endpoint refuses with 503 and crop-gate listeners get notified. When the
+    state recovers, both flip back automatically."""
+
+    @pytest.fixture(autouse=True)
+    def _reset(self):
+        from hydra_detect.web.capability_api import (
+            reset_cache,
+            reset_disk_gate_for_test,
+        )
+        reset_cache()
+        reset_disk_gate_for_test()
+        yield
+        reset_cache()
+        reset_disk_gate_for_test()
+
+    def test_set_disk_blocked_notifies_listeners(self):
+        from hydra_detect.web import capability_api
+        seen: list = []
+        capability_api.register_disk_gate_listener(
+            lambda b, r: seen.append((b, r))
+        )
+        capability_api._set_disk_blocked(True, "disk_free below 5%")
+        capability_api._set_disk_blocked(False, "")
+        assert seen == [(True, "disk_free below 5%"), (False, "")]
+
+    def test_listener_no_op_when_state_does_not_flip(self):
+        from hydra_detect.web import capability_api
+        seen: list = []
+        capability_api.register_disk_gate_listener(
+            lambda b, r: seen.append((b, r))
+        )
+        capability_api._set_disk_blocked(False, "")
+        capability_api._set_disk_blocked(False, "")
+        capability_api._set_disk_blocked(False, "")
+        assert seen == []
+
+    def test_is_disk_blocked_defaults_false(self):
+        from hydra_detect.web.capability_api import is_disk_blocked
+        blocked, reason = is_disk_blocked()
+        assert blocked is False
+        assert reason == ""
+
+    def test_mission_start_refused_when_disk_blocked(self):
+        from fastapi.testclient import TestClient
+        from hydra_detect.web import capability_api
+        from hydra_detect.web.server import app
+        capability_api._set_disk_blocked(
+            True, "disk_free below 5% AND under 5GB free",
+        )
+        client = TestClient(app)
+        resp = client.post("/api/mission/start", json={"name": "blocked-test"})
+        assert resp.status_code == 503, resp.text
+        body = resp.json()
+        assert "disk_free below 5%" in body.get("reason", "")
+
+    def test_mission_start_not_blocked_in_warn_state(self):
+        from fastapi.testclient import TestClient
+        from hydra_detect.web import capability_api
+        from hydra_detect.web.server import app
+        capability_api._set_disk_blocked(False, "")
+        client = TestClient(app)
+        resp = client.post("/api/mission/start", json={"name": "warn-test"})
+        assert resp.status_code != 503
+
+    def test_recovery_clears_gate(self):
+        from fastapi.testclient import TestClient
+        from hydra_detect.web import capability_api
+        from hydra_detect.web.server import app
+        client = TestClient(app)
+        capability_api._set_disk_blocked(True, "disk_free below 5%")
+        r1 = client.post("/api/mission/start", json={"name": "low-disk"})
+        assert r1.status_code == 503
+        capability_api._set_disk_blocked(False, "")
+        r2 = client.post("/api/mission/start", json={"name": "recovered"})
+        assert r2.status_code != 503
+
+
+# ---------------------------------------------------------------------------
+# DetectionLogger.set_disk_blocked toggles crop emission only
+# ---------------------------------------------------------------------------
+
+class TestDetectionLoggerDiskBlocked:
+    def test_toggle_persists(self):
+        from hydra_detect.detection_logger import DetectionLogger
+        dl = DetectionLogger(log_dir="/tmp/_t226", save_crops=True)
+        # Default: not blocked.
+        assert dl._disk_blocked is False
+        dl.set_disk_blocked(True)
+        assert dl._disk_blocked is True
+        dl.set_disk_blocked(False)
+        assert dl._disk_blocked is False

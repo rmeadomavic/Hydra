@@ -18,6 +18,7 @@ from fastapi import APIRouter
 
 from hydra_detect.capability_status import (
     CapabilityReport,
+    CapabilityStatus,
     SystemState,
     build_system_state,
     evaluate_all,
@@ -111,10 +112,83 @@ def _build_response() -> dict[str, Any]:
         operating_mode=op_mode,
     )
     reports = evaluate_all(state)
+    # Update the Disk-BLOCKED gate state for synchronous callers
+    # (mission-start endpoint, detection-logger crop suppression).
+    # Issue #226: the registry is a one-stop source for the gate state;
+    # piggy-backing on the cached response means we do not re-walk the
+    # evaluators on every mission-start hit.
+    disk_report = next((r for r in reports if r.name == "Disk"), None)
+    blocked = disk_report is not None and disk_report.status == CapabilityStatus.BLOCKED
+    _set_disk_blocked(
+        blocked,
+        disk_report.reasons[0] if blocked and disk_report.reasons else "",
+    )
     return {
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "capabilities": [_serialize_report(r) for r in reports],
     }
+
+
+# ── Disk-BLOCKED gate state (issue #226) ──────────────────────────────────────
+#
+# Mirrored from the most recent capability evaluation so the mission-start
+# endpoint and crop-emission gate can read it without re-running the
+# registry on every request. Updated by _build_response (so the 2 s cache
+# TTL governs the freshness, same as the dashboard).
+_disk_gate_lock = threading.Lock()
+_disk_blocked: bool = False
+_disk_blocked_reason: str = ""
+# Listeners notified when the disk-BLOCKED gate flips. Used by the pipeline
+# to toggle crop emission off / back on.
+_disk_gate_listeners: list[Any] = []
+
+
+def _set_disk_blocked(blocked: bool, reason: str) -> None:
+    """Update the cached disk-BLOCKED state and notify listeners on flip."""
+    global _disk_blocked, _disk_blocked_reason
+    with _disk_gate_lock:
+        flipped = blocked != _disk_blocked
+        _disk_blocked = blocked
+        _disk_blocked_reason = reason
+        listeners = list(_disk_gate_listeners) if flipped else []
+    for listener in listeners:
+        try:
+            listener(blocked, reason)
+        except Exception:
+            # A broken listener must not stall the readiness path.
+            pass
+
+
+def is_disk_blocked() -> tuple[bool, str]:
+    """Return ``(blocked, reason)`` from the most recent capability evaluation.
+
+    Mission-start and crop-emission gates call this. The state is updated by
+    ``/api/capabilities`` poll cycles (2 s TTL). A unit that has never been
+    polled returns ``(False, "")`` — fail-open so a missing dashboard does
+    not refuse missions, matching #245 Phase A's conservative gate posture.
+    """
+    with _disk_gate_lock:
+        return _disk_blocked, _disk_blocked_reason
+
+
+def register_disk_gate_listener(listener: Any) -> None:
+    """Register a callable invoked when the disk-BLOCKED gate flips.
+
+    Listener signature: ``listener(blocked: bool, reason: str) -> None``.
+    Called on every flip (READY->BLOCKED and BLOCKED->READY).
+    """
+    with _disk_gate_lock:
+        if listener not in _disk_gate_listeners:
+            _disk_gate_listeners.append(listener)
+
+
+def reset_disk_gate_for_test() -> None:
+    """Test-only: clear listeners and reset cached state."""
+    global _disk_blocked, _disk_blocked_reason
+    with _disk_gate_lock:
+        _disk_blocked = False
+        _disk_blocked_reason = ""
+        _disk_gate_listeners.clear()
 
 
 @router.get("/api/capabilities")
