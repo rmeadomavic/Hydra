@@ -798,6 +798,32 @@ input[type="range"]::-webkit-slider-thumb {
 .topbar[data-mock="1"] .tb-dot.yellow { background: var(--warning); }
 .topbar[data-mock="1"] .tb-dot.dim    { background: #555; }
 
+.topbar[data-mock="1"] .tb-battery {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+.topbar[data-mock="1"] .tb-battery .tb-battery-pct {
+    min-width: 30px;
+    text-align: right;
+}
+.topbar[data-mock="1"] .tb-battery[data-level="CRITICAL"] {
+    color: var(--danger);
+    animation: tb-batt-pulse 1.5s ease-in-out infinite;
+}
+.topbar[data-mock="1"] .tb-battery[data-level="LOW"] {
+    color: #fcd34d;
+}
+@keyframes tb-batt-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.55; }
+}
+
 .topbar[data-mock="1"] .tb-sim-pill {
     display: inline-flex;
     align-items: center;

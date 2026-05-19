@@ -92,6 +92,58 @@
             else simPill.setAttribute('hidden', '');
         }
 
+        // Battery indicator — uses structured `battery` block when present,
+        // falls back to legacy battery_pct/battery_v keys for back-compat.
+        const battEl = document.getElementById('tb-battery');
+        const battDot = document.getElementById('tb-battery-dot');
+        const battPct = document.getElementById('tb-battery-pct');
+        if (battEl && battDot && battPct) {
+            const battery = data.battery;
+            let level = (battery && battery.level) || null;
+            let pct = battery && battery.remaining_pct != null
+                ? battery.remaining_pct
+                : (data.battery_pct != null ? data.battery_pct : null);
+            if (!level && pct != null) {
+                // Legacy fallback: derive a coarse tone from raw pct only.
+                level = pct <= 10 ? 'CRITICAL' : (pct <= 20 ? 'LOW' : 'OK');
+            }
+            const uncalibrated = !!(battery && battery.uncalibrated);
+            const haveBattery = (battery && (battery.voltage_v != null
+                || battery.remaining_pct != null
+                || battery.uncalibrated)) || pct != null;
+            if (haveBattery) {
+                battEl.removeAttribute('hidden');
+                let tone = 'dim';
+                if (uncalibrated && pct == null) {
+                    // Distinct from "monitor disabled" (widget hidden) and
+                    // from healthy OK (olive). Operator sees the unit is
+                    // talking but the percent path is silent. R1-1 (b).
+                    battPct.textContent = 'UNCAL';
+                    tone = 'amber';
+                    battEl.setAttribute(
+                        'title',
+                        'Battery monitor uncalibrated — set BATT_CAPACITY '
+                        + 'in ArduPilot and calibrate to enable percent alerts.',
+                    );
+                } else {
+                    battPct.textContent = pct != null ? pct + '%' : '--%';
+                    if (level === 'OK') tone = 'olive';
+                    else if (level === 'LOW') tone = 'amber';
+                    else if (level === 'CRITICAL') tone = 'red';
+                    battEl.removeAttribute('title');
+                }
+                setDotClass(battDot, tone);
+                battEl.setAttribute(
+                    'data-level',
+                    uncalibrated && pct == null
+                        ? 'UNCALIBRATED'
+                        : (level || 'UNKNOWN'),
+                );
+            } else {
+                battEl.setAttribute('hidden', '');
+            }
+        }
+
         // Latency readout — prefer mavlink latency, fall back to inference_ms.
         const latEl = document.getElementById('tb-latency-value');
         if (latEl) {

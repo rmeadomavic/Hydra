@@ -48,6 +48,8 @@ class OSDState:
     latest_det_label: str = ""
     latest_det_conf: float = 0.0
     top_class_id: int = -1
+    battery_pct: int | None = None
+    battery_level: str = "UNKNOWN"  # OK / LOW / CRITICAL / UNKNOWN
 
 
 # Max length for NAMED_VALUE_FLOAT name field in MAVLink
@@ -136,8 +138,15 @@ class FpvOsd:
         Only sends when there are active tracks or a locked target —
         avoids spamming the radio link with empty status updates.
         """
-        # Skip sending when nothing is happening
-        if state.active_tracks == 0 and state.locked_track_id is None:
+        # Skip sending when nothing is happening — but always surface
+        # LOW / CRITICAL battery so the pilot sees the alert even on
+        # an empty frame.
+        battery_alert = state.battery_level in ("LOW", "CRITICAL")
+        if (
+            state.active_tracks == 0
+            and state.locked_track_id is None
+            and not battery_alert
+        ):
             return
 
         parts: list[str] = []
@@ -145,6 +154,17 @@ class FpvOsd:
         parts.append(f"T:{state.active_tracks}")
         parts.append(f"{state.fps:.0f}fps")
         parts.append(f"{state.inference_ms:.0f}ms")
+
+        # Battery — surface level + pct on the FPV OSD whenever the
+        # monitor has a number. Single-letter level keeps it short:
+        # ! = CRITICAL, L = LOW (OK is omitted to save chars).
+        if state.battery_pct is not None:
+            if state.battery_level == "CRITICAL":
+                parts.append(f"B!{state.battery_pct}")
+            elif state.battery_level == "LOW":
+                parts.append(f"BL{state.battery_pct}")
+            else:
+                parts.append(f"B{state.battery_pct}")
 
         if state.locked_track_id is not None:
             mode_char = "S" if state.lock_mode == "strike" else "T"
@@ -228,6 +248,7 @@ def build_osd_state(
     locked_track_id: int | None,
     lock_mode: str | None,
     gps: dict | None,
+    battery: dict | None = None,
 ) -> OSDState:
     """Build an OSDState snapshot from current pipeline data."""
     # Extract GPS lat/lon (MAVLink stores as int × 1e7)
@@ -247,6 +268,14 @@ def build_osd_state(
             latest_label = t.label
             top_class_id = getattr(t, "class_id", -1)
 
+    battery_pct = None
+    battery_level = "UNKNOWN"
+    if battery:
+        if battery.get("remaining_pct") is not None:
+            battery_pct = int(battery["remaining_pct"])
+        if battery.get("level"):
+            battery_level = str(battery["level"])
+
     state = OSDState(
         fps=fps,
         inference_ms=inference_ms,
@@ -259,6 +288,8 @@ def build_osd_state(
         latest_det_label=latest_label,
         latest_det_conf=latest_conf,
         top_class_id=top_class_id,
+        battery_pct=battery_pct,
+        battery_level=battery_level,
     )
 
     # Resolve locked target label

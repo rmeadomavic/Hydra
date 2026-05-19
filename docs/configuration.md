@@ -165,6 +165,56 @@ MAVLink connection and alert behavior.
 | `sim_gps_lat` | float | *(empty)* | -90.0-90.0 | Simulated GPS latitude. Overrides real GPS for bench testing. |
 | `sim_gps_lon` | float | *(empty)* | -180.0-180.0 | Simulated GPS longitude. |
 
+## [battery]
+
+Vehicle battery monitoring from MAVLink `SYS_STATUS`. Surfaces a level
+(`OK` / `LOW` / `CRITICAL` / `UNKNOWN`) on `/api/stats` and emits one
+STATUSTEXT per level transition. This tracks the **vehicle** battery
+seen by the FC, not the Jetson companion (which may run from a
+separate source).
+
+| Key | Type | Default | Range | Description |
+|-----|------|---------|-------|-------------|
+| `enabled` | bool | `true` | -- | Master switch. When false, the widget is hidden and no alerts fire. |
+| `low_threshold_pct` | int | `20` | 1-99 | Below this, level becomes `LOW`. Inclusive. |
+| `critical_threshold_pct` | int | `10` | 1-99 | Below this, level becomes `CRITICAL`. Must be < `low_threshold_pct`. |
+| `stale_after_sec` | float | `30.0` | 0-3600 | If no `SYS_STATUS` arrives within this window, level resolves to `UNKNOWN`. 0 disables. |
+| `critical_reissue_sec` | float | `0.0` | 0-3600 | Re-emit a `CRITICAL` STATUSTEXT this often even without a level change. 0 disables. |
+
+### Operator notes
+
+**Uncalibrated FC monitor (UNCALIBRATED state).** ArduPilot reports
+`battery_remaining = -1` until `BATT_CAPACITY` is set and the battery
+monitor is calibrated — the default state on FPV racing platforms
+without a dedicated battery monitor chip. When the FC starts reporting
+voltage but the percent sentinel stays at `-1`, Hydra fires a one-time
+`BATT MONITOR UNCALIBRATED` STATUSTEXT and the dashboard battery card
+shows `UNCAL` (amber). The percent-driven `LOW` / `CRITICAL` path will
+not produce alerts on that unit until ArduPilot is calibrated — voltage
+thresholds vary too much by chemistry to alert on safely. To enable
+percent alerts, configure `BATT_CAPACITY` in ArduPilot and calibrate
+the monitor (Mission Planner → Initial Setup → Optional Hardware →
+Battery Monitor).
+
+**Shared-battery platforms (USV / UGV / shared-power multirotors).** On
+platforms where the Jetson Orin Nano runs off the same battery as the
+vehicle, the SBC brownout threshold (~7 V on Orin Nano) is reached
+**before** the LiPo's protected LVC fires. The expected failure
+sequence is: voltage drops → `battery_remaining` hits CRITICAL → the
+BATT CRITICAL STATUSTEXT enters the MAVLink send queue → the Jetson
+loses its bus rail and reboots → the MAVLink session drops → the alert
+never reaches the GCS. Operator implications:
+
+1. **Do not rely on `BATT CRITICAL` alone** on shared-power platforms.
+   The `LOW` transition is your effective last warning — set
+   `low_threshold_pct` high enough (e.g. `30`) that you receive the
+   alert with margin before the brownout window.
+2. **Configure ArduPilot failsafes** (`BATT_FS_LOW_ACT = 2` for RTL on
+   the FC side — see the `pixhawk-prereqs-*.md` guides). These do not
+   depend on the Jetson surviving long enough to deliver the alert.
+3. **Tracked follow-up** — automatic graceful-stop on `LOW` for shared
+   battery profiles is tracked in [issue #222](https://github.com/rmeadomavic/Hydra/issues/222).
+
 ## [alerts]
 
 Alert output configuration for light bar and rate limiting.

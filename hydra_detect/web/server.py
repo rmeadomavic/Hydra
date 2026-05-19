@@ -1042,7 +1042,13 @@ async def api_stats():
 def _flight_fields() -> Dict[str, Any]:
     """Read heading/airspeed/altitude/vertical_speed from the MAVLink
     handle, plus lat/lon/alt_agl for map rendering, falling back to
-    None when MAVLink is not registered or has no fix."""
+    None when MAVLink is not registered or has no fix.
+
+    Also surfaces a structured ``battery`` object when a BatteryMonitor
+    is attached. Legacy ``battery_v`` / ``battery_pct`` keys remain on
+    the response (set elsewhere by the pipeline) — the new ``battery``
+    object is purely additive.
+    """
     defaults: Dict[str, Any] = {
         "heading": None,
         "airspeed": None,
@@ -1051,6 +1057,7 @@ def _flight_fields() -> Dict[str, Any]:
         "lat": None,
         "lon": None,
         "alt_msl_m": None,
+        "battery": None,
     }
     mav = _mavlink_ref
     if mav is None:
@@ -1070,6 +1077,16 @@ def _flight_fields() -> Dict[str, Any]:
         defaults["lat"] = lat
         defaults["lon"] = lon
         defaults["alt_msl_m"] = alt
+
+    # Structured battery block from BatteryMonitor (additive — does not
+    # replace legacy battery_v / battery_pct keys set by the pipeline).
+    getter = getattr(mav, "get_battery_monitor", None)
+    monitor = getter() if callable(getter) else None
+    if monitor is not None and getattr(monitor, "enabled", False):
+        try:
+            defaults["battery"] = monitor.get_state().to_api()
+        except Exception:
+            defaults["battery"] = None
     return defaults
 
 

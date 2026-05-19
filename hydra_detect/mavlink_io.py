@@ -78,12 +78,19 @@ class MAVLinkIO:
             "armed": False,
             "battery_v": None,
             "battery_pct": None,
+            "battery_last_update": 0.0,  # monotonic; 0 = never
             "groundspeed": None,
             "airspeed": None,
             "altitude": None,
             "heading": None,
             "climb": None,
         }
+
+        # Battery monitor — populated by attach_battery_monitor() once the
+        # pipeline knows the configured thresholds + callsign. None here
+        # means we still keep raw battery_v / battery_pct telemetry but
+        # do not compute a level or fire STATUSTEXT alerts.
+        self._battery_monitor = None  # type: Any
 
         # Vehicle attitude (radians, populated from ATTITUDE msg 30).
         # ArduPilot convention: positive roll = right wing down, positive
@@ -246,11 +253,7 @@ class MAVLinkIO:
                     with self._gps_lock:
                         self._gps["fix"] = msg.fix_type
                 elif msg_type == "SYS_STATUS":
-                    with self._gps_lock:
-                        if msg.voltage_battery != 0xFFFF:
-                            self._telemetry["battery_v"] = round(msg.voltage_battery / 1000.0, 2)
-                        if msg.battery_remaining != -1:
-                            self._telemetry["battery_pct"] = msg.battery_remaining
+                    self._handle_sys_status(msg)
                 elif msg_type == "VFR_HUD":
                     self._handle_vfr_hud(msg)
                 elif msg_type == "ATTITUDE":
@@ -288,6 +291,51 @@ class MAVLinkIO:
                     break
                 logger.warning("MAVLink reader error: %s", exc)
                 time.sleep(0.5)
+
+    def _handle_sys_status(self, msg) -> None:
+        """Cache battery_v / battery_pct from SYS_STATUS and forward
+        the message to the BatteryMonitor (if attached) for
+        threshold/hysteresis evaluation.
+
+        MAVLink sentinels:
+            voltage_battery == 0xFFFF (65535) → unknown voltage
+            battery_remaining == -1          → unknown remaining %
+        """
+        now = time.monotonic()
+        with self._gps_lock:
+            if msg.voltage_battery != 0xFFFF and msg.voltage_battery >= 0:
+                self._telemetry["battery_v"] = round(
+                    msg.voltage_battery / 1000.0, 2,
+                )
+            if msg.battery_remaining != -1:
+                self._telemetry["battery_pct"] = int(msg.battery_remaining)
+            self._telemetry["battery_last_update"] = now
+
+        # Forward to BatteryMonitor outside the lock — it has its own
+        # lock, and the STATUSTEXT send must not run under _gps_lock.
+        monitor = self._battery_monitor
+        if monitor is not None:
+            try:
+                monitor.update_from_sys_status(
+                    msg.voltage_battery,
+                    msg.battery_remaining,
+                    now=now,
+                )
+            except Exception as exc:
+                logger.warning("battery monitor update failed: %s", exc)
+
+    def attach_battery_monitor(self, monitor) -> None:
+        """Wire a BatteryMonitor for SYS_STATUS-driven level alerts.
+
+        The monitor receives every SYS_STATUS message and decides
+        when to emit STATUSTEXT based on thresholds and hysteresis.
+        Pass ``None`` to detach.
+        """
+        self._battery_monitor = monitor
+
+    def get_battery_monitor(self):
+        """Return the attached BatteryMonitor, or ``None``."""
+        return self._battery_monitor
 
     def _handle_vfr_hud(self, msg) -> None:
         """Cache airspeed, groundspeed, altitude, heading, climb from VFR_HUD."""

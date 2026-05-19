@@ -288,6 +288,55 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             description="Simulated GPS longitude",
         ),
     },
+    "battery": {
+        "enabled": FieldSpec(
+            FieldType.BOOL,
+            default=True,
+            description=(
+                "Enable battery monitoring from MAVLink SYS_STATUS "
+                "(level computation + STATUSTEXT alerts on transitions)"
+            ),
+        ),
+        "low_threshold_pct": FieldSpec(
+            FieldType.INT,
+            min_val=1,
+            max_val=99,
+            default=20,
+            description="Battery percentage at or below which level becomes LOW",
+        ),
+        "critical_threshold_pct": FieldSpec(
+            FieldType.INT,
+            min_val=1,
+            max_val=99,
+            default=10,
+            description=(
+                "Battery percentage at or below which level becomes CRITICAL "
+                "(must be < low_threshold_pct)"
+            ),
+        ),
+        "stale_after_sec": FieldSpec(
+            FieldType.FLOAT,
+            min_val=0.0,
+            max_val=600.0,
+            default=30.0,
+            description=(
+                "If no SYS_STATUS arrives within this many seconds, "
+                "battery level resolves to UNKNOWN (no alerts). "
+                "0 disables staleness."
+            ),
+        ),
+        "critical_reissue_sec": FieldSpec(
+            FieldType.FLOAT,
+            min_val=0.0,
+            max_val=3600.0,
+            default=0.0,
+            description=(
+                "If > 0, re-emit a CRITICAL STATUSTEXT every this many "
+                "seconds even without a level change. 0 disables (one "
+                "alert per transition only)."
+            ),
+        ),
+    },
     "alerts": {
         "light_bar_enabled": FieldSpec(
             FieldType.BOOL,

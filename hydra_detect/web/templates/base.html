@@ -88,6 +88,19 @@
 
         <span class="tb-divider" aria-hidden="true"></span>
 
+        <!-- Battery indicator (platform MAVLink battery, NOT Jetson power).
+             Tone follows /api/stats battery.level: OK=olive, LOW=amber,
+             CRITICAL=red, UNKNOWN=dim. Hidden until the first message
+             so it doesn't claim "0%" before MAVLink hands us data. -->
+        <div class="tb-battery" id="tb-battery" hidden
+             aria-label="Platform battery"
+             title="Platform battery (MAVLink SYS_STATUS — may differ from Jetson power source)">
+            <span class="tb-dot dim" id="tb-battery-dot"></span>
+            <span class="tb-battery-pct" id="tb-battery-pct">--%</span>
+        </div>
+
+        <span class="tb-divider" aria-hidden="true"></span>
+
         <!-- FPS / Latency -->
         <div class="tb-fps-block" aria-label="FPS and latency">
             <span class="tb-fps-value" id="fps-display">--</span>
