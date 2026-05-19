@@ -7,6 +7,14 @@ Requires=docker.service
 Restart=always
 RestartSec=5s
 
+# Anchor CWD at the Hydra install root so relative-path probes resolve
+# deterministically. The disk-free probe in observability/health.py walks
+# ancestors from CWD when the target path doesn't exist; without an explicit
+# WorkingDirectory= systemd defaults to '/' and the output_data probe would
+# silently report the root partition under the output_data label. See
+# adversarial finding R3-3 on PR #227 (issue #232).
+WorkingDirectory=/home/sorcc/Hydra
+
 # Platform profile — set HYDRA_VEHICLE in /etc/hydra/vehicle.env
 # (the '-' prefix makes the file optional; absence is not an error).
 # Example /etc/hydra/vehicle.env:
@@ -20,6 +28,13 @@ RestartSec=5s
 EnvironmentFile=-/etc/hydra/vehicle.env
 EnvironmentFile=-/etc/hydra/hydra.env
 
+# Anchor the in-container output_data disk probe at the bind-mount path
+# (/data inside the container — see -v /home/sorcc/Hydra/output_data:/data
+# below). Without this, the probe walks ancestors of ./output_data from
+# /app and reports the container root partition under the output_data
+# label. The Hydra process reads HYDRA_OUTPUT_DATA_PATH at import time.
+Environment=HYDRA_OUTPUT_DATA_PATH=/data
+
 # --privileged grants access to all /dev devices (cameras, serial ports)
 # so individual --device flags are not needed and would fail if a device
 # is absent (e.g., /dev/video2 on single-camera setups).
@@ -32,6 +47,7 @@ ExecStart=/usr/bin/docker run --rm --privileged --runtime nvidia \
   -e HYDRA_API_TOKEN=${HYDRA_API_TOKEN} \
   -e HYDRA_MAVLINK_DEVICE=${HYDRA_MAVLINK_DEVICE} \
   -e HYDRA_MAVLINK_BAUD=${HYDRA_MAVLINK_BAUD} \
+  -e HYDRA_OUTPUT_DATA_PATH=${HYDRA_OUTPUT_DATA_PATH} \
   -v /home/sorcc/Hydra/config.ini:/app/config.ini \
   -v /usr/sbin/nvpmodel:/usr/sbin/nvpmodel:ro \
   -v /usr/bin/jetson_clocks:/usr/bin/jetson_clocks:ro \

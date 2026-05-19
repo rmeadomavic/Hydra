@@ -9,11 +9,14 @@ Overall status is the worst of the subsystems: ``fail`` > ``warn`` > ``ok``.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+_log = logging.getLogger(__name__)
 
 # Subsystems listed in the response, in display order. Dashboards iterate
 # this to render a per-subsystem light.
@@ -160,19 +163,47 @@ def _probe_disk(path: str = "/") -> Dict[str, str]:
 # is (label, default_path). Per-partition pct is in addition to the existing
 # ``subsystems.disk`` status string — phone-home consumers want a number, not
 # a sentence.
-_DISK_FREE_PARTITIONS: tuple[tuple[str, str], ...] = (
-    ("root", "/"),
-    ("output_data", "./output_data"),
-)
+#
+# The ``output_data`` default path is relative — ``_partition_usage`` walks
+# ancestors when it doesn't exist, which means CWD at probe time decides
+# which partition gets reported. Inside the production Docker container,
+# ``output_data/`` lives at ``/data`` (bind-mounted from the host) and the
+# CWD is ``/app`` where ``./output_data`` does not exist, so the probe would
+# silently fall back to ``/app`` (the container root partition) and mislabel
+# it as ``output_data``. Set ``HYDRA_OUTPUT_DATA_PATH`` in the unit/env to
+# anchor the probe at an absolute mount point. See systemd/hydra-detect.service
+# and adversarial finding R3-3 on #227.
+_DEFAULT_OUTPUT_DATA_PATH = "./output_data"
 
 
-def _partition_free_pct(path: str) -> Optional[float]:
-    """Return free-space percentage for ``path``, or None if unreadable.
+def _default_partitions() -> tuple[tuple[str, str], ...]:
+    """Return the default (label, path) tuple, honouring env overrides."""
+    output_path = os.environ.get(
+        "HYDRA_OUTPUT_DATA_PATH", _DEFAULT_OUTPUT_DATA_PATH,
+    )
+    return (
+        ("root", "/"),
+        ("output_data", output_path),
+    )
+
+
+# Static module-level snapshot so existing tests / call sites importing the
+# tuple keep working. Computed once at import time; the env-aware variant
+# above is consulted from compute_disk_free / compute_disk_bytes.
+_DISK_FREE_PARTITIONS: tuple[tuple[str, str], ...] = _default_partitions()
+
+
+def _partition_usage(path: str) -> Optional[tuple[float, int, int]]:
+    """Return ``(free_pct, free_bytes, total_bytes)`` for ``path``, or None.
 
     Falls back to the parent directory when ``path`` does not exist yet
     (output_data/ may not be created on first boot). Returns None only when
     even the fallback fails — the field is omitted in that case, not zeroed,
     so consumers can distinguish "really full" from "no data".
+
+    Emits a single ``logger.warning`` when the probe ultimately fails, so an
+    operator looking at "why did output_data disappear from phone-home" has
+    something to grep for.
     """
     p = Path(path)
     target: Optional[Path] = p if p.exists() else None
@@ -184,14 +215,35 @@ def _partition_free_pct(path: str) -> Optional[float]:
                 target = ancestor
                 break
     if target is None:
+        _log.warning("disk_probe: no existing ancestor for path=%r", path)
         return None
     try:
         usage = shutil.disk_usage(os.fspath(target))
-    except OSError:
+    except OSError as exc:
+        _log.warning(
+            "disk_probe: shutil.disk_usage failed for path=%r target=%r err=%s",
+            path, os.fspath(target), exc,
+        )
         return None
     if usage.total <= 0:
+        _log.warning(
+            "disk_probe: total bytes <= 0 for path=%r target=%r",
+            path, os.fspath(target),
+        )
         return None
-    return round((usage.free / usage.total) * 100.0, 2)
+    pct = round((usage.free / usage.total) * 100.0, 2)
+    return (pct, int(usage.free), int(usage.total))
+
+
+def _partition_free_pct(path: str) -> Optional[float]:
+    """Return free-space percentage for ``path``, or None if unreadable.
+
+    Thin wrapper over :func:`_partition_usage` preserved for callers that
+    only need the percentage. New code should prefer ``_partition_usage`` so
+    it can also surface absolute free/total bytes (see #232).
+    """
+    info = _partition_usage(path)
+    return None if info is None else info[0]
 
 
 def compute_disk_free(
@@ -211,14 +263,54 @@ def compute_disk_free(
         whose disk_usage call fails are omitted, not zeroed.
     """
     if partitions is None:
-        items = _DISK_FREE_PARTITIONS
+        items = _default_partitions()
     else:
         items = tuple(partitions.items())
     out: Dict[str, float] = {}
     for label, path in items:
-        pct = _partition_free_pct(path)
-        if pct is not None:
-            out[label] = pct
+        info = _partition_usage(path)
+        if info is not None:
+            out[label] = info[0]
+    return out
+
+
+def compute_disk_bytes(
+    partitions: Optional[Dict[str, str]] = None,
+) -> Dict[str, Dict[str, int]]:
+    """Return ``{label: {"free": bytes, "total": bytes}}`` per partition.
+
+    Sibling of :func:`compute_disk_free`. Percent-only telemetry can't tell
+    a phone-home consumer if "5% free" means 200 GB on a 4 TB NVMe (plenty)
+    or 1.6 GB on a 32 GB SD card (about to fill). Absolute byte counts let
+    downstream Capability Status gates (#226) set platform-aware BLOCKED
+    thresholds. (See adversarial finding R3-1 on #227.)
+
+    The bytes and percent surfaces are computed from the same underlying
+    ``shutil.disk_usage`` call and are guaranteed internally consistent
+    within rounding (``disk_free_pct`` is rounded to 2 decimal places;
+    ``disk_bytes`` carries integer bytes). At the rounding boundary the
+    two may report slightly different sides of a threshold — consumers
+    should pick one canonical surface for gating decisions and stick with
+    it. (See adversarial finding R3-1 on PR #236.)
+
+    Args:
+        partitions: Optional override mapping ``{label: path}``. When None,
+            uses ``_DISK_FREE_PARTITIONS`` defaults (root + output_data).
+
+    Returns:
+        Dict mapping label → ``{"free": int, "total": int}``. Labels whose
+        ``disk_usage`` call fails are omitted, not zeroed.
+    """
+    if partitions is None:
+        items = _default_partitions()
+    else:
+        items = tuple(partitions.items())
+    out: Dict[str, Dict[str, int]] = {}
+    for label, path in items:
+        info = _partition_usage(path)
+        if info is not None:
+            _pct, free, total = info
+            out[label] = {"free": free, "total": total}
     return out
 
 
@@ -261,12 +353,17 @@ def health_snapshot(
              "disk":     {...},
           },
           "disk_free_pct": {"root": 87.2, "output_data": 64.5},
+          "disk_bytes":    {"root": {"free": 234..., "total": 480...},
+                            "output_data": {"free": ..., "total": ...}},
         }
 
     The ``disk_free_pct`` field is additive — existing consumers reading
-    ``subsystems.disk.status`` keep working unchanged. Partition labels
-    whose disk_usage call fails are omitted (not zeroed) so phone-home can
-    distinguish "really full" from "no data".
+    ``subsystems.disk.status`` keep working unchanged. The sibling
+    ``disk_bytes`` field (added in #232) carries absolute byte counts so
+    consumers can compute platform-aware headroom rather than treating
+    percentages from a 32 GB SD card and a 4 TB NVMe identically.
+    Partition labels whose disk_usage call fails are omitted (not zeroed)
+    in both maps so phone-home can distinguish "really full" from "no data".
     """
     stats = stats or {}
     subsystems: Dict[str, Dict[str, str]] = {}
@@ -284,4 +381,5 @@ def health_snapshot(
         "ts": time.time(),
         "subsystems": subsystems,
         "disk_free_pct": compute_disk_free(disk_partitions),
+        "disk_bytes": compute_disk_bytes(disk_partitions),
     }

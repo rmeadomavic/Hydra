@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import shutil
 import threading
 
 import pytest
@@ -12,6 +14,7 @@ from hydra_detect.observability import (
     ClientErrorSink,
     SUBSYSTEMS,
     attach_audit_counters,
+    compute_disk_bytes,
     compute_disk_free,
     get_client_error_sink,
     health_snapshot,
@@ -24,6 +27,7 @@ from hydra_detect.observability import (
     render_metrics,
     reset_counters_for_test,
 )
+from hydra_detect.observability import health as health_module
 from hydra_detect.web import server as server_module
 
 
@@ -223,6 +227,135 @@ class TestHealthSnapshotDiskFreePct:
 
 
 # ---------------------------------------------------------------------------
+# disk_bytes sibling field + partition-resolve hardening (issue #232)
+# Adversarial follow-ups R3-1, R3-3, R3-4, R1-5 on PR #227.
+# ---------------------------------------------------------------------------
+
+
+class TestComputeDiskBytes:
+    def test_returns_free_and_total_bytes(self):
+        result = compute_disk_bytes()
+        assert isinstance(result, dict)
+        assert "root" in result
+        root = result["root"]
+        assert isinstance(root, dict)
+        assert "free" in root and "total" in root
+        assert isinstance(root["free"], int)
+        assert isinstance(root["total"], int)
+        # Sanity bounds — total > 0, free <= total.
+        assert root["total"] > 0
+        assert 0 <= root["free"] <= root["total"]
+
+    def test_custom_partitions(self, tmp_path):
+        result = compute_disk_bytes({"workdir": str(tmp_path)})
+        assert "workdir" in result
+        assert result["workdir"]["total"] > 0
+        # Defaults excluded when override supplied.
+        assert "root" not in result
+
+    def test_unreadable_path_is_omitted(self):
+        # Synthetic path with NUL bytes — no ancestor can resolve.
+        result = compute_disk_bytes({"nope": "\x00invalid\x00"})
+        # Omitted (preferred) or fell back; never a zero placeholder.
+        if "nope" in result:
+            assert result["nope"]["total"] > 0
+
+
+class TestPartitionResolvesToCorrectMount:
+    """R3-3: probe must resolve to the partition of the requested path, not
+    walk up to the daemon's cwd when an explicit absolute path is supplied.
+    """
+
+    def test_explicit_path_uses_that_partition_not_cwd(
+        self, tmp_path, monkeypatch,
+    ):
+        # Two distinct fake partitions: tmp_path (the requested one) and
+        # "/" (what a cwd-anchored fallback would pick). The probe must
+        # see the tmp_path numbers, not the root numbers.
+        gb = 1024 ** 3
+        # Distinct totals make "wrong partition" obvious in the assert.
+        fake = {
+            os.fspath(tmp_path): shutil._ntuple_diskusage(
+                total=64 * gb, used=32 * gb, free=32 * gb,
+            ),
+            "/": shutil._ntuple_diskusage(
+                total=4000 * gb, used=100 * gb, free=3900 * gb,
+            ),
+        }
+
+        def fake_disk_usage(path):
+            key = os.fspath(path)
+            if key in fake:
+                return fake[key]
+            raise OSError(f"unexpected path: {key!r}")
+
+        monkeypatch.setattr(health_module.shutil, "disk_usage", fake_disk_usage)
+        result = compute_disk_bytes({"output_data": os.fspath(tmp_path)})
+        assert "output_data" in result
+        # The 64 GB partition, NOT the 4 TB root partition.
+        assert result["output_data"]["total"] == 64 * gb
+        assert result["output_data"]["free"] == 32 * gb
+
+
+class TestLowDiskMonkeypatched:
+    """R3-4: assert producer behaviour at the low-disk end of the range."""
+
+    def test_one_pct_free_renders_as_float_one(self, tmp_path, monkeypatch):
+        gb = 1024 ** 3
+        usage = shutil._ntuple_diskusage(
+            total=100 * gb, used=99 * gb, free=1 * gb,
+        )
+        monkeypatch.setattr(
+            health_module.shutil, "disk_usage", lambda _p: usage,
+        )
+        result = compute_disk_free({"critical": os.fspath(tmp_path)})
+        assert "critical" in result
+        pct = result["critical"]
+        # Strict identity to a float — not "1", not "1.00", not "1%".
+        assert isinstance(pct, float)
+        assert pct == 1.0
+
+
+class TestProbeWarnsOnFailure:
+    """R1-5: a single WARNING per failed probe call so operators have
+    something to grep for when a partition vanishes from phone-home.
+    """
+
+    def test_warns_when_disk_usage_raises(self, tmp_path, monkeypatch, caplog):
+        def boom(_path):
+            raise OSError("simulated I/O error")
+
+        monkeypatch.setattr(health_module.shutil, "disk_usage", boom)
+        with caplog.at_level(logging.WARNING, logger="hydra_detect.observability.health"):
+            result = compute_disk_free({"dead": os.fspath(tmp_path)})
+        # Label is omitted (no zero placeholder)…
+        assert "dead" not in result
+        # …and exactly one WARNING line was emitted naming the probe.
+        warnings = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING and "disk_probe" in r.getMessage()
+        ]
+        assert len(warnings) == 1, [r.getMessage() for r in caplog.records]
+
+
+class TestEnvVarOutputDataPath:
+    """Defaults honour HYDRA_OUTPUT_DATA_PATH so the in-container probe can
+    point at /data instead of resolving ./output_data from /app.
+    """
+
+    def test_env_override_changes_default_output_path(
+        self, tmp_path, monkeypatch,
+    ):
+        monkeypatch.setenv("HYDRA_OUTPUT_DATA_PATH", os.fspath(tmp_path))
+        result = compute_disk_free()
+        # With the override active, output_data resolves to a real tmpdir
+        # and is therefore present (not omitted).
+        assert "output_data" in result
+        # And root is still present too.
+        assert "root" in result
+
+
+# ---------------------------------------------------------------------------
 # Prometheus exposition tests
 # ---------------------------------------------------------------------------
 
@@ -330,6 +463,27 @@ class TestHealthEndpoint:
         pct = body["disk_free_pct"]["root"]
         assert isinstance(pct, (int, float))
         assert 0.0 <= pct <= 100.0
+
+    def test_health_endpoint_surfaces_disk_bytes(self, client):
+        # Issue #232 R3-1: percent-only telemetry can't distinguish 5% of a
+        # 32 GB SD card from 5% of a 4 TB NVMe. Absolute byte counts must be
+        # surfaced alongside disk_free_pct so the BLOCKED gate (#226) can
+        # set platform-aware thresholds.
+        server_module.stream_state.update_stats(
+            camera_ok=True, fps=10.0, detector="yolo",
+        )
+        resp = client.get("/api/health")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "disk_bytes" in body
+        assert isinstance(body["disk_bytes"], dict)
+        assert "root" in body["disk_bytes"]
+        root = body["disk_bytes"]["root"]
+        assert isinstance(root, dict)
+        assert isinstance(root["free"], int)
+        assert isinstance(root["total"], int)
+        assert root["total"] > 0
+        assert 0 <= root["free"] <= root["total"]
 
 
 class TestMetricsEndpoint:
