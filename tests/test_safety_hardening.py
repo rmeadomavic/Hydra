@@ -133,6 +133,104 @@ class TestBackupOnBoot:
 
 
 # ---------------------------------------------------------------------------
+# 3b. attempt_corrupt_recovery — boot-time fallback (#60)
+# ---------------------------------------------------------------------------
+
+class TestAttemptCorruptRecovery:
+    """Power-loss recovery: corrupted config.ini falls back to .bak on boot.
+
+    Covers issue #60 "Corrupted config falls back to backup with warning."
+    The function is wired into __main__.main() before _run_boot_migrations
+    so the migration runner never sees a half-written file.
+    """
+
+    def test_valid_config_passes_through(self, tmp_path):
+        """Healthy config returns True with no changes to the file."""
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+        path = tmp_path / "config.ini"
+        path.write_text("[camera]\nsource = auto\n")
+        before = path.read_text()
+        assert attempt_corrupt_recovery(path) is True
+        # Recovery must be a no-op on healthy configs.
+        assert path.read_text() == before
+
+    def test_missing_config_returns_true(self, tmp_path):
+        """Fresh install with no config.ini is not a corruption case."""
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+        path = tmp_path / "config.ini"
+        assert attempt_corrupt_recovery(path) is True
+        assert not path.exists()  # we must not create one
+
+    def test_truncated_config_restored_from_bak(self, tmp_path, caplog):
+        """A truncated config.ini is replaced by its .bak, with WARNING logged."""
+        import logging
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+
+        path = tmp_path / "config.ini"
+        bak = tmp_path / "config.ini.bak"
+        # .bak holds the last-known-good snapshot.
+        bak.write_text("[camera]\nsource = auto\nwidth = 640\n")
+        # config.ini was truncated mid-write (configparser raises on a bare
+        # key with no '=', which is the most plausible truncation residue).
+        path.write_text("[camera]\nsource\n")
+
+        with caplog.at_level(logging.WARNING):
+            assert attempt_corrupt_recovery(path) is True
+
+        # The restored file must match the backup byte-for-byte.
+        assert path.read_text() == bak.read_text()
+        assert any("restored from last-known-good" in r.message for r in caplog.records)
+
+    def test_empty_config_with_no_sections_restored_from_bak(self, tmp_path):
+        """Empty / sectionless config.ini is treated as corrupt and restored."""
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+        path = tmp_path / "config.ini"
+        bak = tmp_path / "config.ini.bak"
+        bak.write_text("[camera]\nsource = auto\n")
+        path.write_text("")  # zero bytes — power-cut at the start of write_config
+        assert attempt_corrupt_recovery(path) is True
+        assert "[camera]" in path.read_text()
+
+    def test_corrupt_config_no_bak_returns_false(self, tmp_path, caplog):
+        """No .bak available means no recovery; caller should exit 1."""
+        import logging
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+
+        path = tmp_path / "config.ini"
+        path.write_text("[camera]\nsource\n")  # bad
+
+        with caplog.at_level(logging.CRITICAL):
+            assert attempt_corrupt_recovery(path) is False
+        assert any(
+            "no .bak exists" in r.message.lower() for r in caplog.records
+        )
+
+    def test_corrupt_config_and_corrupt_bak_returns_false(self, tmp_path, caplog):
+        """Both files unparseable — caller should exit 1, not loop."""
+        import logging
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+
+        path = tmp_path / "config.ini"
+        bak = tmp_path / "config.ini.bak"
+        path.write_text("[camera]\nsource\n")
+        bak.write_text("[also-bad\n")  # missing ']' — configparser ParsingError
+
+        with caplog.at_level(logging.CRITICAL):
+            assert attempt_corrupt_recovery(path) is False
+        assert any("backup" in r.message.lower() for r in caplog.records)
+
+    def test_recovery_is_atomic_no_tmp_left(self, tmp_path):
+        """The .tmp sibling must not survive a successful recovery."""
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+        path = tmp_path / "config.ini"
+        bak = tmp_path / "config.ini.bak"
+        bak.write_text("[camera]\nsource = auto\n")
+        path.write_text("[bad")
+        attempt_corrupt_recovery(path)
+        assert not (tmp_path / "config.ini.tmp").exists()
+
+
+# ---------------------------------------------------------------------------
 # 4. restore_factory works
 # ---------------------------------------------------------------------------
 

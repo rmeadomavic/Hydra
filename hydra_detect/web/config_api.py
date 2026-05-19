@@ -325,6 +325,90 @@ def backup_on_boot() -> None:
     logger.info("Config backed up to %s", bak_path)
 
 
+def attempt_corrupt_recovery(config_path: Path | str) -> bool:
+    """Try to parse config_path; on ParsingError, restore from .bak and retry.
+
+    Called from the boot path BEFORE any migration runs or pipeline init. The
+    .bak is written by backup_on_boot() at the end of the previous successful
+    boot (facade.py: Pipeline.start), so it represents the last-known-good
+    config. If config.ini is truncated (power cut mid-write), unparseable, or
+    empty-of-sections, restore from .bak in place — atomic copy via tmp +
+    os.replace, same pattern as write_config — and log a loud WARNING so the
+    operator sees recovery happened.
+
+    Returns True if config is valid (either originally or after recovery),
+    False if neither config.ini nor .bak is usable. The caller should log
+    CRITICAL and exit on False; continuing into migration / pipeline init with
+    no parseable config produces incomprehensible downstream errors.
+    """
+    path = Path(config_path)
+    if not path.exists():
+        # Fresh install or first boot — let downstream handle missing-file.
+        # Not a corruption case, not our responsibility.
+        return True
+
+    def _parses_ok(p: Path) -> bool:
+        try:
+            cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
+            cfg.read(p)
+        except configparser.Error:
+            return False
+        return bool(cfg.sections())
+
+    if _parses_ok(path):
+        return True
+
+    bak_path = Path(str(path) + ".bak")
+    if not bak_path.exists():
+        logger.critical(
+            "Config file %s is corrupted or empty and no .bak exists for "
+            "recovery. Restore from factory defaults via the dashboard, or "
+            "re-run Platform Setup.",
+            path,
+        )
+        return False
+
+    if not _parses_ok(bak_path):
+        logger.critical(
+            "Config file %s is corrupted AND backup %s is also unparseable. "
+            "Restore from factory defaults via the dashboard.",
+            path, bak_path,
+        )
+        return False
+
+    # Atomic restore: copy .bak -> .tmp, fsync, os.replace -> config.ini.
+    # Mirrors the write_config pattern at lines 181-205 so a crash mid-recovery
+    # cannot make a bad situation worse.
+    tmp_path = Path(str(path) + ".tmp")
+    try:
+        shutil.copy2(bak_path, tmp_path)
+        try:
+            with open(tmp_path, "r+b") as f:
+                os.fsync(f.fileno())
+        except OSError:
+            pass  # non-fatal — best-effort durability
+        os.replace(tmp_path, path)
+    except OSError as exc:
+        logger.critical(
+            "Config recovery failed during restore of %s from %s: %s",
+            path, bak_path, exc,
+        )
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+        return False
+
+    logger.warning(
+        "Config file %s was corrupted; restored from last-known-good backup "
+        "%s. Review the active configuration on the dashboard — any changes "
+        "made since the last successful boot are LOST.",
+        path, bak_path,
+    )
+    return True
+
+
 def has_factory() -> bool:
     """Check if factory defaults file exists."""
     path = get_config_path()
