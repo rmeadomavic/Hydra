@@ -95,6 +95,14 @@ class DetectionLogger:
         self._model_hash = model_hash
         self._prev_chain_hash = "0" * 64  # genesis hash
 
+        # Mission tagging (issue #72) — every detection row carries the
+        # currently active mission_id, or null when no mission is running.
+        # The pipeline sets this via set_mission_id() after the event logger
+        # starts the mission. The id is intentionally not chained — it is
+        # operator metadata, not provenance.
+        self._mission_id: str | None = None
+        self._mission_id_lock = threading.Lock()
+
         # Recent detections ring buffer for web UI.
         # Updated on the caller thread so the web API sees results immediately.
         self._recent: deque[Dict[str, Any]] = deque(maxlen=self._max_recent)
@@ -208,6 +216,11 @@ class DetectionLogger:
             img_filename = f"{ts_file}_{frame_no:06d}.jpg"
             self._last_image_save_time = now_mono
 
+        # Snapshot the mission id once per frame so all detections in one
+        # frame share the same id even if the operator hits End mid-frame.
+        with self._mission_id_lock:
+            mission_id_snapshot = self._mission_id
+
         # Build records (do NOT update _recent yet — only after successful enqueue).
         records: list[Dict[str, Any]] = []
         chain_hash_before_loop = self._prev_chain_hash
@@ -229,6 +242,7 @@ class DetectionLogger:
                 "fix": fix,
                 "image": img_filename,
                 "model_hash": self._model_hash,
+                "mission_id": mission_id_snapshot,
             }
             # Optional time_source field — only present when a source is known.
             # Included before hashing so the chain is consistent.
@@ -278,6 +292,20 @@ class DetectionLogger:
     def set_model_hash(self, model_hash: str) -> None:
         """Update the model hash (e.g. after a runtime model switch)."""
         self._model_hash = model_hash
+
+    def set_mission_id(self, mission_id: str | None) -> None:
+        """Stamp every subsequent detection record with this mission_id.
+
+        Pass ``None`` to clear (records logged while no mission is active
+        will carry ``"mission_id": null``). Cheap — single guarded write.
+        """
+        with self._mission_id_lock:
+            self._mission_id = mission_id
+
+    def get_mission_id(self) -> str | None:
+        """Return the active mission_id, or None when no mission is active."""
+        with self._mission_id_lock:
+            return self._mission_id
 
     def get_recent(self, n: int = 20) -> list[Dict[str, Any]]:
         """Return the N most recent detection records (for web UI)."""

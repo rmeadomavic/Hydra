@@ -1642,9 +1642,11 @@ const HydraOps = (() => {
     function updateSidebarMission(stats) {
         var badge = document.getElementById('ops-mission-badge');
         var nameEl = document.getElementById('ops-mission-name');
+        var idEl = document.getElementById('ops-mission-id');
         var elapsedEl = document.getElementById('ops-mission-elapsed');
         var detsEl = document.getElementById('ops-mission-dets');
         var endBtn = document.getElementById('ops-btn-mission-end');
+        var startBtn = document.getElementById('ops-btn-mission-start');
 
         var s = stats || {};
         var isActive = !!s.mission_name;
@@ -1654,6 +1656,18 @@ const HydraOps = (() => {
             badge.className = 'ops-card-badge ' + (isActive ? 'on' : 'off');
         }
         if (nameEl) setDim(nameEl, s.mission_name || '--', !isActive);
+        if (idEl) {
+            // Show the first 8 chars of the UUID — full id is in the tooltip.
+            var mid = s.mission_id || '';
+            if (isActive && mid) {
+                idEl.textContent = mid.slice(0, 8);
+                idEl.title = mid;
+                idEl.style.color = '';
+            } else {
+                setDim(idEl, '--', true);
+                idEl.title = 'No active sortie';
+            }
+        }
 
         if (elapsedEl) {
             if (isActive && typeof s.mission_elapsed_sec === 'number') {
@@ -1673,6 +1687,7 @@ const HydraOps = (() => {
             }
         }
         if (endBtn) endBtn.disabled = !isActive;
+        if (startBtn) startBtn.disabled = isActive;
     }
 
     function updateSidebarPipeline(stats) {
@@ -1901,7 +1916,21 @@ const HydraOps = (() => {
         }
     }
 
-    // ── Sidebar Actions: mission end / export, pipeline pause / stop ──
+    // ── Sidebar Actions: mission start / end / export, pipeline pause / stop ──
+    async function startMissionFromOps() {
+        var defaultName = 'sortie-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        var name = window.prompt('Sortie name?', defaultName);
+        if (name === null) return; // operator canceled
+        name = (name || '').trim() || defaultName;
+        var resp = await HydraApp.apiPost('/api/mission/start', { name: name });
+        if (resp && resp.status === 'started') {
+            var short = resp.mission_id ? (' (' + resp.mission_id.slice(0, 8) + ')') : '';
+            HydraApp.showToast('Sortie started: ' + resp.name + short, 'success');
+        } else {
+            HydraApp.showToast('Sortie start failed', 'error');
+        }
+    }
+
     async function endMissionFromOps() {
         var resp = await HydraApp.apiPost('/api/mission/end', {});
         if (resp && resp.status === 'ended') {
@@ -2041,6 +2070,8 @@ const HydraOps = (() => {
         });
 
         // Sidebar card buttons (mission / pipeline mirrors)
+        var missionStartBtn = document.getElementById('ops-btn-mission-start');
+        if (missionStartBtn) missionStartBtn.addEventListener('click', startMissionFromOps);
         var missionEndBtn = document.getElementById('ops-btn-mission-end');
         if (missionEndBtn) missionEndBtn.addEventListener('click', function () {
             if (!confirm('End current sortie?')) return;
