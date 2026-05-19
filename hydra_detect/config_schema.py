@@ -1594,7 +1594,14 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
 # section). Everything else in [vehicle.<name>] must be a "section.option"
 # override so the pipeline's vehicle-merge pass can slot it into the right
 # section.
-_VEHICLE_LOCAL_KEYS = {"reserved_channels"}
+#
+# - reserved_channels: PWM channels the airframe owns (servo tracker
+#   refuses to bind to these).
+# - shared_battery: True when the Jetson SBC shares the vehicle pack
+#   (issue #222). Routes BatteryMonitor LOW transitions through the
+#   autonomous engine to trigger graceful-stop while rail is still up.
+_VEHICLE_LOCAL_KEYS = {"reserved_channels", "shared_battery"}
+_VEHICLE_LOCAL_BOOL_KEYS = {"shared_battery"}
 
 
 def _validate_scalar(
@@ -1673,6 +1680,18 @@ def _validate_vehicle_sections(
                         f"[{section}] unknown key '{key}' — expected "
                         "'section.option' override (e.g. 'camera.source')"
                     )
+                    continue
+                # Type-check well-known local keys. shared_battery must be
+                # a bool — a typo like ``shared_battery = ture`` should be
+                # an error, not silently fall through to truthy parsing.
+                if key in _VEHICLE_LOCAL_BOOL_KEYS:
+                    raw = cfg.get(section, key).strip()
+                    if raw and raw.lower() not in (
+                        "true", "false", "yes", "no", "1", "0", "on", "off",
+                    ):
+                        result.errors.append(
+                            f"[{section}] {key} must be true or false, got \"{raw}\""
+                        )
                 continue
 
             base_section, option = key.split(".", 1)

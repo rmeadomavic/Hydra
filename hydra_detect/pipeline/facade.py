@@ -278,6 +278,30 @@ class Pipeline:
         # produce a level (OK/LOW/CRITICAL/UNKNOWN) plus threshold-driven
         # STATUSTEXT alerts to the GCS. Disabled when no MAVLink is built.
         self._battery_monitor = None
+        # Shared-battery flag: set by [vehicle.<name>] shared_battery=true on
+        # USV/UGV profiles where the Jetson rides the propulsion pack.
+        # Operator-overrideable. None (the default) means no profile is
+        # active — no callback, same behavior as PR #211. See issue #222.
+        self._shared_battery: bool = False
+        if vehicle:
+            vehicle_section = f"vehicle.{vehicle}"
+            if self._cfg.has_section(vehicle_section):
+                # configparser falls back to true/false words via getboolean
+                shared_raw = self._cfg.get(
+                    vehicle_section, "shared_battery", fallback="",
+                ).strip()
+                if shared_raw:
+                    try:
+                        self._shared_battery = self._cfg.getboolean(
+                            vehicle_section, "shared_battery",
+                        )
+                    except ValueError:
+                        logger.warning(
+                            "[%s] shared_battery=%r is not a bool — defaulting "
+                            "to false (no graceful-stop callback).",
+                            vehicle_section, shared_raw,
+                        )
+                        self._shared_battery = False
         if (
             self._mavlink is not None
             and self._cfg.getboolean("battery", "enabled", fallback=True)
@@ -287,6 +311,16 @@ class Pipeline:
 
             def _battery_send_statustext(text: str, severity: int) -> None:
                 mav_for_battery.send_statustext(text, severity=severity)
+
+            # Issue #222: wire the LOW-transition callback only when the
+            # active vehicle profile sets shared_battery=true. Drone
+            # profiles get None (preserves PR #211 behavior exactly —
+            # STATUSTEXT-only, no autonomous engine call on LOW).
+            low_cb = (
+                self._graceful_stop_for_shared_battery
+                if self._shared_battery
+                else None
+            )
 
             try:
                 self._battery_monitor = BatteryMonitor(
@@ -305,13 +339,16 @@ class Pipeline:
                         "battery", "critical_reissue_sec", fallback=0.0,
                     ),
                     enabled=True,
+                    on_low_transition=low_cb,
                 )
                 self._mavlink.attach_battery_monitor(self._battery_monitor)
                 logger.info(
-                    "Battery monitor enabled: low=%d%% crit=%d%% callsign=%s",
+                    "Battery monitor enabled: low=%d%% crit=%d%% callsign=%s "
+                    "shared_battery=%s",
                     self._battery_monitor.low_threshold_pct,
                     self._battery_monitor.critical_threshold_pct,
                     self._callsign,
+                    self._shared_battery,
                 )
             except Exception as exc:
                 logger.warning("Battery monitor disabled: %s", exc)
@@ -2336,6 +2373,78 @@ class Pipeline:
         if self._approach is not None:
             self._approach.abort()
         self._handle_target_unlock()
+
+    def _graceful_stop_for_shared_battery(self, snapshot) -> Optional[str]:
+        """LOW-transition callback for shared-battery vehicle profiles.
+
+        Fired by BatteryMonitor exactly once when level transitions into
+        ``LOW`` and the active profile carries ``shared_battery=true``.
+        ``snapshot`` is the pre-action BatteryState (voltage / pct as of
+        the SYS_STATUS that triggered the transition). The autonomous
+        engine integration intentionally uses the simplest existing
+        primitive: set the per-platform safe mode (HOLD for ground/water,
+        LOITER for air if a drone is ever flagged shared) via MAVLink and
+        zero the servo tracker PWM if servo tracking is active. A richer
+        graceful-stop ladder (mode → throttle ramp → arm-cut) belongs in
+        a follow-up issue. See issue #222.
+
+        Returns ``"graceful_stop"`` so BatteryMonitor records the action
+        on its state for /api/stats. Returns ``None`` if the engine
+        cannot act (no MAVLink built), so the dashboard does not lie
+        about what happened.
+        """
+        pre_v = snapshot.voltage_v if snapshot is not None else None
+        pre_pct = snapshot.remaining_pct if snapshot is not None else None
+        safe_mode = self._cfg.get(
+            "autonomous", "safe_mode", fallback="HOLD",
+        ).strip() or "HOLD"
+
+        audit_log.warning(
+            "BATTERY_GRACEFUL_STOP vehicle=%s callsign=%s pre_voltage_v=%s "
+            "pre_pct=%s safe_mode=%s",
+            getattr(self, "_vehicle", None),
+            self._callsign,
+            pre_v,
+            pre_pct,
+            safe_mode,
+        )
+        if self._mavlink is None:
+            logger.warning(
+                "Shared-battery LOW: no MAVLink — graceful-stop skipped."
+            )
+            return None
+
+        # 1) Mode change first — gets the FC into a stable hold while
+        # Jetson still has rail. set_mode is best-effort but logs.
+        try:
+            self._mavlink.set_mode(safe_mode)
+        except Exception as exc:
+            logger.warning(
+                "Shared-battery LOW: set_mode(%s) raised %s",
+                safe_mode, exc,
+            )
+
+        # 2) Zero the servo tracker if it's holding a pan/strike PWM —
+        # otherwise the platform sits at the last commanded angle until
+        # the FC takes over. servo.safe() drives strike/arm to safe PWM.
+        if self._servo_tracker is not None:
+            try:
+                self._servo_tracker.safe()
+            except Exception as exc:
+                logger.warning(
+                    "Shared-battery LOW: servo.safe() raised %s", exc,
+                )
+
+        # 3) Best-effort operator notification beyond the STATUSTEXT path
+        # (which the battery monitor itself emits on the LOW transition).
+        try:
+            self._mavlink.send_statustext(
+                f"{self._callsign}: GRACEFUL STOP (shared batt)",
+                severity=2,  # CRITICAL — paints red in Mission Planner
+            )
+        except Exception:
+            pass  # send is best-effort
+        return "graceful_stop"
 
     def _get_approach_status(self) -> dict:
         """Return approach controller status for the web API."""

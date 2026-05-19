@@ -77,6 +77,7 @@ class TestBatteryState:
             "level": LEVEL_OK,
             "source": "mavlink",
             "uncalibrated": False,
+            "action_taken": None,
         }
 
     def test_to_api_shape_uncalibrated(self):
@@ -87,6 +88,16 @@ class TestBatteryState:
         api = s.to_api()
         assert api["uncalibrated"] is True
         assert api["remaining_pct"] is None
+        assert api["action_taken"] is None
+
+    def test_to_api_shape_action_taken(self):
+        """action_taken field surfaces graceful_stop for /api/stats (#222)."""
+        s = BatteryState(
+            voltage_v=11.8, remaining_pct=19, level=LEVEL_OK,
+            action_taken="graceful_stop",
+        )
+        api = s.to_api()
+        assert api["action_taken"] == "graceful_stop"
 
 
 class TestLevelComputation:
@@ -694,3 +705,183 @@ class TestApiStatsBatteryField:
         body = r.json()
         # Disabled monitor → no battery field exposed
         assert body["battery"] is None
+
+
+# ---------------------------------------------------------------------------
+# Issue #222 — shared-battery graceful-stop callback
+# ---------------------------------------------------------------------------
+
+
+class TestSharedBatteryGracefulStop:
+    """LOW-transition callback for shared-battery vehicle profiles.
+
+    Covers:
+    - LOW transition with callback wired → callback called exactly once
+      with pre-action voltage / pct snapshot
+    - LOW transition with callback None → no crash, no callback (drone
+      profile preserved)
+    - CRITICAL transition does NOT additionally fire the callback
+      (callback is LOW-only by design)
+    - Recovery (LOW → OK) does not fire the callback
+    - BatteryState.action_taken populated after callback fires
+    - Callback raising does not break the monitor (best-effort)
+    """
+
+    def _wire(self, **overrides) -> tuple[BatteryMonitor, list, list]:
+        """Build a monitor with a recording callback. Returns (mon, sender, calls)."""
+        sender = _Sender()
+        calls: list[BatteryState] = []
+
+        def _cb(snapshot: BatteryState) -> str:
+            calls.append(snapshot)
+            return "graceful_stop"
+
+        kwargs = dict(
+            low_threshold_pct=20,
+            critical_threshold_pct=10,
+            callsign="HYDRA-2-USV",
+            send_statustext=sender,
+            stale_after_sec=30.0,
+            critical_reissue_sec=0.0,
+            enabled=True,
+            on_low_transition=_cb,
+        )
+        kwargs.update(overrides)
+        return BatteryMonitor(**kwargs), sender, calls
+
+    def test_low_transition_fires_callback_once(self):
+        mon, _, calls = self._wire()
+        # OK → LOW
+        mon.update_from_sys_status(11800, 19, now=100.0)
+        assert mon.get_level(now=100.0) == LEVEL_LOW
+        assert len(calls) == 1
+        # Pre-action snapshot carries voltage + pct at transition time
+        assert calls[0].voltage_v == 11.8
+        assert calls[0].remaining_pct == 19
+        assert calls[0].level == LEVEL_LOW
+        # Subsequent LOW samples do NOT re-fire the callback
+        mon.update_from_sys_status(11700, 15, now=101.0)
+        mon.update_from_sys_status(11600, 12, now=102.0)
+        assert len(calls) == 1
+
+    def test_low_transition_with_no_callback_is_silent(self):
+        """Drone profile (shared_battery=false) gets on_low_transition=None.
+
+        Behavior must match PR #211 exactly — STATUSTEXT fires, no crash,
+        no autonomous-engine call. This is the regression bar.
+        """
+        sender = _Sender()
+        mon = BatteryMonitor(
+            low_threshold_pct=20,
+            critical_threshold_pct=10,
+            callsign="HYDRA-1",
+            send_statustext=sender,
+            stale_after_sec=30.0,
+            critical_reissue_sec=0.0,
+            enabled=True,
+            on_low_transition=None,
+        )
+        mon.update_from_sys_status(11800, 19, now=100.0)
+        # STATUSTEXT still emits — drone behavior unchanged
+        assert len(sender.messages) == 1
+        assert "BATT LOW" in sender.messages[0][0]
+        # Action stays unset
+        assert mon.get_state(now=100.0).action_taken is None
+
+    def test_critical_transition_does_not_fire_callback(self):
+        """CRITICAL skipping LOW must NOT fire — callback is LOW-only.
+
+        On a shared-battery platform, by the time CRITICAL hits, brownout
+        is already imminent. The whole point of the callback is to act
+        on LOW while rail is still up.
+        """
+        mon, _, calls = self._wire()
+        # OK → CRITICAL directly (pct=5)
+        mon.update_from_sys_status(10500, 5, now=100.0)
+        assert mon.get_level(now=100.0) == LEVEL_CRITICAL
+        assert calls == []
+
+    def test_low_to_critical_does_not_refire_callback(self):
+        mon, _, calls = self._wire()
+        mon.update_from_sys_status(11800, 19, now=100.0)
+        assert len(calls) == 1
+        # LOW → CRITICAL must not fire a second callback
+        mon.update_from_sys_status(10400, 8, now=101.0)
+        assert mon.get_level(now=101.0) == LEVEL_CRITICAL
+        assert len(calls) == 1
+
+    def test_recovery_to_ok_does_not_fire_callback(self):
+        mon, _, calls = self._wire()
+        mon.update_from_sys_status(11800, 19, now=100.0)
+        assert len(calls) == 1
+        # LOW → OK
+        mon.update_from_sys_status(12400, 80, now=101.0)
+        assert mon.get_level(now=101.0) == LEVEL_OK
+        assert len(calls) == 1  # no new call
+
+    def test_recovery_then_relow_refires_callback(self):
+        """Re-arm after OK: a second LOW dip can fire the callback again."""
+        mon, _, calls = self._wire()
+        mon.update_from_sys_status(11800, 19, now=100.0)
+        mon.update_from_sys_status(12400, 80, now=101.0)
+        # Second LOW dip — re-armed
+        mon.update_from_sys_status(11700, 18, now=102.0)
+        assert len(calls) == 2
+
+    def test_action_taken_populated_after_callback(self):
+        mon, _, _ = self._wire()
+        mon.update_from_sys_status(11800, 19, now=100.0)
+        st = mon.get_state(now=100.0)
+        assert st.action_taken == "graceful_stop"
+
+    def test_action_taken_not_overwritten_by_none_return(self):
+        """Callback returning None or non-string leaves action_taken alone."""
+        sender = _Sender()
+        results = iter(["graceful_stop", None])
+
+        def _cb(snapshot: BatteryState):
+            return next(results, None)
+
+        mon = BatteryMonitor(
+            low_threshold_pct=20,
+            critical_threshold_pct=10,
+            callsign="HYDRA-2-UGV",
+            send_statustext=sender,
+            on_low_transition=_cb,
+        )
+        # First LOW transition — callback returns "graceful_stop"
+        mon.update_from_sys_status(11800, 19, now=100.0)
+        assert mon.get_state(now=100.0).action_taken == "graceful_stop"
+        # Recover, then re-LOW — callback returns None, but the prior
+        # action_taken should remain set (it's sticky for the session)
+        mon.update_from_sys_status(12400, 80, now=101.0)
+        mon.update_from_sys_status(11700, 18, now=102.0)
+        assert mon.get_state(now=102.0).action_taken == "graceful_stop"
+
+    def test_callback_exception_swallowed(self):
+        """Callback raising must not break the monitor (defensive)."""
+        sender = _Sender()
+
+        def _cb(snapshot):
+            raise RuntimeError("autonomous engine offline")
+
+        mon = BatteryMonitor(
+            low_threshold_pct=20,
+            critical_threshold_pct=10,
+            callsign="HYDRA-2-USV",
+            send_statustext=sender,
+            on_low_transition=_cb,
+        )
+        # Must not raise out of update_from_sys_status
+        mon.update_from_sys_status(11800, 19, now=100.0)
+        # STATUSTEXT still emits
+        assert any("BATT LOW" in m[0] for m in sender.messages)
+
+    def test_callback_snapshot_does_not_mutate_with_later_updates(self):
+        """Pre-action snapshot is a copy — later SYS_STATUS doesn't change it."""
+        mon, _, calls = self._wire()
+        mon.update_from_sys_status(11800, 19, now=100.0)
+        # New sample arrives — snapshot in calls[0] must keep transition values
+        mon.update_from_sys_status(11700, 15, now=101.0)
+        assert calls[0].voltage_v == 11.8
+        assert calls[0].remaining_pct == 19
