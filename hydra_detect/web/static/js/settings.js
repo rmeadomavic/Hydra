@@ -172,6 +172,39 @@ const HydraSettings = (() => {
         // (prevents empty Camera tab on initial load when CSS transition
         // from display:none hasn't completed yet).
         requestAnimationFrame(() => renderSection(currentSection));
+        // Issue #224 — surface runtime drift after factory-reset / import.
+        // Fire-and-forget; failure leaves the banner hidden (no false alarms).
+        refreshRuntimeDiffBanner();
+    }
+
+    async function refreshRuntimeDiffBanner() {
+        // Issue #224 — if disk and in-memory config disagree, show the
+        // existing restart banner with a summary of drifted sections so
+        // the operator knows the pipeline is running on stale values.
+        try {
+            const diff = await HydraApp.apiGet('/api/config/diff');
+            const restart = document.getElementById('settings-restart');
+            const fields = document.getElementById('restart-fields');
+            if (!restart || !fields) return;
+            // Empty runtime = no pipeline registered (test or fresh boot);
+            // don't show the banner on cold-boot polls.
+            if (!diff || !diff.runtime || Object.keys(diff.runtime).length === 0) return;
+            const driftedSections = diff.diff ? Object.keys(diff.diff) : [];
+            if (driftedSections.length === 0) {
+                // Hide the banner unless an unsaved-change flow set it.
+                if (!hasUnsavedChanges) restart.style.display = 'none';
+                return;
+            }
+            // Build a compact summary: "[camera] source, fps; [web] port"
+            const parts = driftedSections.slice(0, 4).map(section => {
+                const keys = Object.keys(diff.diff[section] || {}).slice(0, 4);
+                return '[' + section + '] ' + keys.join(', ');
+            });
+            fields.textContent = 'Pipeline is running stale values: ' + parts.join('; ');
+            restart.style.display = '';
+        } catch (err) {
+            // Silent — diff endpoint is advisory.
+        }
     }
 
     function initNavHandlers() {

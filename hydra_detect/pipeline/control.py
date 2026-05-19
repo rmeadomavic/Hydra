@@ -58,6 +58,10 @@ class PipelineControlAdapter:
             "on_profile_switch": p._handle_profile_switch,
             "get_preflight": p._get_preflight,
             "on_restart_command": p._handle_restart_command,
+            # Issue #224 — expose the boot-time ConfigParser so the web
+            # diff endpoint can compare it against the on-disk file and
+            # surface drift after factory-reset / import.
+            "get_in_memory_config": lambda: p._cfg,
             "on_drop_command": p._handle_drop_command,
             "on_follow_command": p._handle_follow_command,
             "on_approach_strike_command": p._handle_approach_strike_command,

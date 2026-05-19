@@ -102,6 +102,88 @@ def read_config() -> dict[str, dict[str, str]]:
     return result
 
 
+def read_runtime_config(
+    cfg: configparser.ConfigParser | None,
+) -> dict[str, dict[str, str]]:
+    """Convert a live ConfigParser to the same dict shape as read_config().
+
+    The pipeline carries an in-memory ConfigParser (`self._cfg`) loaded at
+    boot. Mutations through factory-reset / import / write_config land on
+    disk but do NOT propagate to that in-memory copy — until the operator
+    restarts the service the running pipeline keeps using the boot-time
+    values. This helper exposes the in-memory state in the same nested
+    dict shape (redacted) as read_config() so the diff endpoint can
+    compare disk vs runtime trivially.
+
+    Returns an empty dict when ``cfg`` is None — callers (the diff
+    endpoint, mostly) treat that as "no in-memory snapshot available"
+    rather than an error: it happens in TestClient runs where no
+    pipeline is wired and on fresh boot before the pipeline registers
+    its callback. (Issue #224.)
+    """
+    if cfg is None:
+        return {}
+    result: dict[str, dict[str, str]] = {}
+    for section in cfg.sections():
+        result[section] = dict(cfg[section])
+        if section in REDACTED_FIELDS:
+            for field in REDACTED_FIELDS[section]:
+                if field in result[section] and result[section][field]:
+                    result[section][field] = REDACTED_VALUE
+    return result
+
+
+def compute_config_diff(
+    disk: dict[str, dict[str, str]],
+    runtime: dict[str, dict[str, str]],
+) -> dict[str, dict[str, dict[str, str]]]:
+    """Return only differing keys between disk and runtime configs.
+
+    Shape:
+      {section: {key: {"disk": <str>, "runtime": <str>}}}
+
+    Empty dict means disk and runtime agree (no restart needed to
+    realign state). Sections that exist on only one side report every
+    key in that section as a diff with the missing side set to "".
+    Sensitive fields are already redacted upstream (read_config /
+    read_runtime_config both redact), so the diff payload never carries
+    plaintext secrets. A diff on a redacted field surfaces as
+    ``{"disk": "***", "runtime": "***"}`` — which is fine because the
+    operator-facing signal is "this section drifted," not the value.
+
+    Special-case: keys where BOTH sides redact to "***" are skipped —
+    we cannot tell whether the underlying values agree, and reporting
+    them as a diff would generate noise on every poll. (Issue #224.)
+
+    Empty ``runtime`` (no pipeline callback wired) is treated as "no
+    snapshot available" rather than "every key drifted to empty" — we
+    return an empty diff so the dashboard does not flash a banner on
+    cold-boot polls before the pipeline registers itself.
+    """
+    if not runtime:
+        return {}
+    diff: dict[str, dict[str, dict[str, str]]] = {}
+    sections = set(disk.keys()) | set(runtime.keys())
+    for section in sections:
+        disk_section = disk.get(section, {})
+        runtime_section = runtime.get(section, {})
+        keys = set(disk_section.keys()) | set(runtime_section.keys())
+        section_diff: dict[str, dict[str, str]] = {}
+        for key in keys:
+            disk_value = disk_section.get(key, "")
+            runtime_value = runtime_section.get(key, "")
+            if disk_value == runtime_value:
+                continue
+            # Both sides redacted -> we cannot compare, skip rather than
+            # report spurious drift on every poll.
+            if disk_value == REDACTED_VALUE and runtime_value == REDACTED_VALUE:
+                continue
+            section_diff[key] = {"disk": disk_value, "runtime": runtime_value}
+        if section_diff:
+            diff[section] = section_diff
+    return diff
+
+
 def write_config(updates: dict[str, dict[str, str]]) -> dict[str, Any]:
     """Merge updates into config.ini with atomic write and file locking.
 
