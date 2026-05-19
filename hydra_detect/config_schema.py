@@ -1389,6 +1389,18 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             default="1,2,3,4",
             description="RC channels reserved by the airframe (servo tracker avoids these)",
         ),
+        # vehicle.fw ships explicit shared_battery=false. Fixed-wing runs the
+        # Jetson off a dedicated companion battery — graceful-stop on LOW would
+        # force-LOITER mid-mission. See issue #222.
+        "shared_battery": FieldSpec(
+            FieldType.BOOL,
+            default=False,
+            description=(
+                "True when the Jetson SBC shares the vehicle pack — routes "
+                "BatteryMonitor LOW transitions through the autonomous "
+                "engine (graceful-stop). Fixed-wing defaults to false."
+            ),
+        ),
     },
     "system": {
         "mode": FieldSpec(
