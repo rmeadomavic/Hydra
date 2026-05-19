@@ -269,20 +269,20 @@ def build_system_state(
             pass
     elif cfg is not None:
         try:
-            mode_raw = cfg.get("autonomy", "mode", fallback="dryrun").strip().lower()
+            mode_raw = cfg.get("autonomous", "mode", fallback="dryrun").strip().lower()
             if mode_raw in ("dryrun", "shadow", "live"):
                 state.autonomy_mode = mode_raw
-            enabled_raw = cfg.get("autonomy", "enabled", fallback="false").strip()
+            enabled_raw = cfg.get("autonomous", "enabled", fallback="false").strip()
             state.autonomy_enabled = enabled_raw.lower() in ("1", "true", "yes")
             # Geofence presence: any non-zero centre, or a polygon with 3+ pts.
-            poly_raw = cfg.get("autonomy", "geofence_polygon", fallback="").strip()
+            poly_raw = cfg.get("autonomous", "geofence_polygon", fallback="").strip()
             if poly_raw:
                 pts = [p for p in poly_raw.split(";") if "," in p]
                 state.autonomy_geofence_present = len(pts) >= 3
             if not state.autonomy_geofence_present:
                 try:
-                    lat = float(cfg.get("autonomy", "geofence_lat", fallback="0").strip())
-                    lon = float(cfg.get("autonomy", "geofence_lon", fallback="0").strip())
+                    lat = float(cfg.get("autonomous", "geofence_lat", fallback="0").strip())
+                    lon = float(cfg.get("autonomous", "geofence_lon", fallback="0").strip())
                     state.autonomy_geofence_present = (lat != 0.0 or lon != 0.0)
                 except (ValueError, TypeError):
                     pass
