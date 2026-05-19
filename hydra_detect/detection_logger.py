@@ -103,6 +103,14 @@ class DetectionLogger:
         self._mission_id: str | None = None
         self._mission_id_lock = threading.Lock()
 
+        # Disk-BLOCKED gate (issue #226). When the Capability Status
+        # framework reports disk BLOCKED, the web layer flips this flag and
+        # crop emission pauses; JSONL/CSV metadata logging keeps running so
+        # operators still have detection provenance for the BLOCKED window.
+        # Auto-clears when disk comes back above the threshold.
+        self._disk_blocked = False
+        self._disk_blocked_lock = threading.Lock()
+
         # Recent detections ring buffer for web UI.
         # Updated on the caller thread so the web API sees results immediately.
         self._recent: deque[Dict[str, Any]] = deque(maxlen=self._max_recent)
@@ -326,6 +334,16 @@ class DetectionLogger:
     def set_model_hash(self, model_hash: str) -> None:
         """Update the model hash (e.g. after a runtime model switch)."""
         self._model_hash = model_hash
+
+    def set_disk_blocked(self, blocked: bool) -> None:
+        """Toggle the disk-BLOCKED crop-emission gate (issue #226).
+
+        Wired from the Capability Status disk evaluator. Metadata logging
+        (JSONL/CSV) is NOT affected — only image crop emission. The gate
+        clears automatically when disk usage falls back below the threshold.
+        """
+        with self._disk_blocked_lock:
+            self._disk_blocked = bool(blocked)
 
     def set_mission_id(self, mission_id: str | None) -> None:
         """Stamp every subsequent detection record with this mission_id.
@@ -608,8 +626,12 @@ class DetectionLogger:
                 except Exception as exc:
                     logger.warning("Failed to write JSONL record: %s", exc)
 
-            # Save cropped object image.
-            if self._save_crops and frame is not None:
+            # Save cropped object image. Suppressed when the disk-BLOCKED
+            # gate is tripped (issue #226) — JSONL/CSV metadata above still
+            # logs so the BLOCKED window has detection provenance.
+            with self._disk_blocked_lock:
+                blocked = self._disk_blocked
+            if self._save_crops and frame is not None and not blocked:
                 self._save_crop(frame, track, frame_no)
 
         # Periodic flush to bound data loss on crash, then check rotation.

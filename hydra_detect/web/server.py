@@ -2752,6 +2752,29 @@ async def api_start_mission(request: Request, authorization: Optional[str] = Hea
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
+    # Disk-BLOCKED gate (#226). When the Capability Status framework
+    # reports disk BLOCKED (free pct AND absolute floor both tripped),
+    # refuse new mission bundles. Detection metadata logging continues
+    # in the pipeline so the operator still gets event provenance for
+    # the BLOCKED window itself.
+    try:
+        from .capability_api import is_disk_blocked
+        blocked, blocked_reason = is_disk_blocked()
+    except Exception:
+        blocked, blocked_reason = False, ""
+    if blocked:
+        return JSONResponse(
+            {
+                "error": (
+                    "disk_free below 5% AND under 5GB free — "
+                    "refusing new mission bundles. Free space and retry."
+                ),
+                "reason": blocked_reason or (
+                    "disk_free below 5% AND under 5GB free"
+                ),
+            },
+            status_code=503,
+        )
     client_ip = request.client.host if request.client else "unknown"
     retry_after = _mission_start_retry_after(client_ip, time.monotonic())
     if retry_after is not None:
