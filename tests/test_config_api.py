@@ -893,8 +893,16 @@ class TestFactoryResetAutoRestart:
         assert resp.status_code == 200
         data = resp.json()
         assert data["restart_triggered"] is True
+        # Issue #233 (R3-3) — canonical `restart_requested` key + deprecated
+        # `restart_triggered` alias must agree.
+        assert data["restart_requested"] is True
         assert data["restart_suppressed_reason"] is None
-        assert "Pipeline restart triggered" in data["message"]
+        assert data.get("restart_failed_reason") is None
+        # Issue #233 (R3-3) — message wording shifted to "requested" to
+        # honor the trigger-vs-apply distinction. The `restart_note` field
+        # carries the load-bearing operator hint.
+        assert "Pipeline restart requested" in data["message"]
+        assert data.get("restart_note") and "200" in data["restart_note"]
         restart_cb.assert_called_once()
 
     @_skip_on_windows
@@ -1079,3 +1087,253 @@ class TestComputeConfigDiff:
         disk = {"web": {"api_token": "***"}}
         runtime = {"web": {"api_token": "***"}}
         assert compute_config_diff(disk, runtime) == {}
+
+
+# ── Issue #233 — Adversarial follow-ups for PR #228 ───────────────────────
+
+
+class TestGetInMemoryConfigDeepcopy:
+    """Issue #233 (R1-1) — pipeline callback returns an isolated copy.
+
+    The diff endpoint compares disk vs in-memory cfg. If the callback
+    returns `p._cfg` by reference, a future contributor mutating the
+    returned ConfigParser would silently invalidate drift detection on
+    that field. The contract is now: get_in_memory_config returns a
+    deepcopy so callers cannot reach back into the pipeline state.
+    """
+
+    def test_callback_returns_independent_copy(self):
+        # Build a stand-in pipeline carrying a ConfigParser and exercise
+        # the adapter the way the web layer does.
+        import configparser
+
+        from hydra_detect.pipeline.control import PipelineControlAdapter
+
+        class _Stub:
+            def __init__(self, cfg):
+                self._cfg = cfg
+
+            # PipelineControlAdapter.callbacks() iterates a wide surface of
+            # pipeline attributes; stub the unused ones to None so dict
+            # construction succeeds. Only get_in_memory_config matters here.
+            def __getattr__(self, name):
+                return None
+
+            class _DetLogger:
+                get_recent = None
+
+            class _EventLogger:
+                get_status = None
+
+            class _Detector:
+                get_class_names = None
+
+            _det_logger = _DetLogger()
+            _event_logger = _EventLogger()
+            _detector = _Detector()
+
+        cfg = configparser.ConfigParser()
+        cfg["camera"] = {"fps": "30"}
+        stub = _Stub(cfg)
+        adapter = PipelineControlAdapter(pipeline=stub)
+        cb = adapter.callbacks()["get_in_memory_config"]
+
+        snap1 = cb()
+        assert snap1.get("camera", "fps") == "30"
+        # Mutating the returned copy must NOT affect the pipeline state.
+        snap1.set("camera", "fps", "999")
+        assert stub._cfg.get("camera", "fps") == "30"
+        # And a subsequent call must reflect the pipeline state, not the
+        # mutated snapshot from the prior call.
+        snap2 = cb()
+        assert snap2.get("camera", "fps") == "30"
+
+
+class TestFactoryResetAutoRestartFollowups:
+    """Issue #233 — restart-ordering wording, audit granularity, failure audit."""
+
+    @_skip_on_windows
+    def test_factory_reset_response_carries_restart_requested_alias(
+        self, client, tmp_config_with_factory,
+    ):
+        """R3-3: response shape adds `restart_requested` (canonical) and
+        `restart_note` (trigger-vs-apply hint). `restart_triggered` stays
+        as a deprecated alias for one release."""
+        from unittest.mock import MagicMock
+        restart_cb = MagicMock()
+        stream_state.set_callbacks(on_restart_command=restart_cb)
+        with patch(
+            "hydra_detect.web.config_api.get_config_path",
+            return_value=tmp_config_with_factory,
+        ):
+            resp = client.post(
+                "/api/config/factory-reset", json={"auto_restart": True},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Both keys present and equal — alias contract.
+        assert data["restart_requested"] is True
+        assert data["restart_triggered"] is True
+        assert data["restart_requested"] == data["restart_triggered"]
+        # Note field documents the apply window for the operator.
+        assert isinstance(data.get("restart_note"), str)
+        assert "main-loop" in data["restart_note"]
+
+    @_skip_on_windows
+    def test_factory_reset_audit_target_carries_auto_restart_flag(
+        self, client, tmp_config_with_factory, caplog,
+    ):
+        """R2-2: audit row must record auto_restart=true|false so replay
+        can distinguish operator-initiated from auto restart."""
+        import logging as _logging
+        from unittest.mock import MagicMock
+        restart_cb = MagicMock()
+        stream_state.set_callbacks(on_restart_command=restart_cb)
+        caplog.set_level(_logging.INFO, logger="hydra.audit")
+        with patch(
+            "hydra_detect.web.config_api.get_config_path",
+            return_value=tmp_config_with_factory,
+        ):
+            resp = client.post(
+                "/api/config/factory-reset", json={"auto_restart": True},
+            )
+        assert resp.status_code == 200
+        # The "config_factory_reset" audit row's target field must include
+        # auto_restart=true.
+        msgs = [
+            r.getMessage() for r in caplog.records
+            if "config_factory_reset" in r.getMessage()
+        ]
+        reset_rows = [m for m in msgs if "action=config_factory_reset " in m]
+        assert reset_rows, f"expected config_factory_reset audit row, got: {msgs}"
+        assert any("auto_restart=true" in m for m in reset_rows), reset_rows
+
+    @_skip_on_windows
+    def test_factory_reset_audit_target_records_auto_restart_false(
+        self, client, tmp_config_with_factory, caplog,
+    ):
+        """R2-2: even when auto_restart is absent or false, the audit row
+        records auto_restart=false so replay never has to infer it."""
+        import logging as _logging
+        caplog.set_level(_logging.INFO, logger="hydra.audit")
+        with patch(
+            "hydra_detect.web.config_api.get_config_path",
+            return_value=tmp_config_with_factory,
+        ):
+            resp = client.post("/api/config/factory-reset")
+        # Status check is OS-dependent; the audit row is the contract.
+        msgs = [
+            r.getMessage() for r in caplog.records
+            if "config_factory_reset" in r.getMessage()
+        ]
+        reset_rows = [m for m in msgs if "action=config_factory_reset " in m]
+        if resp.status_code == 200:
+            assert reset_rows, f"expected audit row, got: {msgs}"
+            assert any("auto_restart=false" in m for m in reset_rows), reset_rows
+
+    @_skip_on_windows
+    def test_factory_reset_restart_callback_raise_writes_failed_audit(
+        self, client, tmp_config_with_factory, caplog,
+    ):
+        """R2-1: callback raise -> response succeeds with restart_requested
+        false AND a `config_factory_reset_restart_failed` audit row is
+        written so the operator has a replayable trail."""
+        import logging as _logging
+        from unittest.mock import MagicMock
+
+        def _raises():
+            raise RuntimeError("simulated callback failure")
+
+        restart_cb = MagicMock(side_effect=_raises)
+        stream_state.set_callbacks(on_restart_command=restart_cb)
+        caplog.set_level(_logging.INFO, logger="hydra.audit")
+        with patch(
+            "hydra_detect.web.config_api.get_config_path",
+            return_value=tmp_config_with_factory,
+        ):
+            resp = client.post(
+                "/api/config/factory-reset", json={"auto_restart": True},
+            )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        # Disk reset still went through.
+        assert data["status"] == "ok"
+        # Callback raised — restart_requested must be False, failure
+        # reason surfaced to the operator.
+        assert data["restart_requested"] is False
+        assert data["restart_triggered"] is False
+        assert data.get("restart_failed_reason"), data
+        assert "simulated callback failure" in data["restart_failed_reason"]
+        # The _failed audit row was written.
+        msgs = [
+            r.getMessage() for r in caplog.records
+            if "config_factory_reset" in r.getMessage()
+        ]
+        failed_rows = [m for m in msgs if "config_factory_reset_restart_failed" in m]
+        assert failed_rows, f"expected restart_failed audit, got: {msgs}"
+        assert any("simulated callback failure" in m for m in failed_rows), failed_rows
+        # Sanity: the success-path audit row was NOT written.
+        assert not any(
+            "action=config_factory_reset_restart " in m for m in msgs
+        ), msgs
+
+
+class TestImportAutoRestartFollowups:
+    """Issue #233 — same restart-ordering + failure-audit contract on /import."""
+
+    @_skip_on_windows
+    def test_import_response_carries_restart_requested_alias(
+        self, client, tmp_config,
+    ):
+        from unittest.mock import MagicMock
+        restart_cb = MagicMock()
+        stream_state.set_callbacks(on_restart_command=restart_cb)
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.post(
+                "/api/config/import",
+                json={"auto_restart": True, "sections": {"camera": {"fps": "20"}}},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["restart_requested"] is True
+        assert data["restart_triggered"] is True
+        assert isinstance(data.get("restart_note"), str)
+        assert "main-loop" in data["restart_note"]
+
+    @_skip_on_windows
+    def test_import_restart_callback_raise_writes_failed_audit(
+        self, client, tmp_config, caplog,
+    ):
+        import logging as _logging
+        from unittest.mock import MagicMock
+
+        def _raises():
+            raise RuntimeError("import restart boom")
+
+        restart_cb = MagicMock(side_effect=_raises)
+        stream_state.set_callbacks(on_restart_command=restart_cb)
+        caplog.set_level(_logging.INFO, logger="hydra.audit")
+        with patch(
+            "hydra_detect.web.config_api.get_config_path", return_value=tmp_config,
+        ):
+            resp = client.post(
+                "/api/config/import",
+                json={"auto_restart": True, "sections": {"camera": {"fps": "20"}}},
+            )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["restart_requested"] is False
+        assert data.get("restart_failed_reason"), data
+        assert "import restart boom" in data["restart_failed_reason"]
+        msgs = [
+            r.getMessage() for r in caplog.records
+            if "config_import" in r.getMessage()
+        ]
+        failed_rows = [m for m in msgs if "config_import_restart_failed" in m]
+        assert failed_rows, f"expected import restart_failed audit, got: {msgs}"
+        assert any("import restart boom" in m for m in failed_rows), failed_rows
+        assert not any(
+            "action=config_import_restart " in m for m in msgs
+        ), msgs
