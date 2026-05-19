@@ -984,6 +984,10 @@ class Pipeline:
         self._running = False
         self._paused = False
         self._restart_requested = False
+        # Idempotency guard for _shutdown — restart paths call _shutdown
+        # inline, and the start()-level finally also calls it on exit.
+        # The second call must be a no-op. See issue #54 (graceful shutdown).
+        self._shutdown_complete = False
         self._total_detections = 0
         self._frame_count = 0
         # Camera loss detection (degraded mode)
@@ -1374,7 +1378,24 @@ class Pipeline:
         )
         self._watchdog_thread.start()
 
-        # Restart-capable outer loop
+        # Restart-capable outer loop wrapped in try/finally so signal- or
+        # break-initiated exits run the full _shutdown() ladder (drain
+        # detection logger queue, end mission, STATUSTEXT, MAVLink close).
+        # Without this, the signal handler sets _running=False, the loop
+        # breaks, and start() returns — and __main__.py calls os._exit(0)
+        # which bypasses atexit. Closes #54.
+        try:
+            self._run_outer_loop()
+        finally:
+            self._shutdown()
+
+    # ------------------------------------------------------------------
+    def _run_outer_loop(self) -> None:
+        """Run the restart-capable detection loop.
+
+        Split out of start() so the caller can wrap it in try/finally and
+        guarantee _shutdown() runs even on signal-initiated exit. See #54.
+        """
         while True:
             self._restart_requested = False
             self._running = True
@@ -1384,6 +1405,9 @@ class Pipeline:
             # Restart: shut down subsystems, re-read config, re-init, loop back
             logger.info("=== Pipeline restart requested — reinitializing ===")
             self._shutdown()
+            # Reset idempotency guard so the post-restart shutdown still
+            # fires on final exit.
+            self._shutdown_complete = False
             try:
                 from ..web.config_api import get_config_path
                 self._cfg.read(get_config_path())
@@ -3251,6 +3275,28 @@ class Pipeline:
 
     # ------------------------------------------------------------------
     def _shutdown(self) -> None:
+        """Graceful shutdown ladder for Hydra Detect. See issue #54.
+
+        Idempotent — second call is a no-op. The detection-log flush uses
+        a bounded timeout so a stuck writer thread can't wedge shutdown.
+
+        Order (each step is best-effort and exception-isolated where it
+        could plausibly raise; safety-critical steps go first so a later
+        failure doesn't leave hot servos / hot vehicles):
+
+        1. Abort active approach — restores pre-approach flight mode.
+        2. Stop RF / TAK / video sidecars.
+        3. Drive strike/arm servos to safe; disable pan if configured.
+        4. Close camera and unload detector.
+        5. Drain detection log queue (bounded), close mission log.
+        6. STATUSTEXT shutdown notice, then close MAVLink.
+
+        Returns silently if already invoked (see _shutdown_complete guard
+        on the restart path — restart resets the guard so the next exit
+        still fires shutdown).
+        """
+        if self._shutdown_complete:
+            return
         logger.info("Shutting down ...")
         if self._approach is not None:
             self._approach.abort()
@@ -3275,6 +3321,13 @@ class Pipeline:
             set_autonomous_controller(None)
         if self._servo_tracker is not None:
             self._servo_tracker.safe()
+            # disable_pan() locks the pan channel against further update()
+            # writes after this point — defence-in-depth if the camera
+            # close races something still calling _servo_tracker.update().
+            try:
+                self._servo_tracker.disable_pan()
+            except Exception as exc:
+                logger.warning("Shutdown: disable_pan() raised %s", exc)
         self._camera.close()
         self._detector.unload()
         self._det_logger.stop(timeout=5.0)
@@ -3288,6 +3341,7 @@ class Pipeline:
                 pass  # Best-effort on shutdown
         if self._mavlink is not None:
             self._mavlink.close()
+        self._shutdown_complete = True
         logger.info("=== Hydra Detect stopped ===")
 
     def _signal_handler(self, sig, frame) -> None:
