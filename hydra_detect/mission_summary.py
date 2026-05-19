@@ -145,6 +145,7 @@ def compute_summary(mission_id: str, log_dir: Path) -> dict:
     track_ids: set[Any] = set()
     det_count = 0
     earliest_det_ts: float | None = None
+    unparseable_ts_count = 0
     mission_start_ts: float | None = None
     mission_end_ts: float | None = None
     action_count = 0
@@ -163,9 +164,14 @@ def compute_summary(mission_id: str, log_dir: Path) -> dict:
             if tid is not None and tid != "":
                 track_ids.add(tid)
             ts_parsed = _parse_ts(row.get("timestamp"))
-            if ts_parsed is not None:
-                if earliest_det_ts is None or ts_parsed < earliest_det_ts:
-                    earliest_det_ts = ts_parsed
+            if ts_parsed is None:
+                # Track rows we could not parse so the operator can tell
+                # "unknown — N rows had bad timestamps" apart from
+                # "no detections at all" (R2-2 in docs/adversarial/230.md).
+                unparseable_ts_count += 1
+                continue
+            if earliest_det_ts is None or ts_parsed < earliest_det_ts:
+                earliest_det_ts = ts_parsed
 
     # Event rows (mission lifecycle + vehicle telemetry + operator actions)
     for path in evt_files:
@@ -188,11 +194,27 @@ def compute_summary(mission_id: str, log_dir: Path) -> dict:
             elif rtype == "state":
                 state_count += 1
 
+    # R2-2: surface why time_to_first_detection_sec might be null so the
+    # operator can distinguish "no detections" from "had detections but
+    # all timestamps unparseable" from "everything fine, here's the value."
     time_to_first_detection_sec: float | None = None
-    if mission_start_ts is not None and earliest_det_ts is not None:
+    if det_count == 0:
+        ttfd_status = "no_detections"
+    elif earliest_det_ts is None:
+        # We had detections but every timestamp failed to parse.
+        ttfd_status = "unknown"
+    elif mission_start_ts is None:
+        # Detections present, mission_start_ts missing — can't compute delta.
+        ttfd_status = "unknown"
+    else:
         delta = earliest_det_ts - mission_start_ts
         if delta >= 0:
             time_to_first_detection_sec = round(delta, 3)
+            ttfd_status = "known"
+        else:
+            # Earliest detection precedes mission_start — clock skew or
+            # leaked rows from before start_mission(). Treat as unknown.
+            ttfd_status = "unknown"
 
     duration_sec: float | None = None
     if mission_start_ts is not None:
@@ -207,8 +229,10 @@ def compute_summary(mission_id: str, log_dir: Path) -> dict:
             "total": det_count,
             "by_class": by_class,
             "unique_tracks": len(track_ids),
+            "unparseable_timestamp_count": unparseable_ts_count,
         },
         "time_to_first_detection_sec": time_to_first_detection_sec,
+        "time_to_first_detection_status": ttfd_status,
         "mission_start_ts": mission_start_ts,
         "mission_end_ts": mission_end_ts,
         "duration_sec": duration_sec,
@@ -289,3 +313,33 @@ def clear_cache() -> None:
     """Drop all cached summaries (tests + after a manual log purge)."""
     with _cache_lock:
         _cache.clear()
+
+
+def invalidate_for_log_dir(log_dir: Path | str) -> int:
+    """Drop every cached summary so the next ``/api/summary`` re-reads disk.
+
+    Called from ``DetectionLogger._prune_old_logs`` after it deletes one or
+    more rotated JSONL files (R1-1 in docs/adversarial/230.md). The signature
+    cache is keyed on file count + mtime sum + size sum, all of which can
+    coincidentally line up across a delete (deleted file no longer contributes
+    to any sum, so the new signature can match a stale cache entry for the
+    truncated dataset). Explicit invalidation is the only safe answer.
+
+    We invalidate the entire cache rather than per-mission because the prune
+    operation does not know which mission_ids the deleted file contributed
+    to without re-scanning — and re-scanning is exactly what we want to
+    force on the next call.
+
+    Args:
+        log_dir: The log directory whose contents just shifted. Currently
+            unused (we drop everything), but kept in the signature so a
+            future per-directory cache can scope invalidation properly.
+
+    Returns:
+        Number of cache entries dropped (for callers that want to log it).
+    """
+    del log_dir  # Reserved for future per-directory cache scoping.
+    with _cache_lock:
+        n = len(_cache)
+        _cache.clear()
+    return n

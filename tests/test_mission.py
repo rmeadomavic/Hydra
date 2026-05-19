@@ -26,9 +26,16 @@ from hydra_detect.mission_summary import (
     clear_cache,
     compute_summary,
     get_summary,
+    invalidate_for_log_dir,
     list_missions,
 )
-from hydra_detect.review_export import _convex_hull, _polygon_area_m2, gps_coverage
+from hydra_detect.review_export import (
+    _convex_hull,
+    _haversine_m,
+    _polygon_area_m2,
+    _track_length_m,
+    gps_coverage,
+)
 from hydra_detect.tracker import TrackedObject, TrackingResult
 from hydra_detect.web.server import (
     app,
@@ -36,6 +43,7 @@ from hydra_detect.web.server import (
     configure_web_password,
     stream_state,
     _auth_failures,
+    _mission_start_hits,
     _response_cache,
 )
 
@@ -50,6 +58,7 @@ def _reset_state():
     configure_auth(None)
     configure_web_password(None)
     _auth_failures.clear()
+    _mission_start_hits.clear()
     _response_cache.clear()
     stream_state._callbacks.clear()
     stream_state.runtime_config = {"prompts": ["person"], "threshold": 0.25, "auto_loiter": False}
@@ -526,3 +535,229 @@ class TestMissionWebAPI:
         body = resp.json()
         assert "missions" in body
         assert body["missions"][0]["mission_id"] == mid
+
+
+# ----------------------------------------------------------------------------
+# R1-1: Cache invalidation when a detection log file is pruned mid-mission
+# ----------------------------------------------------------------------------
+
+class TestCacheInvalidationOnPrune:
+    """Adversarial finding R1-1 in docs/adversarial/230.md.
+
+    When ``DetectionLogger._prune_old_logs`` deletes a rotated JSONL,
+    the summary cache must drop its stale entry — the signature
+    (file count + mtime sum + size sum) can coincidentally line up
+    with a truncated dataset and silently serve wrong numbers for the
+    30s TTL.
+    """
+
+    def test_invalidate_for_log_dir_drops_entries(self, tmp_path):
+        mid = str(uuid.uuid4())
+        _write_detection_jsonl(tmp_path, mid, [
+            {"timestamp": "2026-05-19T10:00:01Z", "track_id": 1, "label": "person"},
+        ])
+        get_summary(mid, tmp_path)  # populate cache
+        from hydra_detect import mission_summary
+        assert mid in mission_summary._cache
+        dropped = invalidate_for_log_dir(tmp_path)
+        assert dropped == 1
+        assert mission_summary._cache == {}
+
+    def test_prune_invalidates_cache_when_file_deleted(self, tmp_path):
+        """End-to-end: write a row, cache its summary, then run prune with
+        a tiny retention budget that forces deletion. The next get_summary
+        MUST re-read from disk, not return the stale cached value."""
+        mid = str(uuid.uuid4())
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Two detection JSONLs so prune has something to delete.
+        old_path = log_dir / "detections_001.jsonl"
+        new_path = log_dir / "detections_002.jsonl"
+        with old_path.open("w") as f:
+            f.write(json.dumps({
+                "timestamp": "2026-05-19T10:00:01Z", "track_id": 1,
+                "label": "person", "mission_id": mid,
+            }) + "\n")
+        with new_path.open("w") as f:
+            f.write(json.dumps({
+                "timestamp": "2026-05-19T10:00:02Z", "track_id": 2,
+                "label": "car", "mission_id": mid,
+            }) + "\n")
+        # Ensure mtime ordering so old_path is the prune target.
+        import os
+        now = time.time()
+        os.utime(old_path, (now - 100, now - 100))
+        os.utime(new_path, (now, now))
+
+        # Prime the cache with both files present.
+        first = get_summary(mid, log_dir)
+        assert first["detections"]["total"] == 2
+
+        # Run prune with max_log_files=1 so old_path is deleted.
+        dl = DetectionLogger(
+            log_dir=str(log_dir), save_images=False, max_log_files=1,
+        )
+        dl._prune_old_logs()
+        assert not old_path.exists(), "prune should have deleted old_path"
+
+        # Next call MUST re-read disk and reflect the deletion.
+        second = get_summary(mid, log_dir)
+        assert second["detections"]["total"] == 1
+
+
+# ----------------------------------------------------------------------------
+# R2-1: Rate limit on POST /api/mission/start
+# ----------------------------------------------------------------------------
+
+class TestMissionStartRateLimit:
+    """Adversarial finding R2-1 in docs/adversarial/230.md.
+
+    Each successful start opens a new event JSONL with a fresh UUID. A
+    rapid-clicking operator can drive the DetectionLogger rotation policy
+    into deleting prior sorties' logs. Cap one start per 5s per IP.
+    """
+
+    def test_second_start_within_window_returns_429(self, client):
+        stream_state.set_callbacks(on_mission_start=lambda n: "id-1")
+        first = client.post("/api/mission/start", json={"name": "alpha"})
+        assert first.status_code == 200
+        second = client.post("/api/mission/start", json={"name": "bravo"})
+        assert second.status_code == 429
+        assert "Retry-After" in second.headers
+        # Retry-After is integer seconds, between 1 and 5 inclusive.
+        retry = int(second.headers["Retry-After"])
+        assert 1 <= retry <= 6
+
+    def test_retry_after_body_contains_retry_after_sec(self, client):
+        stream_state.set_callbacks(on_mission_start=lambda n: "id-1")
+        client.post("/api/mission/start", json={"name": "alpha"})
+        resp = client.post("/api/mission/start", json={"name": "bravo"})
+        assert resp.status_code == 429
+        body = resp.json()
+        assert "retry_after_sec" in body
+        assert isinstance(body["retry_after_sec"], (int, float))
+        assert 0 < body["retry_after_sec"] <= 5.0
+
+    def test_rate_limit_clears_after_window(self, client, monkeypatch):
+        """Simulate the 5s window passing by clearing the per-IP map
+        directly — the production code uses time.monotonic() which would
+        otherwise need a sleep."""
+        stream_state.set_callbacks(on_mission_start=lambda n: "id-1")
+        first = client.post("/api/mission/start", json={"name": "alpha"})
+        assert first.status_code == 200
+        _mission_start_hits.clear()  # window has "elapsed"
+        second = client.post("/api/mission/start", json={"name": "bravo"})
+        assert second.status_code == 200
+
+
+# ----------------------------------------------------------------------------
+# R3-2: track_length_m field on gps_coverage
+# ----------------------------------------------------------------------------
+
+class TestTrackLength:
+    """Adversarial finding R3-2 in docs/adversarial/230.md.
+
+    A UGV that drives 600 GPS points along a single road produces a
+    collinear track. ``_polygon_area_m2`` returns 0 for hulls under 3
+    points, but the operator needs a non-zero number so they don't
+    assume the GPS dropped. ``track_length_m`` is that number.
+    """
+
+    def test_haversine_two_close_points(self):
+        # 0.001 deg lat at any latitude ≈ 111.32 m.
+        d = _haversine_m((35.0, -80.0), (35.001, -80.0))
+        assert 110.0 < d < 112.0
+
+    def test_track_length_empty(self):
+        assert _track_length_m([]) == 0.0
+
+    def test_track_length_single_point(self):
+        assert _track_length_m([(35.0, -80.0)]) == 0.0
+
+    def test_collinear_track_has_zero_area_but_nonzero_length(self):
+        # Four collinear points along a meridian → ~333.96 m total path.
+        pts = [(35.0, -80.0), (35.001, -80.0), (35.002, -80.0), (35.003, -80.0)]
+        out = gps_coverage(pts)
+        assert out["area_m2"] == 0.0  # collinear hull is degenerate
+        assert out["track_length_m"] > 0.0
+        # 3 segments of ~111.32 m = ~333.96 m. Allow generous tolerance for
+        # the spherical Earth radius constant.
+        assert 320.0 < out["track_length_m"] < 350.0
+
+    def test_track_length_present_on_empty_input(self):
+        out = gps_coverage([])
+        assert out["track_length_m"] == 0.0
+
+    def test_track_length_present_in_summary(self, tmp_path):
+        mid = str(uuid.uuid4())
+        _write_event_jsonl(tmp_path, mid, "alpha", [
+            {"ts": 1000.0, "type": "track", "lat": 35.0, "lon": -80.0},
+            {"ts": 1001.0, "type": "track", "lat": 35.001, "lon": -80.0},
+            {"ts": 1002.0, "type": "track", "lat": 35.002, "lon": -80.0},
+        ])
+        out = compute_summary(mid, tmp_path)
+        assert "track_length_m" in out["gps_coverage"]
+        assert out["gps_coverage"]["track_length_m"] > 0.0
+
+
+# ----------------------------------------------------------------------------
+# R2-2: time_to_first_detection_status enum
+# ----------------------------------------------------------------------------
+
+class TestTTFDStatus:
+    """Adversarial finding R2-2 in docs/adversarial/230.md.
+
+    When ``_parse_ts`` fails on detection rows, ``time_to_first_detection_sec``
+    used to silently fall through to ``None`` while the rest of the summary
+    aggregated normally. Operators couldn't distinguish "no detections" from
+    "detections present but all timestamps were unparseable."
+    """
+
+    def test_status_no_detections(self, tmp_path):
+        mid = str(uuid.uuid4())
+        _write_event_jsonl(tmp_path, mid, "alpha", [
+            {"ts": 1000.0, "type": "track", "lat": 35.0, "lon": -80.0},
+        ])
+        out = compute_summary(mid, tmp_path)
+        assert out["time_to_first_detection_sec"] is None
+        assert out["time_to_first_detection_status"] == "no_detections"
+
+    def test_status_known(self, tmp_path):
+        mid = str(uuid.uuid4())
+        from datetime import datetime, timezone
+        det_ts = datetime.fromtimestamp(1005.0, tz=timezone.utc).isoformat()
+        _write_detection_jsonl(tmp_path, mid, [
+            {"timestamp": det_ts, "track_id": 1, "label": "person"},
+        ])
+        _write_event_jsonl(tmp_path, mid, "alpha", [
+            {"ts": 1000.0, "type": "track", "lat": 35.0, "lon": -80.0},
+        ])
+        out = compute_summary(mid, tmp_path)
+        assert out["time_to_first_detection_sec"] == pytest.approx(5.0, abs=0.01)
+        assert out["time_to_first_detection_status"] == "known"
+
+    def test_status_unknown_when_timestamps_unparseable(self, tmp_path):
+        mid = str(uuid.uuid4())
+        _write_detection_jsonl(tmp_path, mid, [
+            {"timestamp": "not-an-iso-timestamp", "track_id": 1, "label": "person"},
+            {"timestamp": "also-not-a-date", "track_id": 2, "label": "car"},
+        ])
+        _write_event_jsonl(tmp_path, mid, "alpha", [
+            {"ts": 1000.0, "type": "track", "lat": 35.0, "lon": -80.0},
+        ])
+        out = compute_summary(mid, tmp_path)
+        assert out["detections"]["total"] == 2
+        assert out["detections"]["unparseable_timestamp_count"] == 2
+        assert out["time_to_first_detection_sec"] is None
+        assert out["time_to_first_detection_status"] == "unknown"
+
+    def test_status_unknown_when_mission_start_missing(self, tmp_path):
+        # Detection present but no event log with mission_start.
+        mid = str(uuid.uuid4())
+        _write_detection_jsonl(tmp_path, mid, [
+            {"timestamp": "2026-05-19T10:00:01Z", "track_id": 1, "label": "person"},
+        ])
+        out = compute_summary(mid, tmp_path)
+        assert out["detections"]["total"] == 1
+        assert out["time_to_first_detection_status"] == "unknown"
