@@ -12,6 +12,7 @@ from hydra_detect.observability import (
     ClientErrorSink,
     SUBSYSTEMS,
     attach_audit_counters,
+    compute_disk_free,
     get_client_error_sink,
     health_snapshot,
     hydra_drop_events_total,
@@ -143,6 +144,85 @@ class TestHealthSnapshot:
 
 
 # ---------------------------------------------------------------------------
+# compute_disk_free + /api/health additive disk_free_pct field (issue #154)
+# ---------------------------------------------------------------------------
+
+class TestComputeDiskFree:
+    def test_returns_dict_of_floats(self):
+        result = compute_disk_free()
+        assert isinstance(result, dict)
+        # Default labels — root must always be present on a running OS.
+        assert "root" in result
+        for label, pct in result.items():
+            assert isinstance(pct, float), label
+            assert 0.0 <= pct <= 100.0, f"{label}={pct}"
+
+    def test_percent_rounded_to_two_decimals(self):
+        result = compute_disk_free()
+        for label, pct in result.items():
+            # Two-decimal rounding: pct * 100 must be an integer-equivalent.
+            assert round(pct, 2) == pct, f"{label}={pct} not 2dp"
+
+    def test_custom_partition_labels(self, tmp_path):
+        result = compute_disk_free({"workdir": str(tmp_path)})
+        assert "workdir" in result
+        assert isinstance(result["workdir"], float)
+        # Unrelated default labels are not returned.
+        assert "root" not in result
+        assert "output_data" not in result
+
+    def test_missing_path_falls_back_to_existing_ancestor(self, tmp_path):
+        # Deeply non-existent path under a real tmpdir — falls back to tmpdir.
+        nonexistent = tmp_path / "does" / "not" / "exist"
+        result = compute_disk_free({"phantom": str(nonexistent)})
+        # Fallback found tmp_path; we get a real number, not a missing key.
+        assert "phantom" in result
+        assert 0.0 <= result["phantom"] <= 100.0
+
+    def test_unreadable_path_is_omitted_not_zeroed(self):
+        # An absolute path whose parents also don't exist returns nothing.
+        # Use a label so completely synthetic that no ancestor can match.
+        result = compute_disk_free({"nope": "\x00invalid\x00"})
+        # Either omitted (preferred) or a real number. Never a zero placeholder
+        # that would falsely trigger "disk full" alarms.
+        if "nope" in result:
+            assert result["nope"] > 0.0
+
+
+class TestHealthSnapshotDiskFreePct:
+    def test_health_snapshot_includes_disk_free_pct(self):
+        snap = health_snapshot(stats={"camera_ok": True, "fps": 10.0})
+        assert "disk_free_pct" in snap
+        assert isinstance(snap["disk_free_pct"], dict)
+        # Root partition is always present.
+        assert "root" in snap["disk_free_pct"]
+
+    def test_health_snapshot_preserves_existing_keys(self):
+        # The additive change MUST NOT remove status/ts/subsystems/disk subsystem.
+        snap = health_snapshot(stats={"camera_ok": True, "fps": 10.0})
+        assert "status" in snap
+        assert "ts" in snap
+        assert "subsystems" in snap
+        assert "disk" in snap["subsystems"]  # existing string-status field
+
+    def test_disk_free_pct_independent_of_subsystem_disk(self):
+        # The string status and the numeric pct are computed separately.
+        snap = health_snapshot(stats={"camera_ok": True, "fps": 10.0})
+        assert snap["subsystems"]["disk"]["status"] in ("ok", "warn", "fail")
+        # Pct is a number even if status is ok.
+        assert isinstance(snap["disk_free_pct"]["root"], float)
+
+    def test_custom_disk_partitions_overrides_defaults(self, tmp_path):
+        snap = health_snapshot(
+            stats={"camera_ok": True, "fps": 10.0},
+            disk_partitions={"scratch": str(tmp_path)},
+        )
+        assert "scratch" in snap["disk_free_pct"]
+        # Defaults are excluded when override supplied.
+        assert "root" not in snap["disk_free_pct"]
+
+
+# ---------------------------------------------------------------------------
 # Prometheus exposition tests
 # ---------------------------------------------------------------------------
 
@@ -236,6 +316,20 @@ class TestHealthEndpoint:
         body = resp.json()
         assert body["status"] == "fail"
         assert body["subsystems"]["camera"]["status"] == "fail"
+
+    def test_health_endpoint_surfaces_disk_free_pct(self, client):
+        server_module.stream_state.update_stats(
+            camera_ok=True, fps=10.0, detector="yolo",
+        )
+        resp = client.get("/api/health")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "disk_free_pct" in body
+        assert isinstance(body["disk_free_pct"], dict)
+        assert "root" in body["disk_free_pct"]
+        pct = body["disk_free_pct"]["root"]
+        assert isinstance(pct, (int, float))
+        assert 0.0 <= pct <= 100.0
 
 
 class TestMetricsEndpoint:

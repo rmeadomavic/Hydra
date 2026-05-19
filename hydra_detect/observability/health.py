@@ -9,8 +9,10 @@ Overall status is the worst of the subsystems: ``fail`` > ``warn`` > ``ok``.
 
 from __future__ import annotations
 
+import os
 import shutil
 import time
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 # Subsystems listed in the response, in display order. Dashboards iterate
@@ -154,6 +156,72 @@ def _probe_disk(path: str = "/") -> Dict[str, str]:
     return _ok(f"disk free {free // (1024 * 1024)} MB")
 
 
+# Partitions surfaced as numeric percentages in ``disk_free_pct``. Each entry
+# is (label, default_path). Per-partition pct is in addition to the existing
+# ``subsystems.disk`` status string — phone-home consumers want a number, not
+# a sentence.
+_DISK_FREE_PARTITIONS: tuple[tuple[str, str], ...] = (
+    ("root", "/"),
+    ("output_data", "./output_data"),
+)
+
+
+def _partition_free_pct(path: str) -> Optional[float]:
+    """Return free-space percentage for ``path``, or None if unreadable.
+
+    Falls back to the parent directory when ``path`` does not exist yet
+    (output_data/ may not be created on first boot). Returns None only when
+    even the fallback fails — the field is omitted in that case, not zeroed,
+    so consumers can distinguish "really full" from "no data".
+    """
+    p = Path(path)
+    target: Optional[Path] = p if p.exists() else None
+    if target is None:
+        # Walk up to the first existing ancestor; usually p.parent suffices
+        # but we guard against deep config paths in tests / fresh installs.
+        for ancestor in p.parents:
+            if ancestor.exists():
+                target = ancestor
+                break
+    if target is None:
+        return None
+    try:
+        usage = shutil.disk_usage(os.fspath(target))
+    except OSError:
+        return None
+    if usage.total <= 0:
+        return None
+    return round((usage.free / usage.total) * 100.0, 2)
+
+
+def compute_disk_free(
+    partitions: Optional[Dict[str, str]] = None,
+) -> Dict[str, float]:
+    """Return ``{label: free_pct}`` for the partitions Hydra cares about.
+
+    Used by ``/api/health`` to surface a numeric ``disk_free_pct`` field
+    additively alongside the existing ``subsystems.disk`` status string.
+
+    Args:
+        partitions: Optional override mapping ``{label: path}``. When None,
+            uses ``_DISK_FREE_PARTITIONS`` defaults (root + output_data).
+
+    Returns:
+        Dict mapping label → percent free (0-100, 2 decimal places). Labels
+        whose disk_usage call fails are omitted, not zeroed.
+    """
+    if partitions is None:
+        items = _DISK_FREE_PARTITIONS
+    else:
+        items = tuple(partitions.items())
+    out: Dict[str, float] = {}
+    for label, path in items:
+        pct = _partition_free_pct(path)
+        if pct is not None:
+            out[label] = pct
+    return out
+
+
 def _worst(items: Dict[str, Dict[str, str]]) -> str:
     worst_rank = 0
     for v in items.values():
@@ -173,6 +241,7 @@ def health_snapshot(
     tak_output_ref: Any = None,
     audit_sink: Any = None,
     disk_path: str = "/",
+    disk_partitions: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Return the ``/api/health`` response body.
 
@@ -191,7 +260,13 @@ def health_snapshot(
              "audit":    {...},
              "disk":     {...},
           },
+          "disk_free_pct": {"root": 87.2, "output_data": 64.5},
         }
+
+    The ``disk_free_pct`` field is additive — existing consumers reading
+    ``subsystems.disk.status`` keep working unchanged. Partition labels
+    whose disk_usage call fails are omitted (not zeroed) so phone-home can
+    distinguish "really full" from "no data".
     """
     stats = stats or {}
     subsystems: Dict[str, Dict[str, str]] = {}
@@ -208,4 +283,5 @@ def health_snapshot(
         "status": _worst(subsystems),
         "ts": time.time(),
         "subsystems": subsystems,
+        "disk_free_pct": compute_disk_free(disk_partitions),
     }
