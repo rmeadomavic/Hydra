@@ -62,7 +62,10 @@ host = 0.0.0.0
 port = 8080
 mjpeg_quality = 70
 api_token =
-require_auth_for_control = false
+; Field images ship with control auth ON. Platform Setup generates the
+; per-unit api_token + web_password and the running pipeline picks them
+; up from [identity] on boot (issue #149).
+require_auth_for_control = true
 
 [osd]
 enabled = true
@@ -171,7 +174,10 @@ sa_interval = 5.0
 stale_detection = 60.0
 stale_sa = 30.0
 advertise_host =                          ; set to your Jetson Tailscale IP
-listen_commands = true
+; Inbound TAK commands are OFF on field images until the operator configures
+; allowed_callsigns + command_hmac_secret. The Settings wizard / Platform
+; Setup flow flips this on as part of TAK enablement (issue #149).
+listen_commands = false
 listen_port = 6969
 
 [approach]

@@ -349,7 +349,14 @@ def _origin_matches_request(origin: str, request: Request) -> bool:
 
 
 # ── Web password session auth ────────────────────────────────────────
+# Two storage paths, mutually exclusive:
+#   _web_password      — plaintext from [web].web_password (legacy / dev).
+#   _web_password_hash — pbkdf2 hash from [identity].web_password_hash
+#                        (set by Platform Setup, issue #149).
+# When the hash path is active, _web_password is None and login uses
+# hydra_detect.identity.verify_password() instead of hmac.compare_digest.
 _web_password: str | None = None
+_web_password_hash: str | None = None
 _session_secret: bytes = secrets.token_bytes(32)
 _session_timeout_sec: int = 8 * 3600
 _tls_active: bool = False
@@ -359,21 +366,66 @@ def configure_web_password(
     password: str | None,
     timeout_min: int = 480,
     tls_enabled: bool = False,
+    password_hash: str | None = None,
 ) -> None:
-    """Enable password-based browser access. None or empty disables it."""
-    global _web_password, _session_timeout_sec, _tls_active
-    _web_password = password if password else None
+    """Enable password-based browser access.
+
+    Exactly one of ``password`` (plaintext) or ``password_hash`` (pbkdf2)
+    should be set. If both are provided, ``password_hash`` wins — Platform
+    Setup is the higher-trust source. None/empty on both disables auth.
+
+    The plaintext path is preserved for backward compat on units that
+    haven't run Platform Setup yet (legacy [web].web_password). New
+    field images ship with [identity].web_password_hash and the running
+    pipeline routes through that. (Issue #149.)
+    """
+    global _web_password, _web_password_hash, _session_timeout_sec, _tls_active
     _session_timeout_sec = timeout_min * 60
     _tls_active = tls_enabled
-    if _web_password:
+
+    if password_hash:
+        _web_password_hash = password_hash
+        _web_password = None
+        logger.info(
+            "Web password auth enabled (hashed, session timeout: %d min).",
+            timeout_min,
+        )
+    elif password:
+        _web_password = password
+        _web_password_hash = None
         logger.info("Web password auth enabled (session timeout: %d min).", timeout_min)
-        if not tls_enabled:
-            logger.warning(
-                "web_password is set but TLS is disabled — "
-                "password will be sent in cleartext over HTTP."
-            )
     else:
+        _web_password = None
+        _web_password_hash = None
         logger.info("Web password auth disabled (no password configured).")
+        return
+
+    if not tls_enabled:
+        logger.warning(
+            "web_password is set but TLS is disabled — "
+            "password will be sent in cleartext over HTTP."
+        )
+
+
+def _web_password_configured() -> bool:
+    """True if either plaintext or hashed password is set."""
+    return _web_password is not None or _web_password_hash is not None
+
+
+def _verify_web_password(provided: str) -> bool:
+    """Verify a plaintext password against whichever auth storage is active.
+
+    Constant-time comparison via either ``hmac.compare_digest`` (plaintext)
+    or ``identity.verify_password`` (pbkdf2). Returns False if no password
+    auth is configured — callers should gate on ``_web_password_configured``
+    before calling this.
+    """
+    if _web_password_hash is not None:
+        from hydra_detect.identity import verify_password
+        return verify_password(provided, _web_password_hash)
+    if _web_password is not None:
+        return hmac.compare_digest(provided, _web_password)
+    return False
 
 
 def _make_session_cookie() -> str:
@@ -436,7 +488,7 @@ class _SessionAuthMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or _web_password is None:
+        if scope["type"] != "http" or not _web_password_configured():
             await self.app(scope, receive, send)
             return
 
@@ -809,7 +861,7 @@ def set_autonomous_controller(controller: Any) -> None:
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     """Serve the login page (or redirect to dashboard if already logged in)."""
-    if _web_password is None:
+    if not _web_password_configured():
         return Response(status_code=302, headers={"location": "/"})
     cookie = request.cookies.get("hydra_session", "")
     if cookie and _validate_session_cookie(cookie):
@@ -820,7 +872,7 @@ async def login_page(request: Request):
 @app.post("/auth/login")
 async def auth_login(request: Request):
     """Validate password and set session cookie."""
-    if _web_password is None:
+    if not _web_password_configured():
         return JSONResponse({"status": "ok"})
 
     client_ip = request.client.host if request.client else "unknown"
@@ -838,7 +890,7 @@ async def auth_login(request: Request):
         return JSONResponse({"error": "Missing password"}, status_code=400)
 
     password = str(body["password"])
-    if not hmac.compare_digest(password, _web_password):
+    if not _verify_web_password(password):
         _record_auth_failure(client_ip, now)
         return JSONResponse({"error": "Wrong password"}, status_code=401)
 
@@ -870,7 +922,7 @@ async def auth_logout():
 @app.get("/auth/status")
 async def auth_status(request: Request):
     """Return whether web password auth is enabled and this request is authenticated."""
-    if _web_password is None:
+    if not _web_password_configured():
         return {"password_enabled": False, "authenticated": True}
 
     cookie = request.cookies.get("hydra_session", "")
