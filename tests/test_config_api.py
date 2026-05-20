@@ -76,6 +76,7 @@ class TestConfigGetEndpoint:
 
 
 class TestConfigPostEndpoint:
+    @_skip_on_windows
     def test_post_config_writes_values(self, client, tmp_config):
         with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
             resp = client.post("/api/config/full", json={
@@ -97,6 +98,7 @@ class TestConfigPostEndpoint:
         config.read(tmp_config)
         assert config["web"]["api_token"] == "secret-test-token"
 
+    @_skip_on_windows
     def test_post_config_creates_backup(self, client, tmp_config):
         with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
             resp = client.post("/api/config/full", json={
@@ -116,6 +118,7 @@ class TestConfigPostEndpoint:
             resp = client.post("/api/config/full", json=huge)
         assert resp.status_code == 413
 
+    @_skip_on_windows
     def test_post_config_returns_restart_required_fields(self, client, tmp_config):
         with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
             resp = client.post("/api/config/full", json={
@@ -165,6 +168,7 @@ class TestConfigAuthPositiveCases:
         assert resp.status_code == 200
         assert "camera" in resp.json()
 
+    @_skip_on_windows
     def test_post_config_with_valid_token(self, client, tmp_config):
         configure_auth("my-token")
         headers = {"Authorization": "Bearer my-token"}
@@ -258,6 +262,7 @@ class TestAtomicConfigWrite:
     """Config writes must be crash-safe — a power cut mid-write must not
     leave a partial config.ini (issue #60)."""
 
+    @_skip_on_windows
     def test_write_uses_tmp_then_replace(self, client, tmp_config):
         """Verify the write path calls os.replace with a .tmp source."""
         import hydra_detect.web.config_api as cfg_api
@@ -355,6 +360,7 @@ def tmp_config_with_factory(tmp_path):
 class TestFactoryReset:
     """Issue #75 — student-facing factory reset."""
 
+    @_skip_on_windows
     def test_factory_reset_restores_defaults(self, client, tmp_config_with_factory):
         with patch(
             "hydra_detect.web.config_api.get_config_path",
@@ -375,6 +381,7 @@ class TestFactoryReset:
         # port was 9999, factory says 8080.
         assert cfg["web"]["port"] == "8080"
 
+    @_skip_on_windows
     def test_factory_reset_preserves_identity(self, client, tmp_path):
         """R3-2: [identity] (api_token, hash, callsign) must survive reset.
 
@@ -429,6 +436,7 @@ class TestFactoryReset:
             == "pbkdf2:sha256:600000$salt$hash"
         )
 
+    @_skip_on_windows
     def test_factory_reset_no_identity_when_none_present(
         self, client, tmp_config_with_factory,
     ):
@@ -449,6 +457,7 @@ class TestFactoryReset:
         assert not cfg.has_section("identity")
         assert cfg["camera"]["fps"] == "30"
 
+    @_skip_on_windows
     def test_factory_reset_creates_timestamped_backup(
         self, client, tmp_config_with_factory,
     ):

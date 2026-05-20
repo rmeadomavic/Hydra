@@ -17,6 +17,7 @@ Covers:
 from __future__ import annotations
 
 import configparser
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -30,6 +31,17 @@ from hydra_detect.operating_mode import (
     set_mode,
 )
 from hydra_detect.web.server import app, configure_auth, stream_state
+
+# set_mode() -> _write_mode_atomic() imports fcntl (POSIX-only) and uses the
+# flock + os.replace-over-open-handle pattern. _write_mode_atomic itself
+# documents that the call fails on Windows because the production target is
+# Linux/Jetson. Tests that drive a real mode write skip on Windows dev
+# workstations. Mirrors tests/test_config_api.py::_skip_on_windows.
+_skip_on_windows = pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="_write_mode_atomic uses fcntl + os.replace, POSIX-only "
+    "(production targets Linux/Jetson)",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +165,7 @@ class TestCurrentMode:
 # ---------------------------------------------------------------------------
 
 class TestSetMode:
+    @_skip_on_windows
     def test_set_mode_persists_to_config(self, tmp_config: Path):
         with patch("hydra_detect.operating_mode.get_config_path", return_value=tmp_config):
             cfg = configparser.ConfigParser()
@@ -163,6 +176,7 @@ class TestSetMode:
         cfg2.read(tmp_config)
         assert cfg2.get("system", "mode") == "FIELD"
 
+    @_skip_on_windows
     def test_set_mode_reads_back_correctly(self, tmp_config: Path):
         with patch("hydra_detect.operating_mode.get_config_path", return_value=tmp_config):
             cfg = configparser.ConfigParser()
@@ -180,6 +194,7 @@ class TestSetMode:
             with pytest.raises(ModeTransitionError, match="ARMED"):
                 set_mode(cfg, OperatingMode.ARMED, reason="hot range", confirmed_twice=False)
 
+    @_skip_on_windows
     def test_armed_succeeds_with_confirmed_twice_true(self, tmp_config: Path):
         with patch("hydra_detect.operating_mode.get_config_path", return_value=tmp_config):
             cfg = configparser.ConfigParser()
@@ -190,6 +205,7 @@ class TestSetMode:
         cfg2.read(tmp_config)
         assert cfg2.get("system", "mode") == "ARMED"
 
+    @_skip_on_windows
     def test_other_modes_do_not_require_confirmed_twice(self, tmp_config: Path):
         for mode in [OperatingMode.BENCH, OperatingMode.MAINTENANCE, OperatingMode.SIM]:
             with patch("hydra_detect.operating_mode.get_config_path", return_value=tmp_config):
@@ -204,6 +220,7 @@ class TestSetMode:
 # ---------------------------------------------------------------------------
 
 class TestModeTransitionEvent:
+    @_skip_on_windows
     def test_event_written_on_transition(self, tmp_config: Path):
         mock_logger = MagicMock()
         with patch("hydra_detect.operating_mode.get_config_path", return_value=tmp_config):
@@ -224,6 +241,7 @@ class TestModeTransitionEvent:
         assert details["to"] == "FIELD"
         assert details["reason"] == "pre-sortie"
 
+    @_skip_on_windows
     def test_event_includes_from_and_to(self, tmp_config: Path):
         mock_logger = MagicMock()
         with patch("hydra_detect.operating_mode.get_config_path", return_value=tmp_config):
@@ -239,6 +257,7 @@ class TestModeTransitionEvent:
         assert details["from"] == "OBSERVE"
         assert details["to"] == "BENCH"
 
+    @_skip_on_windows
     def test_event_includes_actor(self, tmp_config: Path):
         mock_logger = MagicMock()
         with patch("hydra_detect.operating_mode.get_config_path", return_value=tmp_config):
@@ -253,6 +272,7 @@ class TestModeTransitionEvent:
         )
         assert "actor" in details
 
+    @_skip_on_windows
     def test_no_event_when_no_logger(self, tmp_config: Path):
         """set_mode works even when no event logger is registered."""
         with patch("hydra_detect.operating_mode.get_config_path", return_value=tmp_config):
@@ -304,6 +324,7 @@ class TestModeGetEndpoint:
 # ---------------------------------------------------------------------------
 
 class TestModePostEndpoint:
+    @_skip_on_windows
     def test_post_transitions_mode(self, client, tmp_config: Path):
         with patch("hydra_detect.web.mode_api.get_config_path", return_value=tmp_config):
             with patch("hydra_detect.operating_mode.get_config_path", return_value=tmp_config):
@@ -335,6 +356,7 @@ class TestModePostEndpoint:
                 })
         assert resp.status_code == 400
 
+    @_skip_on_windows
     def test_post_armed_with_confirm_and_reason_succeeds(self, client, tmp_config: Path):
         with patch("hydra_detect.web.mode_api.get_config_path", return_value=tmp_config):
             with patch("hydra_detect.operating_mode.get_config_path", return_value=tmp_config):
@@ -360,6 +382,7 @@ class TestModePostEndpoint:
                                headers={"content-type": "application/json"})
         assert resp.status_code == 400
 
+    @_skip_on_windows
     def test_post_persists_across_get(self, client, tmp_config: Path):
         with patch("hydra_detect.web.mode_api.get_config_path", return_value=tmp_config):
             with patch("hydra_detect.operating_mode.get_config_path", return_value=tmp_config):

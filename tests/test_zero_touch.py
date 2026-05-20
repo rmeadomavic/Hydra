@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +11,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from hydra_detect.web.server import app, configure_auth, stream_state
+
+# write_config holds an open fd for advisory flock on POSIX, then calls
+# os.replace on the same path. Windows refuses to rename over an open file
+# (WinError 5), so setup-save / factory-reset / import endpoints return 500.
+# The production target is Jetson/Linux — tests that drive a real config
+# write skip on Windows dev workstations.
+# Mirrors tests/test_config_api.py::_skip_on_windows.
+_skip_on_windows = pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="write_config flock pattern incompatible with Windows os.replace",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -108,6 +120,7 @@ class TestSetupDevices:
 # ── Setup Save API ─────────────────────────────────────────────
 
 class TestSetupSave:
+    @_skip_on_windows
     def test_save_writes_config(self, client, tmp_config):
         with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
             resp = client.post("/api/setup/save", json={
@@ -129,6 +142,7 @@ class TestSetupSave:
         assert config["mavlink"]["connection_string"] == "/dev/ttyACM0"
         assert config["tak"]["callsign"] == "HYDRA-3-USV"
 
+    @_skip_on_windows
     def test_save_with_explicit_callsign(self, client, tmp_config):
         with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
             resp = client.post("/api/setup/save", json={
@@ -173,6 +187,7 @@ class TestSetupSave:
 # ── Factory Reset ─────────────────────────────────────────────
 
 class TestFactoryReset:
+    @_skip_on_windows
     def test_factory_reset_restores_defaults(self, client, tmp_config, tmp_factory):
         # First modify the config
         with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
@@ -193,6 +208,7 @@ class TestFactoryReset:
         assert resp.status_code == 404
         assert "No factory defaults" in resp.json()["error"]
 
+    @_skip_on_windows
     def test_factory_reset_creates_backup(self, client, tmp_config, tmp_factory):
         # Issue #75 — factory-reset writes a timestamped pre-reset snapshot
         # that survives the next save (the rolling .bak does not).
@@ -204,6 +220,7 @@ class TestFactoryReset:
         assert Path(backup_path).exists()
         assert "before-reset." in Path(backup_path).name
 
+    @_skip_on_windows
     def test_factory_reset_does_not_trigger_in_process_restart(
         self, client, tmp_config, tmp_factory,
     ):
@@ -270,6 +287,7 @@ class TestConfigExport:
 # ── Config Import ─────────────────────────────────────────────
 
 class TestConfigImport:
+    @_skip_on_windows
     def test_import_writes_config(self, client, tmp_config):
         with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
             resp = client.post("/api/config/import", json={
@@ -284,6 +302,7 @@ class TestConfigImport:
         assert config["camera"]["source"] == "/dev/video4"
         assert config["tak"]["callsign"] == "IMPORTED"
 
+    @_skip_on_windows
     def test_import_returns_restart_required(self, client, tmp_config):
         with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):
             resp = client.post("/api/config/import", json={

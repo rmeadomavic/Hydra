@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+import sys
 import time
 from unittest.mock import patch
 
@@ -13,6 +14,16 @@ from hydra_detect.web.config_api import (
     write_config,
 )
 from hydra_detect.autonomous import AutonomousController
+
+# write_config holds an open fd for advisory flock on POSIX, then calls
+# os.replace on the same path. Windows refuses to rename over an open file
+# (WinError 5). The production target is Jetson/Linux — tests that drive a
+# real write_config write path skip on Windows dev workstations.
+# Mirrors tests/test_config_api.py::_skip_on_windows.
+_skip_on_windows = pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="write_config flock pattern incompatible with Windows os.replace",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +88,7 @@ class TestConfigFreezeDuringEngagement:
         config.read(tmp_config)
         assert config["autonomous"]["min_confidence"] == "0.85"
 
+    @_skip_on_windows
     def test_servo_tracking_locked_fields_rejected(self, tmp_config):
         """Only the specific servo_tracking keys are locked."""
         set_engagement_check(lambda: True)
@@ -98,6 +110,7 @@ class TestConfigFreezeDuringEngagement:
         assert config["servo_tracking"]["strike_channel"] == "2"  # unchanged
         assert config["servo_tracking"]["pan_pwm_center"] == "1600"  # changed
 
+    @_skip_on_windows
     def test_non_safety_fields_allowed_during_engagement(self, tmp_config):
         """Non-safety sections (camera, detector) are writable during engagement."""
         set_engagement_check(lambda: True)
@@ -115,6 +128,7 @@ class TestConfigFreezeDuringEngagement:
         assert config["camera"]["width"] == "1280"
         assert config["detector"]["yolo_confidence"] == "0.60"
 
+    @_skip_on_windows
     def test_fields_allowed_when_no_engagement(self, tmp_config):
         """Safety fields are writable when no engagement is active."""
         set_engagement_check(lambda: False)
@@ -132,6 +146,7 @@ class TestConfigFreezeDuringEngagement:
         assert config["autonomous"]["min_confidence"] == "0.50"
         assert config["servo_tracking"]["strike_channel"] == "5"
 
+    @_skip_on_windows
     def test_fields_allowed_when_no_callback_registered(self, tmp_config):
         """Without an engagement callback, all fields are writable."""
         # _reset_engagement_cb already clears it; just verify
@@ -146,6 +161,7 @@ class TestConfigFreezeDuringEngagement:
         config.read(tmp_config)
         assert config["autonomous"]["min_confidence"] == "0.50"
 
+    @_skip_on_windows
     def test_locked_key_in_return_dict(self, tmp_config):
         """The return dict always contains a 'locked' key."""
         with patch("hydra_detect.web.config_api.get_config_path", return_value=tmp_config):

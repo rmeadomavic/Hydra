@@ -4,12 +4,24 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import threading
 from unittest.mock import MagicMock, patch, mock_open
 
+import pytest
 import requests
 
 from hydra_detect.rf.kismet_manager import KismetManager
+
+# KismetManager.stop() kills the process group via os.getpgid/os.killpg,
+# which do not exist on Windows. Kismet is a Linux-only RF capture tool
+# (libpcap wireless monitor mode) and never runs on a Windows host, so the
+# stop() process-group path is exercised only on Linux/Jetson.
+_skip_on_windows = pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="KismetManager.stop() uses os.getpgid/os.killpg, POSIX-only "
+    "(Kismet is a Linux-only RF tool)",
+)
 
 
 class TestKismetManagerDependencyPolicy:
@@ -151,6 +163,7 @@ class TestKismetManagerStart:
 
 
 class TestKismetManagerStop:
+    @_skip_on_windows
     def test_stop_kills_owned_process(self):
         mgr = KismetManager(
             source="rtl433-0",
@@ -180,6 +193,7 @@ class TestKismetManagerStop:
 
         mgr.stop()  # should not raise
 
+    @_skip_on_windows
     def test_stop_sigkill_fallback(self):
         mgr = KismetManager(
             source="rtl433-0",

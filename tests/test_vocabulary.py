@@ -91,7 +91,7 @@ class TestForbiddenTokensAbsent:
 
     def test_no_unmanned_anywhere_in_templates(self):
         for tpl in TEMPLATES_DIR.glob("*.html"):
-            text = tpl.read_text()
+            text = tpl.read_text(encoding="utf-8")
             assert "unmanned" not in text.lower(), (
                 f"Forbidden token 'unmanned' in {tpl.name}; use 'uncrewed'."
             )
@@ -116,7 +116,7 @@ class TestForbiddenTokensAbsent:
         HYDRA-{team}-{vehicle}.
         """
         for tpl in TEMPLATES_DIR.glob("*.html"):
-            raw = tpl.read_text()
+            raw = tpl.read_text(encoding="utf-8")
             # Drop the HYDRA-{team}-{vehicle} literal so the remaining corpus
             # can be checked strictly.
             scrubbed = raw.replace("HYDRA-{team}-{vehicle}", "HYDRA-CALLSIGN")
@@ -165,14 +165,14 @@ class TestKeepClauses:
         """The event logger still carries mission_name — the Python-side
         data contract must not track the UI vocabulary rename.
         """
-        src = (REPO_ROOT / "hydra_detect" / "event_logger.py").read_text()
+        src = (REPO_ROOT / "hydra_detect" / "event_logger.py").read_text(encoding="utf-8")
         assert "_mission_name" in src or "mission_name" in src
 
     def test_callsign_placeholder_preserved_in_setup(self):
         """The callsign format literal {vehicle} must survive the sweep —
         renaming it would break an operator-facing contract.
         """
-        html = (TEMPLATES_DIR / "setup.html").read_text()
+        html = (TEMPLATES_DIR / "setup.html").read_text(encoding="utf-8")
         assert "HYDRA-{team}-{vehicle}" in html
 
 
@@ -254,14 +254,14 @@ class TestJsStringsSwept:
     """
 
     def test_ops_js_toast_uses_sortie(self):
-        src = (JS_DIR / "ops.js").read_text()
+        src = (JS_DIR / "ops.js").read_text(encoding="utf-8")
         assert "'Sortie ended'" in src
         assert "'Mission ended'" not in src
         assert "End current sortie" in src
         assert "End current mission" not in src
 
     def test_config_js_toast_uses_sortie(self):
-        src = (JS_DIR / "config.js").read_text()
+        src = (JS_DIR / "config.js").read_text(encoding="utf-8")
         assert "Sortie started: " in src
         assert "Sortie ended" in src
         assert "End current sortie" in src
@@ -274,7 +274,7 @@ class TestJsStringsSwept:
         assert "Enter a mission name before starting" not in src
 
     def test_config_js_confirm_uses_platform(self):
-        src = (JS_DIR / "config.js").read_text()
+        src = (JS_DIR / "config.js").read_text(encoding="utf-8")
         assert "'Command platform to LOITER?'" in src
         assert "'Resume AUTO sortie?'" in src
         assert "Platform will switch to GUIDED mode." in src
@@ -283,12 +283,12 @@ class TestJsStringsSwept:
         assert "Vehicle will switch to GUIDED mode." not in src
 
     def test_instructor_js_uses_sortie_and_platform(self):
-        src = (JS_DIR / "instructor.js").read_text()
+        src = (JS_DIR / "instructor.js").read_text(encoding="utf-8")
         assert "'Sortie'" in src
         assert "platform unreachable" in src
         assert "vehicle unreachable" not in src
 
     def test_autonomy_js_uses_platform_modes_label(self):
-        src = (JS_DIR / "autonomy.js").read_text()
+        src = (JS_DIR / "autonomy.js").read_text(encoding="utf-8")
         assert "'Allowed platform modes'" in src
         assert "'Allowed vehicle modes'" not in src
