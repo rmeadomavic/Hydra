@@ -236,6 +236,69 @@ class TestHealthSnapshotDiskFreePct:
 
 
 # ---------------------------------------------------------------------------
+# Absent-partition alerting — issue #248 follow-up to PR #253.
+# PR #253 made a missing partition path OMIT its label (correct). This left a
+# gap: a configured mount that drops mid-mission just loses its disk_free_pct
+# series with nothing watching for it. health_snapshot now compares the
+# expected/configured label set against the present one and emits a
+# structured ``partition_absent`` warning per expected-but-absent label.
+# ---------------------------------------------------------------------------
+
+
+class TestAbsentPartitionAlert:
+    def test_expected_partition_missing_emits_alert(self, tmp_path, caplog):
+        # Configure two partitions: one valid (a real tmpdir) and one whose
+        # path does not exist. The bad label must be ABSENT from the metrics
+        # AND must produce a structured partition_absent warning.
+        valid = tmp_path / "valid"
+        valid.mkdir()
+        nonexistent = tmp_path / "does" / "not" / "exist"
+        with caplog.at_level(
+            logging.WARNING, logger="hydra_detect.observability.health",
+        ):
+            snap = health_snapshot(
+                stats={"camera_ok": True, "fps": 10.0},
+                disk_partitions={
+                    "good": str(valid),
+                    "dropped": str(nonexistent),
+                },
+            )
+        # Producer contract (PR #253) intact: bad label omitted, good present.
+        assert "dropped" not in snap["disk_free_pct"]
+        assert "good" in snap["disk_free_pct"]
+        # Consumer-side alert: a partition_absent warning naming the label.
+        alerts = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING
+            and "partition_absent" in r.getMessage()
+        ]
+        assert len(alerts) == 1, [r.getMessage() for r in caplog.records]
+        assert "dropped" in alerts[0].getMessage()
+
+    def test_all_valid_partitions_emits_no_alert(self, tmp_path, caplog):
+        # Every configured partition resolves — no partition_absent warning.
+        a = tmp_path / "a"
+        b = tmp_path / "b"
+        a.mkdir()
+        b.mkdir()
+        with caplog.at_level(
+            logging.WARNING, logger="hydra_detect.observability.health",
+        ):
+            snap = health_snapshot(
+                stats={"camera_ok": True, "fps": 10.0},
+                disk_partitions={"a": str(a), "b": str(b)},
+            )
+        assert "a" in snap["disk_free_pct"]
+        assert "b" in snap["disk_free_pct"]
+        alerts = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING
+            and "partition_absent" in r.getMessage()
+        ]
+        assert alerts == [], [r.getMessage() for r in alerts]
+
+
+# ---------------------------------------------------------------------------
 # disk_bytes sibling field + partition-resolve hardening (issue #232)
 # Adversarial follow-ups R3-1, R3-3, R3-4, R1-5 on PR #227.
 # ---------------------------------------------------------------------------

@@ -306,6 +306,39 @@ def compute_disk_bytes(
     return out
 
 
+def _alert_absent_partitions(
+    expected: tuple[tuple[str, str], ...],
+    present: Dict[str, Any],
+) -> None:
+    """Emit a structured warning for each expected partition label missing
+    from the computed disk metrics.
+
+    Issue #248 / PR #253 made ``_partition_usage`` omit a label (with a
+    ``disk_probe`` warning) when its path does not exist, instead of walking
+    up to an ancestor partition. That removed the silent-rewrite bug but left
+    a downstream gap: when a configured mount (e.g. ``output_data``) drops
+    mid-mission, its ``disk_free_pct`` series simply disappears and nothing
+    flags it. ``_partition_usage`` warns from the probe's point of view ("a
+    path was bad"); this function warns from the *config's* point of view
+    ("a partition we were told to watch is gone"), which is the signal an
+    operator actually alerts on.
+
+    Every label in the configured/expected list is, by construction, a mount
+    Hydra is told to watch — there is no "optional partition" marker in the
+    data model, so a configured-but-absent label is always alert-worthy.
+    Uses the same ``_log.warning`` structured-line mechanism the rest of
+    this module uses; the observability package has no separate alert object.
+    """
+    for label, path in expected:
+        if label not in present:
+            _log.warning(
+                "partition_absent: expected partition label missing from "
+                "disk metrics — configured mount may have dropped "
+                "label=%r path=%r",
+                label, path,
+            )
+
+
 def _worst(items: Dict[str, Dict[str, str]]) -> str:
     worst_rank = 0
     for v in items.values():
@@ -368,10 +401,24 @@ def health_snapshot(
     subsystems["audit"] = _safe_probe(_probe_audit, audit_sink)
     subsystems["disk"] = _safe_probe(lambda _r: _probe_disk(disk_path), None)
 
+    disk_free_pct = compute_disk_free(disk_partitions)
+    disk_bytes = compute_disk_bytes(disk_partitions)
+
+    # Consumer-side absent-partition detection (issue #248 follow-up). The
+    # producers above omit a label whose path is unreadable; here — where the
+    # configured/expected partition list is known — compare expected against
+    # present and warn for any expected label that dropped out, so a mount
+    # failure surfaces as an alert rather than a silently missing series.
+    if disk_partitions is None:
+        expected = _default_partitions()
+    else:
+        expected = tuple(disk_partitions.items())
+    _alert_absent_partitions(expected, disk_free_pct)
+
     return {
         "status": _worst(subsystems),
         "ts": time.time(),
         "subsystems": subsystems,
-        "disk_free_pct": compute_disk_free(disk_partitions),
-        "disk_bytes": compute_disk_bytes(disk_partitions),
+        "disk_free_pct": disk_free_pct,
+        "disk_bytes": disk_bytes,
     }
