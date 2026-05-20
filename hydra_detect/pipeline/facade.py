@@ -2063,6 +2063,8 @@ class Pipeline:
         GUIDED, and sends the waypoint. Without MAVLink, the overlay
         still shows strike mode for visual confirmation.
         """
+        if self._refuse_approach_for_fw("strike"):
+            return False
         with self._state_lock:
             if self._last_track_result is None:
                 return False
