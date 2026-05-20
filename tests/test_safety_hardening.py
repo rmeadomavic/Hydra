@@ -85,6 +85,11 @@ class TestRTSPBindAddress:
 # ---------------------------------------------------------------------------
 
 class TestConfigWriteFsync:
+    @pytest.mark.skipif(
+        sys.platform.startswith("win"),
+        reason="write_config flock pattern incompatible with Windows os.replace "
+        "(mirrors tests/test_config_api.py::_skip_on_windows)",
+    )
     def test_write_config_calls_fsync(self, tmp_path):
         """write_config should call os.fsync after writing."""
         config = configparser.ConfigParser()

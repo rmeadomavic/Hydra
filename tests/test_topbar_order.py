@@ -26,7 +26,7 @@ def _positions(haystack: str, needles: list[str]) -> list[int]:
 
 class TestTopbarBlipOrder:
     def test_five_spec_blips_are_in_order_cam_mav_gps_kis_tak(self):
-        html = BASE_HTML.read_text()
+        html = BASE_HTML.read_text(encoding="utf-8")
         spec = [
             'data-blip="cam"',
             'data-blip="mav"',
@@ -42,7 +42,7 @@ class TestTopbarBlipOrder:
 
     def test_sim_pill_is_sibling_of_blips(self):
         """SIM pill stays as separate element beside blips."""
-        html = BASE_HTML.read_text()
+        html = BASE_HTML.read_text(encoding="utf-8")
         blips_start = html.index('class="tb-blips"')
         blips_end = html.index("</div>", blips_start)
         pill_pos = html.index('id="sim-gps-pill"')
@@ -53,7 +53,7 @@ class TestTopbarBlipOrder:
 
 class TestCockpitStripOrder:
     def test_cockpit_cells_in_order_servo_tak_sdr(self):
-        html = OPS_HTML.read_text()
+        html = OPS_HTML.read_text(encoding="utf-8")
         ids = [
             'id="ops-cockpit-servo"',
             'id="ops-cockpit-tak"',
@@ -66,6 +66,6 @@ class TestCockpitStripOrder:
         )
 
     def test_cockpit_strip_container_present(self):
-        html = OPS_HTML.read_text()
+        html = OPS_HTML.read_text(encoding="utf-8")
         assert 'id="ops-cockpit-strip"' in html
         assert 'class="cockpit-strip"' in html

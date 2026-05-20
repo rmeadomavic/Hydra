@@ -27,13 +27,13 @@ MAIN_JS = REPO_ROOT / "hydra_detect" / "web" / "static" / "js" / "main.js"
 
 class TestTopbarMarkup:
     def test_topbar_has_mock_data_attribute(self):
-        html = BASE_HTML.read_text()
+        html = BASE_HTML.read_text(encoding="utf-8")
         assert 'class="topbar" data-mock="1"' in html, (
             "Topbar must carry data-mock=1 so base.css overrides win cascade."
         )
 
     def test_logo_lockup_elements_present(self):
-        html = BASE_HTML.read_text()
+        html = BASE_HTML.read_text(encoding="utf-8")
         # Lockup container
         assert 'id="tb-lockup"' in html
         assert 'class="tb-lockup"' in html
@@ -50,14 +50,14 @@ class TestTopbarMarkup:
         assert "ogt_horizontal_white.png" in html
 
     def test_six_health_blips_present(self):
-        html = BASE_HTML.read_text()
+        html = BASE_HTML.read_text(encoding="utf-8")
         for blip in ("mav", "gps", "sim", "kis", "tak", "cam"):
             assert f'data-blip="{blip}"' in html, f"missing blip data-blip={blip!r}"
         # Each blip uses the tb-dot primitive
         assert html.count("tb-dot") >= 6
 
     def test_sim_pill_present_and_hidden(self):
-        html = BASE_HTML.read_text()
+        html = BASE_HTML.read_text(encoding="utf-8")
         assert 'id="sim-gps-pill"' in html
         # The pill is the new tb-sim-pill styling and must be hidden by default
         assert 'class="tb-sim-pill sim-gps-pill"' in html
@@ -69,7 +69,7 @@ class TestTopbarMarkup:
         assert "hidden" in tag, f"SIM pill tag missing hidden attr: {tag!r}"
 
     def test_abort_button_present_with_danger_lg(self):
-        html = BASE_HTML.read_text()
+        html = BASE_HTML.read_text(encoding="utf-8")
         assert 'id="tb-abort"' in html
         # btn-danger-lg is the spec-named class; btn btn-danger is the base
         assert "btn-danger-lg" in html
@@ -77,7 +77,7 @@ class TestTopbarMarkup:
         assert "ABORT" in html
 
     def test_emergency_flash_overlay_present(self):
-        html = BASE_HTML.read_text()
+        html = BASE_HTML.read_text(encoding="utf-8")
         assert 'id="emergency-flash"' in html
         # Sanity: the overlay is a standalone div (not nested inside topbar)
         idx = html.index('id="emergency-flash"')
@@ -87,15 +87,15 @@ class TestTopbarMarkup:
 
 class TestTopbarCss:
     def test_pulse_red_keyframe_defined(self):
-        css = BASE_CSS.read_text()
+        css = BASE_CSS.read_text(encoding="utf-8")
         assert "@keyframes pulse-red" in css
 
     def test_pulse_glow_keyframe_preserved(self):
-        css = BASE_CSS.read_text()
+        css = BASE_CSS.read_text(encoding="utf-8")
         assert "@keyframes pulse-glow" in css
 
     def test_topbar_mock_height_and_gradient(self):
-        css = BASE_CSS.read_text()
+        css = BASE_CSS.read_text(encoding="utf-8")
         assert '.topbar[data-mock="1"]' in css
         # Mock spec: height 64px and linear-gradient(180deg,#141414,#0a0a0a)
         start = css.index('.topbar[data-mock="1"] {')
@@ -104,7 +104,7 @@ class TestTopbarCss:
         assert "linear-gradient(180deg, #141414, #0a0a0a)" in block
 
     def test_body_emerg_attr_drives_abort_and_flash(self):
-        css = BASE_CSS.read_text()
+        css = BASE_CSS.read_text(encoding="utf-8")
         assert 'body[data-emerg="1"] .topbar[data-mock="1"] .tb-abort' in css
         assert 'body[data-emerg="1"] #emergency-flash' in css
 
@@ -114,7 +114,7 @@ class TestPreservationGuards:
         """main.js:36-42 rewrites document.title and the topbar brand to
         `${callsign} — SORCC` on first /api/stats. Preservation rule says
         this block must remain verbatim across any topbar rewrite."""
-        js = MAIN_JS.read_text()
+        js = MAIN_JS.read_text(encoding="utf-8")
         assert "if (data.callsign && !callsignSet) {" in js
         assert "document.querySelector('.topbar-brand')" in js
         assert "brandEl.textContent = `${data.callsign}`;" in js
@@ -122,13 +122,13 @@ class TestPreservationGuards:
         assert "callsignSet = true;" in js
 
     def test_duplicate_callsign_warning_preserved(self):
-        js = MAIN_JS.read_text()
+        js = MAIN_JS.read_text(encoding="utf-8")
         # main.js:45-48 multi-team collision warning
         assert "duplicate_callsign" in js
         assert "DUPLICATE CALLSIGN" in js
 
     def test_sentience_overlay_preserved(self):
-        html = BASE_HTML.read_text()
+        html = BASE_HTML.read_text(encoding="utf-8")
         assert 'id="sentience-overlay"' in html
         assert 'id="sentience-terminal"' in html
         assert 'id="sentience-crosshair"' in html
@@ -136,13 +136,13 @@ class TestPreservationGuards:
         assert "⊕" in html
 
     def test_power_user_modal_preserved(self):
-        html = BASE_HTML.read_text()
+        html = BASE_HTML.read_text(encoding="utf-8")
         assert 'id="power-user-modal"' in html
         assert 'id="power-user-cancel"' in html
         assert 'id="power-user-enable"' in html
 
     def test_footer_preserved(self):
-        html = BASE_HTML.read_text()
+        html = BASE_HTML.read_text(encoding="utf-8")
         assert 'class="footer"' in html
         assert "UNCLASSIFIED" in html
         assert "SORCC Payload Integrator" in html

@@ -99,7 +99,14 @@ class TestScriptTags:
         assert "/static/js/autonomy.js" in html
 
     def test_easter_script_tag_present(self, client):
-        resp = client.get("/")
+        """easter.js is gated behind {% if morale_features_enabled %} in
+        base.html, so the flag must be toggled on for the tag to render.
+        Mirrors test_sentience_overlay_preserved_when_morale_enabled."""
+        configure_morale_features(True)
+        try:
+            resp = client.get("/")
+        finally:
+            configure_morale_features(False)
         html = resp.text
         assert "/static/js/easter.js" in html
 

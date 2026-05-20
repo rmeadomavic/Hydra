@@ -157,20 +157,20 @@ def test_sim_gps_flag_surfaces_to_stats_and_topbar():
     # (a) MAVLinkIO exposes the is_sim_gps property.
     from hydra_detect import mavlink_io
 
-    src = pathlib.Path(mavlink_io.__file__).read_text()
+    src = pathlib.Path(mavlink_io.__file__).read_text(encoding="utf-8")
     assert "def is_sim_gps" in src, "MAVLinkIO.is_sim_gps property missing"
 
     # (b) facade.py pushes is_sim_gps into the stats_update dict every frame.
-    facade_src = (HD_ROOT / "pipeline" / "facade.py").read_text()
+    facade_src = (HD_ROOT / "pipeline" / "facade.py").read_text(encoding="utf-8")
     assert 'stats_update["is_sim_gps"]' in facade_src, \
         "pipeline/facade.py must publish is_sim_gps in stats_update"
 
     # (c) Frontend surfaces it via SIM pill + SIM dot + (SIM) suffix.
-    base_html = (HD_ROOT / "web" / "templates" / "base.html").read_text()
+    base_html = (HD_ROOT / "web" / "templates" / "base.html").read_text(encoding="utf-8")
     assert "sim-gps-pill" in base_html, "SIM pill element missing from base.html"
-    main_js = (HD_ROOT / "web" / "static" / "js" / "main.js").read_text()
+    main_js = (HD_ROOT / "web" / "static" / "js" / "main.js").read_text(encoding="utf-8")
     assert "is_sim_gps" in main_js, "main.js must toggle SIM pill from is_sim_gps"
-    sim_js = (HD_ROOT / "web" / "static" / "js" / "ui" / "sim-gps.js").read_text()
+    sim_js = (HD_ROOT / "web" / "static" / "js" / "ui" / "sim-gps.js").read_text(encoding="utf-8")
     assert "(SIM)" in sim_js, "sim-gps.js must append (SIM) suffix"
 
 
@@ -241,7 +241,7 @@ def test_abort_endpoint_source_wraps_callbacks_in_try_except():
     """Parse web/server.py and assert api_abort's callback-invocation
     block is inside a try/except. A crash in on_set_mode_command must
     never prevent the instructor from seeing a response."""
-    src = (HD_ROOT / "web" / "server.py").read_text()
+    src = (HD_ROOT / "web" / "server.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
 
     api_abort = None
@@ -289,7 +289,7 @@ def test_abort_endpoint_source_wraps_callbacks_in_try_except():
 def test_abort_path_is_in_public_prefixes():
     """/api/abort must bypass auth — instructor safety exception.
     If this regresses, an unauthenticated instructor can't abort."""
-    src = (HD_ROOT / "web" / "server.py").read_text()
+    src = (HD_ROOT / "web" / "server.py").read_text(encoding="utf-8")
     # _PUBLIC_PATH_PREFIXES tuple must include /api/abort.
     match = re.search(
         r"_PUBLIC_PATH_PREFIXES\s*=\s*\(([^)]*)\)", src, re.DOTALL,
