@@ -345,6 +345,135 @@ class TestFWPipelineRefusal:
 
 
 @_skip_no_fcntl
+class TestFWStrikeViaRCSwitchPaths:
+    """Follow-up to PR #254 / issue #246: cover the RC-switch strike paths.
+
+    PR #254 added the FW refusal guard to ``_handle_strike_command`` and
+    proved it on the DIRECT call path. ``_handle_strike_command`` is also
+    bound to the ``on_strike`` callback of MAVLinkIO (facade.py wires it in
+    ``set_command_callbacks``). An RC switch flipped on the pilot's radio is
+    delivered to the companion computer as a MAVLink command — either a
+    COMMAND_LONG (MAV_CMD_USER_2 / CMD_STRIKE) or a NAMED_VALUE_INT
+    (HYDRA_STK / NV_STRIKE) — which MAVLinkIO routes into that callback.
+
+    These tests drive a strike through the real MAVLinkIO command listener
+    with a real FW-profile ``_handle_strike_command`` as the registered
+    callback, and assert the strike is refused end-to-end: no GUIDED nav,
+    no servo fire, no lock, and a FAILED ack back to the radio.
+    """
+
+    @staticmethod
+    def _wire_mavlink_to_pipeline(pipeline):
+        """Build a MAVLinkIO with the pipeline's strike handler registered.
+
+        Mirrors facade.py: ``set_command_callbacks(on_strike=p._handle_
+        strike_command, ...)``. The pipeline's own ``_mavlink`` MagicMock
+        stays in place so the strike handler can still attempt (and we can
+        assert it does NOT attempt) a GUIDED command.
+        """
+        from unittest.mock import MagicMock
+        from hydra_detect.mavlink_io import MAVLinkIO
+
+        mav = MAVLinkIO(connection_string="/dev/null", baud=115200)
+        mav._mav = MagicMock()
+        mav._mav.mav = MagicMock()
+        mav.set_command_callbacks(on_strike=pipeline._handle_strike_command)
+        return mav
+
+    @staticmethod
+    def _command_long(command: int, param1: float) -> "object":
+        from unittest.mock import MagicMock
+        msg = MagicMock()
+        msg.get_type.return_value = "COMMAND_LONG"
+        msg.command = command
+        msg.param1 = param1
+        return msg
+
+    @staticmethod
+    def _named_value_int(name: str, value: int) -> "object":
+        from unittest.mock import MagicMock
+        msg = MagicMock()
+        msg.get_type.return_value = "NAMED_VALUE_INT"
+        msg.name = name
+        msg.value = value
+        return msg
+
+    def test_fw_refuses_strike_via_command_long(self):
+        """RC switch -> COMMAND_LONG (CMD_STRIKE) is refused on FW."""
+        import logging
+        p = TestFWPipelineRefusal._make_pipeline("fw")
+        mav = self._wire_mavlink_to_pipeline(p)
+
+        msg = self._command_long(mav.CMD_STRIKE, param1=3.0)
+        mav._handle_command_long(msg, logging.getLogger("hydra.audit"))
+
+        # Strike must not reach the autopilot or the servo.
+        p._mavlink.command_guided_to.assert_not_called()
+        p._servo_tracker.fire_strike.assert_not_called()
+        # No lock set on refusal.
+        assert p._locked_track_id is None
+        # Radio gets a FAILED ack (MAV_RESULT_FAILED == 4), not ACCEPTED.
+        mav._mav.mav.command_ack_send.assert_called_once_with(
+            mav.CMD_STRIKE, 4,
+        )
+
+    def test_fw_refuses_strike_via_named_value_int(self):
+        """RC switch -> NAMED_VALUE_INT (NV_STRIKE) is refused on FW."""
+        import logging
+        p = TestFWPipelineRefusal._make_pipeline("fw")
+        mav = self._wire_mavlink_to_pipeline(p)
+
+        msg = self._named_value_int(mav.NV_STRIKE, 3)
+        mav._handle_named_value_int(msg, logging.getLogger("hydra.audit"))
+
+        p._mavlink.command_guided_to.assert_not_called()
+        p._servo_tracker.fire_strike.assert_not_called()
+        assert p._locked_track_id is None
+
+    def test_fw_strike_via_command_long_emits_audit_log(self, caplog):
+        """RC-triggered strike refusal still lands on hydra.audit."""
+        import logging
+        p = TestFWPipelineRefusal._make_pipeline("fw")
+        mav = self._wire_mavlink_to_pipeline(p)
+
+        with caplog.at_level(logging.INFO, logger="hydra.audit"):
+            msg = self._command_long(mav.CMD_STRIKE, param1=3.0)
+            mav._handle_command_long(msg, logging.getLogger("hydra.audit"))
+
+        joined = " ".join(r.getMessage() for r in caplog.records)
+        assert "FW_PROFILE_REFUSED" in joined
+        assert "strike" in joined
+
+    def test_drone_strike_via_command_long_still_runs(self):
+        """Regression: drone profile still strikes through the RC-switch path."""
+        import logging
+        p = TestFWPipelineRefusal._make_pipeline("drone")
+        mav = self._wire_mavlink_to_pipeline(p)
+
+        msg = self._command_long(mav.CMD_STRIKE, param1=3.0)
+        mav._handle_command_long(msg, logging.getLogger("hydra.audit"))
+
+        p._mavlink.command_guided_to.assert_called_once()
+        p._servo_tracker.fire_strike.assert_called_once()
+        # Radio gets an ACCEPTED ack (MAV_RESULT_ACCEPTED == 0).
+        mav._mav.mav.command_ack_send.assert_called_once_with(
+            mav.CMD_STRIKE, 0,
+        )
+
+    def test_drone_strike_via_named_value_int_still_runs(self):
+        """Regression: drone profile still strikes via NAMED_VALUE_INT."""
+        import logging
+        p = TestFWPipelineRefusal._make_pipeline("drone")
+        mav = self._wire_mavlink_to_pipeline(p)
+
+        msg = self._named_value_int(mav.NV_STRIKE, 3)
+        mav._handle_named_value_int(msg, logging.getLogger("hydra.audit"))
+
+        p._mavlink.command_guided_to.assert_called_once()
+        p._servo_tracker.fire_strike.assert_called_once()
+
+
+@_skip_no_fcntl
 class TestFWHelpers:
     """Direct tests for the FW gating helpers."""
 
