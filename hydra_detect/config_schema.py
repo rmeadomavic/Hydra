@@ -11,6 +11,13 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# Canonical config section names. Defined once here so callers that read
+# config sections by name (e.g. capability_status.py) do not re-hardcode the
+# literal and re-drift if the schema is renamed. See issue #247 / PR #252 —
+# the [autonomy] vs [autonomous] mismatch is exactly the drift this prevents.
+SECTION_AUTONOMOUS = "autonomous"
+
+
 class FieldType(Enum):
     BOOL = "bool"
     INT = "int"
@@ -466,7 +473,7 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             description="Dashboard color theme (locked to lattice)",
         ),
     },
-    "autonomous": {
+    SECTION_AUTONOMOUS: {
         "enabled": FieldSpec(
             FieldType.BOOL,
             default=False,
