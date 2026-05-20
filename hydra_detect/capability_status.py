@@ -13,12 +13,17 @@ Issue #146 — skeleton. Real ARMED gating follows #147.
 
 from __future__ import annotations
 
+import logging
 import shutil
 import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+from hydra_detect.config_schema import SECTION_AUTONOMOUS
+
+logger = logging.getLogger(__name__)
 
 
 # ── Status levels ────────────────────────────────────────────────────────────
@@ -300,20 +305,50 @@ def build_system_state(
             pass
     elif cfg is not None:
         try:
-            mode_raw = cfg.get("autonomous", "mode", fallback="dryrun").strip().lower()
+            # Legacy-config guard (#247 / PR #252). The canonical schema
+            # section is [autonomous]; an early-development config.ini may
+            # carry a stale [autonomy] section. When the legacy section is
+            # present and the canonical one is absent, the reads below all
+            # fall to defaults — warn the operator instead of silently
+            # disabling autonomy on a unit they tuned.
+            try:
+                has_legacy = cfg.has_section("autonomy")
+                has_canonical = cfg.has_section(SECTION_AUTONOMOUS)
+            except Exception:
+                has_legacy = has_canonical = False
+            if has_legacy and not has_canonical:
+                logger.warning(
+                    "Config has a legacy [autonomy] section but no "
+                    "[%s] section — autonomy settings will fall to "
+                    "defaults (disabled, no geofence). Rename the section "
+                    "to [%s] to restore your tuned values.",
+                    SECTION_AUTONOMOUS, SECTION_AUTONOMOUS,
+                )
+
+            mode_raw = cfg.get(
+                SECTION_AUTONOMOUS, "mode", fallback="dryrun",
+            ).strip().lower()
             if mode_raw in ("dryrun", "shadow", "live"):
                 state.autonomy_mode = mode_raw
-            enabled_raw = cfg.get("autonomous", "enabled", fallback="false").strip()
+            enabled_raw = cfg.get(
+                SECTION_AUTONOMOUS, "enabled", fallback="false",
+            ).strip()
             state.autonomy_enabled = enabled_raw.lower() in ("1", "true", "yes")
             # Geofence presence: any non-zero centre, or a polygon with 3+ pts.
-            poly_raw = cfg.get("autonomous", "geofence_polygon", fallback="").strip()
+            poly_raw = cfg.get(
+                SECTION_AUTONOMOUS, "geofence_polygon", fallback="",
+            ).strip()
             if poly_raw:
                 pts = [p for p in poly_raw.split(";") if "," in p]
                 state.autonomy_geofence_present = len(pts) >= 3
             if not state.autonomy_geofence_present:
                 try:
-                    lat = float(cfg.get("autonomous", "geofence_lat", fallback="0").strip())
-                    lon = float(cfg.get("autonomous", "geofence_lon", fallback="0").strip())
+                    lat = float(cfg.get(
+                        SECTION_AUTONOMOUS, "geofence_lat", fallback="0",
+                    ).strip())
+                    lon = float(cfg.get(
+                        SECTION_AUTONOMOUS, "geofence_lon", fallback="0",
+                    ).strip())
                     state.autonomy_geofence_present = (lat != 0.0 or lon != 0.0)
                 except (ValueError, TypeError):
                     pass

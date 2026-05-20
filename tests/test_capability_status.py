@@ -1179,6 +1179,65 @@ class TestBuildSystemStateExtensions:
 
 
 # ---------------------------------------------------------------------------
+# Legacy config section warning (#247 follow-up — R1-1 / R2-1 / R2-2)
+# ---------------------------------------------------------------------------
+
+class TestLegacyAutonomySectionWarning:
+    """A config carrying the pre-schema [autonomy] section name (instead of
+    the canonical [autonomous]) silently falls to defaults on the cfg
+    fallback path. build_system_state must warn the operator so they know
+    their tuned values are not being read."""
+
+    def test_warns_on_legacy_autonomy_section(self, caplog):
+        """Legacy [autonomy] present, canonical [autonomous] absent — warn."""
+        import configparser
+        from hydra_detect.capability_status import build_system_state
+
+        cfg = configparser.ConfigParser()
+        cfg.read_dict({
+            "autonomy": {
+                "enabled": "true",
+                "mode": "live",
+                "geofence_lat": "34.123",
+                "geofence_lon": "-118.456",
+            },
+        })
+        with caplog.at_level("WARNING", logger="hydra_detect.capability_status"):
+            state = build_system_state(cfg=cfg, autonomy_ref=None)
+
+        # Operator gets told the section name is stale.
+        assert any(
+            "legacy [autonomy]" in rec.message and rec.levelname == "WARNING"
+            for rec in caplog.records
+        ), caplog.text
+        # And the reads still fell to defaults — the warning is accurate.
+        assert state.autonomy_enabled is False
+        assert state.autonomy_geofence_present is False
+
+    def test_no_warning_on_canonical_autonomous_section(self, caplog):
+        """Canonical [autonomous] present — no legacy warning, values read."""
+        import configparser
+        from hydra_detect.capability_status import build_system_state
+
+        cfg = configparser.ConfigParser()
+        cfg.read_dict({
+            "autonomous": {
+                "enabled": "true",
+                "mode": "live",
+                "geofence_lat": "34.123",
+                "geofence_lon": "-118.456",
+            },
+        })
+        with caplog.at_level("WARNING", logger="hydra_detect.capability_status"):
+            state = build_system_state(cfg=cfg, autonomy_ref=None)
+
+        assert not any(
+            "legacy [autonomy]" in rec.message for rec in caplog.records
+        ), caplog.text
+        assert state.autonomy_enabled is True
+
+
+# ---------------------------------------------------------------------------
 # Placeholder capabilities — Drop, RF Hunt
 # ---------------------------------------------------------------------------
 
