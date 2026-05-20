@@ -13,6 +13,7 @@ from hydra_detect.web.config_api import (
     set_engagement_check,
     write_config,
 )
+from hydra_detect.autonomous import AutonomousController
 
 # write_config holds an open fd for advisory flock on POSIX, then calls
 # os.replace on the same path. Windows refuses to rename over an open file
@@ -23,7 +24,6 @@ _skip_on_windows = pytest.mark.skipif(
     sys.platform.startswith("win"),
     reason="write_config flock pattern incompatible with Windows os.replace",
 )
-from hydra_detect.autonomous import AutonomousController
 
 
 # ---------------------------------------------------------------------------

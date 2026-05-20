@@ -7,6 +7,15 @@ import sys
 
 import pytest
 
+from hydra_detect.review_export import (
+    build_summary,
+    generate_html,
+    parse_csv_log,
+    parse_jsonl,
+    parse_log,
+    main as export_main,
+)
+
 # review_export.main() writes the HTML report via Path.write_text() with no
 # explicit encoding. The report contains non-ASCII glyphs (e.g. U+2192 "->").
 # On Windows the default text encoding is cp1252, which cannot encode those
@@ -18,15 +27,6 @@ _skip_on_windows = pytest.mark.skipif(
     sys.platform.startswith("win"),
     reason="review_export.main() writes report without encoding='utf-8' "
     "(production defect) — fails under cp1252 on Windows",
-)
-
-from hydra_detect.review_export import (
-    build_summary,
-    generate_html,
-    parse_csv_log,
-    parse_jsonl,
-    parse_log,
-    main as export_main,
 )
 
 
