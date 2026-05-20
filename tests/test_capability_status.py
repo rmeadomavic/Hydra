@@ -1154,6 +1154,29 @@ class TestBuildSystemStateExtensions:
         assert state.autonomy_geofence_present is False
         assert state.identity_callsign == ""
 
+    def test_cfg_autonomous_section_populates_autonomy_fields(self):
+        """Regression for #247: build_system_state must read the 'autonomous'
+        config section (the schema-canonical name), not 'autonomy'. Before the
+        fix, every correctly-configured unit reported autonomy_enabled=False
+        and autonomy_geofence_present=False in the cfg fallback path."""
+        import configparser
+        from hydra_detect.capability_status import build_system_state
+
+        cfg = configparser.ConfigParser()
+        cfg.read_dict({
+            "autonomous": {
+                "enabled": "true",
+                "mode": "live",
+                "geofence_lat": "34.123",
+                "geofence_lon": "-118.456",
+            },
+        })
+        # autonomy_ref intentionally None so the cfg fallback path is exercised.
+        state = build_system_state(cfg=cfg, autonomy_ref=None)
+        assert state.autonomy_enabled is True
+        assert state.autonomy_mode == "live"
+        assert state.autonomy_geofence_present is True
+
 
 # ---------------------------------------------------------------------------
 # Placeholder capabilities — Drop, RF Hunt
