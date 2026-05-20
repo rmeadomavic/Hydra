@@ -349,6 +349,20 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
                 "rate cap. Issue #234 R1-1."
             ),
         ),
+        "set_mode_ack_timeout_sec": FieldSpec(
+            FieldType.FLOAT,
+            min_val=0.1,
+            max_val=10.0,
+            default=2.0,
+            description=(
+                "Wall-clock seconds the shared-battery graceful-stop will "
+                "wait for HEARTBEAT-mode-change confirmation after sending "
+                "set_mode(safe_mode). On timeout the post-action audit row "
+                "records set_mode_ok=false so post-incident replay shows "
+                "the FC never confirmed the override. Issue #241 / PR #240 "
+                "R1-2."
+            ),
+        ),
     },
     "alerts": {
         "light_bar_enabled": FieldSpec(
