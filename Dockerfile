@@ -50,6 +50,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rtl-sdr \
     && rm -rf /var/lib/apt/lists/*
 
+# torch on the l4t-pytorch base is built against numpy 1.x. The unpinned
+# scipy/matplotlib install above (and requirements-extra.txt) pull numpy 2.x
+# in transitively, which clobbers the numpy<2 pin from the filtered
+# requirements step and breaks torch.Tensor.numpy() at runtime
+# ("RuntimeError: Numpy is not available"). Pin numpy<2 last so it wins.
+# scipy 1.15 is compiled against the numpy 2.0 ABI but stays runtime-
+# compatible with numpy 1.x, so the downgrade does not break it.
+RUN pip3 install --no-cache-dir "numpy<2"
+
 # Copy application
 COPY hydra_detect/ ./hydra_detect/
 COPY config.ini .
