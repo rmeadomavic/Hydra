@@ -23,6 +23,19 @@ from .review_export import gps_coverage
 
 logger = logging.getLogger(__name__)
 
+
+class MissionNotFoundError(LookupError):
+    """Raised when a requested mission_id has zero rows in any scanned log.
+
+    Distinct from ``ValueError`` (which is reserved for malformed input like
+    an empty mission_id). Callers should map this to HTTP 404; ``ValueError``
+    maps to HTTP 400. R3-3 from PR #238 / issue #241 — operators previously
+    could not distinguish "mission ran, found nothing" from "you typo'd the
+    UUID" because the endpoint returned 200 with an empty-but-valid body in
+    both cases.
+    """
+
+
 # How long to cache a per-mission summary in memory. The active mission's
 # JSONL is still appending while polling, so a short TTL is the tradeoff
 # between cost and freshness. 30 s is comfortably below typical "review
@@ -216,6 +229,27 @@ def compute_summary(mission_id: str, log_dir: Path) -> dict:
             # leaked rows from before start_mission(). Treat as unknown.
             ttfd_status = "unknown"
 
+    # R3-3 from PR #238 / issue #241. If we scanned all logs and matched
+    # zero rows of any kind, the caller asked about a mission that does
+    # not exist — most likely a typo'd UUID. Returning an empty-but-valid
+    # summary made the dashboard show "mission ran, found nothing," which
+    # is indistinguishable from "you asked about a mission that never ran."
+    # Raise here; the caller (HTTP handler) maps to 404.
+    if (
+        det_count == 0
+        and action_count == 0
+        and state_count == 0
+        and not track_points
+        and mission_start_ts is None
+        and mission_end_ts is None
+    ):
+        raise MissionNotFoundError(
+            f"No detection rows, events, or telemetry found for "
+            f"mission_id={mission_id!r}. Check the mission id — common "
+            f"causes are a typo'd UUID or a mission whose logs have been "
+            f"rotated out by the retention policy."
+        )
+
     duration_sec: float | None = None
     if mission_start_ts is not None:
         end = mission_end_ts if mission_end_ts is not None else time.time()
@@ -261,6 +295,12 @@ def get_summary(mission_id: str, log_dir: Path | str) -> dict:
         ):
             return entry.summary
 
+    # Note: compute_summary raises MissionNotFoundError for unknown
+    # mission_ids (zero rows in any scanned log). The exception propagates
+    # before the cache write below, so a not-found result is correctly NOT
+    # cached. Caching a negative would prevent recovery if logs for that
+    # id later become readable (e.g. a delayed file copy from removable
+    # media or a network share).
     summary = compute_summary(mission_id, log_path)
 
     with _cache_lock:
