@@ -1,0 +1,19 @@
+[Unit]
+Description=Hydra OTA — check for and apply platform updates (#152, PR-A skeleton)
+Documentation=file:/opt/hydra/docs/ota.md
+After=network-online.target local-fs.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=sorcc
+Group=sorcc
+WorkingDirectory=/opt/hydra
+EnvironmentFile=-/etc/hydra/update.env
+ExecStart=/bin/bash /opt/hydra/scripts/platform-update.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hydra-platform-update
+
+[Install]
+WantedBy=multi-user.target

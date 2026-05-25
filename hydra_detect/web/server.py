@@ -59,6 +59,10 @@ from hydra_detect.observability import (
     hydra_ram_pct as _m_ram_pct,
     render_metrics as _render_metrics,
 )
+from hydra_detect.observability.version_surface import (
+    _read_channel_file,
+    _read_last_update,
+)
 
 # Attach the audit ring handler to the `hydra.audit` logger exactly once.
 # Safe to import-time — idempotent + non-blocking.
@@ -983,6 +987,13 @@ async def api_health():
     body["healthy"] = legacy_healthy
     body["camera_ok"] = camera_ok
     body["fps"] = fps
+    # OTA surface (issue #152, PR-A). ``version`` is baked into the image
+    # by the Dockerfile (CI sets HYDRA_VERSION=<git sha>); channel +
+    # last_update read on-disk state populated by future PR-B's
+    # platform-update.sh. None of these reads can fail the health check.
+    body["version"] = os.environ.get("HYDRA_VERSION", "dev")
+    body["channel"] = _read_channel_file()
+    body["last_update"] = _read_last_update()
     status_code = 503 if status == "fail" else (200 if legacy_healthy else 503)
     return JSONResponse(body, status_code=status_code)
 
