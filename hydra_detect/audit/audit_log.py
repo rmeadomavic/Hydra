@@ -51,6 +51,7 @@ _KINDS = (
     "drop_events",
     "hmac_invalid_events",
     "recovery_from_bak",
+    "recovery_rejected",
     "other",
 )
 
@@ -69,6 +70,11 @@ def _classify(message: str) -> str:
     # Boot-time corrupt-config recovery (PR #231, R3-1). Match BEFORE the
     # generic STRIKE/DROP checks below — the literal token would otherwise
     # never appear there, but the explicit branch documents intent.
+    # R1-3 from docs/adversarial/260.md — RECOVERY_REJECTED is the
+    # symmetrical "binary refused to restore" event; check it before
+    # RECOVERY_FROM_BAK so the more specific token wins.
+    if upper.startswith("RECOVERY_REJECTED") or "RECOVERY REJECTED" in upper:
+        return "recovery_rejected"
     if upper.startswith("RECOVERY_FROM_BAK") or "RECOVERY FROM BAK" in upper:
         return "recovery_from_bak"
     if "HMAC_INVALID" in upper or "HMAC VERIFICATION FAILED" in upper:
