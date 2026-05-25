@@ -622,3 +622,42 @@ class TestClientErrorEndpoint:
         assert body["total"] == 2
         msgs = [e["message"] for e in body["recent"]]
         assert "one" in msgs and "two" in msgs
+
+
+# ---------------------------------------------------------------------------
+# /api/health top-level body contract (R1-1 from #241 / PR #236)
+# ---------------------------------------------------------------------------
+
+class TestHealthBodyContract:
+    """Lock the top-level shape of /api/health so additions are deliberate.
+
+    Future PRs that add or remove a top-level key in ``health_snapshot()``
+    must update ``EXPECTED_KEYS`` in the same diff. This surfaces the
+    schema change in code review rather than letting it land silently and
+    break downstream scrapers (phone-home, external Grafana, operator-side
+    curl scripts).
+    """
+
+    EXPECTED_KEYS = {"status", "ts", "subsystems", "disk_free_pct", "disk_bytes"}
+    EXPECTED_SUBSYSTEMS = {
+        "camera", "mavlink", "gps", "detector",
+        "rtsp", "tak", "audit", "disk",
+    }
+
+    def test_top_level_keys_locked(self):
+        from hydra_detect.observability.health import health_snapshot
+        body = health_snapshot()
+        assert set(body.keys()) == self.EXPECTED_KEYS, (
+            "Top-level keys of /api/health changed. If this is intentional, "
+            "update TestHealthBodyContract.EXPECTED_KEYS in the same PR. "
+            f"Got: {sorted(body.keys())}"
+        )
+
+    def test_subsystems_keys_locked(self):
+        from hydra_detect.observability.health import health_snapshot
+        body = health_snapshot()
+        assert set(body["subsystems"].keys()) == self.EXPECTED_SUBSYSTEMS, (
+            "subsystems.* keys changed. If intentional, update "
+            "TestHealthBodyContract.EXPECTED_SUBSYSTEMS in the same PR. "
+            f"Got: {sorted(body['subsystems'].keys())}"
+        )
