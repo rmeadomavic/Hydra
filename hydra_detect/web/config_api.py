@@ -517,9 +517,14 @@ def attempt_corrupt_recovery(config_path: Path | str) -> bool:
             "restore — this would silently load a config the running "
             "binary cannot fully understand. Likely cause: operator "
             "rolled the Hydra binary back while keeping a .bak from a "
-            "newer version. Restore from factory defaults via the "
-            "dashboard, or roll forward to a binary that knows schema v%d.",
-            bak_path, bak_version, CURRENT_SCHEMA_VERSION, bak_version,
+            "newer version. RECOVERY: this unit will exit; the dashboard "
+            "is not available because the binary refused to start. From "
+            "a shell on the device, run one of: "
+            "(1) cp %s.factory %s && systemctl restart hydra-detect "
+            "to restore factory defaults, or "
+            "(2) roll forward to a Hydra binary that knows schema v%d.",
+            bak_path, bak_version, CURRENT_SCHEMA_VERSION,
+            path, path, bak_version,
         )
         return False
 
