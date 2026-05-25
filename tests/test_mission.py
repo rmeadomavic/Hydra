@@ -420,6 +420,69 @@ class TestMissionSummary:
         assert missions[0]["mission_id"] == mid_new
         assert missions[1]["mission_id"] == mid_old
 
+    # ------------------------------------------------------------------
+    # MissionNotFoundError for typo'd UUIDs
+    # (R3-3 from PR #238 / issue #241)
+    # ------------------------------------------------------------------
+
+    def test_get_summary_raises_for_unknown_mission_empty_dir(self, tmp_path):
+        """A typo'd UUID with zero rows must raise MissionNotFoundError,
+        not return an empty-looking valid summary."""
+        from hydra_detect.mission_summary import (
+            MissionNotFoundError,
+            get_summary,
+        )
+        with pytest.raises(MissionNotFoundError) as excinfo:
+            get_summary("00000000-0000-0000-0000-deadbeefdead", tmp_path)
+        # The error must echo the offending id so the operator knows what
+        # they typed wrong.
+        assert "00000000-0000-0000-0000-deadbeefdead" in str(excinfo.value)
+
+    def test_get_summary_raises_for_unknown_mission_with_other_missions_present(
+        self, tmp_path,
+    ):
+        """Logs exist for OTHER missions; the requested id is still unknown."""
+        from hydra_detect.mission_summary import (
+            MissionNotFoundError,
+            get_summary,
+        )
+        real_mid = str(uuid.uuid4())
+        _write_detection_jsonl(tmp_path, real_mid, [
+            {"timestamp": "2026-05-19T10:00:01Z", "track_id": 1, "label": "person"},
+        ])
+        _write_event_jsonl(tmp_path, real_mid, "real", [
+            {"ts": 1000.0, "type": "track", "lat": 35.0, "lon": -80.0},
+        ])
+        # Sanity: the real mission resolves
+        out = get_summary(real_mid, tmp_path)
+        assert out["detections"]["total"] == 1
+        # The bogus mission still raises
+        with pytest.raises(MissionNotFoundError):
+            get_summary("ffffffff-ffff-ffff-ffff-ffffffffffff", tmp_path)
+
+    def test_get_summary_does_not_cache_not_found(self, tmp_path):
+        """A not-found result must not be cached. If logs later become
+        readable for that id (e.g. delayed file copy), the next call must
+        re-scan rather than return a stale MissionNotFoundError."""
+        from hydra_detect.mission_summary import (
+            MissionNotFoundError,
+            get_summary,
+        )
+        mid = str(uuid.uuid4())
+        # First call: nothing on disk → raises
+        with pytest.raises(MissionNotFoundError):
+            get_summary(mid, tmp_path)
+        # Now logs appear for that id
+        _write_detection_jsonl(tmp_path, mid, [
+            {"timestamp": "2026-05-19T10:00:01Z", "track_id": 1, "label": "person"},
+        ])
+        _write_event_jsonl(tmp_path, mid, "delayed", [
+            {"ts": 1000.0, "type": "track", "lat": 35.0, "lon": -80.0},
+        ])
+        # Second call: must succeed, not raise from a stale cached negative
+        out = get_summary(mid, tmp_path)
+        assert out["detections"]["total"] == 1
+
 
 # ----------------------------------------------------------------------------
 # Web API: /api/mission/start, /api/mission/end, /api/summary
@@ -523,6 +586,22 @@ class TestMissionWebAPI:
         assert body["detections"]["by_class"] == {"person": 1, "car": 1}
         assert body["operator_actions"] == 1
         assert body["gps_coverage"]["point_count"] == 1
+
+    def test_summary_endpoint_unknown_mission_returns_404(self, client, tmp_path):
+        """A typo'd UUID returns 404 + descriptive body, not 200 + empty.
+
+        R3-3 from PR #238 / issue #241. Operators previously could not
+        distinguish "mission ran, found nothing" from "you typo'd the UUID."
+        """
+        stream_state.set_callbacks(get_log_dir=lambda: str(tmp_path))
+        resp = client.get(
+            "/api/summary?mission=00000000-0000-0000-0000-deadbeefdead"
+        )
+        assert resp.status_code == 404, resp.text
+        body = resp.json()
+        # The body must echo the offending id so the operator knows what
+        # they typed wrong.
+        assert "00000000-0000-0000-0000-deadbeefdead" in body.get("error", "")
 
     def test_review_logs_includes_missions(self, client, tmp_path):
         mid = str(uuid.uuid4())

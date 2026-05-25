@@ -174,9 +174,16 @@ def compute_config_diff(
             runtime_value = runtime_section.get(key, "")
             if disk_value == runtime_value:
                 continue
-            # Both sides redacted -> we cannot compare, skip rather than
-            # report spurious drift on every poll.
-            if disk_value == REDACTED_VALUE and runtime_value == REDACTED_VALUE:
+            # Defense in depth: if EITHER side carries the redacted
+            # placeholder, skip. Upstream redaction in read_config and
+            # read_runtime_config is supposed to mirror both sides; a
+            # future drift in one path without the other would otherwise
+            # emit a diff like {"disk": "***", "runtime": "real-value"},
+            # which would expose the real value to anyone polling
+            # /api/config/diff. R1-2 from PR #239 / issue #241. The
+            # original both-sides skip (issue #224) is the subset case
+            # of this rule.
+            if disk_value == REDACTED_VALUE or runtime_value == REDACTED_VALUE:
                 continue
             section_diff[key] = {"disk": disk_value, "runtime": runtime_value}
         if section_diff:
@@ -474,6 +481,50 @@ def attempt_corrupt_recovery(config_path: Path | str) -> bool:
             "Config file %s is corrupted AND backup %s is also unparseable. "
             "Restore from factory defaults via the dashboard.",
             path, bak_path,
+        )
+        return False
+
+    # R3-2 from PR #237 / issue #241. Reject a .bak whose [meta].schema_version
+    # exceeds the running binary's CURRENT_SCHEMA_VERSION. Catches the
+    # operator code-rollback case (binary stepped back to a version that
+    # does not know about a newer schema, while the .bak still carries the
+    # newer schema). Silently restoring would let the older binary parse a
+    # config it cannot fully understand and quietly drop fields, or attempt
+    # to run migrations backward. Caller treats False as CRITICAL exit;
+    # operator restores from factory or rolls the binary forward.
+    bak_version_raw = "?"
+    try:
+        from hydra_detect.config_migrate import CURRENT_SCHEMA_VERSION
+        bak_cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
+        bak_cfg.read(bak_path)
+        bak_version_raw = bak_cfg.get(
+            "meta", "schema_version", fallback="0"
+        ).strip()
+        bak_version = int(bak_version_raw)
+    except (configparser.Error, ValueError) as exc:
+        logger.critical(
+            "Config backup %s has unreadable [meta].schema_version=%r: %s. "
+            "Refusing to restore — restore from factory defaults via the "
+            "dashboard.",
+            bak_path, bak_version_raw, exc,
+        )
+        return False
+
+    if bak_version > CURRENT_SCHEMA_VERSION:
+        logger.critical(
+            "Config backup %s has schema_version=%d which exceeds the "
+            "running binary's CURRENT_SCHEMA_VERSION=%d. Refusing to "
+            "restore — this would silently load a config the running "
+            "binary cannot fully understand. Likely cause: operator "
+            "rolled the Hydra binary back while keeping a .bak from a "
+            "newer version. RECOVERY: this unit will exit; the dashboard "
+            "is not available because the binary refused to start. From "
+            "a shell on the device, run one of: "
+            "(1) cp %s.factory %s && systemctl restart hydra-detect "
+            "to restore factory defaults, or "
+            "(2) roll forward to a Hydra binary that knows schema v%d.",
+            bak_path, bak_version, CURRENT_SCHEMA_VERSION,
+            path, path, bak_version,
         )
         return False
 

@@ -2862,8 +2862,14 @@ async def api_mission_summary(mission: str = ""):
 
     Query string: ``?mission=<mission_id>``. The id is the UUID returned
     from ``/api/mission/start``. Results are cached for 30 s.
+
+    Returns 400 for malformed input (missing param, oversized id), 404
+    for an unknown mission_id (no rows on disk — typo'd UUID or rotated
+    out by retention), 500 on unexpected failure.
     """
-    from hydra_detect.mission_summary import get_summary
+    from hydra_detect.mission_summary import (
+        MissionNotFoundError, get_summary,
+    )
     if not mission:
         return JSONResponse(
             {"error": "mission query parameter required"}, status_code=400,
@@ -2878,6 +2884,11 @@ async def api_mission_summary(mission: str = ""):
         return get_summary(mission, log_dir)
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
+    except MissionNotFoundError as exc:
+        # R3-3 from PR #238 / issue #241. Distinguishes "you typo'd the
+        # UUID" from "mission ran, found nothing." Echo the id in the
+        # body so the operator can spot what they got wrong.
+        return JSONResponse({"error": str(exc)}, status_code=404)
     except Exception as exc:  # pragma: no cover — defensive
         logger.exception("Mission summary failed for %s: %s", mission, exc)
         return JSONResponse({"error": "summary computation failed"}, status_code=500)
