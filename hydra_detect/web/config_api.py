@@ -174,9 +174,16 @@ def compute_config_diff(
             runtime_value = runtime_section.get(key, "")
             if disk_value == runtime_value:
                 continue
-            # Both sides redacted -> we cannot compare, skip rather than
-            # report spurious drift on every poll.
-            if disk_value == REDACTED_VALUE and runtime_value == REDACTED_VALUE:
+            # Defense in depth: if EITHER side carries the redacted
+            # placeholder, skip. Upstream redaction in read_config and
+            # read_runtime_config is supposed to mirror both sides; a
+            # future drift in one path without the other would otherwise
+            # emit a diff like {"disk": "***", "runtime": "real-value"},
+            # which would expose the real value to anyone polling
+            # /api/config/diff. R1-2 from PR #239 / issue #241. The
+            # original both-sides skip (issue #224) is the subset case
+            # of this rule.
+            if disk_value == REDACTED_VALUE or runtime_value == REDACTED_VALUE:
                 continue
             section_diff[key] = {"disk": disk_value, "runtime": runtime_value}
         if section_diff:

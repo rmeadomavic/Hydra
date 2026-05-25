@@ -1098,6 +1098,49 @@ class TestComputeConfigDiff:
         runtime = {"web": {"api_token": "***"}}
         assert compute_config_diff(disk, runtime) == {}
 
+    # ------------------------------------------------------------------
+    # R1-2 from PR #239 / issue #241 — defense in depth on redaction.
+    # Either side redacted -> skip. The existing both-sides skip (#224)
+    # is the subset case.
+    # ------------------------------------------------------------------
+
+    def test_diff_suppresses_when_only_disk_is_redacted(self):
+        """Upstream inconsistency: disk redacted, runtime not. Emitting
+        the diff would put '***' next to the plaintext runtime value —
+        an inadvertent disclosure surface."""
+        from hydra_detect.web.config_api import (
+            REDACTED_VALUE, compute_config_diff,
+        )
+        disk = {"web": {"api_token": REDACTED_VALUE}}
+        runtime = {"web": {"api_token": "actual-secret-leaked-via-diff"}}
+        diff = compute_config_diff(disk, runtime)
+        assert diff == {}, (
+            f"Diff payload leaks runtime value next to redacted disk "
+            f"value: {diff}"
+        )
+
+    def test_diff_suppresses_when_only_runtime_is_redacted(self):
+        """Mirror: runtime redacted, disk not. Same defense in depth."""
+        from hydra_detect.web.config_api import (
+            REDACTED_VALUE, compute_config_diff,
+        )
+        disk = {"web": {"api_token": "actual-secret-on-disk"}}
+        runtime = {"web": {"api_token": REDACTED_VALUE}}
+        diff = compute_config_diff(disk, runtime)
+        assert diff == {}, (
+            f"Diff payload leaks disk value next to redacted runtime "
+            f"value: {diff}"
+        )
+
+    def test_diff_still_reports_non_redacted_drift(self):
+        """Regression: a real drift on a non-redacted field is still
+        reported. The tighten does not over-suppress."""
+        from hydra_detect.web.config_api import compute_config_diff
+        disk = {"web": {"port": "8080"}}
+        runtime = {"web": {"port": "8888"}}
+        diff = compute_config_diff(disk, runtime)
+        assert diff == {"web": {"port": {"disk": "8080", "runtime": "8888"}}}
+
 
 # ── Issue #233 — Adversarial follow-ups for PR #228 ───────────────────────
 
