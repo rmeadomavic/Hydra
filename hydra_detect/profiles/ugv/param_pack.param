@@ -1,0 +1,11 @@
+# Hydra ugv Pixhawk required params
+# Generated from pixhawk_prereqs.yaml — keep in sync
+# Standard ArduPilot .param format: PARAM_NAME,value per line.
+# Hard-requirements only; recommended params are intentionally excluded.
+FENCE_ENABLE,1
+SERIAL2_PROTOCOL,2
+SERIAL2_BAUD,921
+SR1_POSITION,5
+SR1_EXTRA1,4
+SR1_EXTRA2,2
+SR1_RAW_SENS,2
