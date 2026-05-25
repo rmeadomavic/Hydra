@@ -335,6 +335,102 @@ class TestAttemptCorruptRecovery:
             "failed recovery must not claim a successful restore"
         )
 
+    # ------------------------------------------------------------------
+    # Code-rollback policy: .bak schema_version > CURRENT must be rejected
+    # (R3-2 from PR #237 / issue #241)
+    # ------------------------------------------------------------------
+
+    def test_bak_with_too_new_schema_is_rejected(self, tmp_path, caplog):
+        """Operator code-rollback: .bak from a newer binary must not be
+        silently restored — older binary cannot fully understand it.
+        """
+        import logging
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+        from hydra_detect.config_migrate import CURRENT_SCHEMA_VERSION
+
+        path = tmp_path / "config.ini"
+        bak = tmp_path / "config.ini.bak"
+        path.write_text("")  # corrupted / empty current config
+        too_new = CURRENT_SCHEMA_VERSION + 1
+        bak.write_text(
+            f"[meta]\nschema_version = {too_new}\n\n[camera]\nsource = auto\n"
+        )
+
+        with caplog.at_level(logging.CRITICAL):
+            result = attempt_corrupt_recovery(path)
+
+        assert result is False, (
+            f"Recovery should reject .bak with schema_version={too_new} > "
+            f"CURRENT_SCHEMA_VERSION={CURRENT_SCHEMA_VERSION}. Got {result!r}."
+        )
+        # config.ini must NOT have been overwritten with the newer .bak
+        assert path.read_text() == "", (
+            "config.ini was overwritten with a too-new .bak — code-rollback "
+            "policy violated."
+        )
+        assert any(
+            "exceeds" in r.message.lower() or "schema_version" in r.message
+            for r in caplog.records
+        ), "Expected a CRITICAL log explaining the rejection."
+
+    def test_bak_with_equal_schema_is_accepted(self, tmp_path):
+        """Sanity: same-version .bak still restores."""
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+        from hydra_detect.config_migrate import CURRENT_SCHEMA_VERSION
+
+        path = tmp_path / "config.ini"
+        bak = tmp_path / "config.ini.bak"
+        path.write_text("")
+        bak.write_text(
+            f"[meta]\nschema_version = {CURRENT_SCHEMA_VERSION}\n\n"
+            f"[camera]\nsource = auto\n"
+        )
+        assert attempt_corrupt_recovery(path) is True
+        assert "[camera]" in path.read_text()
+
+    def test_bak_with_lower_schema_is_accepted(self, tmp_path):
+        """Forward-migration case: an older .bak still restores; the
+        migration runner will bring it up to CURRENT_SCHEMA_VERSION after."""
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+        from hydra_detect.config_migrate import CURRENT_SCHEMA_VERSION
+
+        path = tmp_path / "config.ini"
+        bak = tmp_path / "config.ini.bak"
+        path.write_text("")
+        older = max(0, CURRENT_SCHEMA_VERSION - 1)
+        bak.write_text(
+            f"[meta]\nschema_version = {older}\n\n[camera]\nsource = auto\n"
+        )
+        assert attempt_corrupt_recovery(path) is True
+        assert "[camera]" in path.read_text()
+
+    def test_bak_with_no_meta_section_is_accepted(self, tmp_path):
+        """A .bak from a pre-meta-section era is treated as schema_version=0.
+        That is below CURRENT, so it restores and gets migrated forward.
+        """
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+
+        path = tmp_path / "config.ini"
+        bak = tmp_path / "config.ini.bak"
+        path.write_text("")
+        bak.write_text("[camera]\nsource = auto\n")  # no [meta]
+        assert attempt_corrupt_recovery(path) is True
+
+    def test_bak_with_unreadable_schema_version_is_rejected(self, tmp_path, caplog):
+        """A non-integer schema_version in .bak is refused — better to
+        bail than silently restore a malformed config."""
+        import logging
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+
+        path = tmp_path / "config.ini"
+        bak = tmp_path / "config.ini.bak"
+        path.write_text("")
+        bak.write_text(
+            "[meta]\nschema_version = not-an-int\n\n[camera]\nsource = auto\n"
+        )
+        with caplog.at_level(logging.CRITICAL):
+            assert attempt_corrupt_recovery(path) is False
+
 
 # ---------------------------------------------------------------------------
 # 4. restore_factory works

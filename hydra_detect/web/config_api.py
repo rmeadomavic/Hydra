@@ -477,6 +477,45 @@ def attempt_corrupt_recovery(config_path: Path | str) -> bool:
         )
         return False
 
+    # R3-2 from PR #237 / issue #241. Reject a .bak whose [meta].schema_version
+    # exceeds the running binary's CURRENT_SCHEMA_VERSION. Catches the
+    # operator code-rollback case (binary stepped back to a version that
+    # does not know about a newer schema, while the .bak still carries the
+    # newer schema). Silently restoring would let the older binary parse a
+    # config it cannot fully understand and quietly drop fields, or attempt
+    # to run migrations backward. Caller treats False as CRITICAL exit;
+    # operator restores from factory or rolls the binary forward.
+    bak_version_raw = "?"
+    try:
+        from hydra_detect.config_migrate import CURRENT_SCHEMA_VERSION
+        bak_cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
+        bak_cfg.read(bak_path)
+        bak_version_raw = bak_cfg.get(
+            "meta", "schema_version", fallback="0"
+        ).strip()
+        bak_version = int(bak_version_raw)
+    except (configparser.Error, ValueError) as exc:
+        logger.critical(
+            "Config backup %s has unreadable [meta].schema_version=%r: %s. "
+            "Refusing to restore — restore from factory defaults via the "
+            "dashboard.",
+            bak_path, bak_version_raw, exc,
+        )
+        return False
+
+    if bak_version > CURRENT_SCHEMA_VERSION:
+        logger.critical(
+            "Config backup %s has schema_version=%d which exceeds the "
+            "running binary's CURRENT_SCHEMA_VERSION=%d. Refusing to "
+            "restore — this would silently load a config the running "
+            "binary cannot fully understand. Likely cause: operator "
+            "rolled the Hydra binary back while keeping a .bak from a "
+            "newer version. Restore from factory defaults via the "
+            "dashboard, or roll forward to a binary that knows schema v%d.",
+            bak_path, bak_version, CURRENT_SCHEMA_VERSION, bak_version,
+        )
+        return False
+
     # Atomic restore: copy .bak -> .tmp, fsync, os.replace -> config.ini.
     # Mirrors the write_config pattern at lines 181-205 so a crash mid-recovery
     # cannot make a bad situation worse.
