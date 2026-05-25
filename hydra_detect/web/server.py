@@ -42,6 +42,7 @@ from hydra_detect.web.config_api import (
     write_config,
     validate_config_updates,
 )
+from hydra_detect.web import pixhawk_wizard as _pixhawk_wizard
 from hydra_detect.config_schema import SCHEMA as CONFIG_SCHEMA
 from hydra_detect.web.capability_api import router as _capability_router
 from hydra_detect.audit import (
@@ -985,6 +986,403 @@ async def api_health():
     body["fps"] = fps
     status_code = 503 if status == "fail" else (200 if legacy_healthy else 503)
     return JSONResponse(body, status_code=status_code)
+
+
+# --- Platform Setup: Pixhawk Wizard endpoints (#158 PR-A) ---
+#
+# First-run wizard surface — operator hits /detect to see the connected FC,
+# /diff to see what would change against a profile's param pack, /apply to
+# commit (with pre-change backup), /restore to roll a backup back. UI lives in
+# PR-B; these are the JSON endpoints PR-B drives. All four mutate or read FC
+# state and require the same Bearer-token / session-cookie auth as other
+# control endpoints in this file.
+
+_PIXHAWK_CONNECT_TIMEOUT_SEC = 10.0
+_PIXHAWK_PARAM_COLLECT_TIMEOUT_SEC = 10.0
+
+
+def _pixhawk_open_connection(conn_str: str, baud: int = 115200):
+    """Open a mavutil connection and wait for a heartbeat.
+
+    Returns the connection on success, or raises a ``TimeoutError``-flavored
+    ``RuntimeError`` if the heartbeat does not arrive in time. Kept thin so
+    tests can monkeypatch a single seam.
+    """
+    from pymavlink import mavutil  # imported lazily — server.py runs without it for some test paths
+    conn = mavutil.mavlink_connection(conn_str, baud=baud)
+    hb = conn.wait_heartbeat(timeout=_PIXHAWK_CONNECT_TIMEOUT_SEC)
+    if hb is None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        raise RuntimeError(f"no heartbeat from {conn_str} within {_PIXHAWK_CONNECT_TIMEOUT_SEC}s")
+    return conn
+
+
+def _pixhawk_collect_live_params(
+    conn,
+    timeout: float = _PIXHAWK_PARAM_COLLECT_TIMEOUT_SEC,
+) -> dict[str, float]:
+    """Request and collect the FC's full param map.
+
+    Sends PARAM_REQUEST_LIST, then drains PARAM_VALUE for ``timeout`` seconds
+    or until quiescent for 1 s. Mirrors ``scripts/pixhawk_preflight.collect_params``
+    but inlined to avoid pulling that CLI module into the web import path.
+    """
+    target_system = getattr(conn, "target_system", 1)
+    target_component = getattr(conn, "target_component", 1)
+    conn.mav.param_request_list_send(target_system, target_component)
+
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    last_new = time.monotonic()
+    quiescent = 1.0
+    params: dict[str, float] = {}
+
+    while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        msg = conn.recv_match(
+            type="PARAM_VALUE",
+            blocking=True,
+            timeout=min(0.5, remaining),
+        )
+        if msg is None:
+            if time.monotonic() - last_new >= quiescent:
+                break
+            continue
+        pid = getattr(msg, "param_id", "")
+        if isinstance(pid, (bytes, bytearray)):
+            try:
+                pid = pid.decode("utf-8", errors="replace")
+            except Exception:
+                pid = ""
+        pid = str(pid).rstrip("\x00").strip()
+        if pid and pid not in params:
+            params[pid] = float(getattr(msg, "param_value", 0.0))
+            last_new = time.monotonic()
+    return params
+
+
+def _pixhawk_diff_hash(diff: list[dict]) -> str:
+    """Stable hash of a diff list — used for the apply-time freshness check."""
+    canonical = json.dumps(
+        [
+            {
+                "name": str(row.get("name", "")),
+                "current": row.get("current"),
+                "target": row.get("target"),
+                "action": str(row.get("action", "")),
+            }
+            for row in diff
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _pixhawk_backup_path(callsign: str | None) -> Path:
+    """Pre-wizard backup file path under ``output_data/missions/<callsign>/``.
+
+    Filename uses microsecond-precision UTC ISO8601 + PID so two wizard runs in
+    the same wall-clock second do not collide. (See PR adversarial doc R2.)
+    """
+    cs = (callsign or "unknown").strip() or "unknown"
+    # Constrain to safe characters; mirror what battery_monitor / autonomous do.
+    cs = re.sub(r"[^A-Za-z0-9_\-]", "_", cs)[:32] or "unknown"
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    base = Path("output_data") / "missions" / cs
+    base.mkdir(parents=True, exist_ok=True)
+    return base / f"pre-wizard-params-{ts}-pid{os.getpid()}.json"
+
+
+def _pixhawk_callsign_from_runtime() -> str | None:
+    """Pull the configured callsign from runtime config, if any."""
+    try:
+        rc = stream_state.get_runtime_config() or {}
+    except Exception:
+        return None
+    cs = rc.get("callsign")
+    if cs is None:
+        return None
+    try:
+        return str(cs)
+    except Exception:
+        return None
+
+
+@app.get("/api/platform/setup/pixhawk/detect")
+async def api_pixhawk_detect(
+    request: Request,
+    conn: str,
+    baud: int = 115200,
+    authorization: Optional[str] = Header(None),
+):
+    """Detect the connected FC — firmware / version / frame / autopilot id."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    try:
+        link = _pixhawk_open_connection(conn, baud=baud)
+    except Exception as exc:
+        _audit(request, "pixhawk_detect", target=conn, outcome="connect_failed")
+        return JSONResponse(
+            {"error": f"connect failed: {exc}"},
+            status_code=408,
+        )
+    try:
+        # Request AUTOPILOT_VERSION via MAV_CMD_REQUEST_AUTOPILOT_CAPABILITIES (520).
+        try:
+            link.mav.command_long_send(
+                link.target_system, link.target_component,
+                520, 0, 1, 0, 0, 0, 0, 0, 0,
+            )
+        except Exception:
+            # Some autopilots emit AUTOPILOT_VERSION on connect — best-effort only.
+            pass
+        info = _pixhawk_wizard.detect_fc(link, timeout=_PIXHAWK_CONNECT_TIMEOUT_SEC)
+    finally:
+        try:
+            link.close()
+        except Exception:
+            pass
+    _audit(request, "pixhawk_detect", target=info.get("firmware", "unknown"))
+    return info
+
+
+@app.get("/api/platform/setup/pixhawk/diff")
+async def api_pixhawk_diff(
+    request: Request,
+    profile: str,
+    conn: str,
+    baud: int = 115200,
+    authorization: Optional[str] = Header(None),
+):
+    """Diff the FC's live params against a profile's required param pack."""
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+    try:
+        pack = _pixhawk_wizard.load_param_pack(profile)
+    except FileNotFoundError:
+        return JSONResponse(
+            {"error": f"unknown profile: {profile}"},
+            status_code=404,
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+    try:
+        link = _pixhawk_open_connection(conn, baud=baud)
+    except Exception as exc:
+        _audit(request, "pixhawk_diff", target=profile, outcome="connect_failed")
+        return JSONResponse(
+            {"error": f"connect failed: {exc}"},
+            status_code=408,
+        )
+    try:
+        live = _pixhawk_collect_live_params(link)
+    finally:
+        try:
+            link.close()
+        except Exception:
+            pass
+
+    rows = _pixhawk_wizard.compute_diff(live, pack)
+    _audit(request, "pixhawk_diff", target=f"{profile}:{len(rows)}rows")
+    return {
+        "profile": profile,
+        "diff": rows,
+        "diff_hash": _pixhawk_diff_hash(rows),
+        "live_param_count": len(live),
+    }
+
+
+@app.post("/api/platform/setup/pixhawk/apply")
+async def api_pixhawk_apply(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Apply a confirmed diff to the FC, capturing a pre-change backup first.
+
+    Body schema: ``{profile, conn, baud?, confirmed_diff_hash, diff}``.
+
+    Recomputes the diff fresh from the live FC at apply-time, hashes it, and
+    rejects (409) if it doesn't match ``confirmed_diff_hash`` — that means a
+    third party (Mission Planner, another wizard run) changed params between
+    /diff and /apply, and the operator's confirmation is now stale.
+    """
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
+    profile = body.get("profile")
+    conn_str = body.get("conn")
+    baud = int(body.get("baud", 115200))
+    confirmed_hash = body.get("confirmed_diff_hash")
+    if not isinstance(profile, str) or not profile:
+        return JSONResponse({"error": "profile required"}, status_code=400)
+    if not isinstance(conn_str, str) or not conn_str:
+        return JSONResponse({"error": "conn required"}, status_code=400)
+    if not isinstance(confirmed_hash, str) or not confirmed_hash:
+        return JSONResponse({"error": "confirmed_diff_hash required"}, status_code=400)
+
+    try:
+        pack = _pixhawk_wizard.load_param_pack(profile)
+    except FileNotFoundError:
+        return JSONResponse(
+            {"error": f"unknown profile: {profile}"},
+            status_code=404,
+        )
+
+    try:
+        link = _pixhawk_open_connection(conn_str, baud=baud)
+    except Exception as exc:
+        _audit(request, "pixhawk_apply", target=profile, outcome="connect_failed")
+        return JSONResponse(
+            {"error": f"connect failed: {exc}"},
+            status_code=408,
+        )
+
+    try:
+        # 1. Recompute live → fresh diff → freshness check.
+        live = _pixhawk_collect_live_params(link)
+        fresh_diff = _pixhawk_wizard.compute_diff(live, pack)
+        fresh_hash = _pixhawk_diff_hash(fresh_diff)
+        if not hmac.compare_digest(fresh_hash, confirmed_hash):
+            _audit(request, "pixhawk_apply", target=profile, outcome="hash_mismatch")
+            return JSONResponse(
+                {
+                    "error": "diff changed since confirmation — re-run /diff and re-confirm",
+                    "fresh_diff": fresh_diff,
+                    "fresh_diff_hash": fresh_hash,
+                },
+                status_code=409,
+            )
+
+        # 2. Capture pre-change backup of every name we're about to touch.
+        names_to_touch = [
+            row["name"] for row in fresh_diff
+            if row.get("action") in ("change", "add")
+        ]
+        backup = _pixhawk_wizard.capture_backup(link, names_to_touch)
+        backup_path = _pixhawk_backup_path(_pixhawk_callsign_from_runtime())
+        backup_payload = {
+            "profile": profile,
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%S.%fZ"
+            ),
+            "conn": conn_str,
+            "backup": backup,
+        }
+        backup_path.write_text(
+            json.dumps(backup_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+        # 3. Apply.
+        results = _pixhawk_wizard.apply_pack(link, fresh_diff)
+    finally:
+        try:
+            link.close()
+        except Exception:
+            pass
+
+    _audit(request, "pixhawk_apply", target=f"{profile}:{len(results)}rows")
+    return {
+        "backup_path": str(backup_path),
+        "results": results,
+        "applied": sum(1 for r in results if r.get("applied")),
+        "failed": sum(1 for r in results if not r.get("applied")),
+    }
+
+
+@app.post("/api/platform/setup/pixhawk/restore")
+async def api_pixhawk_restore(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Restore a previously-captured backup to the FC.
+
+    Body schema: ``{conn, backup_path, baud?}``.
+    """
+    auth_err = _check_auth(authorization, request)
+    if auth_err:
+        return auth_err
+
+    body = await _parse_json(request)
+    if body is None:
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
+    conn_str = body.get("conn")
+    backup_path_str = body.get("backup_path")
+    baud = int(body.get("baud", 115200))
+    if not isinstance(conn_str, str) or not conn_str:
+        return JSONResponse({"error": "conn required"}, status_code=400)
+    if not isinstance(backup_path_str, str) or not backup_path_str:
+        return JSONResponse({"error": "backup_path required"}, status_code=400)
+
+    backup_path = Path(backup_path_str)
+    if not backup_path.exists():
+        return JSONResponse(
+            {"error": f"backup not found: {backup_path}"},
+            status_code=404,
+        )
+    # Constrain reads to output_data/missions/ — caller-supplied path traversal
+    # would let an authenticated client read arbitrary files via the
+    # subsequent payload-shape check, so reject obvious escape patterns.
+    try:
+        resolved = backup_path.resolve()
+        missions_root = (Path("output_data") / "missions").resolve()
+        resolved.relative_to(missions_root)
+    except (OSError, ValueError):
+        return JSONResponse(
+            {"error": "backup_path must live under output_data/missions/"},
+            status_code=400,
+        )
+
+    try:
+        payload = json.loads(resolved.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return JSONResponse(
+            {"error": f"unreadable backup: {exc}"},
+            status_code=400,
+        )
+    backup = payload.get("backup", {})
+    if not isinstance(backup, dict):
+        return JSONResponse(
+            {"error": "backup file missing 'backup' map"},
+            status_code=400,
+        )
+
+    try:
+        link = _pixhawk_open_connection(conn_str, baud=baud)
+    except Exception as exc:
+        _audit(request, "pixhawk_restore", target=str(resolved), outcome="connect_failed")
+        return JSONResponse(
+            {"error": f"connect failed: {exc}"},
+            status_code=408,
+        )
+    try:
+        results = _pixhawk_wizard.restore_backup(link, backup)
+    finally:
+        try:
+            link.close()
+        except Exception:
+            pass
+
+    _audit(request, "pixhawk_restore", target=f"{resolved.name}:{len(results)}rows")
+    return {
+        "backup_path": str(resolved),
+        "results": results,
+        "applied": sum(1 for r in results if r.get("applied")),
+        "failed": sum(1 for r in results if not r.get("applied")),
+    }
+
+
+# --- end Platform Setup: Pixhawk Wizard endpoints ---
 
 
 @app.get("/api/metrics")
