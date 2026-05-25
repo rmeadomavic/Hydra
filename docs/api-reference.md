@@ -685,6 +685,51 @@ pipeline restart on success.
 
 ---
 
+## Platform setup — Pixhawk wizard
+
+First-run wizard that walks an operator through detecting the connected
+flight controller, diffing the live params against the profile's required
+param pack, and applying the diff with a pre-change backup. Introduced in
+#158 (PR-A: backend; PR-B: dashboard UI + preflight complete-gate +
+override-with-reason).
+
+### `GET /api/platform/setup/pixhawk/detect`
+**Auth:** bearer when configured (session cookie also accepted). Query:
+`?conn=<mavlink connstr>&baud=<int, default 115200>`. Opens a fresh
+mavutil connection, requests AUTOPILOT_VERSION, returns
+`{firmware: "ArduCopter"|"ArduPlane"|"ArduRover"|"unknown", version,
+frame_type, autopilot_id}`. 408 on connection or heartbeat timeout.
+
+### `GET /api/platform/setup/pixhawk/diff`
+**Auth:** bearer when configured (session cookie also accepted). Query:
+`?profile={drone_10in|ugv|usv}&conn=<connstr>&baud=<int>`. Loads the
+profile's `param_pack.param`, fetches every live param via
+`PARAM_REQUEST_LIST` (up to 10 s), runs the diff. Body:
+`{profile, diff: [{name, current, target, action, delta}], diff_hash,
+live_param_count}`. `action ∈ {skip, add, change}`. 404 for an unknown
+profile, 408 on connection timeout.
+
+### `POST /api/platform/setup/pixhawk/apply`
+**Auth:** bearer when configured (session cookie also accepted). Body:
+`{profile, conn, baud?, confirmed_diff_hash, diff}`. Recomputes the
+diff fresh from the live FC at apply-time and rejects with 409 if the
+hash doesn't match `confirmed_diff_hash` (operator confirmed a stale
+view; the response body carries the `fresh_diff` and `fresh_diff_hash`
+so the UI can re-confirm). Captures the pre-change backup to
+`output_data/missions/<callsign-or-unknown>/pre-wizard-params-<UTC-microseconds>-pid<pid>.json`,
+applies the diff, returns `{backup_path, results: [{name, applied,
+error, post_value}], applied, failed}`.
+
+### `POST /api/platform/setup/pixhawk/restore`
+**Auth:** bearer when configured (session cookie also accepted). Body:
+`{conn, backup_path, baud?}`. Reads the backup JSON, applies values via
+`restore_backup`. Validates `backup_path` resolves under
+`output_data/missions/` to reject path-traversal. Returns
+`{backup_path, results, applied, failed}`. 404 if the backup file
+does not exist, 400 on path-escape or malformed payload.
+
+---
+
 ## Capability Status
 
 ### `GET /api/capabilities`
