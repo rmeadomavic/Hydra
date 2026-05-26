@@ -234,6 +234,7 @@ _AUDIT_KIND_TO_COUNTER = {
 }
 
 
+# See docs/observability.md for the NaN-vs-zero convention and the additive-surface rule.
 def _format_value(v: Optional[float]) -> str:
     """Render a gauge value per Prometheus text format rules."""
     if v is None:

@@ -508,6 +508,14 @@ def attempt_corrupt_recovery(config_path: Path | str) -> bool:
             "dashboard.",
             bak_path, bak_version_raw, exc,
         )
+        # R1-3 from docs/adversarial/260.md — symmetrical audit event with
+        # RECOVERY_FROM_BAK so /api/audit/summary surfaces "binary refused
+        # to start" rather than "no recovery happened." Operator who only
+        # reads the dashboard panel would otherwise see no signal here.
+        audit_log.warning(
+            "RECOVERY_REJECTED target=%s reason=unreadable_schema_version",
+            path,
+        )
         return False
 
     if bak_version > CURRENT_SCHEMA_VERSION:
@@ -525,6 +533,11 @@ def attempt_corrupt_recovery(config_path: Path | str) -> bool:
             "(2) roll forward to a Hydra binary that knows schema v%d.",
             bak_path, bak_version, CURRENT_SCHEMA_VERSION,
             path, path, bak_version,
+        )
+        # R1-3 from docs/adversarial/260.md — see above.
+        audit_log.warning(
+            "RECOVERY_REJECTED target=%s reason=schema_version_too_new",
+            path,
         )
         return False
 

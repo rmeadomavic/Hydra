@@ -63,6 +63,26 @@ class TestClassifier:
         assert _classify("APPROACH PIXEL_LOCK START: track_id=9") \
             == "approach_arm_events"
 
+    def test_recovery_from_bak(self):
+        # PR #231, R3-1: successful .bak restore must classify so the
+        # dashboard /api/audit/summary surfaces a banner.
+        assert _classify("RECOVERY_FROM_BAK target=/etc/hydra/config.ini") \
+            == "recovery_from_bak"
+
+    def test_recovery_rejected(self):
+        # R1-3 from docs/adversarial/260.md: schema-version-too-new and
+        # unreadable-schema branches emit RECOVERY_REJECTED so the
+        # dashboard panel shows "binary refused to start" instead of
+        # silently registering no recovery.
+        assert _classify(
+            "RECOVERY_REJECTED target=/etc/hydra/config.ini "
+            "reason=schema_version_too_new"
+        ) == "recovery_rejected"
+        assert _classify(
+            "RECOVERY_REJECTED target=/etc/hydra/config.ini "
+            "reason=unreadable_schema_version"
+        ) == "recovery_rejected"
+
     def test_unclassified(self):
         assert _classify("something entirely unrelated") == "other"
 

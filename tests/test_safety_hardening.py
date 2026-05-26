@@ -431,6 +431,71 @@ class TestAttemptCorruptRecovery:
         with caplog.at_level(logging.CRITICAL):
             assert attempt_corrupt_recovery(path) is False
 
+    # ------------------------------------------------------------------
+    # R1-3 from docs/adversarial/260.md — RECOVERY_REJECTED audit events
+    # ------------------------------------------------------------------
+
+    def test_too_new_schema_emits_recovery_rejected_audit_event(self, tmp_path):
+        """Symmetrical with test_recovery_emits_audit_event: when the
+        binary refuses to restore from a too-new .bak, the audit log
+        must surface a RECOVERY_REJECTED event so the dashboard panel
+        shows "binary refused to start" rather than no signal at all.
+        """
+        from hydra_detect.audit import attach_to_logger, get_default_sink
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+        from hydra_detect.config_migrate import CURRENT_SCHEMA_VERSION
+
+        attach_to_logger()
+        sink = get_default_sink()
+        before = sink.summary(window_seconds=3600).get(
+            "counts", {}
+        ).get("recovery_rejected", 0)
+
+        path = tmp_path / "config.ini"
+        bak = tmp_path / "config.ini.bak"
+        path.write_text("")  # corrupt
+        too_new = CURRENT_SCHEMA_VERSION + 1
+        bak.write_text(
+            f"[meta]\nschema_version = {too_new}\n\n[camera]\nsource = auto\n"
+        )
+        assert attempt_corrupt_recovery(path) is False
+
+        after = sink.summary(window_seconds=3600).get(
+            "counts", {}
+        ).get("recovery_rejected", 0)
+        assert after == before + 1, (
+            f"expected recovery_rejected count to grow by 1, got "
+            f"{before} -> {after}"
+        )
+
+    def test_unreadable_schema_emits_recovery_rejected_audit_event(self, tmp_path):
+        """The non-integer schema_version branch also fires the audit event."""
+        from hydra_detect.audit import attach_to_logger, get_default_sink
+        from hydra_detect.web.config_api import attempt_corrupt_recovery
+
+        attach_to_logger()
+        sink = get_default_sink()
+        before = sink.summary(window_seconds=3600).get(
+            "counts", {}
+        ).get("recovery_rejected", 0)
+
+        path = tmp_path / "config.ini"
+        bak = tmp_path / "config.ini.bak"
+        path.write_text("")
+        bak.write_text(
+            "[meta]\nschema_version = not-an-int\n\n"
+            "[camera]\nsource = auto\n"
+        )
+        assert attempt_corrupt_recovery(path) is False
+
+        after = sink.summary(window_seconds=3600).get(
+            "counts", {}
+        ).get("recovery_rejected", 0)
+        assert after == before + 1, (
+            f"expected recovery_rejected count to grow by 1, got "
+            f"{before} -> {after}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # 4. restore_factory works

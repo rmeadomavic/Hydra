@@ -686,6 +686,193 @@ class TestCacheInvalidationOnPrune:
 
 
 # ----------------------------------------------------------------------------
+# R2-1 from docs/adversarial/260.md: prune-during-summary race
+# R3-2 from docs/adversarial/260.md: race-window transient=true tag
+# ----------------------------------------------------------------------------
+
+class TestPruneDuringSummaryRace:
+    """Adversarial findings R2-1 and R3-2 in docs/adversarial/260.md.
+
+    R2-1: TestCacheInvalidationOnPrune covers cold-call-then-prune-then-call.
+    It does NOT exercise: cached-success, then ``invalidate_for_log_dir``
+    fires mid-call, then the next ``compute_summary`` runs against a stale
+    ``_scan_log_dir`` snapshot whose files have been rotated out. The race
+    must surface a typo'd-equivalent mission as 404, not a stale 200.
+
+    R3-2: When ``compute_summary`` raises ``MissionNotFoundError`` and any
+    tracked log file was modified within the last 5 seconds, the error
+    message must include ``transient=true`` so client retry logic can
+    distinguish "you typo'd the UUID" from "the file rotated mid-scan."
+    """
+
+    def test_invalidate_during_compute_surfaces_404_not_stale_200(self, tmp_path):
+        """Cached success, then prune fires concurrently with the next
+        compute_summary, then the call after that must reflect the deletion.
+
+        The threaded form exercises the case where invalidate_for_log_dir
+        races against an in-progress compute_summary. The cache must drop,
+        AND the post-prune call must see the now-empty disk and raise
+        MissionNotFoundError — not return a cached 200 from the pre-prune
+        snapshot.
+        """
+        import threading
+        from hydra_detect.mission_summary import MissionNotFoundError
+
+        mid = str(uuid.uuid4())
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Write a detection so the first get_summary succeeds.
+        det_path = log_dir / "detections_001.jsonl"
+        with det_path.open("w") as f:
+            f.write(json.dumps({
+                "timestamp": "2026-05-19T10:00:01Z", "track_id": 1,
+                "label": "person", "mission_id": mid,
+            }) + "\n")
+
+        # Prime cache.
+        first = get_summary(mid, log_dir)
+        assert first["detections"]["total"] == 1
+
+        # Race: thread A removes the file + invalidates the cache; this
+        # mirrors what DetectionLogger._prune_old_logs does at runtime.
+        def _prune_and_invalidate():
+            try:
+                det_path.unlink()
+            except OSError:
+                pass
+            invalidate_for_log_dir(log_dir)
+
+        t = threading.Thread(target=_prune_and_invalidate)
+        t.start()
+        t.join(timeout=2.0)
+        assert not t.is_alive(), "prune thread did not finish in 2s"
+
+        # Post-prune call: the only mission row is gone. The not-found gate
+        # must fire; the cache must NOT have served a stale 200.
+        with pytest.raises(MissionNotFoundError) as excinfo:
+            get_summary(mid, log_dir)
+        assert mid in str(excinfo.value)
+
+    def test_invalidate_concurrent_with_compute_summary(self, tmp_path):
+        """The harsher form: invalidate_for_log_dir is fired by a thread
+        WHILE compute_summary is mid-iteration. Confirms compute_summary
+        does not crash and the post-race state is consistent (a typo'd
+        mission still surfaces as 404, not a stale 200).
+
+        Race window is small with synthetic logs, so we run several
+        iterations to make the interleaving likelier to land mid-scan.
+        Even if the timing does not catch the exact mid-scan moment on
+        any given run, the post-state must remain consistent.
+        """
+        import threading
+        from hydra_detect.mission_summary import MissionNotFoundError
+
+        bogus_mid = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Write a detection for some OTHER mission so _scan_log_dir has
+        # something to chew on (the bogus mission will still resolve to
+        # zero rows, but the iteration takes nonzero time).
+        real_mid = str(uuid.uuid4())
+        det_path = log_dir / "detections_001.jsonl"
+        with det_path.open("w") as f:
+            for i in range(100):
+                f.write(json.dumps({
+                    "timestamp": f"2026-05-19T10:00:{i:02d}Z",
+                    "track_id": i, "label": "person", "mission_id": real_mid,
+                }) + "\n")
+
+        # Run several races. compute_summary against bogus_mid must always
+        # raise MissionNotFoundError, regardless of invalidate timing.
+        errors: list[Exception] = []
+        not_found_count = 0
+
+        def _invalidator():
+            for _ in range(10):
+                invalidate_for_log_dir(log_dir)
+
+        for _ in range(5):
+            t = threading.Thread(target=_invalidator)
+            t.start()
+            try:
+                compute_summary(bogus_mid, log_dir)
+                errors.append(AssertionError(
+                    "compute_summary returned a 200 for a typo'd mission "
+                    "during a concurrent invalidate — stale-row race"
+                ))
+            except MissionNotFoundError:
+                not_found_count += 1
+            except Exception as exc:
+                errors.append(exc)
+            t.join(timeout=2.0)
+            assert not t.is_alive(), "invalidator thread did not finish"
+
+        assert not errors, f"Race produced unexpected results: {errors!r}"
+        assert not_found_count == 5, (
+            f"All 5 races must surface MissionNotFoundError; got "
+            f"{not_found_count}/5"
+        )
+
+    def test_recent_mtime_tags_error_as_transient(self, tmp_path):
+        """R3-2: a 404 raised while a tracked log file was modified within
+        the last 5 seconds must include ``transient=true`` in the message
+        so client retry logic can distinguish typo from rotation-window.
+        """
+        from hydra_detect.mission_summary import MissionNotFoundError
+
+        bogus_mid = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Write a detection JSONL for ANOTHER mission with current mtime.
+        # _scan_log_dir picks it up; the bogus_mid has zero rows so the
+        # not-found gate fires. The recent mtime should trigger the
+        # transient=true tag.
+        real_mid = str(uuid.uuid4())
+        det_path = log_dir / "detections_001.jsonl"
+        with det_path.open("w") as f:
+            f.write(json.dumps({
+                "timestamp": "2026-05-19T10:00:01Z", "track_id": 1,
+                "label": "person", "mission_id": real_mid,
+            }) + "\n")
+        # mtime is "now" by default after the write; no explicit utime
+        # needed.
+
+        with pytest.raises(MissionNotFoundError) as excinfo:
+            compute_summary(bogus_mid, log_dir)
+        assert "transient=true" in str(excinfo.value)
+
+    def test_old_mtime_does_not_tag_as_transient(self, tmp_path):
+        """A 404 against a log directory whose files are all old must NOT
+        include ``transient=true`` — that would cry wolf and dilute the
+        signal for client retry logic.
+        """
+        import os
+        from hydra_detect.mission_summary import MissionNotFoundError
+
+        bogus_mid = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        real_mid = str(uuid.uuid4())
+        det_path = log_dir / "detections_001.jsonl"
+        with det_path.open("w") as f:
+            f.write(json.dumps({
+                "timestamp": "2026-05-19T10:00:01Z", "track_id": 1,
+                "label": "person", "mission_id": real_mid,
+            }) + "\n")
+        # Backdate the file mtime well past the 5s window.
+        old = time.time() - 60.0
+        os.utime(det_path, (old, old))
+
+        with pytest.raises(MissionNotFoundError) as excinfo:
+            compute_summary(bogus_mid, log_dir)
+        assert "transient=true" not in str(excinfo.value)
+
+
+# ----------------------------------------------------------------------------
 # R2-1: Rate limit on POST /api/mission/start
 # ----------------------------------------------------------------------------
 

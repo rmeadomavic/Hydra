@@ -235,6 +235,27 @@ def compute_summary(mission_id: str, log_dir: Path) -> dict:
     # summary made the dashboard show "mission ran, found nothing," which
     # is indistinguishable from "you asked about a mission that never ran."
     # Raise here; the caller (HTTP handler) maps to 404.
+    #
+    # R1-1 from docs/adversarial/260.md — predicate documentation. The
+    # not-found gate fires only when ALL six conditions hold simultaneously:
+    #   - det_count == 0           (no detection rows for this mission_id)
+    #   - action_count == 0        (no "action"-type events)
+    #   - state_count == 0         (no "state"-type events)
+    #   - not track_points         (no "track" events with valid lat/lon)
+    #   - mission_start_ts is None (no "mission_start" event)
+    #   - mission_end_ts is None   (no "mission_end" event)
+    # The conjunction is intentionally broad because the goal is "we have
+    # absolutely no evidence this mission_id exists." Known false-positive
+    # case: an event-only mission that emitted ONLY "track" events whose
+    # lat/lon were missing or non-numeric (so they did not populate
+    # track_points) and no mission_start/mission_end events. In practice
+    # the EventLogger always emits a mission_start with no lat/lon required,
+    # so mission_start_ts is the load-bearing field — the other five are
+    # belt-and-suspenders for malformed or truncated event streams. A real
+    # mission whose mission_start event was lost on disk could trip this
+    # gate as a false 404; operators see the "check the mission id" message
+    # and retry, at which point _scan_log_dir may pick up a now-readable
+    # rotated file.
     if (
         det_count == 0
         and action_count == 0
@@ -243,11 +264,30 @@ def compute_summary(mission_id: str, log_dir: Path) -> dict:
         and mission_start_ts is None
         and mission_end_ts is None
     ):
+        # R3-2 from docs/adversarial/260.md — race-window tag. Detection
+        # log rotation can occur between _scan_log_dir and the row
+        # iteration above. A real-but-mid-rotate mission could surface
+        # zero rows and 404. If any tracked log file was modified within
+        # the last 5 seconds, signal "transient=true" so the operator
+        # (or client retry logic) knows to try again before treating
+        # the 404 as authoritative.
+        transient_tag = ""
+        try:
+            now = time.time()
+            for p in (*det_files, *evt_files):
+                try:
+                    if (now - p.stat().st_mtime) <= 5.0:
+                        transient_tag = " transient=true"
+                        break
+                except OSError:
+                    continue
+        except Exception:  # pragma: no cover — best-effort tag only
+            pass
         raise MissionNotFoundError(
             f"No detection rows, events, or telemetry found for "
             f"mission_id={mission_id!r}. Check the mission id — common "
             f"causes are a typo'd UUID or a mission whose logs have been "
-            f"rotated out by the retention policy."
+            f"rotated out by the retention policy.{transient_tag}"
         )
 
     duration_sec: float | None = None
