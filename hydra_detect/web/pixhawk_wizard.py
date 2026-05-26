@@ -30,26 +30,50 @@ _PROFILES_DIR = _REPO_ROOT / "hydra_detect" / "profiles"
 
 
 # ---------------------------------------------------------------------------
-# Firmware ID mapping (per spec — see issue #158)
+# Firmware mapping (per MAVLink MAV_TYPE — see issue #158)
 # ---------------------------------------------------------------------------
 #
-# Spec maps autopilot_id from AUTOPILOT_VERSION to a firmware string. The
-# distinction between Copter/Plane/Rover is not actually carried by MAVLink's
-# AUTOPILOT_VERSION (all three are MAV_AUTOPILOT_ARDUPILOTMEGA=3) — that
-# information lives in the HEARTBEAT ``type`` field. The spec, however, asks
-# for an ``autopilot_id`` field derived from a hand-tabulated mapping; we
-# preserve that field name and mapping for fidelity with the issue.
+# AUTOPILOT_VERSION carries no field that disambiguates ArduPilot variants:
+# Copter, Plane, Rover and Sub all report MAV_AUTOPILOT_ARDUPILOTMEGA=3 in
+# HEARTBEAT.autopilot, and AUTOPILOT_VERSION has no `autopilot_id` field at
+# all. The variant lives in HEARTBEAT.type (MAV_TYPE), which encodes the
+# vehicle frame (QUADROTOR, FIXED_WING, GROUND_ROVER, SURFACE_BOAT, ...).
+#
+# We derive `firmware` from HEARTBEAT.type and use HEARTBEAT.autopilot only as
+# a sanity check that the device is actually ArduPilot (vs. PX4 / generic).
+# ArduRover covers both UGV (GROUND_ROVER) and USV (SURFACE_BOAT) — same
+# firmware binary, different vehicle type — by design.
 
-_FIRMWARE_BY_AUTOPILOT_ID: dict[int, str] = {
-    3: "ArduCopter",
-    4: "ArduPlane",
-    12: "ArduRover",
+_FIRMWARE_BY_MAV_TYPE: dict[int, str] = {
+    # ArduCopter family
+    2: "ArduCopter",   # MAV_TYPE_QUADROTOR
+    3: "ArduCopter",   # MAV_TYPE_COAXIAL
+    4: "ArduCopter",   # MAV_TYPE_HELICOPTER
+    13: "ArduCopter",  # MAV_TYPE_HEXAROTOR
+    14: "ArduCopter",  # MAV_TYPE_OCTOROTOR
+    15: "ArduCopter",  # MAV_TYPE_TRICOPTER
+    # ArduPlane family
+    1: "ArduPlane",    # MAV_TYPE_FIXED_WING
+    16: "ArduPlane",   # MAV_TYPE_VTOL_DUOROTOR
+    17: "ArduPlane",   # MAV_TYPE_VTOL_QUADROTOR
+    19: "ArduPlane",   # MAV_TYPE_VTOL_TILTROTOR
+    20: "ArduPlane",   # MAV_TYPE_VTOL_RESERVED2
+    21: "ArduPlane",   # MAV_TYPE_VTOL_RESERVED3
+    22: "ArduPlane",   # MAV_TYPE_VTOL_RESERVED4
+    23: "ArduPlane",   # MAV_TYPE_VTOL_RESERVED5
+    # ArduRover family (UGV + USV — same firmware, different vehicle)
+    10: "ArduRover",   # MAV_TYPE_GROUND_ROVER (UGV)
+    11: "ArduRover",   # MAV_TYPE_SURFACE_BOAT (USV)
+    # ArduSub
+    12: "ArduSub",     # MAV_TYPE_SUBMARINE
 }
 
+_MAV_AUTOPILOT_ARDUPILOTMEGA = 3
 
-def _firmware_from_autopilot_id(autopilot_id: int) -> str:
-    """Return canonical firmware name for an autopilot id, or 'unknown'."""
-    return _FIRMWARE_BY_AUTOPILOT_ID.get(int(autopilot_id), "unknown")
+
+def _firmware_from_mav_type(mav_type: int) -> str:
+    """Return canonical firmware name for a MAV_TYPE int, or 'unknown'."""
+    return _FIRMWARE_BY_MAV_TYPE.get(int(mav_type), "unknown")
 
 
 # ---------------------------------------------------------------------------
@@ -71,43 +95,103 @@ def _decode_flight_sw_version(packed: int) -> str:
     return f"{major}.{minor}.{patch}"
 
 
+# Per-message wait windows inside detect_fc. Short by design: HEARTBEAT
+# streams at 1 Hz from ArduPilot by default, AUTOPILOT_VERSION comes back
+# within a frame or two of REQUEST_MESSAGE. Total budget for detect_fc is
+# bounded by the caller's ``timeout`` (used as a ceiling, not a per-msg).
+_HEARTBEAT_WAIT_SEC = 1.0
+_AUTOPILOT_VERSION_WAIT_SEC = 1.0
+
+
 def detect_fc(connection: Any, timeout: float = 5.0) -> dict[str, Any]:
     """Detect the connected flight controller's firmware, version, and frame.
 
-    Reads a single AUTOPILOT_VERSION message off ``connection`` (caller must
-    have already opened it) and returns the canonical Hydra shape.
+    Reads HEARTBEAT (for vehicle type + autopilot family) and AUTOPILOT_VERSION
+    (for the version string) off ``connection`` and returns the canonical
+    Hydra shape.
+
+    The previous implementation derived ``firmware`` from a non-existent
+    ``AUTOPILOT_VERSION.autopilot_id`` field; the correct disambiguator is
+    HEARTBEAT.type (MAV_TYPE). HEARTBEAT.autopilot is used as a sanity check
+    that the device is ArduPilot (MAV_AUTOPILOT_ARDUPILOTMEGA=3) — non-
+    ArduPilot autopilots return ``firmware="unknown"``.
 
     Args:
         connection: An opened ``mavutil.mavlink_connection`` instance.
-        timeout:    Seconds to wait for an AUTOPILOT_VERSION; the caller may
-                    also need to send AUTOPILOT_VERSION_REQUEST via
-                    ``connection.mav.command_long_send`` before calling.
+        timeout:    Soft total budget; this function uses short per-message
+                    waits internally (1 s each for HEARTBEAT and
+                    AUTOPILOT_VERSION). ``timeout`` is kept for back-compat
+                    and as an upper bound on the per-msg waits when shorter.
 
     Returns:
-        ``{"firmware": str, "version": str, "frame_type": int, "autopilot_id": int}``.
-        On timeout, all fields are filled with neutral defaults
-        (firmware="unknown", version="0.0.0", frame_type=0, autopilot_id=0).
+        ``{"firmware": str, "version": str, "frame_type": int|None, "autopilot_id": int|None}``.
+        On HEARTBEAT timeout all fields are unknown/None — no exception. On
+        AUTOPILOT_VERSION timeout the HEARTBEAT-derived firmware/frame are
+        preserved and ``version="unknown"``.
     """
-    msg = connection.recv_match(
-        type="AUTOPILOT_VERSION",
+    hb_wait = min(_HEARTBEAT_WAIT_SEC, float(timeout))
+    av_wait = min(_AUTOPILOT_VERSION_WAIT_SEC, float(timeout))
+
+    hb = connection.recv_match(
+        type="HEARTBEAT",
         blocking=True,
-        timeout=timeout,
+        timeout=hb_wait,
     )
-    if msg is None:
+    if hb is None:
         return {
             "firmware": "unknown",
-            "version": "0.0.0",
-            "frame_type": 0,
-            "autopilot_id": 0,
+            "version": "unknown",
+            "frame_type": None,
+            "autopilot_id": None,
         }
-    autopilot_id = int(getattr(msg, "autopilot_id", 0) or 0)
-    frame_type = int(getattr(msg, "frame_type", 0) or 0)
-    flight_sw = getattr(msg, "flight_sw_version", 0)
+
+    try:
+        mav_type = int(getattr(hb, "type", 0) or 0)
+    except (TypeError, ValueError):
+        mav_type = 0
+    try:
+        autopilot = int(getattr(hb, "autopilot", 0) or 0)
+    except (TypeError, ValueError):
+        autopilot = 0
+
+    if autopilot == _MAV_AUTOPILOT_ARDUPILOTMEGA:
+        firmware = _firmware_from_mav_type(mav_type)
+    else:
+        firmware = "unknown"
+
+    # Best-effort: nudge the FC to emit AUTOPILOT_VERSION via REQUEST_MESSAGE
+    # (MAV_CMD 512). Many ArduPilot builds emit it unsolicited on connect;
+    # the request is harmless either way and silent on failure (server.py
+    # already issues MAV_CMD_REQUEST_AUTOPILOT_CAPABILITIES=520 in parallel).
+    try:
+        target_system = getattr(connection, "target_system", 1)
+        target_component = getattr(connection, "target_component", 1)
+        connection.mav.command_long_send(
+            target_system, target_component,
+            512,  # MAV_CMD_REQUEST_MESSAGE
+            0,
+            148,  # MAVLINK_MSG_ID_AUTOPILOT_VERSION
+            0, 0, 0, 0, 0, 0,
+        )
+    except Exception:
+        pass
+
+    av = connection.recv_match(
+        type="AUTOPILOT_VERSION",
+        blocking=True,
+        timeout=av_wait,
+    )
+    if av is None:
+        version = "unknown"
+    else:
+        flight_sw = getattr(av, "flight_sw_version", 0)
+        version = _decode_flight_sw_version(flight_sw)
+
     return {
-        "firmware": _firmware_from_autopilot_id(autopilot_id),
-        "version": _decode_flight_sw_version(flight_sw),
-        "frame_type": frame_type,
-        "autopilot_id": autopilot_id,
+        "firmware": firmware,
+        "version": version,
+        "frame_type": mav_type,
+        "autopilot_id": autopilot,
     }
 
 

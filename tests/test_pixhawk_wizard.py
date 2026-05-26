@@ -39,16 +39,28 @@ def _make_param_value(name: str, value: float) -> SimpleNamespace:
 
 
 def _make_autopilot_version(
-    autopilot_id: int = 3,
-    frame_type: int = 2,
     flight_sw_version: int = 0,
 ) -> SimpleNamespace:
     """Build a fake AUTOPILOT_VERSION-like message object."""
     return SimpleNamespace(
-        autopilot_id=autopilot_id,
-        frame_type=frame_type,
         flight_sw_version=flight_sw_version,
         get_type=lambda: "AUTOPILOT_VERSION",
+    )
+
+
+def _make_heartbeat(
+    mav_type: int = 2,
+    autopilot: int = 3,
+) -> SimpleNamespace:
+    """Build a fake HEARTBEAT-like message object.
+
+    ``mav_type`` defaults to QUADROTOR (2) and ``autopilot`` to
+    MAV_AUTOPILOT_ARDUPILOTMEGA (3), the dominant SORCC drone case.
+    """
+    return SimpleNamespace(
+        type=mav_type,
+        autopilot=autopilot,
+        get_type=lambda: "HEARTBEAT",
     )
 
 
@@ -78,10 +90,10 @@ _FLIGHT_SW_4_5_7 = (4 << 24) | (5 << 16) | (7 << 8)
 # ---------------------------------------------------------------------------
 
 def test_detect_fc_returns_firmware_version_frame():
-    msg = _make_autopilot_version(
-        autopilot_id=3, frame_type=2, flight_sw_version=_FLIGHT_SW_4_5_7,
-    )
-    conn = _scripted_conn([msg])
+    """ArduCopter QUADROTOR: HEARTBEAT type=2, autopilot=3 → ArduCopter."""
+    hb = _make_heartbeat(mav_type=2, autopilot=3)
+    av = _make_autopilot_version(flight_sw_version=_FLIGHT_SW_4_5_7)
+    conn = _scripted_conn([hb, av])
     info = detect_fc(conn)
     assert info["firmware"] == "ArduCopter"
     assert info["version"] == "4.5.7"
@@ -90,31 +102,87 @@ def test_detect_fc_returns_firmware_version_frame():
 
 
 def test_detect_fc_unknown_autopilot():
-    msg = _make_autopilot_version(autopilot_id=99)
-    conn = _scripted_conn([msg])
+    """HEARTBEAT.autopilot=12 (PX4) → firmware unknown, even if MAV_TYPE matches."""
+    hb = _make_heartbeat(mav_type=2, autopilot=12)
+    av = _make_autopilot_version(flight_sw_version=_FLIGHT_SW_4_5_7)
+    conn = _scripted_conn([hb, av])
     info = detect_fc(conn)
     assert info["firmware"] == "unknown"
-    assert info["autopilot_id"] == 99
+    assert info["autopilot_id"] == 12
 
 
-def test_detect_fc_plane_and_rover_mapping():
-    # ArduPlane = 4
-    conn = _scripted_conn([_make_autopilot_version(autopilot_id=4)])
-    assert detect_fc(conn)["firmware"] == "ArduPlane"
-    # ArduRover = 12
-    conn = _scripted_conn([_make_autopilot_version(autopilot_id=12)])
-    assert detect_fc(conn)["firmware"] == "ArduRover"
+def test_detect_fc_ardurover_ugv():
+    """MAV_TYPE_GROUND_ROVER (10) → ArduRover."""
+    hb = _make_heartbeat(mav_type=10, autopilot=3)
+    av = _make_autopilot_version(flight_sw_version=_FLIGHT_SW_4_5_7)
+    conn = _scripted_conn([hb, av])
+    info = detect_fc(conn)
+    assert info["firmware"] == "ArduRover"
+    assert info["frame_type"] == 10
 
 
-def test_detect_fc_timeout_returns_neutral_defaults():
+def test_detect_fc_ardurover_usv():
+    """MAV_TYPE_SURFACE_BOAT (11) also maps to ArduRover — same firmware binary."""
+    hb = _make_heartbeat(mav_type=11, autopilot=3)
+    av = _make_autopilot_version(flight_sw_version=_FLIGHT_SW_4_5_7)
+    conn = _scripted_conn([hb, av])
+    info = detect_fc(conn)
+    assert info["firmware"] == "ArduRover"
+    assert info["frame_type"] == 11
+
+
+def test_detect_fc_arduplane():
+    """MAV_TYPE_FIXED_WING (1) → ArduPlane."""
+    hb = _make_heartbeat(mav_type=1, autopilot=3)
+    av = _make_autopilot_version(flight_sw_version=_FLIGHT_SW_4_5_7)
+    conn = _scripted_conn([hb, av])
+    info = detect_fc(conn)
+    assert info["firmware"] == "ArduPlane"
+    assert info["frame_type"] == 1
+
+
+def test_detect_fc_arduplane_vtol():
+    """MAV_TYPE_VTOL_TILTROTOR (19) → ArduPlane (VTOL variant)."""
+    hb = _make_heartbeat(mav_type=19, autopilot=3)
+    av = _make_autopilot_version(flight_sw_version=_FLIGHT_SW_4_5_7)
+    conn = _scripted_conn([hb, av])
+    info = detect_fc(conn)
+    assert info["firmware"] == "ArduPlane"
+    assert info["frame_type"] == 19
+
+
+def test_detect_fc_unknown_mav_type():
+    """Unknown MAV_TYPE (99) on ArduPilot autopilot → firmware unknown."""
+    hb = _make_heartbeat(mav_type=99, autopilot=3)
+    av = _make_autopilot_version(flight_sw_version=_FLIGHT_SW_4_5_7)
+    conn = _scripted_conn([hb, av])
+    info = detect_fc(conn)
+    assert info["firmware"] == "unknown"
+    assert info["frame_type"] == 99
+    assert info["autopilot_id"] == 3
+
+
+def test_detect_fc_heartbeat_timeout():
+    """No HEARTBEAT → all-unknown / None, no exception."""
     conn = _scripted_conn([None])
     info = detect_fc(conn, timeout=0.01)
     assert info == {
         "firmware": "unknown",
-        "version": "0.0.0",
-        "frame_type": 0,
-        "autopilot_id": 0,
+        "version": "unknown",
+        "frame_type": None,
+        "autopilot_id": None,
     }
+
+
+def test_detect_fc_version_timeout_keeps_firmware():
+    """HEARTBEAT arrives, AUTOPILOT_VERSION times out → firmware preserved, version=unknown."""
+    hb = _make_heartbeat(mav_type=2, autopilot=3)
+    conn = _scripted_conn([hb, None])
+    info = detect_fc(conn, timeout=0.01)
+    assert info["firmware"] == "ArduCopter"
+    assert info["version"] == "unknown"
+    assert info["frame_type"] == 2
+    assert info["autopilot_id"] == 3
 
 
 # ---------------------------------------------------------------------------
