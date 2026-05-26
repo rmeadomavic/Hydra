@@ -317,22 +317,32 @@ def apply_pack(
     diff: list[dict[str, Any]],
     dry_run: bool = False,
     ack_timeout: float = 1.0,
+    live_param_types: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     """Apply rows from ``diff`` with ``action`` in ``{"change", "add"}``.
 
     For each applied row:
       * Calls ``connection.mav.param_set_send(target_system, target_component,
-        name.encode(), value, MAV_PARAM_TYPE_REAL32)``.
+        name.encode(), value, param_type)`` where ``param_type`` is taken from
+        ``live_param_types[name]`` when present, else falls back to
+        ``MAV_PARAM_TYPE_REAL32``. ArduPilot accepts REAL32 for integer params,
+        but on-the-wire fidelity matters for some GCSes that strict-check the
+        type (R1-5).
       * Waits up to ``ack_timeout`` for a ``PARAM_VALUE`` message whose
         ``param_id`` matches; the observed value becomes ``post_value``.
 
     Args:
-        connection:   Opened mavutil connection. Must expose ``mav``,
-                      ``target_system``, ``target_component``.
-        diff:         Result of :func:`compute_diff`.
-        dry_run:      If True, do not call ``param_set_send`` — return a row
-                      per applied entry with ``applied=False, error="dry_run"``.
-        ack_timeout:  Seconds to wait for a per-name PARAM_VALUE ack.
+        connection:        Opened mavutil connection. Must expose ``mav``,
+                           ``target_system``, ``target_component``.
+        diff:              Result of :func:`compute_diff`.
+        dry_run:           If True, do not call ``param_set_send`` — return a
+                           row per applied entry with
+                           ``applied=False, error="dry_run"``.
+        ack_timeout:       Seconds to wait for a per-name PARAM_VALUE ack.
+        live_param_types:  Optional ``{name: MAV_PARAM_TYPE_int}`` map captured
+                           during the pre-apply live-param pass (see
+                           :func:`collect_live_params_with_types`). Names not
+                           in the map fall back to REAL32.
 
     Returns:
         One result dict per ``change``/``add`` row in source order:
@@ -342,6 +352,7 @@ def apply_pack(
     results: list[dict[str, Any]] = []
     target_system = getattr(connection, "target_system", 1)
     target_component = getattr(connection, "target_component", 1)
+    types_map = live_param_types or {}
 
     for row in diff:
         action = row.get("action")
@@ -359,13 +370,14 @@ def apply_pack(
             })
             continue
 
+        param_type = int(types_map.get(name, _MAV_PARAM_TYPE_REAL32))
         try:
             connection.mav.param_set_send(
                 target_system,
                 target_component,
                 name.encode("utf-8"),
                 value,
-                _MAV_PARAM_TYPE_REAL32,
+                param_type,
             )
         except Exception as exc:
             results.append({
@@ -393,6 +405,37 @@ def apply_pack(
             })
 
     return results
+
+
+def reread_params(
+    connection: Any,
+    names: list[str],
+    per_name_timeout: float = 1.0,
+) -> dict[str, float | None]:
+    """Re-read each param in ``names`` straight from the FC.
+
+    Used as the authoritative post-apply pass for the wizard endpoint. After
+    PARAM_SET, ArduPilot emits a PARAM_VALUE that we read back as the ack; but
+    ArduPilot *also* emits PARAM_VALUE for any third-party PARAM_SET (Mission
+    Planner on telemetry radio, another GCS), so the value the wizard observes
+    can be the *other writer's* value rather than ours. Calling
+    PARAM_REQUEST_READ for every touched name after the apply loop completes
+    narrows the race to just the re-read window itself, and the value the
+    wizard surfaces to the operator becomes the FC's current state. (See PR
+    adversarial doc R3-1.)
+
+    Functionally identical to :func:`capture_backup` but named for intent so
+    callers can grep for the post-apply pass distinctly.
+
+    Args:
+        connection:       Opened mavutil connection.
+        names:            Param names to re-read.
+        per_name_timeout: Seconds to wait per name for PARAM_VALUE.
+
+    Returns:
+        ``{name: float|None}`` — None for names whose re-read timed out.
+    """
+    return capture_backup(connection, names, per_name_timeout=per_name_timeout)
 
 
 # ---------------------------------------------------------------------------

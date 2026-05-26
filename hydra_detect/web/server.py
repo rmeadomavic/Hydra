@@ -1037,9 +1037,29 @@ def _pixhawk_collect_live_params(
 ) -> dict[str, float]:
     """Request and collect the FC's full param map.
 
+    Thin wrapper around :func:`_pixhawk_collect_live_params_with_types` that
+    drops the type map; kept for callers that only need values (e.g. /diff).
+    """
+    values, _types = _pixhawk_collect_live_params_with_types(conn, timeout=timeout)
+    return values
+
+
+def _pixhawk_collect_live_params_with_types(
+    conn,
+    timeout: float = _PIXHAWK_PARAM_COLLECT_TIMEOUT_SEC,
+) -> tuple[dict[str, float], dict[str, int]]:
+    """Request and collect the FC's full param map plus per-name MAV_PARAM_TYPE.
+
     Sends PARAM_REQUEST_LIST, then drains PARAM_VALUE for ``timeout`` seconds
     or until quiescent for 1 s. Mirrors ``scripts/pixhawk_preflight.collect_params``
     but inlined to avoid pulling that CLI module into the web import path.
+
+    Returns ``(values, types)`` where ``types`` is the FC-reported
+    MAV_PARAM_TYPE per param name. Captured here (rather than at apply time)
+    because PARAM_REQUEST_LIST is the only message that pulls the type for
+    every param in one pass; per-name PARAM_REQUEST_READ would re-fetch them
+    one-at-a-time which costs an extra round-trip per param. (See PR
+    adversarial doc R1-5.)
     """
     target_system = getattr(conn, "target_system", 1)
     target_component = getattr(conn, "target_component", 1)
@@ -1049,6 +1069,7 @@ def _pixhawk_collect_live_params(
     last_new = time.monotonic()
     quiescent = 1.0
     params: dict[str, float] = {}
+    types: dict[str, int] = {}
 
     while time.monotonic() < deadline:
         remaining = deadline - time.monotonic()
@@ -1070,8 +1091,12 @@ def _pixhawk_collect_live_params(
         pid = str(pid).rstrip("\x00").strip()
         if pid and pid not in params:
             params[pid] = float(getattr(msg, "param_value", 0.0))
+            try:
+                types[pid] = int(getattr(msg, "param_type", 0) or 0)
+            except (TypeError, ValueError):
+                pass
             last_new = time.monotonic()
-    return params
+    return params, types
 
 
 def _pixhawk_diff_hash(diff: list[dict]) -> str:
@@ -1092,23 +1117,48 @@ def _pixhawk_diff_hash(diff: list[dict]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+_PIXHAWK_DEFAULT_CALLSIGN = "HYDRA"
+"""Fallback callsign for backup paths when runtime_config has none.
+
+Matches the ``HYDRA`` default used by ``MAVLinkIO`` and ``BatteryMonitor`` so
+the wizard's backups land under ``output_data/missions/HYDRA/`` on platforms
+that never set an explicit callsign, instead of orphaning them under
+``output_data/missions/unknown/``. (See PR adversarial doc R3-4.)
+"""
+
+# Repo-anchored root for backup-path resolution. Resolving relative to
+# ``__file__`` (three levels up from ``hydra_detect/web/server.py``) makes
+# /restore's path-traversal check independent of the FastAPI process CWD.
+# Without this, launching uvicorn from a directory other than the repo root
+# silently breaks the ``resolved.relative_to(missions_root)`` constraint.
+# (See PR adversarial doc R1-4.)
+_PIXHAWK_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_PIXHAWK_MISSIONS_ROOT = _PIXHAWK_REPO_ROOT / "output_data" / "missions"
+
+
 def _pixhawk_backup_path(callsign: str | None) -> Path:
     """Pre-wizard backup file path under ``output_data/missions/<callsign>/``.
 
     Filename uses microsecond-precision UTC ISO8601 + PID so two wizard runs in
     the same wall-clock second do not collide. (See PR adversarial doc R2.)
     """
-    cs = (callsign or "unknown").strip() or "unknown"
+    cs = (callsign or _PIXHAWK_DEFAULT_CALLSIGN).strip() or _PIXHAWK_DEFAULT_CALLSIGN
     # Constrain to safe characters; mirror what battery_monitor / autonomous do.
-    cs = re.sub(r"[^A-Za-z0-9_\-]", "_", cs)[:32] or "unknown"
+    cs = re.sub(r"[^A-Za-z0-9_\-]", "_", cs)[:32] or _PIXHAWK_DEFAULT_CALLSIGN
     ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-    base = Path("output_data") / "missions" / cs
+    base = _PIXHAWK_MISSIONS_ROOT / cs
     base.mkdir(parents=True, exist_ok=True)
     return base / f"pre-wizard-params-{ts}-pid{os.getpid()}.json"
 
 
 def _pixhawk_callsign_from_runtime() -> str | None:
-    """Pull the configured callsign from runtime config, if any."""
+    """Pull the configured callsign from runtime config, if any.
+
+    Returns ``None`` when runtime_config is unreachable or has no ``callsign``
+    field; the caller is responsible for substituting the
+    ``_PIXHAWK_DEFAULT_CALLSIGN`` fallback (handled inside
+    :func:`_pixhawk_backup_path`).
+    """
     try:
         rc = stream_state.get_runtime_config() or {}
     except Exception:
@@ -1142,11 +1192,13 @@ async def api_pixhawk_detect(
             status_code=408,
         )
     try:
-        # Request AUTOPILOT_VERSION via MAV_CMD_REQUEST_AUTOPILOT_CAPABILITIES (520).
+        # Request AUTOPILOT_VERSION via MAV_CMD_REQUEST_AUTOPILOT_CAPABILITIES.
         try:
+            from pymavlink.dialects.v20 import common as mavlink2
             link.mav.command_long_send(
                 link.target_system, link.target_component,
-                520, 0, 1, 0, 0, 0, 0, 0, 0,
+                mavlink2.MAV_CMD_REQUEST_AUTOPILOT_CAPABILITIES,
+                0, 1, 0, 0, 0, 0, 0, 0,
             )
         except Exception:
             # Some autopilots emit AUTOPILOT_VERSION on connect — best-effort only.
@@ -1259,8 +1311,10 @@ async def api_pixhawk_apply(
         )
 
     try:
-        # 1. Recompute live → fresh diff → freshness check.
-        live = _pixhawk_collect_live_params(link)
+        # 1. Recompute live → fresh diff → freshness check. Capture per-name
+        #    MAV_PARAM_TYPE in the same pass so apply_pack can send each
+        #    PARAM_SET with the FC-reported type instead of always REAL32.
+        live, live_types = _pixhawk_collect_live_params_with_types(link)
         fresh_diff = _pixhawk_wizard.compute_diff(live, pack)
         fresh_hash = _pixhawk_diff_hash(fresh_diff)
         if not hmac.compare_digest(fresh_hash, confirmed_hash):
@@ -1295,7 +1349,26 @@ async def api_pixhawk_apply(
         )
 
         # 3. Apply.
-        results = _pixhawk_wizard.apply_pack(link, fresh_diff)
+        results = _pixhawk_wizard.apply_pack(
+            link, fresh_diff, live_param_types=live_types,
+        )
+
+        # 4. Authoritative post-apply re-read. PARAM_VALUE arriving during the
+        #    apply loop can be a third-party PARAM_SET broadcast (Mission
+        #    Planner on telemetry radio); the value we observed as the ack is
+        #    not necessarily the value we wrote. Re-read every touched param
+        #    after the apply loop completes and overwrite ``post_value`` with
+        #    the FC's actual current value, so the operator surface reflects
+        #    real state instead of an interloper's value. (R3-1)
+        re_read_at = datetime.datetime.now(datetime.timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%S.%fZ"
+        )
+        if names_to_touch:
+            authoritative = _pixhawk_wizard.reread_params(link, names_to_touch)
+            for row in results:
+                rname = row.get("name")
+                if rname in authoritative:
+                    row["post_value"] = authoritative[rname]
     finally:
         try:
             link.close()
@@ -1308,6 +1381,7 @@ async def api_pixhawk_apply(
         "results": results,
         "applied": sum(1 for r in results if r.get("applied")),
         "failed": sum(1 for r in results if not r.get("applied")),
+        "re_read_at": re_read_at,
     }
 
 
@@ -1343,10 +1417,12 @@ async def api_pixhawk_restore(
         )
     # Constrain reads to output_data/missions/ — caller-supplied path traversal
     # would let an authenticated client read arbitrary files via the
-    # subsequent payload-shape check, so reject obvious escape patterns.
+    # subsequent payload-shape check, so reject obvious escape patterns. The
+    # missions root is anchored to the package location, not CWD, so the
+    # constraint holds when uvicorn is launched from any directory.
     try:
         resolved = backup_path.resolve()
-        missions_root = (Path("output_data") / "missions").resolve()
+        missions_root = _PIXHAWK_MISSIONS_ROOT.resolve()
         resolved.relative_to(missions_root)
     except (OSError, ValueError):
         return JSONResponse(

@@ -21,8 +21,17 @@ from hydra_detect.web.pixhawk_wizard import (
     compute_diff,
     detect_fc,
     load_param_pack,
+    reread_params,
     restore_backup,
 )
+
+
+# MAV_PARAM_TYPE constants we use in the type-fidelity tests. Mirror
+# pymavlink.dialects.v20.common values so tests do not need the pymavlink
+# import (matches the wizard module's own ``_MAV_PARAM_TYPE_REAL32`` pattern).
+_MAV_PARAM_TYPE_UINT8 = 1
+_MAV_PARAM_TYPE_INT32 = 6
+_MAV_PARAM_TYPE_REAL32 = 9
 
 
 # ---------------------------------------------------------------------------
@@ -376,3 +385,106 @@ def test_decode_flight_sw_version_zero():
 def test_decode_flight_sw_version_packed():
     packed = (4 << 24) | (6 << 16) | (1 << 8)
     assert pixhawk_wizard._decode_flight_sw_version(packed) == "4.6.1"
+
+
+# ---------------------------------------------------------------------------
+# apply_pack — type fidelity (R1-5)
+# ---------------------------------------------------------------------------
+
+def test_apply_pack_uses_live_param_type_per_name():
+    """PARAM_SET type matches the FC-reported type captured at /diff time.
+
+    Mixed types in the pack — FENCE_ENABLE UINT8, FRAME_CLASS UINT8,
+    MOT_SPIN_ARM REAL32 — should each be written with their matching
+    MAV_PARAM_TYPE, not blanket-REAL32.
+    """
+    diff = [
+        {"name": "FENCE_ENABLE", "current": 0.0, "target": 1.0,
+         "action": "change", "delta": 1.0},
+        {"name": "FRAME_CLASS", "current": 1.0, "target": 2.0,
+         "action": "change", "delta": -1.0},
+        {"name": "MOT_SPIN_ARM", "current": 0.1, "target": 0.15,
+         "action": "change", "delta": -0.05},
+    ]
+    live_types = {
+        "FENCE_ENABLE": _MAV_PARAM_TYPE_UINT8,
+        "FRAME_CLASS": _MAV_PARAM_TYPE_UINT8,
+        "MOT_SPIN_ARM": _MAV_PARAM_TYPE_REAL32,
+    }
+    conn = _scripted_conn([
+        _make_param_value("FENCE_ENABLE", 1.0),
+        _make_param_value("FRAME_CLASS", 2.0),
+        _make_param_value("MOT_SPIN_ARM", 0.15),
+    ])
+
+    apply_pack(conn, diff, live_param_types=live_types)
+
+    calls = conn.mav.param_set_send.call_args_list
+    assert len(calls) == 3
+    # Each call is positional: (target_system, target_component, name, value, param_type)
+    by_name = {call.args[2].decode("utf-8"): call.args[4] for call in calls}
+    assert by_name["FENCE_ENABLE"] == _MAV_PARAM_TYPE_UINT8
+    assert by_name["FRAME_CLASS"] == _MAV_PARAM_TYPE_UINT8
+    assert by_name["MOT_SPIN_ARM"] == _MAV_PARAM_TYPE_REAL32
+
+
+def test_apply_pack_falls_back_to_real32_when_type_unknown():
+    """A name absent from live_param_types still gets REAL32 — no crash."""
+    diff = [
+        {"name": "NEW_PARAM", "current": None, "target": 7.0,
+         "action": "add", "delta": None},
+    ]
+    conn = _scripted_conn([_make_param_value("NEW_PARAM", 7.0)])
+
+    apply_pack(conn, diff, live_param_types={})  # NEW_PARAM not in the map
+
+    call = conn.mav.param_set_send.call_args_list[0]
+    assert call.args[4] == _MAV_PARAM_TYPE_REAL32
+
+
+def test_apply_pack_no_types_map_back_compat():
+    """Existing callers without live_param_types still work — REAL32 for all."""
+    diff = [
+        {"name": "FENCE_ENABLE", "current": 0.0, "target": 1.0,
+         "action": "change", "delta": 1.0},
+    ]
+    conn = _scripted_conn([_make_param_value("FENCE_ENABLE", 1.0)])
+
+    apply_pack(conn, diff)  # no live_param_types kwarg
+
+    call = conn.mav.param_set_send.call_args_list[0]
+    assert call.args[4] == _MAV_PARAM_TYPE_REAL32
+
+
+# ---------------------------------------------------------------------------
+# reread_params (R3-1)
+# ---------------------------------------------------------------------------
+
+def test_reread_params_returns_authoritative_values():
+    """reread_params drains the FC's reported values for each touched name."""
+    names = ["FENCE_ENABLE", "ARMING_CHECK"]
+    conn = _scripted_conn([
+        _make_param_value("FENCE_ENABLE", 1.0),
+        _make_param_value("ARMING_CHECK", 65535.0),
+    ])
+
+    snap = reread_params(conn, names, per_name_timeout=0.05)
+
+    assert snap == {"FENCE_ENABLE": pytest.approx(1.0),
+                    "ARMING_CHECK": pytest.approx(65535.0)}
+    # One PARAM_REQUEST_READ per name
+    assert conn.mav.param_request_read_send.call_count == 2
+
+
+def test_reread_params_timeout_returns_none_for_that_name():
+    """A single-name timeout maps to None without poisoning the others."""
+    names = ["FENCE_ENABLE", "MISSING"]
+    conn = _scripted_conn([
+        _make_param_value("FENCE_ENABLE", 1.0),
+        None,  # MISSING re-read times out
+    ])
+
+    snap = reread_params(conn, names, per_name_timeout=0.01)
+
+    assert snap["FENCE_ENABLE"] == pytest.approx(1.0)
+    assert snap["MISSING"] is None
