@@ -287,11 +287,11 @@ if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
 # Version: short SHA or semver-ish. Reject anything that could be
 # interpreted by the shell.
 if not re.fullmatch(r"[A-Za-z0-9._+-]{1,64}", m["version"]):
-    print(f"PARSE_ERROR version shape: {m[\"version\"]!r}", file=sys.stderr)
+    print(f"PARSE_ERROR version shape: {m['version']!r}", file=sys.stderr)
     sys.exit(1)
 # Channel: same allowlist as the bash side.
 if m["channel"] not in ("stable", "beta"):
-    print(f"PARSE_ERROR channel: {m[\"channel\"]!r}", file=sys.stderr)
+    print(f"PARSE_ERROR channel: {m['channel']!r}", file=sys.stderr)
     sys.exit(1)
 print(m["channel"])
 print(m["version"])
