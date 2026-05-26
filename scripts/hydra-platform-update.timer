@@ -1,0 +1,11 @@
+[Unit]
+Description=Hydra OTA — daily platform update check (#152, PR-A skeleton)
+Documentation=file:/opt/hydra/docs/ota.md
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target

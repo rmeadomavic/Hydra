@@ -2,6 +2,13 @@
 # Base: l4t-pytorch with CUDA-enabled OpenCV, PyTorch, and TensorRT
 FROM dustynv/l4t-pytorch:r36.4.0
 
+# OTA version stamp (issue #152, PR-A). CI sets this to the git SHA at
+# build time (`docker build --build-arg HYDRA_VERSION=$GITHUB_SHA ...`),
+# which then surfaces as ``body["version"]`` on ``GET /api/health``.
+# Default "dev" so local builds still work without --build-arg.
+ARG HYDRA_VERSION=dev
+ENV HYDRA_VERSION=${HYDRA_VERSION}
+
 ENV PYTHONUNBUFFERED=1
 # Override the base image's PIP_INDEX_URL which points to an unreachable
 # Jetson AI Lab index (pypi.jetson-ai-lab.dev) that fails DNS during build.

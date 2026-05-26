@@ -98,6 +98,7 @@ dashboard. Full workflow + caveats: [docs/dev-loop.md](docs/dev-loop.md).
 | [Development](docs/development.md) | Project layout, testing, extending |
 | [Dev loop (no rebuild)](docs/dev-loop.md) | `compose.dev.yml` workflow for fast UI iteration on :8081 |
 | [Preservation rules](docs/preservation-rules.md) | Hidden features + brand invariants — read before deleting anything unfamiliar |
+| [Over-the-air updates](docs/ota.md) | `/etc/hydra/channel`, systemd timer, version surface on `/api/health` (#152) |
 
 ## Vehicle compatibility
 
