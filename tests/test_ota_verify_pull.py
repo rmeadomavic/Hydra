@@ -33,7 +33,6 @@ import shutil
 import stat
 import subprocess
 import textwrap
-import time
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -195,12 +194,18 @@ def harness(tmp_path: Path):
         encoding="utf-8",
     )
     key_path = etc_dir / "ota-signing.pub"
-    key_path.write_text("-----BEGIN PGP PUBLIC KEY BLOCK-----\nfake\n-----END PGP PUBLIC KEY BLOCK-----\n", encoding="utf-8")
+    key_path.write_text(
+        "-----BEGIN PGP PUBLIC KEY BLOCK-----\nfake\n-----END PGP PUBLIC KEY BLOCK-----\n",
+        encoding="utf-8",
+    )
 
     manifest_src = tmp_path / "manifest.json"
     sig_src = tmp_path / "manifest.json.sig"
     _write_manifest(manifest_src)
-    sig_src.write_text("-----BEGIN PGP SIGNATURE-----\nfake-sig\n-----END PGP SIGNATURE-----\n", encoding="utf-8")
+    sig_src.write_text(
+        "-----BEGIN PGP SIGNATURE-----\nfake-sig\n-----END PGP SIGNATURE-----\n",
+        encoding="utf-8",
+    )
 
     # Prepend our fake-bin dir to PATH. Keep the rest of PATH so bash,
     # python3, mktemp, etc. still resolve.
@@ -231,8 +236,13 @@ def harness(tmp_path: Path):
     }
 
 
-def _install_default_fakes(harness: Dict[str, Any], *, curl_exit: int = 0,
-                            gpg_exit: int = 0, docker_exit: int = 0) -> None:
+def _install_default_fakes(
+    harness: Dict[str, Any],
+    *,
+    curl_exit: int = 0,
+    gpg_exit: int = 0,
+    docker_exit: int = 0,
+) -> None:
     """Install a happy-path set of fake curl/gpg/docker binaries."""
     bin_dir = harness["bin_dir"]
     log_path = harness["log_path"]
