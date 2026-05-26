@@ -50,7 +50,13 @@ pytestmark_bash = pytest.mark.skipif(
 
 @pytestmark_bash
 def test_platform_update_sh_reads_channel(tmp_path: Path) -> None:
-    """When the channel file is present, the script logs that channel."""
+    """When the channel file is present, the script logs that channel.
+
+    PR-B note: the script now attempts a fetch + verify when the
+    signing key is missing it records ``failed`` and exits 0 so the
+    timer stays armed. ``HYDRA_LAST_UPDATE_PATH`` is pinned at a
+    tmp file so the script doesn't try to write to ``/var/lib/hydra``.
+    """
     channel_file = tmp_path / "channel"
     channel_file.write_text("beta\n", encoding="utf-8")
 
@@ -59,6 +65,7 @@ def test_platform_update_sh_reads_channel(tmp_path: Path) -> None:
     # Point the update.env at a path that does NOT exist — the script
     # must still succeed and fall through to defaults.
     env["HYDRA_UPDATE_ENV_PATH"] = str(tmp_path / "nope.env")
+    env["HYDRA_LAST_UPDATE_PATH"] = str(tmp_path / "last-update.json")
 
     result = subprocess.run(
         ["bash", str(PLATFORM_UPDATE_SH)],
@@ -68,6 +75,9 @@ def test_platform_update_sh_reads_channel(tmp_path: Path) -> None:
         timeout=10,
     )
 
+    # PR-B: missing /etc/hydra/ota-signing.pub is the expected outcome
+    # in a tmp-dir sandbox — script must exit 0 (timer-friendly) and
+    # log the channel selection before the key check fails.
     assert result.returncode == 0, f"stderr: {result.stderr!r}"
     assert "[platform-update]" in result.stdout
     assert "channel=beta" in result.stdout
@@ -81,6 +91,7 @@ def test_platform_update_sh_default_stable(tmp_path: Path) -> None:
     env = os.environ.copy()
     env["HYDRA_CHANNEL_PATH"] = str(missing)
     env["HYDRA_UPDATE_ENV_PATH"] = str(tmp_path / "nope.env")
+    env["HYDRA_LAST_UPDATE_PATH"] = str(tmp_path / "last-update.json")
 
     result = subprocess.run(
         ["bash", str(PLATFORM_UPDATE_SH)],
