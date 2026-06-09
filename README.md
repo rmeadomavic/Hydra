@@ -31,6 +31,7 @@ MAVLink, emits CoT to TAK, and serves an operator dashboard on port
 # 1. Clone and build
 git clone https://github.com/rmeadomavic/Hydra.git
 cd Hydra
+cp config.ini.factory config.ini   # config.ini is untracked per-unit state
 docker build --network=host -t hydra-detect .
 
 # 2. Run under systemd (golden-image Jetsons)

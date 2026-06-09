@@ -52,14 +52,17 @@ bash scripts/deploy.sh [branch]
 
 # Manual deploy
 cd ~/Hydra
-git stash                    # Local config.ini changes WILL block git pull
+git stash                    # Stash any local source changes
 git pull origin main
 sudo docker build -t hydra-detect:latest .
 sudo systemctl restart hydra-detect
 ```
 
 **Important deployment notes:**
-- `git pull` will fail if `config.ini` has local changes — always `git stash` first
+- `config.ini` is NOT tracked in git — it is per-unit state, rewritten at
+  boot by config migrations and by dashboard saves. `git pull` never touches
+  it. On a fresh checkout, bootstrap it with `cp config.ini.factory config.ini`
+  (or run the `/setup` wizard).
 - `/api/restart` only restarts the detection pipeline, NOT the web server. Code
   changes to `server.py` or JS files require a full Docker rebuild + service restart.
 - The container name is `hydra-detect` (not `hydra`). Use `sudo docker rm -f hydra-detect` if needed.
@@ -216,7 +219,7 @@ Restore the factory defaults:
 2. Via dashboard: Settings tab, Factory Reset button
 3. Via file: `cp config.ini.factory config.ini` and restart the service
 
-The factory file (`config.ini.factory`) is the config.ini shipped with the repository. Keep it unmodified.
+The factory file (`config.ini.factory`) is the committed template; `config.ini` itself is untracked per-unit state created from it. Keep the factory file unmodified.
 
 ## tmux Session
 

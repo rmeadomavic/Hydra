@@ -17,6 +17,14 @@ hydra-docs-rewrite/
 # Runtime output
 output_data/
 
+# Live config — rewritten at boot by config migrations and by dashboard
+# saves; per-unit state (serial port, alert classes, [identity]). The
+# committed template is config.ini.factory; bootstrap a fresh checkout
+# with `cp config.ini.factory config.ini`.
+config.ini
+config.ini.bak
+config.ini.before-reset.*
+
 # Kismet capture files
 *.kismet
 *.kismet-journal

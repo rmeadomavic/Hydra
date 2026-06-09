@@ -66,9 +66,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # compatible with numpy 1.x, so the downgrade does not break it.
 RUN pip3 install --no-cache-dir "numpy<2"
 
-# Copy application
+# Copy application. config.ini is not tracked in git (it's per-unit,
+# runtime-mutated state) — the image ships the factory template plus a
+# default config.ini generated from it. Deployments override the default
+# by bind-mounting their own config.ini (see docker-compose.yml); the
+# baked-in factory file keeps POST /api/config/factory-reset working
+# inside the container.
 COPY hydra_detect/ ./hydra_detect/
-COPY config.ini .
+COPY config.ini.factory .
+RUN cp config.ini.factory config.ini
 
 EXPOSE 8080
 EXPOSE 8554
