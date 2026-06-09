@@ -675,7 +675,7 @@ class MAVLinkIO:
             self._global_alert_times.append(now)
 
         # Build alert message with DTG and coordinates
-        dtg = datetime.datetime.utcnow().strftime("%Y%m%d %H%MZ")
+        dtg = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d %H%MZ")
         coord = self.get_position_string()
 
         if coord is not None:
