@@ -5,18 +5,20 @@ window.HydraModules = window.HydraModules || {};
 window.HydraModules.createPollerManager = function createPollerManager({ store, fetchImpl, onStats, onConnection }) {
     const fetcher = fetchImpl || fetch;
     const pollers = {};
-    let pollFailCount = 0;
     const MAX_BACKOFF = 10000;
 
     function startPoller(name, url, intervalMs, update) {
         if (pollers[name]) clearTimeout(pollers[name].timer);
-        const entry = { baseInterval: intervalMs, timer: null };
+        // failCount is per-poller: one failing endpoint must not slow the
+        // healthy ones, and a success on a healthy endpoint must not reset
+        // the backoff of one that is still failing.
+        const entry = { baseInterval: intervalMs, timer: null, failCount: 0 };
         pollers[name] = entry;
 
         const schedule = () => {
-            const delay = pollFailCount === 0
+            const delay = entry.failCount === 0
                 ? intervalMs
-                : Math.min(intervalMs * Math.pow(2, pollFailCount), MAX_BACKOFF);
+                : Math.min(intervalMs * Math.pow(2, entry.failCount), MAX_BACKOFF);
             entry.timer = setTimeout(poll, delay);
         };
 
@@ -26,14 +28,14 @@ window.HydraModules.createPollerManager = function createPollerManager({ store, 
                 if (resp.ok) {
                     const data = await resp.json();
                     update(data);
-                    pollFailCount = 0;
+                    entry.failCount = 0;
                     if (onConnection) onConnection(true);
                 } else {
-                    pollFailCount++;
+                    entry.failCount++;
                     if (onConnection) onConnection(false);
                 }
             } catch (e) {
-                pollFailCount++;
+                entry.failCount++;
                 if (onConnection) onConnection(false);
             }
             if (pollers[name]) schedule();
