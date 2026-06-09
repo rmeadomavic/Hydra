@@ -72,10 +72,12 @@ jobs:
           python scripts/lint_no_duplicate_init_assignments.py hydra_detect/pipeline/facade.py
 
       - name: Test (with coverage)
+        # Unlike `make test` (the local fast loop), CI runs the integration
+        # wiring tests too — they're the only guard on dashboard nav/template/
+        # script-tag wiring. Only "slow"-named stress/fuzz tests stay out.
         run: |
           python -m pytest tests/ -q --tb=short \
-            --ignore=tests/test_integration_wiring.py \
-            -k "not integration and not slow" \
+            -k "not slow" \
             --cov=hydra_detect --cov-report=term --cov-report=xml
 
       - name: Upload coverage XML
