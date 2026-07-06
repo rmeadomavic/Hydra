@@ -1,9 +1,17 @@
 profile: ugv
 firmware: ArduRover
 
-# ArduRover UGV (Traxxas Stampede) Pixhawk prerequisites for Hydra Detect.
-# Required = Hydra will not function correctly without these.
-# Recommended = strong operational best practice, but Hydra will still run.
+# ArduRover UGV (Axial SCX6 Trail Honcho, 1/6 scale) Pixhawk 6C prerequisites for
+# Hydra Detect. Reconciled to the SCX6 instructor build on 2026-06-01 from a live
+# 934-param pull off the flight controller (replaces the prior Traxxas Stampede
+# profile).
+#
+# Required    = Hydra autonomy is unsafe or non-functional without these.
+# Recommended = strong operational best practice; Hydra still runs.
+#
+# ArduRover failsafe/fence action codes (verified against AP source 2026-06-01):
+#   0 Warn/Report only   1 RTL   2 Hold   3 SmartRTL   4 SmartRTL-or-Hold   5 Terminate
+# NOTE: value 2 is HOLD, not RTL. Earlier revisions of this file mislabeled it.
 
 required:
   - name: FENCE_ENABLE
@@ -12,21 +20,98 @@ required:
       Geofence required for any autonomous behavior. Without it the rover can
       drive beyond the operating area with no automatic recovery.
 
+  - name: FENCE_ACTION
+    expected: 2
+    reason: >
+      Hold (stop in place) on fence breach. Value 2 is Hold on ArduRover.
+      Preferred over RTL for the shoothouse/tunnel lanes so the rover stops at
+      the boundary instead of autonomously driving home across the lane.
+
+  - name: FENCE_RADIUS
+    expected: 300
+    reason: >
+      Circular fence radius in metres. 300 m covers the SORCC operating area;
+      tighten per site. An enabled fence with no radius leaves a default that
+      may not match the lane.
+
+  - name: FENCE_MARGIN
+    expected: 2
+    reason: >
+      2 m breach margin before the fence action escalates. Prevents a hard stop
+      exactly at the boundary.
+
+  - name: BATT_MONITOR
+    expected: 4
+    reason: >
+      Analog voltage + current monitor (Holybro PM02 on POWER1). Without a
+      monitor the battery failsafe below has nothing to measure and never fires.
+
+  - name: BATT_VOLT_PIN
+    expected: 8
+    reason: Pixhawk 6C POWER1 analog voltage pin for the PM02.
+
+  - name: BATT_CURR_PIN
+    expected: 4
+    reason: Pixhawk 6C POWER1 analog current pin for the PM02.
+
+  - name: BATT_VOLT_MULT
+    expected: 18.18
+    reason: PM02 voltage-divider multiplier.
+
+  - name: BATT_AMP_PERVLT
+    expected: 36.36
+    reason: PM02 current scaling (amps per volt).
+
+  - name: BATT_LOW_VOLT
+    expected: 20.4
+    reason: >
+      Low-battery threshold, 3.4 V/cell on a 6S Molicel P42A Li-ion pack. This is
+      the trigger BATT_FS_LOW_ACT needs to fire. Li-ion floor is 2.5 V/cell — do
+      NOT reuse LiPo 3.5/3.3 numbers.
+
+  - name: BATT_CRT_VOLT
+    expected: 19.2
+    reason: >
+      Critical threshold, 3.2 V/cell (6S P42A). If crawl-stall current sag
+      nuisance-trips this, lower to 18.6 (3.1 V/cell).
+
+  - name: BATT_FS_LOW_ACT
+    expected: 2
+    reason: >
+      Hold on low battery (value 2 is Hold on ArduRover). Inert without a paired
+      BATT_LOW_VOLT threshold.
+
+  - name: BATT_FS_CRT_ACT
+    expected: 2
+    reason: Hold on critical battery (value 2 is Hold on ArduRover).
+
+  - name: BATT_CAPACITY
+    expected: 12600
+    reason: 6S3P Molicel P42A pack — 3 x 4200 mAh. Enables mAh fuel gauging.
+
   - name: SERIAL2_PROTOCOL
     expected: 2
     reason: >
-      Companion computer port (TELEM2) must be set to MAVLink2. MAVLink1
-      (value 1) works but loses long-parameter and signed-message support.
+      Companion-computer link must be MAVLink2. MAVLink1 (1) works but loses
+      long-parameter and signed-message support. See the SERIAL warning on
+      SERIAL2_BAUD — on the SCX6 the companion is on SERIAL5, not SERIAL2.
 
   - name: SERIAL2_BAUD
     expected: 921
+    # WARNING — REFERENCE WIRING ONLY. This assumes the companion is on
+    # TELEM2/SERIAL2 (the Hydra default). The SCX6 instructor build puts the
+    # Jetson on TELEM3/SERIAL5 at 921600 because all five UARTs are allocated
+    # (CRSF, SiK, GPS, OSD, Jetson). On that build SERIAL2 is the 433 MHz SiK
+    # radio at 57600 baud — applying 921600 here BREAKS the SiK link. Set
+    # MAVLink2 + 921600 on whichever UART your companion actually uses.
+    # TODO(#158 PR-B): the wizard should set protocol/baud on the operator-
+    # detected companion UART instead of hardcoding SERIAL2.
     reason: >
-      921600 baud required for Hydra's heartbeat + param + command traffic.
-      Lower rates cause message drops under load (57 and 115 are too slow).
+      921600 baud on the companion link. Lower rates drop messages under load.
 
-# Stream rates — values are minimum Hz on SERIAL2 (companion computer port).
-# SR1 maps to TELEM2 when the companion is on SERIAL2 with SRx overrides.
-# If your setup uses SR2 instead (SERIAL2 with no SRx remap), adjust accordingly.
+# Stream rates — minimum Hz on the companion port. SR1 maps to TELEM2 when the
+# companion is on SERIAL2 with SRx overrides. If your setup uses a different SRx
+# index for the companion UART (e.g. SERIAL5 on the SCX6), adjust accordingly.
 stream_rates:
   SR1_POSITION: 5
   SR1_EXTRA1: 4
@@ -34,35 +119,20 @@ stream_rates:
   SR1_RAW_SENS: 2
 
 recommended:
-  - name: BATT_FS_LOW_ACT
-    expected: 2
-    reason: >
-      RTL on low battery. Without this, the rover will continue running until
-      the battery dies and loses comms with no automatic recovery.
-
-  - name: FENCE_ACTION
-    expected: 1
-    reason: >
-      RTL when fence breached. Value 0 (report only) means the rover ignores
-      the fence boundary — defeat the purpose of having a fence.
-
-  - name: FENCE_MARGIN
-    expected: 2
-    reason: >
-      2-meter breach margin before escalation to LAND. Prevents hard stops at
-      the exact fence boundary; gives the mission controller time to respond.
-
   - name: FS_GCS_ENABLE
     expected: 2
     reason: >
-      Enable GCS heartbeat failsafe. If the Hydra companion loses MAVLink
-      the rover should RTL rather than freeze in place.
+      Enable GCS-heartbeat failsafe. If the Hydra companion loses MAVLink the
+      rover should recover rather than freeze in place.
 
-# Servo/relay function assignments for engagement modes.
-# These are operator-set at mission time; Hydra reads them but does not
-# require specific values for DROP/ARM/STRIKE actions.
-# Document your setup in config.ini [drop] section.
-#
-# Typical SORCC UGV setup (not validated by preflight):
-#   SERVO9_FUNCTION = 0  (GPIO — controlled by Hydra relay)
-#   RELAY_PIN = 13       (matches Pixhawk 6C AUX1)
+  - name: FS_THR_ENABLE
+    expected: 1
+    reason: >
+      RC-loss failsafe. RTL or hold on RC loss. Do not disable.
+
+# Servo/relay assignments for engagement modes are operator-set at mission time;
+# Hydra reads them but preflight does not validate them. Document your setup in
+# config.ini [drop].
+# NOTE: on the SCX6, CH5 / SERVO5 drives the 2-speed transmission shift, not a
+# diff lock — do not repurpose it.
+#   Typical SORCC UGV engagement: SERVO9_FUNCTION 0 (GPIO relay), RELAY_PIN 13 (AUX1).
