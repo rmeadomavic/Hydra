@@ -27,7 +27,13 @@
 
 set -euo pipefail
 
-CONFIG_PATH="${HYDRA_CONFIG:-./config.ini}"
+# Resolve paths from the script's OWN location, not the caller's CWD (issue #283).
+# A CWD-relative default meant running the wipe from anywhere but the repo root
+# silently skipped the config scrub and cloned per-unit secrets into every image.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+CONFIG_PATH="${HYDRA_CONFIG:-$REPO_ROOT/config.ini}"
 DRY_RUN=0
 FORCE=0
 
@@ -38,7 +44,7 @@ Usage: platform_clone_wipe.sh [OPTIONS]
 Wipe per-unit identity before cloning the Hydra master SSD.
 
 Options:
-  --config PATH    Path to config.ini (default: ./config.ini or $HYDRA_CONFIG)
+  --config PATH    Path to config.ini (default: <repo-root>/config.ini or $HYDRA_CONFIG)
   --dry-run        Show what would be cleared without changing anything
   --force          Don't prompt for confirmation (for scripted imaging pipelines)
   -h, --help       Show this help
@@ -122,13 +128,19 @@ done
 
 echo "==> Wiping per-unit identity from $CONFIG_PATH"
 if [[ ! -f $CONFIG_PATH ]]; then
-  echo "Config file $CONFIG_PATH not found — skipping config wipe."
+  echo "ERROR: config file not found: $CONFIG_PATH" >&2
+  echo "Refusing to proceed — per-unit identity (callsign, API token, dashboard" >&2
+  echo "password) would NOT be scrubbed, and cloning now would leak the master's" >&2
+  echo "secrets into every imaged unit (issue #283)." >&2
+  echo "Point --config or \$HYDRA_CONFIG at the real config.ini and re-run." >&2
+  exit 1
+fi
+
+# Use Python to do this surgically; sed on .ini is brittle.
+if [[ $DRY_RUN -eq 1 ]]; then
+  echo "$PREFIX clear [identity] section and [web].api_token / [web].web_password in $CONFIG_PATH"
 else
-  # Use Python to do this surgically; sed on .ini is brittle.
-  if [[ $DRY_RUN -eq 1 ]]; then
-    echo "$PREFIX clear [identity] section and [web].api_token / [web].web_password in $CONFIG_PATH"
-  else
-    python3 - <<PYEOF
+  python3 - <<PYEOF
 import configparser
 from pathlib import Path
 
@@ -152,7 +164,6 @@ if cfg.has_section("web"):
 with open(path, "w") as f:
     cfg.write(f)
 PYEOF
-  fi
 fi
 
 echo ""
