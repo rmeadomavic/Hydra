@@ -595,6 +595,13 @@ SCHEMA: dict[str, dict[str, FieldSpec]] = {
             default=0,
             description="RC channel for hardware arm switch (0 = disabled)",
         ),
+        "rc_max_stale_sec": FieldSpec(
+            FieldType.FLOAT,
+            min_val=0.5,
+            max_val=30.0,
+            default=2.0,
+            description="RC staleness threshold for the hardware arm gate",
+        ),
         # These three keys are normally set per-vehicle via
         # [vehicle.<name>] autonomous.post_*_mode overrides. Listed here so
         # post-merge validation does not flag them as unknown keys.

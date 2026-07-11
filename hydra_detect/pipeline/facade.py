@@ -635,6 +635,8 @@ class Pipeline:
                     "autonomous", "arm_pwm_safe", fallback=1100),
                 hw_arm_channel=self._cfg.getint(
                     "autonomous", "hardware_arm_channel", fallback=0) or None,
+                rc_max_stale_sec=self._cfg.getfloat(
+                    "autonomous", "rc_max_stale_sec", fallback=2.0),
                 camera_hfov_deg=self._cfg.getfloat(
                     "camera", "hfov_deg", fallback=_hfov_default),
                 abort_mode=self._cfg.get(

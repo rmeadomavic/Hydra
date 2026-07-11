@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock
+
+import pytest
 
 from hydra_detect.approach import ApproachConfig, ApproachController, ApproachMode
 
@@ -18,8 +21,17 @@ def _make_mavlink():
     mav.estimate_target_position.return_value = (34.051, -118.251)
     mav.command_guided_to.return_value = True
     mav.get_rc_channels.return_value = [1500] * 16
+    # Fresh stamp on every read — simulates a live RC_CHANNELS feed (#285).
+    mav.get_rc_channels_last_update.side_effect = time.monotonic
     mav.set_mode.return_value = True
     return mav
+
+
+def _freeze_rc_stamp(mav, age_sec: float) -> None:
+    """Simulate the RC_CHANNELS stream stopping `age_sec` ago: the cached
+    values stay latched, only the freshness stamp stops advancing."""
+    mav.get_rc_channels_last_update.side_effect = None
+    mav.get_rc_channels_last_update.return_value = time.monotonic() - age_sec
 
 
 def _make_track(x1=100, y1=100, x2=200, y2=200):
@@ -306,3 +318,70 @@ class TestHardwareArm:
         ctrl, mav = _make_controller(hw_arm_channel=8)
         mav.get_rc_channels.side_effect = Exception("no RC data")
         assert ctrl.get_hardware_arm_status() is None
+
+
+# ---------------------------------------------------------------------------
+# Hardware arm — RC freshness (#285)
+# ---------------------------------------------------------------------------
+
+class TestHardwareArmStaleness:
+    """The hardware arm switch is a dead-man input. When RC_CHANNELS stops
+    arriving (RC link loss, TX off, serial stall) the cache freezes at the
+    last frame — the gate must read that as unknown (None), never as armed.
+    Issue #285."""
+
+    def test_fresh_rc_armed_reads_true(self):
+        ctrl, mav = _make_controller(hw_arm_channel=8)
+        mav.get_rc_channels.return_value = [1500] * 7 + [1900] + [1500] * 8
+        assert ctrl.get_hardware_arm_status() is True
+
+    def test_fresh_rc_safe_reads_false(self):
+        ctrl, mav = _make_controller(hw_arm_channel=8)
+        mav.get_rc_channels.return_value = [1500] * 7 + [1200] + [1500] * 8
+        assert ctrl.get_hardware_arm_status() is False
+
+    @pytest.mark.regression
+    def test_stale_rc_reads_unknown(self):
+        """Regression #285: armed PWM latched in the cache with a stale
+        stamp must read None (unknown), not True. Before the fix the gate
+        returned True forever off the frozen frame."""
+        ctrl, mav = _make_controller(hw_arm_channel=8)
+        mav.get_rc_channels.return_value = [1500] * 7 + [1900] + [1500] * 8
+        _freeze_rc_stamp(mav, age_sec=10.0)
+        assert ctrl.get_hardware_arm_status() is None
+
+    def test_never_received_reads_none_not_crash(self):
+        """No RC_CHANNELS ever: empty cache + zero stamp reads None."""
+        ctrl, mav = _make_controller(hw_arm_channel=8)
+        mav.get_rc_channels.return_value = []
+        mav.get_rc_channels_last_update.side_effect = None
+        mav.get_rc_channels_last_update.return_value = 0.0
+        assert ctrl.get_hardware_arm_status() is None
+
+    def test_threshold_respects_config(self):
+        ctrl, mav = _make_controller(hw_arm_channel=8, rc_max_stale_sec=5.0)
+        mav.get_rc_channels.return_value = [1500] * 7 + [1900] + [1500] * 8
+        _freeze_rc_stamp(mav, age_sec=3.0)
+        assert ctrl.get_hardware_arm_status() is True  # within window
+        _freeze_rc_stamp(mav, age_sec=6.0)
+        assert ctrl.get_hardware_arm_status() is None  # past window
+
+    @pytest.mark.regression
+    def test_strike_aborts_when_rc_stream_stops(self):
+        """Full failure-mode simulation for #285: RC arrives armed and the
+        strike gate passes; then the stream stops with the armed frame
+        latched. The next gate check must abort instead of continuing the
+        close approach after the operator lost the ability to disarm."""
+        ctrl, mav = _make_controller(hw_arm_channel=8, waypoint_interval=0.0)
+        mav.get_rc_channels.return_value = [1500] * 7 + [1900] + [1500] * 8
+
+        assert ctrl.start_strike(1) is True
+        track = _make_track()
+        ctrl.update(track, 640, 480)
+        assert ctrl.mode == ApproachMode.STRIKE  # gate passed on live data
+
+        # RC stream stops — values stay latched armed, stamp freezes.
+        _freeze_rc_stamp(mav, age_sec=10.0)
+        ctrl.update(track, 640, 480)
+        assert ctrl.mode == ApproachMode.IDLE, \
+            "Strike must abort once RC data backing the dead-man goes stale"
