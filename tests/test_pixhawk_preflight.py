@@ -538,13 +538,18 @@ class TestManifestContent:
         assert "SR1_POSITION" in manifest["stream_rates"]
         assert manifest["stream_rates"]["SR1_POSITION"] >= 5
 
-    def test_ugv_recommends_battery_failsafe(self):
+    def test_ugv_requires_battery_failsafe(self):
+        # PR #273 promoted BATT_FS_LOW_ACT from recommended to required and
+        # paired it with the BATT_LOW_VOLT threshold that makes it fire.
         mod = _load_preflight_module()
         manifest = mod.load_manifest("ugv")
+        required_names = [e["name"] for e in manifest["required"]]
+        assert "BATT_FS_LOW_ACT" in required_names
+        assert "BATT_LOW_VOLT" in required_names  # action is inert without a threshold
+        entry = next(e for e in manifest["required"] if e["name"] == "BATT_FS_LOW_ACT")
+        assert entry["expected"] == 2  # Hold on ArduRover (1 = RTL, 2 = Hold)
         rec_names = [e["name"] for e in manifest["recommended"]]
-        assert "BATT_FS_LOW_ACT" in rec_names
-        entry = next(e for e in manifest["recommended"] if e["name"] == "BATT_FS_LOW_ACT")
-        assert entry["expected"] == 2  # RTL
+        assert "BATT_FS_LOW_ACT" not in rec_names  # promoted, not duplicated
 
     def test_drone_recommends_gcs_failsafe(self):
         mod = _load_preflight_module()

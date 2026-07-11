@@ -326,7 +326,10 @@ class TestEffectiveConfigEndpoint:
     def test_effective_endpoint_exists_in_server(self):
         """The /api/config/effective route is registered on the FastAPI app."""
         from hydra_detect.web.server import app as fastapi_app
-        routes = [r.path for r in fastapi_app.routes]
+        # Newer starlette appends pathless _IncludedRouter entries to
+        # app.routes for each include_router() call — guard with hasattr,
+        # same idiom as test_effective_endpoint_is_get below.
+        routes = [r.path for r in fastapi_app.routes if hasattr(r, "path")]
         assert "/api/config/effective" in routes
 
     @_skip_no_server
