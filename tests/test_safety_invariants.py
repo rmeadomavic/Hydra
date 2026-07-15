@@ -14,6 +14,7 @@ import ast
 import logging
 import pathlib
 import re
+import time
 import xml.etree.ElementTree as ET
 from unittest.mock import MagicMock
 
@@ -46,6 +47,8 @@ def _mavlink_stub(**overrides):
     mav.set_mode.return_value = True
     mav.set_servo.return_value = True
     mav.get_rc_channels.return_value = [1500] * 16
+    # Fresh stamp on every read — simulates a live RC_CHANNELS feed (#285).
+    mav.get_rc_channels_last_update.side_effect = time.monotonic
     for k, v in overrides.items():
         getattr(mav, k).return_value = v
     return mav
@@ -233,6 +236,29 @@ def test_strike_fails_closed_when_hw_arm_unknown():
     ctrl.update(track, 640, 480)
     assert ctrl.mode == ApproachMode.IDLE, \
         "Strike must abort when HW arm status is unknown"
+
+
+@pytest.mark.regression
+def test_strike_fails_closed_when_rc_stale():
+    """#285: with hw_arm_channel configured, strike must abort when the RC
+    data behind the arm switch is stale — even though the cached frame
+    still reads armed. A dead-man switch that latches its last frame on
+    RC/telemetry loss is fail-open, inverting the gate's stated intent."""
+    mav = _mavlink_stub()
+    mav.get_rc_channels.return_value = [1500] * 7 + [1900] + [1500] * 8
+    # RC stream stopped 60 s ago; cache latched at the armed frame.
+    mav.get_rc_channels_last_update.side_effect = None
+    mav.get_rc_channels_last_update.return_value = time.monotonic() - 60.0
+    cfg = ApproachConfig(arm_channel=7, hw_arm_channel=8)
+    ctrl = ApproachController(mav, cfg)
+    assert ctrl.start_strike(track_id=42)
+
+    track = MagicMock()
+    track.x1, track.y1, track.x2, track.y2 = 100, 100, 200, 200
+    track.track_id = 42
+    ctrl.update(track, 640, 480)
+    assert ctrl.mode == ApproachMode.IDLE, \
+        "Strike must abort when RC data backing the HW arm switch is stale"
 
 
 # ── Invariant 6: /api/abort always responds ──────────────────────────

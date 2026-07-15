@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from hydra_detect.mavlink_io import MAVLinkIO
 
@@ -242,3 +245,46 @@ class TestCommandGuided:
         assert m.command_guided_to(34.001, -118.001) is True
         m._mav.set_mode_apm.assert_called_once_with(4)
         m._mav.mav.set_position_target_global_int_send.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# RC channel freshness (#285)
+# ---------------------------------------------------------------------------
+
+def _rc_channels_msg(pwm: int = 1500):
+    """Fake RC_CHANNELS message with all 18 channels at ``pwm``."""
+    msg = MagicMock()
+    for i in range(1, 19):
+        setattr(msg, f"chan{i}_raw", pwm)
+    return msg
+
+
+class TestRCChannelFreshness:
+    """The hardware-arm dead-man gate reads RC through this cache. Values
+    alone cannot distinguish a live feed from a frozen cache, so every
+    RC_CHANNELS receipt must stamp a monotonic last_update — mirroring the
+    GPS/attitude convention. Issue #285."""
+
+    def test_never_received_reads_zero(self):
+        m = _make_mavlink()
+        assert m.get_rc_channels() == []
+        assert m.get_rc_channels_last_update() == 0.0
+
+    def test_receipt_stamps_last_update(self):
+        m = _make_mavlink()
+        before = time.monotonic()
+        m._handle_rc_channels(_rc_channels_msg(1700))
+        after = time.monotonic()
+        assert m.get_rc_channels() == [1700] * 18
+        assert before <= m.get_rc_channels_last_update() <= after
+
+    @pytest.mark.regression
+    def test_stamp_advances_on_identical_frames(self):
+        """Regression #285: an unchanged PWM frame must still refresh the
+        stamp — freshness is about receipt, not value change."""
+        m = _make_mavlink()
+        m._handle_rc_channels(_rc_channels_msg(1900))
+        first = m.get_rc_channels_last_update()
+        assert first > 0.0
+        m._handle_rc_channels(_rc_channels_msg(1900))
+        assert m.get_rc_channels_last_update() >= first

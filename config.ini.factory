@@ -88,6 +88,7 @@ allowed_classes =
 strike_cooldown_sec = 30.0
 allowed_vehicle_modes = AUTO
 gps_max_stale_sec = 2.0                 ; abort if GPS data is older than this
+rc_max_stale_sec = 2.0                  ; hw-arm gate: RC older than this reads unknown (fail closed)
 require_operator_lock = true             ; require explicit target lock before auto-strike
 
 [rf_homing]

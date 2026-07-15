@@ -91,7 +91,7 @@ Strike mode uses a two-stage arm to prevent accidental engagement:
 
 **Stage 1, Software arm**: a servo channel (`arm_channel`) is set to `arm_pwm_armed` when the approach begins. Set to `arm_pwm_safe` on abort or completion.
 
-**Stage 2, Hardware arm**: an RC channel (`hardware_arm_channel`) is read. The physical switch on the RC transmitter must be in the armed position. Hydra reads, but does not write, this channel.
+**Stage 2, Hardware arm**: an RC channel (`hardware_arm_channel`) is read. The physical switch on the RC transmitter must be in the armed position. Hydra reads, but does not write, this channel. This stage is a dead-man switch: if RC data stops arriving (RC link loss, transmitter off, telemetry stall), the reading goes stale and the gate reads unknown after `rc_max_stale_sec` (default 2.0 seconds) — an in-progress strike aborts rather than continuing on the last frame received.
 
 Both stages must be armed for the strike to proceed. If `arm_channel = 0` and `hardware_arm_channel = 0`, the arm circuit is disabled (no physical safety).
 
@@ -141,4 +141,5 @@ arm_channel = 7
 arm_pwm_armed = 1900
 arm_pwm_safe = 1100
 hardware_arm_channel = 8
+rc_max_stale_sec = 2.0
 ```

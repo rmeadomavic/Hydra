@@ -113,8 +113,13 @@ class MAVLinkIO:
             "last_update": 0.0,
         }
 
-        # RC channel values (updated by _message_reader from RC_CHANNELS)
+        # RC channel values (updated by _message_reader from RC_CHANNELS).
+        # last_update is monotonic, 0.0 = never received — same convention
+        # as _gps / _attitude. Safety consumers (hardware-arm dead-man gate,
+        # #285) must check freshness: the values alone cannot distinguish a
+        # live feed from a cache frozen by RC/telemetry loss.
         self._rc_channels: list[int] = []
+        self._rc_channels_last_update: float = 0.0
         self._rc_channels_lock = threading.Lock()
 
         # Vehicle mode state (from HEARTBEAT)
@@ -200,6 +205,11 @@ class MAVLinkIO:
             for stream_id in (
                 mavlink2.MAV_DATA_STREAM_EXTENDED_STATUS,
                 mavlink2.MAV_DATA_STREAM_EXTRA1,
+                # RC_CHANNELS feeds the hardware-arm dead-man gate. Request
+                # it explicitly instead of relying on the FC's default
+                # SRx_RC_CHAN rate, so the freshness guard (#285) measures
+                # a stream we actually solicited.
+                mavlink2.MAV_DATA_STREAM_RC_CHANNELS,
             ):
                 self._mav.mav.request_data_stream_send(
                     self._mav.target_system,
@@ -273,15 +283,7 @@ class MAVLinkIO:
                 elif msg_type == "ATTITUDE":
                     self._handle_attitude(msg)
                 elif msg_type == "RC_CHANNELS":
-                    with self._rc_channels_lock:
-                        self._rc_channels = [
-                            msg.chan1_raw, msg.chan2_raw, msg.chan3_raw,
-                            msg.chan4_raw, msg.chan5_raw, msg.chan6_raw,
-                            msg.chan7_raw, msg.chan8_raw, msg.chan9_raw,
-                            msg.chan10_raw, msg.chan11_raw, msg.chan12_raw,
-                            msg.chan13_raw, msg.chan14_raw, msg.chan15_raw,
-                            msg.chan16_raw, msg.chan17_raw, msg.chan18_raw,
-                        ]
+                    self._handle_rc_channels(msg)
                 elif msg_type == "HEARTBEAT":
                     from pymavlink import mavutil as _mavutil
                     if msg.type == _mavutil.mavlink.MAV_TYPE_GCS:  # Skip GCS heartbeats
@@ -367,6 +369,24 @@ class MAVLinkIO:
             self._attitude["pitch"] = float(msg.pitch)
             self._attitude["yaw"] = float(msg.yaw)
             self._attitude["last_update"] = time.monotonic()
+
+    def _handle_rc_channels(self, msg) -> None:
+        """Cache RC channel PWM values + freshness stamp from RC_CHANNELS.
+
+        The stamp advances on every receipt, value change or not — the
+        hardware-arm dead-man gate uses it to reject a cache frozen by
+        RC-link loss or a telemetry stall (#285).
+        """
+        with self._rc_channels_lock:
+            self._rc_channels = [
+                msg.chan1_raw, msg.chan2_raw, msg.chan3_raw,
+                msg.chan4_raw, msg.chan5_raw, msg.chan6_raw,
+                msg.chan7_raw, msg.chan8_raw, msg.chan9_raw,
+                msg.chan10_raw, msg.chan11_raw, msg.chan12_raw,
+                msg.chan13_raw, msg.chan14_raw, msg.chan15_raw,
+                msg.chan16_raw, msg.chan17_raw, msg.chan18_raw,
+            ]
+            self._rc_channels_last_update = time.monotonic()
 
     def _update_armed_state(self, heartbeat_msg) -> None:
         """Extract armed state from HEARTBEAT base_mode."""
@@ -1243,9 +1263,23 @@ class MAVLinkIO:
 
         Returns a list of up to 18 PWM values, or an empty list if no
         RC_CHANNELS message has been received yet.
+
+        These are cached values: check ``get_rc_channels_last_update()``
+        before trusting them for any safety decision — after RC-link loss
+        the list stays latched at the last received frame (#285).
         """
         with self._rc_channels_lock:
             return list(self._rc_channels)
+
+    def get_rc_channels_last_update(self) -> float:
+        """Return the monotonic timestamp of the last RC_CHANNELS receipt.
+
+        0.0 if never received — same convention as the GPS and attitude
+        ``last_update`` fields. Consumers compare against
+        ``time.monotonic()`` to reject stale RC data (#285).
+        """
+        with self._rc_channels_lock:
+            return self._rc_channels_last_update
 
     def command_do_change_speed(self, speed_m_s: float) -> bool:
         """Set vehicle ground speed via MAV_CMD_DO_CHANGE_SPEED.

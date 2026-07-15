@@ -45,6 +45,9 @@ class ApproachConfig:
     arm_pwm_armed: int = 1900
     arm_pwm_safe: int = 1100
     hw_arm_channel: int | None = None
+    # RC data older than this reads as unknown in the hardware-arm gate
+    # (fail closed, #285). Mirrors [autonomous] gps_max_stale_sec.
+    rc_max_stale_sec: float = 2.0
     strike_approach_m: float = 5.0  # Close-approach distance for strike (not standoff)
 
     # Pixel-lock guidance
@@ -364,11 +367,29 @@ class ApproachController:
     def get_hardware_arm_status(self) -> bool | None:
         """Read hardware arm switch from RC channel.
 
-        Returns True if armed, False if safe, None if unavailable.
+        Returns True if armed, False if safe, None if unavailable or stale.
+
+        This is a dead-man input: the RC cache latches its last frame when
+        RC_CHANNELS stops arriving (RC-link loss, TX off, telemetry stall),
+        so a value older than ``rc_max_stale_sec`` — or never received —
+        reads as unknown, not as the latched PWM (#285).
         """
         if self._cfg.hw_arm_channel is None:
             return None
         try:
+            # Read the stamp before the values: if a message lands between
+            # the two reads, the computed age is pessimistic (older), which
+            # errs toward fail-closed.
+            last_update = self._mavlink.get_rc_channels_last_update()
+            if last_update <= 0.0:
+                return None  # No RC_CHANNELS ever received
+            age = time.monotonic() - last_update
+            if age > self._cfg.rc_max_stale_sec:
+                logger.debug(
+                    "RC channels stale (%.1fs > %.1fs) — hw arm unknown",
+                    age, self._cfg.rc_max_stale_sec,
+                )
+                return None
             rc = self._mavlink.get_rc_channels()
             if rc and self._cfg.hw_arm_channel <= len(rc):
                 pwm = rc[self._cfg.hw_arm_channel - 1]
@@ -496,8 +517,11 @@ class ApproachController:
             logger.debug("Strike: target lost, holding")
             return
 
-        # Safety gate: check hardware arm if configured
-        # Treat None (unknown) as unsafe — fail closed
+        # Safety gate: check hardware arm if configured.
+        # Treat None (unknown) as unsafe — fail closed. Unknown includes
+        # stale or never-received RC data (#285): if RC_CHANNELS stops
+        # arriving the dead-man reads unknown and the strike aborts,
+        # rather than latching the last armed frame forever.
         if self._cfg.hw_arm_channel is not None:
             hw_armed = self.get_hardware_arm_status()
             if hw_armed is not True:  # False or None both mean unsafe

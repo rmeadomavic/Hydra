@@ -295,6 +295,7 @@ Autonomous strike controller. Off by default. See [Autonomous Operations](autono
 | `arm_pwm_armed` | int | `1900` | -- | PWM for software arm engaged. |
 | `arm_pwm_safe` | int | `1100` | -- | PWM for software arm safe. |
 | `hardware_arm_channel` | int | `0` | -- | RC channel for hardware arm switch. 0 disables. |
+| `rc_max_stale_sec` | float | `2.0` | 0.5-30.0 | Hardware arm reads unknown (fail closed) if RC data is older than this many seconds. |
 | `dogleg_distance_m` | float | `200` | -- | Offset distance for dogleg RTL (drones). |
 | `dogleg_bearing` | string | `perpendicular` | -- | Offset bearing. `perpendicular` or compass degrees. |
 | `dogleg_altitude_m` | float | `50` | -- | Climb altitude before dogleg waypoint. |
