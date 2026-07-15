@@ -1,8 +1,26 @@
 # Hydra ugv Pixhawk required params
-# Generated from pixhawk_prereqs.yaml — keep in sync
+# Generated from pixhawk_prereqs.yaml — keep in sync.
+# Reconciled to the Axial SCX6 instructor build 2026-06-01 (live 934-param pull).
 # Standard ArduPilot .param format: PARAM_NAME,value per line.
 # Hard-requirements only; recommended params are intentionally excluded.
+#
+# WARNING: SERIAL2 entries are REFERENCE wiring (companion on TELEM2). The SCX6
+# puts the Jetson on SERIAL5 — SERIAL2 there is the SiK radio at 57600. Applying
+# SERIAL2_BAUD 921 on that build breaks the SiK link. See pixhawk_prereqs.yaml.
 FENCE_ENABLE,1
+FENCE_ACTION,2
+FENCE_RADIUS,300
+FENCE_MARGIN,2
+BATT_MONITOR,4
+BATT_VOLT_PIN,8
+BATT_CURR_PIN,4
+BATT_VOLT_MULT,18.18
+BATT_AMP_PERVLT,36.36
+BATT_LOW_VOLT,20.4
+BATT_CRT_VOLT,19.2
+BATT_FS_LOW_ACT,2
+BATT_FS_CRT_ACT,2
+BATT_CAPACITY,12600
 SERIAL2_PROTOCOL,2
 SERIAL2_BAUD,921
 SR1_POSITION,5

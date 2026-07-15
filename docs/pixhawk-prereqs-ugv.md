@@ -1,9 +1,20 @@
 # Pixhawk Prerequisites: UGV (ArduRover)
 
-Platform: Traxxas Stampede running ArduRover on Pixhawk 6C.
+Platform: Axial SCX6 Trail Honcho (1/6 scale) running ArduRover on Pixhawk 6C.
 
-Run `python scripts/pixhawk_preflight.py --profile ugv --conn /dev/ttyACM0` to validate
-these params live against your flight controller.
+Run the preflight from the companion (Jetson) against the flight controller over the
+companion UART:
+
+```
+python scripts/pixhawk_preflight.py --profile ugv --conn /dev/ttyTHS1 --baud 921600
+```
+
+(`/dev/ttyTHS1` at 921600 is the SCX6 instructor build's Jetson↔FC link on TELEM3/SERIAL5.
+On reference wiring with the companion on TELEM2, use that port instead.)
+
+> **ArduRover action codes** (verified against AP source): `0` Warn/Report only · `1` RTL ·
+> `2` Hold · `3` SmartRTL · `4` SmartRTL-or-Hold · `5` Terminate. **Value `2` is Hold, not
+> RTL** — earlier revisions of this doc had this backwards.
 
 ---
 
@@ -13,39 +24,54 @@ These must be set correctly before running Hydra. Wrong values cause silent fail
 
 | Parameter | Expected | Why |
 |---|---|---|
-| `FENCE_ENABLE` | `1` | Geofence required for any autonomous behavior. Without it the rover can drive beyond the operating area with no automatic recovery. |
-| `SERIAL2_PROTOCOL` | `2` | Companion computer port (TELEM2) must be MAVLink2. MAVLink1 works but loses long-parameter and signed-message support. |
-| `SERIAL2_BAUD` | `921` | 921600 baud required for Hydra's heartbeat + param + command traffic. 57/115 are too slow under load. |
+| `FENCE_ENABLE` | `1` | Geofence required for any autonomous behavior. Without it the rover can drive beyond the operating area with no recovery. |
+| `FENCE_ACTION` | `2` (Hold) | Stop in place on breach. Preferred over RTL for shoothouse/tunnel lanes so the rover stops at the boundary instead of driving home across the lane. |
+| `FENCE_RADIUS` | `300` | Circular fence radius (m). Covers the SORCC operating area; tighten per site. |
+| `FENCE_MARGIN` | `2` | 2 m breach margin before the action escalates. Avoids a hard stop exactly at the boundary. |
+| `BATT_MONITOR` | `4` | Analog voltage + current (Holybro PM02 on POWER1). Without it the battery failsafe has nothing to measure and never fires. |
+| `BATT_VOLT_PIN` | `8` | Pixhawk 6C POWER1 voltage pin (PM02). |
+| `BATT_CURR_PIN` | `4` | Pixhawk 6C POWER1 current pin (PM02). |
+| `BATT_VOLT_MULT` | `18.18` | PM02 voltage-divider multiplier. |
+| `BATT_AMP_PERVLT` | `36.36` | PM02 current scaling (A/V). |
+| `BATT_LOW_VOLT` | `20.4` | Low-battery trigger, 3.4 V/cell on a 6S Molicel P42A Li-ion pack. Li-ion floor is 2.5 V/cell — do **not** reuse LiPo 3.5/3.3 numbers. |
+| `BATT_CRT_VOLT` | `19.2` | Critical trigger, 3.2 V/cell. If crawl-stall sag nuisance-trips, lower to 18.6. |
+| `BATT_FS_LOW_ACT` | `2` (Hold) | Hold on low battery. Inert without `BATT_LOW_VOLT` set. |
+| `BATT_FS_CRT_ACT` | `2` (Hold) | Hold on critical battery. |
+| `BATT_CAPACITY` | `12600` | 6S3P P42A pack, 3 x 4200 mAh. |
+| `SERIAL2_PROTOCOL` | `2` | Companion link must be MAVLink2. See the SERIAL warning below. |
+| `SERIAL2_BAUD` | `921` | 921600 baud on the companion link. **See warning below.** |
+
+> ⚠ **SERIAL warning — reference wiring only.** `SERIAL2_*` assumes the companion is on
+> TELEM2/SERIAL2 (Hydra default). The **SCX6 puts the Jetson on TELEM3/SERIAL5** at 921600
+> because all five UARTs are allocated (CRSF, SiK, GPS, OSD, Jetson) — and on that build
+> **SERIAL2 is the 433 MHz SiK radio at 57600**. Applying `SERIAL2_BAUD 921` there breaks
+> the SiK link. Set MAVLink2 + 921600 on whichever UART your companion actually uses.
 
 ---
 
 ## Recommended Parameters
 
-Not required to start Hydra, but strongly recommended for field operations. A mismatch
-generates a `[WARN]` in the preflight report and does not block the run.
+Not required to start Hydra, but strongly recommended. A mismatch generates a `[WARN]` in the preflight report and does not block the run.
 
 | Parameter | Recommended | Why |
 |---|---|---|
-| `BATT_FS_LOW_ACT` | `2` | RTL on low battery. Without this, the rover continues until the battery dies and loses comms. Value 2 = RTL. |
-| `FENCE_ACTION` | `1` | RTL when fence is breached. Value 0 (report only) means the rover ignores the fence boundary. |
-| `FENCE_MARGIN` | `2` | 2-meter breach margin before escalation to LAND. Prevents hard stops exactly at the fence boundary. |
-| `FS_GCS_ENABLE` | `2` | GCS heartbeat failsafe enabled. If the Hydra companion loses MAVLink, the rover should RTL rather than freeze in place. |
+| `FS_GCS_ENABLE` | `2` | GCS-heartbeat failsafe. If the Hydra companion loses MAVLink, the rover recovers rather than freezing in place. |
+| `FS_THR_ENABLE` | `1` | RC-loss failsafe. RTL or hold on RC loss. Do not disable. |
 
 ---
 
 ## Stream Rates
 
-Minimum rates required on the companion port (SERIAL2). These affect how quickly Hydra
-receives GPS, telemetry, and attitude data from the autopilot.
+Minimum rates on the companion port. These affect how quickly Hydra receives GPS, telemetry, and attitude data from the autopilot.
 
-Set via `SRx_*` parameters where `x` maps to your connection port. If the companion is
-connected to SERIAL2 (TELEM2), use `SR2_*`. If using a MAVProxy router that maps to SR1,
-use `SR1_*`. Match these to whatever SRx index corresponds to the companion port in your setup.
+Set via `SRx_*` where `x` maps to your connection port. `SR1_*` maps to TELEM2 when the
+companion is on SERIAL2 with SRx overrides. If your companion is on a different UART (e.g.
+SERIAL5 on the SCX6), use the matching `SRx_*` index.
 
 | Parameter | Minimum Hz | Why |
 |---|---|---|
-| `SR1_POSITION` | `5` | GPS position data for TAK markers and geo-tracking. Below 5 Hz, the map track lags noticeably. |
-| `SR1_EXTRA1` | `4` | Attitude/heading. Used for OSD orientation display. |
+| `SR1_POSITION` | `5` | GPS position for TAK markers and geo-tracking. Below 5 Hz the map track lags. |
+| `SR1_EXTRA1` | `4` | Attitude/heading. Used for OSD orientation. |
 | `SR1_EXTRA2` | `2` | Battery voltage and current. Used for battery warnings. |
 | `SR1_RAW_SENS` | `2` | IMU data. Required if RF hunt mode is active. |
 
@@ -53,10 +79,13 @@ use `SR1_*`. Match these to whatever SRx index corresponds to the companion port
 
 ## Failsafe Expectations
 
-- **RC Loss:** Set `FS_THR_ENABLE = 1`. RTL or hold on RC loss. Do not disable.
-- **GCS Loss:** `FS_GCS_ENABLE = 2` (see recommended above). RTL after 5 seconds of missed heartbeats.
-- **Battery:** `BATT_FS_LOW_ACT = 2` triggers RTL at low voltage. `BATT_FS_CRT_ACT = 1` (Hold) or `2` (RTL) for critical.
-- **Geofence:** `FENCE_ACTION = 1` (RTL) on breach. Confirm `FENCE_RADIUS` and `FENCE_ALT_MAX` match your operating area.
+- **RC Loss:** `FS_THR_ENABLE = 1`. RTL or hold on RC loss. Do not disable.
+- **GCS Loss:** `FS_GCS_ENABLE = 2`. Recover after missed heartbeats rather than freezing.
+- **Battery:** `BATT_MONITOR = 4` plus `BATT_LOW_VOLT`/`BATT_CRT_VOLT` thresholds, with
+  `BATT_FS_LOW_ACT = 2` and `BATT_FS_CRT_ACT = 2` — both **Hold** (value `2` is Hold on
+  ArduRover; `1` is RTL). An action without a voltage threshold never fires.
+- **Geofence:** `FENCE_ACTION = 2` (Hold) on breach. Confirm `FENCE_RADIUS` matches your
+  operating area.
 
 ---
 
@@ -65,8 +94,8 @@ use `SR1_*`. Match these to whatever SRx index corresponds to the companion port
 Engagement actions (drop, arm) are operator-configured at mission time. Hydra reads
 these from `config.ini [drop]`. The preflight does not require or validate specific servo assignments.
 
-The preflight does not check servo functions because they are valid only during armed
-operation and vary by loadout. Document your team's setup here for reference:
+> Note: on the SCX6, `CH5` / `SERVO5` drives the **2-speed transmission shift**, not a
+> diff lock. Do not repurpose it for engagement.
 
 ```
 # Example SORCC UGV engagement setup (not validated by preflight)
@@ -77,10 +106,3 @@ RELAY_PIN       = 13   # AUX1 on Pixhawk 6C
 Set `[drop] relay_pin` in `config.ini` to match.
 
 ---
-
-## Notes
-
-- `SERIAL2_BAUD = 921` encodes 921600 baud in ArduPilot's compressed format (value `921` = 921600).
-- If using MAVProxy as a router, set baud on the MAVProxy master port, not on the ArduPilot serial port directly.
-- Stream rates set in Mission Planner apply immediately but do not persist across reboots unless saved. Run **Write Params** after adjusting.
-- The UGV profile does not check `FLTMODE_CH` because ArduRover does not use flight mode channels the same way ArduCopter does. Mode switching is done via `MODE_CH` (default CH 8 for Rover); verify GUIDED is reachable on your RC transmitter.
