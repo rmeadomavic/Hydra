@@ -136,6 +136,9 @@ window.HydraTakMap = (() => {
                 const r = await fetch('/api/stats', { credentials: 'same-origin' });
                 if (!r.ok) return false;
                 const s = await r.json();
+                // A stop() may have landed while the fetch was in flight —
+                // don't write markers/titles into a hidden view's map.
+                if (stopped) return false;
                 const lat = (typeof s.lat === 'number') ? s.lat : null;
                 const lon = (typeof s.lon === 'number') ? s.lon : null;
                 const callsign = s.callsign || 'HYDRA-1';
@@ -176,6 +179,7 @@ window.HydraTakMap = (() => {
                 const r = await fetch('/api/tak/peers', { credentials: 'same-origin' });
                 if (!r.ok) return false;
                 const data = await r.json();
+                if (stopped) return false;  // stop() landed mid-flight
                 const peers = Array.isArray(data.peers) ? data.peers : [];
                 const seen = new Set();
                 peers.forEach(p => {
@@ -214,6 +218,7 @@ window.HydraTakMap = (() => {
                 const r = await fetch('/api/active_tracks', { credentials: 'same-origin' });
                 if (!r.ok) return false;
                 const tracks = await r.json();
+                if (stopped) return false;  // stop() landed mid-flight
                 const list = Array.isArray(tracks) ? tracks : [];
                 const seen = new Set();
                 list.forEach(t => {

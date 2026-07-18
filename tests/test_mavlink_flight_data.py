@@ -41,31 +41,44 @@ class TestFlightDataAccessor:
 
     def test_gps_raw_int_populates_cog_and_ground_speed(self):
         """Issue #298: course over ground + ground speed from GPS_RAW_INT
-        feed the compass-health check. 65535 sentinels map to None."""
+        feed the compass-health check. Drives the REAL handler — an earlier
+        version of this test hand-seeded the cache with a copy of the
+        production formulas and would have stayed green with the handler
+        deleted (2026-07-18 Codex re-review)."""
         mav = _make_mavlink_io()
         msg = MagicMock()
         msg.get_type.return_value = "GPS_RAW_INT"
         msg.fix_type = 3
         msg.cog = 22750   # centidegrees → 227.5°
         msg.vel = 240     # cm/s → 2.4 m/s
-        # Exercise the real listener branch via the cached-dict path.
-        with mav._gps_lock:
-            mav._gps["fix"] = msg.fix_type
-            cog = getattr(msg, "cog", 65535)
-            mav._gps["cog"] = None if cog == 65535 else (cog / 100.0) % 360.0
-            vel = getattr(msg, "vel", 65535)
-            mav._gps["ground_speed"] = None if vel == 65535 else vel / 100.0
+        mav._handle_gps_raw_int(msg)
         fd = mav.get_flight_data()
         assert fd["cog"] == 227.5
         assert fd["ground_speed"] == 2.4
+        with mav._gps_lock:
+            assert mav._gps["fix"] == 3
+            assert mav._gps["raw_last_update"] > 0.0
 
     def test_gps_raw_int_unknown_sentinels_map_to_none(self):
         mav = _make_mavlink_io()
-        with mav._gps_lock:
-            cog = 65535
-            mav._gps["cog"] = None if cog == 65535 else (cog / 100.0) % 360.0
-            vel = 65535
-            mav._gps["ground_speed"] = None if vel == 65535 else vel / 100.0
+        msg = MagicMock()
+        msg.get_type.return_value = "GPS_RAW_INT"
+        msg.fix_type = 0
+        msg.cog = 65535
+        msg.vel = 65535
+        mav._handle_gps_raw_int(msg)
+        fd = mav.get_flight_data()
+        assert fd["cog"] is None
+        assert fd["ground_speed"] is None
+
+    def test_gps_raw_int_missing_fields_default_to_none(self):
+        """Dialect variants without cog/vel degrade to None, not
+        AttributeError inside the RX dispatch loop."""
+        mav = _make_mavlink_io()
+        msg = MagicMock(spec=["get_type", "fix_type"])
+        msg.get_type.return_value = "GPS_RAW_INT"
+        msg.fix_type = 2
+        mav._handle_gps_raw_int(msg)
         fd = mav.get_flight_data()
         assert fd["cog"] is None
         assert fd["ground_speed"] is None

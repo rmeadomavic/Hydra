@@ -955,11 +955,24 @@ const HydraOps = (() => {
     var _lastKnown = null;         // {lat, lon, heading, alt, ts}
     var LASTKNOWN_STALE_MS = 6000; // no fresh fix for this long → recovery mode
     var _lastFixAt = 0;
+    var _lastKnownCs = null;       // callsign the in-memory cache belongs to
 
     function _loadLastKnown(callsign) {
+        var cs = callsign || 'default';
+        // Callsign changed mid-session (config edit + pipeline restart with
+        // the page still open): the in-memory cache belongs to the OLD
+        // craft — presenting its coordinates as the new craft's last-known
+        // position would send a recovery party to the wrong spot. Reset and
+        // re-load from the new craft's storage key (2026-07-18 Codex
+        // re-review).
+        if (_lastKnownCs !== null && _lastKnownCs !== cs) {
+            _lastKnown = null;
+            _lastFixAt = 0;
+        }
+        _lastKnownCs = cs;
         if (_lastKnown) return;
         try {
-            var raw = localStorage.getItem('hydra-lastknown-' + (callsign || 'default'));
+            var raw = localStorage.getItem('hydra-lastknown-' + cs);
             if (raw) _lastKnown = JSON.parse(raw);
         } catch (e) { /* ignore */ }
     }

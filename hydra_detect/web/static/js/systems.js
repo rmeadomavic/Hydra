@@ -65,13 +65,24 @@ const HydraSystems = (() => {
     }
 
     // ── Polling ──
+    // Epoch token, same pattern as tak-map.js. Clearing timers alone is not
+    // enough: a poll awaiting fetch has pollTimer/pfTimer already null, so a
+    // stop() during the flight cleared nothing and the loop resurrected
+    // itself when the fetch resolved; a bare boolean still allowed a double
+    // chain on a fast leave→enter (the old in-flight poll resumes under the
+    // new "on" state). Every start/stop bumps the epoch; a poll carries the
+    // epoch it was scheduled under and dies when superseded
+    // (2026-07-18 Codex re-review).
+    let pollEpoch = 0;
+
     function startPolling() {
-        if (pollTimer !== null) return;
-        pollOnce();
-        startPreflightPolling();
+        pollEpoch += 1;
+        pollOnce(pollEpoch);
+        startPreflightPolling(pollEpoch);
     }
 
     function stopPolling() {
+        pollEpoch += 1;
         if (pollTimer !== null) {
             clearTimeout(pollTimer);
             pollTimer = null;
@@ -90,8 +101,9 @@ const HydraSystems = (() => {
     let pfTimer = null;
     let pfChecks = null;   // name(lowercased) → {status, message}
 
-    async function pollPreflightOnce() {
+    async function pollPreflightOnce(gen) {
         pfTimer = null;
+        if (gen !== pollEpoch) return;
         if (document.visibilityState !== 'hidden') {
             try {
                 const resp = await fetch('/api/preflight', { credentials: 'same-origin' });
@@ -108,12 +120,13 @@ const HydraSystems = (() => {
                 pfChecks = null;
             }
         }
-        pfTimer = setTimeout(pollPreflightOnce, PREFLIGHT_POLL_MS);
+        if (gen !== pollEpoch) return;  // onLeave landed while the fetch was in flight
+        pfTimer = setTimeout(() => pollPreflightOnce(gen), PREFLIGHT_POLL_MS);
     }
 
-    function startPreflightPolling() {
+    function startPreflightPolling(gen) {
         if (pfTimer !== null) return;
-        pollPreflightOnce();
+        pollPreflightOnce(gen);
     }
 
     function stopPreflightPolling() {
@@ -190,19 +203,20 @@ const HydraSystems = (() => {
         }
     }
 
-    function schedule(nextMs) {
+    function schedule(nextMs, gen) {
         if (pollTimer !== null) clearTimeout(pollTimer);
-        pollTimer = setTimeout(pollOnce, nextMs);
+        pollTimer = setTimeout(() => pollOnce(gen), nextMs);
     }
 
-    async function pollOnce() {
+    async function pollOnce(gen) {
         pollTimer = null;
+        if (gen !== pollEpoch) return;
         if (inFlight) {
-            schedule(POLL_INTERVAL_MS);
+            schedule(POLL_INTERVAL_MS, gen);
             return;
         }
         if (document.visibilityState === 'hidden') {
-            schedule(POLL_INTERVAL_MS);
+            schedule(POLL_INTERVAL_MS, gen);
             return;
         }
         inFlight = true;
@@ -210,6 +224,7 @@ const HydraSystems = (() => {
             const resp = await fetch('/api/stats', { credentials: 'same-origin' });
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             const data = await resp.json();
+            if (gen !== pollEpoch) return;  // superseded mid-flight — no DOM writes
             tickCount += 1;
             applyStats(data || {});
             backoffMs = POLL_INTERVAL_MS;
@@ -219,7 +234,8 @@ const HydraSystems = (() => {
         } finally {
             inFlight = false;
         }
-        schedule(backoffMs);
+        if (gen !== pollEpoch) return;  // onLeave landed while the fetch was in flight
+        schedule(backoffMs, gen);
     }
 
     // ── Application of stats to DOM ──

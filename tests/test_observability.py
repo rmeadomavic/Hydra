@@ -150,11 +150,14 @@ class TestHealthSnapshot:
         # Issue #302: stats has no gps_fix → probe must read the fix type
         # from get_gps()["fix"] (the old code asked get_flight_data() for a
         # "gps_fix" key it never returned, so this path always warned).
+        import time as _time
+
         class Mav:
             connected = True
 
             def get_gps(self):
-                return {"fix": 3, "lat": 1, "lon": 2, "last_update": 12.5}
+                return {"fix": 3, "lat": 1, "lon": 2,
+                        "raw_last_update": _time.monotonic()}
 
         snap = health_snapshot(
             stats={"camera_ok": True, "fps": 5.0},
@@ -167,11 +170,14 @@ class TestHealthSnapshot:
         # StreamState defaults stats["gps_fix"] to 0 before the pipeline
         # publishes — a 0 must consult get_gps() too, else the boot window
         # reports "no fix" while MAVLink already holds a 3D fix.
+        import time as _time
+
         class Mav:
             connected = True
 
             def get_gps(self):
-                return {"fix": 3, "lat": 1, "lon": 2, "last_update": 12.5}
+                return {"fix": 3, "lat": 1, "lon": 2,
+                        "raw_last_update": _time.monotonic()}
 
         snap = health_snapshot(
             stats={"camera_ok": True, "fps": 5.0, "gps_fix": 0},
@@ -179,6 +185,42 @@ class TestHealthSnapshot:
         )
         assert snap["subsystems"]["gps"]["status"] == "ok"
         assert "gps_fix=3" in snap["subsystems"]["gps"]["detail"]
+
+    def test_gps_stale_cache_does_not_override_no_fix(self):
+        # 2026-07-18 Codex re-review: a cache that latched fix=3 and then
+        # stopped hearing GPS_RAW_INT must NOT override an explicit 0 with
+        # a stale OK. Freshness window is 10 s on raw_last_update.
+        import time as _time
+
+        class Mav:
+            connected = True
+
+            def get_gps(self):
+                return {"fix": 3, "lat": 1, "lon": 2,
+                        "raw_last_update": _time.monotonic() - 60.0}
+
+        snap = health_snapshot(
+            stats={"camera_ok": True, "fps": 5.0, "gps_fix": 0},
+            mavlink_ref=Mav(),
+        )
+        assert snap["subsystems"]["gps"]["status"] == "warn"
+        assert "no fix" in snap["subsystems"]["gps"]["detail"]
+
+    def test_gps_unstamped_cache_does_not_override(self):
+        # A cache with no raw_last_update (never heard GPS_RAW_INT, or an
+        # older MAVLinkIO shape) is not trusted over the stats value.
+        class Mav:
+            connected = True
+
+            def get_gps(self):
+                return {"fix": 3, "lat": 1, "lon": 2}
+
+        snap = health_snapshot(
+            stats={"camera_ok": True, "fps": 5.0, "gps_fix": 0},
+            mavlink_ref=Mav(),
+        )
+        assert snap["subsystems"]["gps"]["status"] == "warn"
+        assert "no fix" in snap["subsystems"]["gps"]["detail"]
 
     def test_gps_stats_zero_without_mavlink_still_no_fix(self):
         # No MAVLink registered: a stats 0 keeps its "no fix" warn — the
