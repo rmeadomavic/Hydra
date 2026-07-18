@@ -96,16 +96,21 @@ class TestSystemsJs:
         # window export so main.js can dispatch by name.
         assert "window.HydraSystems = HydraSystems" in body
 
-    def test_systems_js_polls_api_stats_only(self, client):
+    def test_systems_js_polls_only_known_endpoints(self, client):
         body = client.get("/static/js/systems.js").text
-        # This task scope: only /api/stats. Any other /api/... call would mean
-        # we invented a backend endpoint without flagging it — fail the test.
+        # systems.js polls /api/stats (live environment metrics) and, since
+        # issue #295, /api/preflight (authoritative camera/mavlink/config/
+        # disk verdicts for the checklist). Both are pre-existing endpoints —
+        # no new backend was invented. Any OTHER /api/... call would mean an
+        # unflagged endpoint; fail so it gets reviewed.
+        allowed = ("/api/stats", "/api/preflight")
         api_calls = [line.strip() for line in body.splitlines() if "fetch('/api/" in line]
         assert api_calls, "systems.js should at least poll /api/stats"
+        assert any("/api/stats" in c for c in api_calls), "systems.js must still poll /api/stats"
         for call in api_calls:
-            assert "/api/stats" in call, (
-                f"systems.js fetches a non-/api/stats endpoint: {call!r} — "
-                "if a new backend endpoint is needed, flag in /tmp/messages/"
+            assert any(a in call for a in allowed), (
+                f"systems.js fetches an unexpected endpoint: {call!r} — "
+                "if a new backend endpoint is needed, flag it for review"
             )
 
 

@@ -69,9 +69,39 @@ window.HydraModules.createPreflight = function createPreflight({ fetchImpl }) {
         if (overlay) overlay.style.display = 'none';
     }
 
+    // Issue #295: gate an action (Start Sortie) on preflight. Returns a
+    // promise resolving true = proceed, false = operator aborted. On 'fail'
+    // it forces an explicit confirm listing the failures; on 'warn' it
+    // confirms with the warnings; on 'pass' (or an unreachable endpoint —
+    // never block the mission on a preflight outage) it resolves true.
+    async function gateAction(actionLabel) {
+        let data;
+        try {
+            const resp = await fetcher('/api/preflight');
+            if (!resp.ok) return true; // endpoint down → do not block the sortie
+            data = await resp.json();
+        } catch (e) {
+            return true;
+        }
+        const overall = data && data.overall;
+        if (overall !== 'fail' && overall !== 'warn') return true;
+
+        const checks = Array.isArray(data.checks) ? data.checks : [];
+        const bad = checks.filter(c => c && (c.status === 'fail' || c.status === 'warn'));
+        const lines = bad.map(c =>
+            (c.status === 'fail' ? '✗ ' : '⚠ ') + c.name + (c.message ? ': ' + c.message : '')
+        ).join('\n');
+        const header = overall === 'fail'
+            ? 'PRE-FLIGHT FAILED — ' + actionLabel + ' anyway?\n\n'
+            : 'Pre-flight warnings — ' + actionLabel + ' anyway?\n\n';
+        // eslint-disable-next-line no-alert
+        return window.confirm(header + lines);
+    }
+
     return {
         runPreflight,
         dismissPreflight,
         showPreflightOverlay,
+        gateAction,
     };
 };

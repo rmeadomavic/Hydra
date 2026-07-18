@@ -945,6 +945,95 @@ const HydraOps = (() => {
         // FlightHUD (HDG/SPD/ALT/Cards) sourced from the same stats sample —
         // keeps the rail in lock-step with the telemetry strip.
         updateFlightHud(stats);
+        // Last-known-position recovery (issue #296).
+        updateLastKnown(stats);
+    }
+
+    // ── Last-known position recovery (issue #296) ──
+    // Cache the freshest valid fix; surface it when telemetry goes stale so
+    // the coordinates survive the link loss that strands a platform.
+    var _lastKnown = null;         // {lat, lon, heading, alt, ts}
+    var LASTKNOWN_STALE_MS = 6000; // no fresh fix for this long → recovery mode
+    var _lastFixAt = 0;
+
+    function _loadLastKnown(callsign) {
+        if (_lastKnown) return;
+        try {
+            var raw = localStorage.getItem('hydra-lastknown-' + (callsign || 'default'));
+            if (raw) _lastKnown = JSON.parse(raw);
+        } catch (e) { /* ignore */ }
+    }
+
+    function updateLastKnown(stats) {
+        var s = stats || {};
+        var section = document.getElementById('ops-lastknown-section');
+        if (!section) return;
+        var lat = (typeof s.lat === 'number') ? s.lat : null;
+        var lon = (typeof s.lon === 'number') ? s.lon : null;
+        var cs = s.callsign || 'default';
+        _loadLastKnown(cs);
+
+        var now = Date.now();
+        if (lat != null && lon != null) {
+            _lastFixAt = now;
+            _lastKnown = {
+                lat: lat, lon: lon,
+                heading: (typeof s.heading === 'number') ? s.heading : null,
+                alt: (typeof s.altitude === 'number') ? s.altitude : null,
+                ts: now,
+            };
+            try {
+                localStorage.setItem('hydra-lastknown-' + cs, JSON.stringify(_lastKnown));
+            } catch (e) { /* quota — non-fatal */ }
+        }
+
+        // Recovery mode: we have a cached fix AND current telemetry is stale
+        // (no fresh lat/lon recently) or the video stream is lost.
+        var streamLost = false;
+        var lostEl = document.getElementById('ops-hud-stream-lost');
+        if (lostEl) streamLost = lostEl.style.display !== 'none' && lostEl.style.display !== '';
+        var stale = (now - _lastFixAt) > LASTKNOWN_STALE_MS;
+        var show = !!_lastKnown && (stale || streamLost) && lat == null;
+
+        if (!show) { section.style.display = 'none'; return; }
+        section.style.display = '';
+        var coordEl = document.getElementById('ops-lastknown-coord');
+        var ageEl = document.getElementById('ops-lastknown-age');
+        var hdgEl = document.getElementById('ops-lastknown-hdg');
+        var altEl = document.getElementById('ops-lastknown-alt');
+        var coordStr = _lastKnown.lat.toFixed(6) + ', ' + _lastKnown.lon.toFixed(6);
+        if (coordEl && coordEl.textContent !== coordStr) {
+            coordEl.textContent = coordStr;
+            coordEl.dataset.copy = coordStr;
+        }
+        if (ageEl) {
+            var ageSec = Math.max(0, Math.round((now - _lastKnown.ts) / 1000));
+            ageEl.textContent = ageSec < 60 ? ageSec + 's ago'
+                : Math.floor(ageSec / 60) + 'm ' + (ageSec % 60) + 's ago';
+        }
+        if (hdgEl) hdgEl.textContent = (_lastKnown.heading != null)
+            ? _lastKnown.heading.toFixed(0) + '°' : '--';
+        if (altEl) altEl.textContent = (_lastKnown.alt != null)
+            ? _lastKnown.alt.toFixed(0) + ' m' : '--';
+    }
+
+    function wireLastKnownCopy() {
+        var coordEl = document.getElementById('ops-lastknown-coord');
+        if (!coordEl || coordEl._wired) return;
+        coordEl._wired = true;
+        var copy = function () {
+            var txt = coordEl.dataset.copy || coordEl.textContent;
+            if (!txt || txt === '--') return;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(txt).then(function () {
+                    if (window.HydraApp && HydraApp.showToast) HydraApp.showToast('Coordinates copied', 'success');
+                }).catch(function () {});
+            }
+        };
+        coordEl.addEventListener('click', copy);
+        coordEl.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); copy(); }
+        });
     }
 
     // ── Tab state + wiring ──
@@ -1054,7 +1143,7 @@ const HydraOps = (() => {
     function recordMavLogFromState(stats) {
         var s = stats || {};
         var target = HydraApp.state.target || {};
-        var mode = s.mode || s.vehicle_mode || null;
+        var mode = vehicleMode(s);
         var lock = target.locked ? target.track_id : null;
 
         // Issue #294: these are DERIVED state-change events, not captured
@@ -1348,9 +1437,12 @@ const HydraOps = (() => {
         var battery = document.getElementById('ops-info-battery');
         var position = document.getElementById('ops-info-position');
 
-        if (mode) mode.textContent = stats.vehicle_mode || '--';
+        if (mode) mode.textContent = vehicleMode(stats) || '--';
         if (armed) armed.textContent = stats.armed ? 'ARMED' : 'DISARMED';
-        if (battery) battery.textContent = (stats.battery_pct || '--') + '%';
+        if (battery) {
+            var vp = battPct(stats);
+            battery.textContent = (vp != null ? vp.toFixed(0) : '--') + '%';
+        }
         if (position) position.textContent = (window.HydraSimGps ? window.HydraSimGps.withSimSuffix(stats.position || '--') : (stats.position || '--'));
     }
 
@@ -1362,9 +1454,9 @@ const HydraOps = (() => {
         var heading = document.getElementById('ops-telem-heading');
         var gps = document.getElementById('ops-telem-gps');
 
-        if (mode) mode.textContent = stats.mode || '--';
+        if (mode) mode.textContent = vehicleMode(stats) || '--';
         if (battery) {
-            var batt = stats.battery;
+            var batt = battPct(stats);
             if (batt !== undefined && batt !== null) {
                 battery.textContent = batt.toFixed(0) + '%';
                 battery.style.color = '';
@@ -1393,8 +1485,22 @@ const HydraOps = (() => {
             var hdg = stats.heading;
             if (hdg !== undefined && hdg !== null) {
                 heading.textContent = hdg.toFixed(0) + '\u00B0';
+                // Issue #298: amber HDG + tooltip when the compass disagrees
+                // with GPS course under way (suspected magnetic interference).
+                var ch = compassHealth(stats);
+                if (ch.state === 'suspect') {
+                    heading.style.color = 'var(--warning)';
+                    heading.title = 'Compass ' + Math.round(ch.delta) +
+                        '\u00B0 off GPS course under way \u2014 suspect motor/ESC ' +
+                        'interference. Run COMPASS_MOT calibration.';
+                } else {
+                    heading.style.color = '';
+                    heading.title = '';
+                }
             } else {
                 heading.textContent = '--';
+                heading.style.color = '';
+                heading.title = '';
             }
         }
         if (gps) {
@@ -1522,6 +1628,18 @@ const HydraOps = (() => {
         el.style.color = isMissing ? 'var(--text-dim)' : '';
     }
 
+    // Issue #297: stop an active RF hunt from the ops RF tab. Mirrors the
+    // Config-view Abort. Uses the shared POST helper (Bearer/cookie auth).
+    async function abortRfHuntFromOps() {
+        if (!confirm('Abort the active RF hunt?')) return;
+        var resp = await HydraApp.apiPost('/api/rf/stop', {});
+        if (resp && (resp.status === 'ok' || resp.status === 'stopped' || resp.ok)) {
+            HydraApp.showToast('RF hunt aborted', 'info');
+        } else {
+            HydraApp.showToast('RF hunt abort failed', 'error');
+        }
+    }
+
     function updateSidebarRF(rf) {
         var section = document.getElementById('ops-rf-section');
         if (!section) return;
@@ -1548,6 +1666,14 @@ const HydraOps = (() => {
         if (badge) {
             badge.textContent = RF_BADGE_TEXT[state] || state.toUpperCase();
             badge.className = 'ops-card-badge ' + (RF_BADGE_CLASS[state] || 'off');
+        }
+
+        // Issue #297: show Abort Hunt only while a hunt is actually running.
+        var abortRow = document.getElementById('ops-rf-abort-row');
+        if (abortRow) {
+            var active = (state === 'searching' || state === 'homing' ||
+                          state === 'converged' || state === 'scanning');
+            abortRow.style.display = active ? '' : 'none';
         }
 
         var rssi = (typeof rf.best_rssi === 'number') ? rf.best_rssi : null;
@@ -1921,6 +2047,13 @@ const HydraOps = (() => {
         var name = window.prompt('Sortie name?', defaultName);
         if (name === null) return; // operator canceled
         name = (name || '').trim() || defaultName;
+        // Issue #295: gate the sortie on preflight — the #1 SORCC instructor
+        // gripe is teams skipping the op-check. fail → confirm-with-reasons,
+        // warn → confirm, pass/endpoint-down → straight through.
+        if (window.HydraPreflight && typeof window.HydraPreflight.gateAction === 'function') {
+            var ok = await window.HydraPreflight.gateAction('Start sortie');
+            if (!ok) { HydraApp.showToast('Sortie start canceled — resolve preflight first', 'info'); return; }
+        }
         var resp = await HydraApp.apiPost('/api/mission/start', { name: name });
         if (resp && resp.status === 'started') {
             var short = resp.mission_id ? (' (' + resp.mission_id.slice(0, 8) + ')') : '';
@@ -2085,6 +2218,13 @@ const HydraOps = (() => {
         var pipelineStopBtn = document.getElementById('ops-btn-pipeline-stop');
         if (pipelineStopBtn) pipelineStopBtn.addEventListener('click', stopPipelineFromOps);
 
+        // Issue #297: Abort Hunt on the RF tab (was Config-view only).
+        var rfAbortBtn = document.getElementById('ops-btn-rf-abort');
+        if (rfAbortBtn) rfAbortBtn.addEventListener('click', abortRfHuntFromOps);
+
+        // Issue #296: click-to-copy on the last-known-position card.
+        wireLastKnownCopy();
+
         // FlightHUD layout picker + Cockpit TAK click-to-expand
         wireFlightHudPicker();
         wireCockpitMapClick();
@@ -2102,6 +2242,55 @@ const HydraOps = (() => {
 
     function _setAttr(el, name, value) {
         if (el && el.getAttribute(name) !== value) el.setAttribute(name, value);
+    }
+
+    // Issue #297: battery and vehicle mode were each read from two different
+    // stats fields across widgets (battery vs battery_pct; mode vs
+    // vehicle_mode). If the producers ever disagree the UI contradicts
+    // itself with no way to tell which is authoritative. Single accessor
+    // per datum, one precedence order, used everywhere.
+    function battPct(s) {
+        s = s || {};
+        if (typeof s.battery === 'number' && isFinite(s.battery)) return s.battery;
+        if (typeof s.battery_pct === 'number' && isFinite(s.battery_pct)) return s.battery_pct;
+        return null;
+    }
+    function vehicleMode(s) {
+        s = s || {};
+        return s.vehicle_mode || s.mode || null;
+    }
+
+    // Issue #298: compass-health from heading-vs-course-over-ground.
+    // USV motor/ESC magnetic fields corrupt the compass under throttle →
+    // heading drifts → the boat chases a phantom track (snaking that no
+    // steering-gain tuning fixes). When moving, a sustained large gap
+    // between compass heading and GPS COG is that signature. Returns
+    // 'ok' | 'suspect' | 'unknown'.
+    var COMPASS_SPEED_MIN = 1.5;   // m/s — COG is noise below this
+    var COMPASS_DELTA_DEG = 30;    // sustained gap that trips the flag
+    var COMPASS_HOLD_MS = 4000;    // must persist this long (transient turns)
+    var _compassSuspectSince = 0;
+    function compassHealth(s) {
+        s = s || {};
+        var hdg = (typeof s.heading === 'number') ? s.heading : null;
+        var cog = (typeof s.cog === 'number') ? s.cog : null;
+        var spd = (typeof s.ground_speed === 'number') ? s.ground_speed
+            : (typeof s.speed === 'number') ? s.speed : null;
+        if (hdg == null || cog == null || spd == null || spd < COMPASS_SPEED_MIN) {
+            _compassSuspectSince = 0;
+            return { state: 'unknown', delta: null };
+        }
+        var d = Math.abs(hdg - cog) % 360;
+        if (d > 180) d = 360 - d;
+        if (d >= COMPASS_DELTA_DEG) {
+            if (_compassSuspectSince === 0) _compassSuspectSince = Date.now();
+            if (Date.now() - _compassSuspectSince >= COMPASS_HOLD_MS) {
+                return { state: 'suspect', delta: d };
+            }
+            return { state: 'ok', delta: d }; // gap present but not yet sustained
+        }
+        _compassSuspectSince = 0;
+        return { state: 'ok', delta: d };
     }
 
     function renderHdgTape(hdg) {
@@ -2230,11 +2419,11 @@ const HydraOps = (() => {
         var battBig = document.getElementById('ops-fhud-card-batt-big');
         var battSub = document.getElementById('ops-fhud-card-batt-sub');
         if (battEl) {
-            var battPct = (typeof s.battery === 'number' && isFinite(s.battery)) ? s.battery : null;
-            var battTone = _toneForBatt(battPct);
+            var vp = battPct(s);
+            var battTone = _toneForBatt(vp);
             _setAttr(battEl, 'data-tone', battTone);
-            _setText(battBig, battPct != null ? battPct.toFixed(0) + '%' : '--');
-            _setText(battSub, battPct != null ? 'on bus' : 'no sensor');
+            _setText(battBig, vp != null ? vp.toFixed(0) + '%' : '--');
+            _setText(battSub, vp != null ? 'on bus' : 'no sensor');
         }
         // Link / RSSI from RF status (mavlink RSSI not generally surfaced in stats)
         var linkEl = document.getElementById('ops-fhud-card-link');
@@ -2286,7 +2475,7 @@ const HydraOps = (() => {
         var battEl = document.getElementById('ops-fhud-status-batt');
         if (linkText) linkText.textContent = 'LINK ' + (linkPct != null ? linkPct.toFixed(0) + '%' : '--');
         if (battEl) {
-            var batt = (typeof s.battery === 'number') ? s.battery : null;
+            var batt = battPct(s);
             battEl.textContent = batt != null ? batt.toFixed(0) + '%' : '--';
             battEl.classList.toggle('warn', batt != null && batt <= 30);
         }

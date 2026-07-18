@@ -367,6 +367,38 @@
     line-height: 1.3;
 }
 
+/* Last-known-position recovery card (issue #296) — reads as an alert:
+   danger-toned border so it's unmistakable against the normal cards. */
+.ops-lastknown {
+    border-color: var(--danger);
+    box-shadow: var(--glow-danger);
+}
+.ops-lastknown-header {
+    color: #fca5a5;
+}
+.ops-lastknown-badge {
+    background: var(--danger-bg);
+    color: #fca5a5;
+    border: 1px solid var(--danger);
+}
+.ops-lastknown-coord {
+    font-size: var(--font-lg);
+    color: var(--ogt-warm);
+    letter-spacing: var(--ls-mono);
+    padding: var(--s-1) 0;
+    cursor: pointer;
+    user-select: all;
+}
+.ops-lastknown-coord:hover {
+    color: var(--text-primary);
+}
+.ops-lastknown-note {
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    margin-top: var(--s-1);
+    line-height: 1.3;
+}
+
 /* RF — compact bar + sparkline */
 .ops-rf-bar {
     position: relative;

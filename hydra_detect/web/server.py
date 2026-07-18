@@ -1593,6 +1593,8 @@ def _flight_fields() -> Dict[str, Any]:
         "airspeed": None,
         "altitude": None,
         "vertical_speed": None,
+        "cog": None,
+        "ground_speed": None,
         "lat": None,
         "lon": None,
         "alt_msl_m": None,
@@ -1606,7 +1608,8 @@ def _flight_fields() -> Dict[str, Any]:
     except Exception:
         data = {}
     if isinstance(data, dict):
-        for key in ("heading", "airspeed", "altitude", "vertical_speed"):
+        for key in ("heading", "airspeed", "altitude", "vertical_speed",
+                    "cog", "ground_speed"):
             defaults[key] = data.get(key)
     try:
         lat, lon, alt = mav.get_lat_lon()
