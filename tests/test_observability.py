@@ -163,6 +163,32 @@ class TestHealthSnapshot:
         assert snap["subsystems"]["gps"]["status"] == "ok"
         assert "gps_fix=3" in snap["subsystems"]["gps"]["detail"]
 
+    def test_gps_default_zero_consults_live_cache(self):
+        # StreamState defaults stats["gps_fix"] to 0 before the pipeline
+        # publishes — a 0 must consult get_gps() too, else the boot window
+        # reports "no fix" while MAVLink already holds a 3D fix.
+        class Mav:
+            connected = True
+
+            def get_gps(self):
+                return {"fix": 3, "lat": 1, "lon": 2, "last_update": 12.5}
+
+        snap = health_snapshot(
+            stats={"camera_ok": True, "fps": 5.0, "gps_fix": 0},
+            mavlink_ref=Mav(),
+        )
+        assert snap["subsystems"]["gps"]["status"] == "ok"
+        assert "gps_fix=3" in snap["subsystems"]["gps"]["detail"]
+
+    def test_gps_stats_zero_without_mavlink_still_no_fix(self):
+        # No MAVLink registered: a stats 0 keeps its "no fix" warn — the
+        # live-cache consult must not change the no-reference path.
+        snap = health_snapshot(
+            stats={"camera_ok": True, "fps": 5.0, "gps_fix": 0},
+        )
+        assert snap["subsystems"]["gps"]["status"] == "warn"
+        assert "no fix" in snap["subsystems"]["gps"]["detail"]
+
     def test_gps_fallback_without_get_gps_warns(self):
         # A facade exposing neither stats gps_fix nor get_gps degrades to
         # the "no gps data" warning — never a false OK, never a crash.

@@ -98,16 +98,21 @@ def _probe_gps(mavlink_ref: Any, stats: Dict[str, Any]) -> Dict[str, str]:
     fix = None
     if stats:
         fix = stats.get("gps_fix")
-    if fix is None and mavlink_ref is not None:
+    if (fix is None or fix == 0) and mavlink_ref is not None:
         # Issue #302: the fix type lives in get_gps() (key "fix") — the old
         # fallback asked get_flight_data() for a "gps_fix" key it has never
         # returned, so this probe always degraded to "no gps data" whenever
-        # the stats cache was empty (e.g. right after boot).
+        # the stats cache was empty. StreamState also DEFAULTS gps_fix to 0
+        # before the pipeline publishes, so a 0 must consult the live
+        # MAVLink cache too — get_gps() feeds the published stats and is
+        # never staler than them; prefer its value when it has one.
         getter = getattr(mavlink_ref, "get_gps", None)
         if callable(getter):
             data = getter()
             if isinstance(data, dict):
-                fix = data.get("fix")
+                live = data.get("fix")
+                if live is not None:
+                    fix = live
     if fix is None:
         return _warn("no gps data")
     try:
