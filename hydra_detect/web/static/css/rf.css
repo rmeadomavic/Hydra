@@ -5,6 +5,12 @@
  */
 
 /* ── Source pill (LIVE / REPLAY) ─────────────────────────────────────── */
+/* Fix #292: the class's display beat the UA's [hidden] rule, so the
+   LIVE/REPLAY provenance pill rendered even while hidden — a data-source
+   badge that could not be turned off. */
+.rf-source-pill[hidden] {
+    display: none;
+}
 .rf-source-pill {
     display: inline-block;
     padding: 2px var(--s-2);

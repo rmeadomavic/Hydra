@@ -51,6 +51,30 @@ const HydraTak = (() => {
     let auditEventRowNodes = Object.create(null);
     let auditEventRowOrder = [];
 
+    // ── Chip health (issue #294) ──
+    // The five "LIVE" chips were static HTML — they claimed LIVE even while
+    // a poller was in exponential backoff against a dead endpoint. Each
+    // poller now reports its state so the chip tells the truth.
+    function setChipHealth(id, ok, backoffMs) {
+        const chip = document.getElementById(id);
+        if (!chip) return;
+        if (chip.dataset.baseTitle === undefined) chip.dataset.baseTitle = chip.title || '';
+        if (ok) {
+            if (chip.textContent !== 'LIVE') chip.textContent = 'LIVE';
+            chip.classList.remove('tak-stale');
+            chip.classList.add('tak-live');
+            if (chip.title !== chip.dataset.baseTitle) chip.title = chip.dataset.baseTitle;
+        } else {
+            if (chip.textContent !== 'STALE') chip.textContent = 'STALE';
+            chip.classList.remove('tak-live');
+            chip.classList.add('tak-stale');
+            if (backoffMs) {
+                chip.title = 'Endpoint failing — retrying in ' +
+                    Math.round(backoffMs / 1000) + 's';
+            }
+        }
+    }
+
     // ── Lifecycle ──
     let mapCtl = null;
 
@@ -75,6 +99,9 @@ const HydraTak = (() => {
                 showZoom: true,
                 showAttribution: true,
                 showTracks: true,
+                // Issue #294: the map chip was static "LIVE" HTML. Reflect
+                // the shared map module's actual poll health.
+                onHealth: (ok) => setChipHealth('tak-map-chip', ok),
                 onTitleUpdate: (callsign, info) => {
                     const t = document.getElementById('tak-map-title');
                     const s = document.getElementById('tak-map-sub');
@@ -174,8 +201,10 @@ const HydraTak = (() => {
             const data = await resp.json();
             renderFeed(Array.isArray(data.commands) ? data.commands : []);
             cmdBackoff = POLL_MS_COMMANDS;
+            setChipHealth('tak-live-chip', true);
         } catch (err) {
             cmdBackoff = Math.min(cmdBackoff * 2, 10000);
+            setChipHealth('tak-live-chip', false, cmdBackoff);
         } finally {
             cmdInflight = false;
         }
@@ -342,8 +371,10 @@ const HydraTak = (() => {
             const data = await resp.json();
             updateTypeCounts(data || {});
             typeBackoff = POLL_MS_TYPES;
+            setChipHealth('tak-type-chip', true);
         } catch (err) {
             typeBackoff = Math.min(typeBackoff * 2, 20000);
+            setChipHealth('tak-type-chip', false, typeBackoff);
         } finally {
             typeInflight = false;
         }
@@ -457,8 +488,10 @@ const HydraTak = (() => {
             const data = await resp.json();
             updatePeers(data || {});
             peersBackoff = POLL_MS_PEERS;
+            setChipHealth('tak-peers-chip', true);
         } catch (err) {
             peersBackoff = Math.min(peersBackoff * 2, 30000);
+            setChipHealth('tak-peers-chip', false, peersBackoff);
         } finally {
             peersInflight = false;
         }
@@ -635,8 +668,10 @@ const HydraTak = (() => {
             const data = await resp.json();
             updateAudit(data || {});
             auditBackoff = POLL_MS_AUDIT;
+            setChipHealth('tak-audit-chip', true);
         } catch (err) {
             auditBackoff = Math.min(auditBackoff * 2, 60000);
+            setChipHealth('tak-audit-chip', false, auditBackoff);
         } finally {
             auditInflight = false;
         }

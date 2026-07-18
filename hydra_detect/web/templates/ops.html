@@ -73,15 +73,9 @@
             </div>
         </div>
 
-        <!-- Minimap — relocated; the Cockpit TAK map is the primary map.
-             Kept here as a low-priority secondary indicator; ops.js still
-             draws into this canvas when present. -->
-        <div class="ops-sidebar-section ops-mission-rail-minimap">
-            <div class="ops-sidebar-header">MAP</div>
-            <div class="ops-minimap" id="ops-minimap">
-                <canvas id="ops-minimap-canvas" width="300" height="200"></canvas>
-            </div>
-        </div>
+        <!-- Minimap removed (issue #294): the canvas was never drawn into by
+             any JS — a permanently blank surface presented as a map. The
+             Cockpit TAK map is the primary (and only) ops-view map. -->
 
     </div>
 
@@ -227,19 +221,9 @@
                 </article>
             </div>
 
-            <!-- Gimbal block — always rendered; opacity drops without lock -->
-            <div class="flight-hud-gimbal" id="ops-fhud-gimbal">
-                <div class="flight-hud-gimbal-header">
-                    <span class="flight-hud-gimbal-label">Gimbal</span>
-                    <span class="flight-hud-gimbal-mode" id="ops-fhud-gimbal-mode">STOW</span>
-                </div>
-                <svg class="flight-hud-gimbal-svg" id="ops-fhud-gimbal-svg" viewBox="0 0 140 60"
-                     preserveAspectRatio="none" aria-hidden="true"></svg>
-                <div class="flight-hud-gimbal-row">
-                    <span>PAN <span class="flight-hud-gimbal-val" id="ops-fhud-gimbal-pan">--</span></span>
-                    <span>TILT <span class="flight-hud-gimbal-val" id="ops-fhud-gimbal-tilt">--</span></span>
-                </div>
-            </div>
+            <!-- Gimbal block removed (issue #294): no JS ever populated it —
+                 it rendered a frozen "STOW / -- / --" indefinitely. Live
+                 pan/tilt readouts live on the cockpit servo dial. -->
 
             <!-- Target block — dim when no lock -->
             <div class="flight-hud-target" id="ops-fhud-target">
@@ -281,8 +265,11 @@
                     <div class="cockpit-servo-cell-label">TILT</div>
                     <div class="cockpit-servo-cell-value" id="ops-cockpit-servo-tilt">--</div>
                 </div>
+                <!-- Third cell shows the servo's locked track id (real field from
+                     /api/servo/status). Was a synthetic PWM computed client-side
+                     from pan angle (issue #294). -->
                 <div class="cockpit-servo-cell">
-                    <div class="cockpit-servo-cell-label" id="ops-cockpit-servo-rate-label">PWM</div>
+                    <div class="cockpit-servo-cell-label" id="ops-cockpit-servo-rate-label">TRK</div>
                     <div class="cockpit-servo-cell-value" id="ops-cockpit-servo-rate">--</div>
                 </div>
             </div>
@@ -328,7 +315,9 @@
                     <span class="cockpit-sdr-right-align">dBm</span>
                 </div>
                 <div class="cockpit-sdr-list" id="ops-cockpit-sdr-list">
-                    <div class="cockpit-sdr-empty">scanning…</div>
+                    <!-- Honest initial state (issue #294): "scanning…" implied an
+                         active sweep before any data source was confirmed. -->
+                    <div class="cockpit-sdr-empty">no RF data — check Kismet / SDR source binding</div>
                 </div>
             </div>
         </section>
@@ -466,7 +455,8 @@
                          aria-label="Recent ambient RF samples"></div>
                 </div>
 
-                <div class="ops-tab-empty" id="ops-rf-empty" style="display:none;">No RF activity</div>
+                <!-- ops-rf-empty removed (issue #294): never toggled by any JS.
+                     RF sections self-hide when empty. -->
             </div>
 
             <!-- MAVLINK panel -->
@@ -477,7 +467,6 @@
                         <div class="ops-mavlink-label">Pipeline FPS</div>
                         <div class="ops-mavlink-value-row">
                             <span class="ops-mavlink-value mono" id="ops-tab-mav-fps">--</span>
-                            <span class="ops-mavlink-sub">min 5.0</span>
                         </div>
                     </div>
                     <div class="ops-mavlink-metric">
@@ -486,11 +475,16 @@
                             <span class="ops-mavlink-value mono" id="ops-tab-mav-latency">--</span>
                             <span class="ops-mavlink-sub">ms</span>
                         </div>
-                        <div class="ops-mavlink-port" id="ops-tab-mav-port">/dev/ttyTHS1 · 921600</div>
+                        <!-- Populated from /api/config/full [mavlink] (issue #294 —
+                             was a hardcoded label styled as live data) -->
+                        <div class="ops-mavlink-port" id="ops-tab-mav-port">--</div>
                     </div>
                 </div>
-                <div class="ops-mavlink-log" id="ops-tab-mav-log">
-                    <div class="ops-tab-empty">No MAVLink traffic</div>
+                <!-- Derived link events (mode changes, target locks) observed from
+                     pipeline state — NOT a raw MAVLink frame capture (issue #294). -->
+                <div class="ops-mavlink-log" id="ops-tab-mav-log"
+                     title="Link events derived from pipeline state — not a raw MAVLink frame capture">
+                    <div class="ops-tab-empty">No link events</div>
                 </div>
             </div>
 
@@ -503,8 +497,10 @@
                         <span class="ops-card-value mono accent" id="ops-tab-tak-callsign">HYDRA-1</span>
                     </div>
                     <div class="ops-tak-row">
+                        <!-- Populated from /api/config/full [tak] (issue #294 —
+                             was a hardcoded label styled as live data) -->
                         <span class="ops-card-label">Multicast</span>
-                        <span class="ops-card-value mono" id="ops-tab-tak-multicast">239.2.3.1:6969</span>
+                        <span class="ops-card-value mono" id="ops-tab-tak-multicast">--</span>
                     </div>
                     <div class="ops-tak-row">
                         <span class="ops-card-label">Peers</span>

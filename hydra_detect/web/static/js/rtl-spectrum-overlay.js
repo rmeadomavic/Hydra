@@ -1,10 +1,15 @@
 'use strict';
 /**
- * rtl-spectrum-overlay.js v5 — live SDR spectrum for the Ops cockpit cell.
+ * rtl-spectrum-overlay.js v6 — live SDR spectrum for the Ops cockpit cell.
  *
- * Must be loaded BEFORE ops.js. Intercepts setInterval at registration so
- * the legacy SDR sim-animator (which clobbers the SVG every 700ms) is
- * never started. Then polls /api/rf/spectrum and repaints real bars.
+ * Sole owner of the #ops-cockpit-sdr-spectrum SVG (issue #294: the legacy
+ * sine-wave sim-animator in ops.js is deleted, along with the setInterval
+ * monkey-patch this file used to suppress it). Polls /api/rf/spectrum and
+ * paints real bars when the SDR is enabled, or an explicit "no spectrum
+ * source" state when it is not — never decorative data.
+ *
+ * The peak LIST (#ops-cockpit-sdr-list) is only touched while spectrum data
+ * is live; when the SDR is off, ops.js renderCockpitSdr owns the list.
  */
 (function () {
     var SVG_NS = 'http://www.w3.org/2000/svg';
@@ -12,21 +17,6 @@
     var PAINT_MS = 200;
     var SPAN_H = 34;
     var cached = null;
-
-    var origSetInterval = window.setInterval;
-    window.setInterval = function (fn, ms) {
-        try {
-            var fnStr = (typeof fn === 'function') ? String(fn) : '';
-            if (ms >= 500 && ms <= 900 &&
-                fnStr.indexOf('ops-cockpit-sdr-spectrum') !== -1) {
-                return -1;
-            }
-        } catch (e) {}
-        return origSetInterval.apply(window, arguments);
-    };
-    setTimeout(function () {
-        try { window.setInterval = origSetInterval; } catch (e) {}
-    }, 5000);
 
     function downsample(bins, n) {
         if (!bins || bins.length === 0) return [];
@@ -111,10 +101,40 @@
         }
     }
 
+    // Honest empty state (issue #294): a flat baseline + label instead of a
+    // blank (or previously, animated fake) spectrum. Painted once; cleared
+    // by the next real paintBars call.
+    function paintSpectrumOff() {
+        var svg = document.getElementById('ops-cockpit-sdr-spectrum');
+        if (!svg || svg.getAttribute('data-rtl-off') === '1') return;
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        var base = document.createElementNS(SVG_NS, 'rect');
+        base.setAttribute('x', '0');
+        base.setAttribute('y', String(SPAN_H - 1));
+        base.setAttribute('width', '200');
+        base.setAttribute('height', '1');
+        base.setAttribute('fill', 'var(--text-dim, #666)');
+        base.setAttribute('opacity', '0.4');
+        svg.appendChild(base);
+        var label = document.createElementNS(SVG_NS, 'text');
+        label.setAttribute('x', '100');
+        label.setAttribute('y', String(SPAN_H / 2 + 3));
+        label.setAttribute('text-anchor', 'middle');
+        label.setAttribute('fill', 'var(--text-dim, #666)');
+        label.setAttribute('font-family', 'var(--font-mono, monospace)');
+        label.setAttribute('font-size', '7');
+        label.textContent = 'no spectrum source';
+        svg.appendChild(label);
+        svg.setAttribute('data-rtl-off', '1');
+        svg.removeAttribute('data-rtl-paint');
+    }
+
     function repaint() {
         var d = cached;
-        if (!d) return;
-        paintBars(document.getElementById('ops-cockpit-sdr-spectrum'), d);
+        if (!d) { paintSpectrumOff(); return; }
+        var svgEl = document.getElementById('ops-cockpit-sdr-spectrum');
+        if (svgEl) svgEl.removeAttribute('data-rtl-off');
+        paintBars(svgEl, d);
         paintList(document.getElementById('ops-cockpit-sdr-list'), d);
         var subEl = document.querySelector('#ops-cockpit-sdr .cockpit-sdr-sub');
         var devEl = document.getElementById('ops-cockpit-sdr-dev');
@@ -128,17 +148,33 @@
         if (newEl) newEl.textContent = pc || '--';
     }
 
+    var pollFails = 0;
     function poll() {
         fetch('/api/rf/spectrum', { cache: 'no-store' })
             .then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (d) { if (d && d.enabled) cached = d; })
-            .catch(function () {});
+            .then(function (d) {
+                if (d && d.enabled) {
+                    cached = d;
+                    pollFails = 0;
+                } else {
+                    // Explicit disabled/absent signal: drop immediately so
+                    // stale bars don't linger as if live (issue #294).
+                    cached = null;
+                    pollFails = 0;
+                }
+            })
+            .catch(function () {
+                // Transient network hiccups keep the last real frame for a
+                // few seconds; sustained failure falls to the empty state.
+                pollFails++;
+                if (pollFails >= 3) cached = null;
+            });
     }
 
     function start() {
         poll();
-        origSetInterval.call(window, poll, POLL_MS);
-        origSetInterval.call(window, repaint, PAINT_MS);
+        setInterval(poll, POLL_MS);
+        setInterval(repaint, PAINT_MS);
     }
 
     if (document.readyState === 'loading') {

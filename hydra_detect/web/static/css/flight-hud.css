@@ -266,63 +266,8 @@
     white-space: nowrap;
 }
 
-/* ── Gimbal block ── */
-.flight-hud-gimbal {
-    border-top: 1px solid #1a1f1a;
-    padding-top: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.flight-hud-gimbal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-}
-
-.flight-hud-gimbal-label {
-    font-family: var(--font-cond);
-    font-size: 9px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: #556;
-}
-
-.flight-hud-gimbal-mode {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    letter-spacing: 0.08em;
-    color: #888;
-}
-
-.flight-hud-gimbal[data-mode="TRACK"] .flight-hud-gimbal-mode {
-    color: var(--olive-muted);
-}
-
-.flight-hud-gimbal[data-mode="STOW"] .flight-hud-gimbal-mode {
-    color: #555;
-}
-
-.flight-hud-gimbal-svg {
-    width: 100%;
-    height: 60px;
-    background: #060807;
-    border: 1px solid #1a1f1a;
-    border-radius: var(--radius);
-}
-
-.flight-hud-gimbal-row {
-    display: flex;
-    justify-content: space-between;
-    font-family: var(--font-mono);
-    font-size: 9px;
-    color: #888;
-}
-
-.flight-hud-gimbal-val {
-    color: var(--text-primary);
-}
+/* Gimbal block removed (issue #294) — no JS ever populated it; it rendered
+   a frozen "STOW / -- / --" indefinitely. Pan/tilt live on the servo dial. */
 
 /* ── Target block ── */
 .flight-hud-target {

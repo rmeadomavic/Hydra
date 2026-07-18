@@ -59,6 +59,16 @@ body.view-tak #mjpeg-stream {
     font-weight: 700;
     font-size: 9px;
 }
+/* Degraded poll state (issue #294) — chips flip LIVE→STALE from real
+   poller backoff instead of claiming LIVE forever. */
+.tak-map-chip.tak-stale {
+    color: var(--bg-void);
+    background: var(--warning);
+    padding: 1px 6px;
+    border-radius: var(--radius);
+    font-weight: 700;
+    font-size: 9px;
+}
 .tak-map-sub {
     color: var(--text-secondary);
     margin-left: auto;
@@ -226,6 +236,11 @@ body.view-tak #mjpeg-stream {
     background: var(--olive-primary);
     color: var(--text-primary);
     box-shadow: var(--glow-green);
+}
+.tak-col-chip.tak-stale {
+    background: var(--warning);
+    color: var(--bg-void);
+    box-shadow: none;
 }
 
 .tak-col-body {

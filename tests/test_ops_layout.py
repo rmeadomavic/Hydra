@@ -47,7 +47,7 @@ class TestNewZoneElements:
 
     def test_flight_hud_subzones_present(self):
         html = OPS_HTML.read_text()
-        # HDG tape, VTapes, ReadoutCards, gimbal, target, status
+        # HDG tape, VTapes, ReadoutCards, target, status
         for needle in (
             'id="ops-fhud-hdg-svg"',
             'id="ops-fhud-spd-svg"',
@@ -56,11 +56,17 @@ class TestNewZoneElements:
             'id="ops-fhud-card-link"',
             'id="ops-fhud-card-pos"',
             'id="ops-fhud-card-gps"',
-            'id="ops-fhud-gimbal"',
             'id="ops-fhud-target"',
             'id="ops-fhud-status"',
         ):
             assert needle in html, f"ops.html should contain {needle}"
+
+    def test_gimbal_block_removed(self):
+        """Issue #294: the gimbal block was never populated by any JS — it
+        rendered a frozen 'STOW / -- / --' presented as live telemetry."""
+        html = OPS_HTML.read_text()
+        assert 'id="ops-fhud-gimbal"' not in html
+        assert 'ops-fhud-gimbal-pan' not in html
 
     def test_cockpit_strip_root_present(self):
         html = OPS_HTML.read_text()
@@ -109,12 +115,17 @@ class TestOpsJsExports:
 
     def test_aux_zones_polled_on_enter(self):
         src = OPS_JS.read_text()
-        # New 1Hz aux poller and 700ms SDR ticker registered in onEnter
+        # 1Hz aux poller registered in onEnter and torn down in onLeave
         assert "setInterval(refreshAuxZones, 1000)" in src
-        assert "setInterval(animateSdrSpectrum, 700)" in src
-        # And torn down in onLeave
         assert "if (auxTimer)" in src
-        assert "if (sdrTickTimer)" in src
+
+    def test_fake_sdr_animator_removed(self):
+        """Issue #294: the SDR spectrum was a sine+random animation presented
+        as live RF data. rtl-spectrum-overlay.js is now the sole owner of the
+        spectrum SVG (real /api/rf/spectrum data or an honest empty state)."""
+        src = OPS_JS.read_text()
+        assert "animateSdrSpectrum" not in src
+        assert "sdrTickTimer" not in src
 
 
 # ── (c) Layout picker emits all four valid hud_layout values ──
@@ -240,7 +251,7 @@ class TestNewCssAssets:
         assert resp.status_code == 200
         body = resp.text
         for cls in (".flight-hud", ".flight-hud-hdg", ".flight-hud-vtape",
-                    ".flight-hud-card", ".flight-hud-gimbal",
+                    ".flight-hud-card",
                     ".flight-hud-target", ".flight-hud-status"):
             assert cls in body
 

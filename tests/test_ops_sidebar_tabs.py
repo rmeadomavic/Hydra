@@ -186,11 +186,13 @@ class TestTabCountBadges:
 
     def test_empty_states_match_mock_tone(self):
         html = OPS_HTML.read_text()
-        # "No RF activity" per task spec
-        assert "No RF activity" in html or "No RF" in html
-        assert "No MAVLink" in html
+        # Issue #294: the MAVLink tab log is derived link events, not a fake
+        # frame capture — empty state renamed accordingly. The never-toggled
+        # "No RF activity" div is gone (RF sections self-hide when empty).
+        assert "No link events" in html
         assert "No inbound commands" in html
         assert "No audit events" in html
+        assert 'id="ops-rf-empty"' not in html
 
 
 # ── (e) Mission + Pipeline relocated to left mission rail ──
@@ -264,11 +266,11 @@ class TestProtectedCodePathsRegression:
         assert "addEventListener('dblclick'" in src
         assert "requestFullscreen" in src
 
-    def test_minimap_canvas_survives(self):
-        """test_ops_sidebar.py + test_ops_layout.py still require the minimap
-        canvas ID to exist. Tab refactor must keep it alive."""
+    def test_minimap_canvas_removed(self):
+        """Issue #294: the minimap canvas was dead weight — no JS ever drew
+        into it. The cockpit TAK map is the ops-view map."""
         html = OPS_HTML.read_text()
-        assert 'id="ops-minimap-canvas"' in html
+        assert 'id="ops-minimap-canvas"' not in html
 
 
 # ── CSS: tab strip styles ──
