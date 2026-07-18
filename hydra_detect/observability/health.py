@@ -99,11 +99,15 @@ def _probe_gps(mavlink_ref: Any, stats: Dict[str, Any]) -> Dict[str, str]:
     if stats:
         fix = stats.get("gps_fix")
     if fix is None and mavlink_ref is not None:
-        getter = getattr(mavlink_ref, "get_flight_data", None)
+        # Issue #302: the fix type lives in get_gps() (key "fix") — the old
+        # fallback asked get_flight_data() for a "gps_fix" key it has never
+        # returned, so this probe always degraded to "no gps data" whenever
+        # the stats cache was empty (e.g. right after boot).
+        getter = getattr(mavlink_ref, "get_gps", None)
         if callable(getter):
             data = getter()
             if isinstance(data, dict):
-                fix = data.get("gps_fix")
+                fix = data.get("fix")
     if fix is None:
         return _warn("no gps data")
     try:
