@@ -8,6 +8,9 @@
     const modal = modules.createModalController();
     const api = modules.createApiClient({ store, toast });
     const preflight = modules.createPreflight({});
+    // Expose the preflight gate so view controllers (ops.js, config.js) can
+    // block Start Sortie on a failed/degraded preflight (issue #295).
+    window.HydraPreflight = preflight;
     const stream = modules.createStreamController({ getCurrentView: () => store.getState().currentView });
 
     let callsignSet = false;

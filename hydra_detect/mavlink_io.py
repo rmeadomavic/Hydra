@@ -76,9 +76,12 @@ class MAVLinkIO:
         self._global_alert_times: deque = deque()  # timestamps of recent global alerts
         self._lock = threading.Lock()
 
-        # GPS state (lat/lon/alt in MAVLink int format, hdg in centidegrees)
+        # GPS state (lat/lon/alt in MAVLink int format, hdg/cog in centidegrees)
+        # cog = course over ground from GPS_RAW_INT; compared against compass
+        # heading to flag magnetic interference (issue #298).
         self._gps: Dict[str, Any] = {
             "lat": None, "lon": None, "alt": None, "fix": 0, "hdg": None,
+            "cog": None, "ground_speed": None,
             "last_update": 0.0,
         }
         self._gps_lock = threading.Lock()
@@ -276,6 +279,13 @@ class MAVLinkIO:
                 elif msg_type == "GPS_RAW_INT":
                     with self._gps_lock:
                         self._gps["fix"] = msg.fix_type
+                        # cog: course over ground, centidegrees (65535 = unknown).
+                        # vel: ground speed, cm/s (65535 = unknown). Used by the
+                        # compass-health check (issue #298).
+                        cog = getattr(msg, "cog", 65535)
+                        self._gps["cog"] = None if cog == 65535 else (cog / 100.0) % 360.0
+                        vel = getattr(msg, "vel", 65535)
+                        self._gps["ground_speed"] = None if vel == 65535 else vel / 100.0
                 elif msg_type == "SYS_STATUS":
                     self._handle_sys_status(msg)
                 elif msg_type == "VFR_HUD":
@@ -583,6 +593,10 @@ class MAVLinkIO:
                 "airspeed": self._telemetry.get("airspeed"),
                 "altitude": altitude,
                 "vertical_speed": self._telemetry.get("climb"),
+                # Course over ground + ground speed for the compass-health
+                # check (issue #298). None when GPS hasn't reported them.
+                "cog": self._gps.get("cog"),
+                "ground_speed": self._gps.get("ground_speed"),
             }
 
     @property

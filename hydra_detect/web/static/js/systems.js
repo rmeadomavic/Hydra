@@ -68,6 +68,7 @@ const HydraSystems = (() => {
     function startPolling() {
         if (pollTimer !== null) return;
         pollOnce();
+        startPreflightPolling();
     }
 
     function stopPolling() {
@@ -76,6 +77,117 @@ const HydraSystems = (() => {
             pollTimer = null;
         }
         inFlight = false;
+        stopPreflightPolling();
+    }
+
+    // ── Backend preflight (issue #295) ──
+    // /api/preflight runs the authoritative camera/mavlink/config/models/disk
+    // checks. The checklist previously ignored it ("until backend lands" —
+    // it landed) and derived everything from /api/stats. Backend verdicts
+    // now override the overlapping rows and feed the config/disk rows that
+    // stats cannot see. 15s cadence — these are subprocess-backed checks.
+    const PREFLIGHT_POLL_MS = 15000;
+    let pfTimer = null;
+    let pfChecks = null;   // name(lowercased) → {status, message}
+
+    async function pollPreflightOnce() {
+        pfTimer = null;
+        if (document.visibilityState !== 'hidden') {
+            try {
+                const resp = await fetch('/api/preflight', { credentials: 'same-origin' });
+                const data = resp.ok ? await resp.json() : null;
+                if (data && Array.isArray(data.checks)) {
+                    pfChecks = {};
+                    for (const c of data.checks) {
+                        if (c && c.name) pfChecks[String(c.name).toLowerCase()] = c;
+                    }
+                } else {
+                    pfChecks = null;
+                }
+            } catch (err) {
+                pfChecks = null;
+            }
+        }
+        pfTimer = setTimeout(pollPreflightOnce, PREFLIGHT_POLL_MS);
+    }
+
+    function startPreflightPolling() {
+        if (pfTimer !== null) return;
+        pollPreflightOnce();
+    }
+
+    function stopPreflightPolling() {
+        if (pfTimer !== null) {
+            clearTimeout(pfTimer);
+            pfTimer = null;
+        }
+    }
+
+    function pfLookup(rowKey, consumed) {
+        if (!pfChecks) return null;
+        // Endpoint check names → checklist row keys (defensive contains-match)
+        const aliases = { camera: 'camera', model: 'model', mavlink: 'mavlink',
+                          config: 'config', disk: 'disk' };
+        const want = aliases[rowKey];
+        if (!want) return null;
+        let hit = null;
+        if (pfChecks[want]) {
+            hit = want;
+        } else {
+            for (const name of Object.keys(pfChecks)) {
+                if (name.indexOf(want) !== -1) { hit = name; break; }
+            }
+            // 'model' row ↔ endpoint 'models'
+            if (!hit && want === 'model' && pfChecks['models']) hit = 'models';
+        }
+        if (!hit) return null;
+        if (consumed) consumed.add(hit);
+        return pfChecks[hit];
+    }
+
+    // Backend checks with no fixed row (callsign, auth, future additions)
+    // get a row created on the fly so the rollup counts every check the
+    // Start Sortie gate counts — no ALL-OK-while-gate-warns split-brain
+    // (Codex P2 on #300).
+    const DYN_CHECK_LABELS = { callsign: 'TAK callsign', auth: 'API auth' };
+    const dynCheckRows = new Set();
+
+    function ensureCheckRow(key) {
+        if (document.getElementById('systems-check-' + key + '-glyph')) return;
+        const anyRow = document.querySelector('.systems-check-row');
+        const host = anyRow ? anyRow.parentElement : null;
+        if (!host) return;
+        const row = document.createElement('div');
+        row.className = 'systems-check-row';
+        row.setAttribute('data-check', key);
+        const glyph = document.createElement('span');
+        glyph.className = 'systems-check-glyph';
+        glyph.id = 'systems-check-' + key + '-glyph';
+        glyph.textContent = '·';
+        const label = document.createElement('span');
+        label.className = 'systems-check-label';
+        label.textContent = DYN_CHECK_LABELS[key]
+            || (key.charAt(0).toUpperCase() + key.slice(1));
+        const sub = document.createElement('span');
+        sub.className = 'systems-check-sub';
+        sub.id = 'systems-check-' + key + '-sub';
+        sub.textContent = '--';
+        row.appendChild(glyph);
+        row.appendChild(label);
+        row.appendChild(sub);
+        host.appendChild(row);
+        dynCheckRows.add(key);
+    }
+
+    function pruneDynCheckRows(liveKeys) {
+        for (const key of Array.from(dynCheckRows)) {
+            if (liveKeys.has(key)) continue;
+            const glyph = document.getElementById('systems-check-' + key + '-glyph');
+            const row = glyph ? glyph.closest('.systems-check-row') : null;
+            if (row && row.parentElement) row.parentElement.removeChild(row);
+            delete lastCheck[key];
+            dynCheckRows.delete(key);
+        }
     }
 
     function schedule(nextMs) {
@@ -354,6 +466,33 @@ const HydraSystems = (() => {
         }
         rows.push({ key: 'gps', detail: gpsDetail, state: gpsState });
 
+        // Compass health (issue #298): compare heading against GPS course
+        // over ground while moving. A sustained large gap is the signature
+        // of USV motor/ESC magnetic interference. Advisory row — the detail
+        // string names the fix so an instructor doesn't have to diagnose it.
+        const heading = numOrNull(s.heading);
+        const cog = numOrNull(s.cog);
+        const gspd = numOrNull(s.ground_speed);
+        let cState = 'dim';
+        let cDetail = '--';
+        if (heading == null || cog == null) {
+            cDetail = 'no course data';
+        } else if (gspd == null || gspd < 1.5) {
+            cState = 'dim';
+            cDetail = 'idle (need way for check)';
+        } else {
+            let d = Math.abs(heading - cog) % 360;
+            if (d > 180) d = 360 - d;
+            if (d >= 30) {
+                cState = 'deg';
+                cDetail = Math.round(d) + '° off course — suspect interference, run COMPASS_MOT';
+            } else {
+                cState = 'ok';
+                cDetail = 'agrees w/ course (' + Math.round(d) + '°)';
+            }
+        }
+        rows.push({ key: 'compass', detail: cDetail, state: cState });
+
         // RTSP server
         rows.push({
             key: 'rtsp',
@@ -444,6 +583,42 @@ const HydraSystems = (() => {
               warn: (fps != null && fps > 0 && fps <= 5),
               sub: fps != null ? (fps.toFixed(1) + ' fps' + (inferenceMs != null ? ' · ' + inferenceMs.toFixed(0) + ' ms' : '')) : 'no data' },
         ];
+
+        // Issue #295: overlay authoritative /api/preflight verdicts on the
+        // stats-derived rows they cover, and fill the rows stats cannot see.
+        const consumed = new Set();
+        for (const c of checks) {
+            const pf = pfLookup(c.key, consumed);
+            if (pf && pf.status) {
+                c.pass = pf.status === 'pass';
+                c.warn = pf.status === 'warn';
+                if (pf.message) c.sub = String(pf.message);
+            }
+        }
+        for (const extraKey of ['config', 'disk']) {
+            const pf = pfLookup(extraKey, consumed);
+            checks.push(pf && pf.status
+                ? { key: extraKey, pass: pf.status === 'pass', warn: pf.status === 'warn',
+                    sub: pf.message ? String(pf.message) : pf.status }
+                : { key: extraKey, pass: false, warn: true, sub: 'preflight endpoint unavailable' });
+        }
+        // Surface every backend check the fixed rows didn't claim (callsign,
+        // auth, anything added later) so warn/fail counts match the backend
+        // `overall` that gates Start Sortie.
+        const dynLive = new Set();
+        if (pfChecks) {
+            for (const name of Object.keys(pfChecks)) {
+                if (consumed.has(name)) continue;
+                const pf = pfChecks[name];
+                if (!pf || !pf.status) continue;
+                ensureCheckRow(name);
+                dynLive.add(name);
+                checks.push({ key: name, pass: pf.status === 'pass',
+                              warn: pf.status === 'warn',
+                              sub: pf.message ? String(pf.message) : pf.status });
+            }
+        }
+        pruneDynCheckRows(dynLive);
 
         let warnCount = 0;
         let failCount = 0;

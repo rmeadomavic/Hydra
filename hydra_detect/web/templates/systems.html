@@ -169,6 +169,13 @@
                     <span class="systems-row-detail" id="systems-row-gps-detail">--</span>
                     <span class="systems-pill systems-pill-dim" id="systems-row-gps-pill">--</span>
                 </div>
+                <!-- Compass health: heading vs GPS course under way (issue #298) -->
+                <div class="systems-row" data-key="compass">
+                    <span class="systems-dot systems-dot-dim" id="systems-row-compass-dot"></span>
+                    <span class="systems-row-name">Compass</span>
+                    <span class="systems-row-detail" id="systems-row-compass-detail">--</span>
+                    <span class="systems-pill systems-pill-dim" id="systems-row-compass-pill">--</span>
+                </div>
                 <div class="systems-row" data-key="rtsp">
                     <span class="systems-dot systems-dot-dim" id="systems-row-rtsp-dot"></span>
                     <span class="systems-row-name">RTSP server</span>
@@ -202,13 +209,15 @@
             </div>
         </article>
 
-        <!-- Pre-flight checklist (B-stub: derived from /api/stats only at this stage) -->
+        <!-- Pre-flight checklist — /api/preflight verdicts (camera, detector,
+             MAVLink, config, disk) merged with stats-derived environment rows
+             (GPS, RAM, thermal, FPS). Issue #295. -->
         <article class="systems-card" aria-label="Pre-flight checklist">
             <header class="systems-card-header">
                 <span class="systems-card-label">Pre-flight Checklist</span>
                 <span class="systems-pill systems-pill-warn" id="systems-preflight-summary"
-                      title="Pre-flight rollup is partial until backend lands"
-                      aria-live="polite">PARTIAL</span>
+                      title="Rollup of backend preflight checks + live environment checks"
+                      aria-live="polite">--</span>
             </header>
             <div class="systems-card-body systems-card-body-flush">
                 <div class="systems-check-row" data-check="camera">
@@ -245,6 +254,16 @@
                     <span class="systems-check-glyph" id="systems-check-pipeline-glyph">·</span>
                     <span class="systems-check-label">Pipeline FPS &gt; 5</span>
                     <span class="systems-check-sub" id="systems-check-pipeline-sub">--</span>
+                </div>
+                <div class="systems-check-row" data-check="config">
+                    <span class="systems-check-glyph" id="systems-check-config-glyph">·</span>
+                    <span class="systems-check-label">Config valid</span>
+                    <span class="systems-check-sub" id="systems-check-config-sub">--</span>
+                </div>
+                <div class="systems-check-row" data-check="disk">
+                    <span class="systems-check-glyph" id="systems-check-disk-glyph">·</span>
+                    <span class="systems-check-label">Disk headroom</span>
+                    <span class="systems-check-sub" id="systems-check-disk-sub">--</span>
                 </div>
             </div>
         </article>

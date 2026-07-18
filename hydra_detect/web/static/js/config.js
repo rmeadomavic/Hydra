@@ -445,13 +445,16 @@ const HydraOperations = (() => {
             btn.classList.toggle('mode-active', isActive);
         });
 
-        // Check pending mode confirmation
+        // Check pending mode confirmation (issue #297: confirm/deny via toast
+        // since the badge element it used to target isn't rendered here).
         if (pendingMode && s.vehicle_mode) {
             if (s.vehicle_mode === pendingMode) {
+                HydraApp.showToast('Mode now ' + pendingMode, 'success');
                 pendingMode = null;
             } else if (Date.now() - pendingModeTime > 3000) {
-                if (modeBadge) modeBadge.className = 'badge mode-badge failed';
-                setTimeout(function () { pendingMode = null; }, 1000);
+                HydraApp.showToast('Mode did not change to ' + pendingMode +
+                    ' (still ' + s.vehicle_mode + ')', 'error');
+                pendingMode = null;
             }
         }
 
@@ -1075,14 +1078,17 @@ const HydraOperations = (() => {
         if (!confirm(labels[mode] || ('Set mode to ' + mode + '?'))) return;
 
         const result = await HydraApp.apiPost('/api/vehicle/mode', { mode: mode });
+        // Issue #297: feedback previously wrote to #ctrl-mode-badge, which
+        // does not exist in config.html — the branch was inert, so a novice
+        // operator got no success/failure signal at all. Route through the
+        // toast + active-button highlight that actually render here.
         if (result && result.status === 'ok') {
-            const badge = document.getElementById('ctrl-mode-badge');
-            if (badge) {
-                badge.textContent = mode + '...';
-                badge.className = 'badge mode-badge sending';
-            }
+            HydraApp.showToast('Commanding ' + mode + '…', 'info');
             pendingMode = mode;
             pendingModeTime = Date.now();
+        } else {
+            const reason = (result && result.reason) ? (': ' + result.reason) : '';
+            HydraApp.showToast('Mode change to ' + mode + ' failed' + reason, 'error');
         }
     }
 
@@ -1646,6 +1652,11 @@ const HydraOperations = (() => {
             HydraApp.showToast('Enter a sortie name before starting', 'info');
             if (input) input.focus();
             return;
+        }
+        // Issue #295: gate the sortie on preflight (see ops.js startMission).
+        if (window.HydraPreflight && typeof window.HydraPreflight.gateAction === 'function') {
+            const ok = await window.HydraPreflight.gateAction('Start sortie');
+            if (!ok) { HydraApp.showToast('Sortie start canceled — resolve preflight first', 'info'); return; }
         }
         const result = await HydraApp.apiPost('/api/mission/start', { name });
         if (result && result.status === 'started') {

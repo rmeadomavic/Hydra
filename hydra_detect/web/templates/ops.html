@@ -73,6 +73,29 @@
             </div>
         </div>
 
+        <!-- Last-known-position recovery card (issue #296). Hidden while
+             telemetry is fresh; appears on link/stream loss so the operator
+             keeps the coordinates that vanish exactly when a platform goes
+             down in the trees. Lost airframes are the dominant SORCC loss
+             mode; GPS rescue depends on knowing the last fix. -->
+        <div class="ops-sidebar-section ops-lastknown" id="ops-lastknown-section" style="display:none;">
+            <div class="ops-sidebar-header ops-lastknown-header">
+                <span>LAST KNOWN</span>
+                <span class="ops-card-badge ops-lastknown-badge" id="ops-lastknown-age">--</span>
+            </div>
+            <div class="ops-card-body">
+                <div class="ops-lastknown-coord mono" id="ops-lastknown-coord"
+                     title="Click to copy" role="button" tabindex="0">--</div>
+                <div class="ops-card-row ops-card-row-dim">
+                    <span class="ops-card-label">Heading</span>
+                    <span class="ops-card-value mono" id="ops-lastknown-hdg">--</span>
+                    <span class="ops-card-label">Alt</span>
+                    <span class="ops-card-value mono" id="ops-lastknown-alt">--</span>
+                </div>
+                <div class="ops-lastknown-note">Telemetry lost — last received fix above.</div>
+            </div>
+        </div>
+
         <!-- Minimap removed (issue #294): the canvas was never drawn into by
              any JS — a permanently blank surface presented as a map. The
              Cockpit TAK map is the primary (and only) ops-view map. -->
@@ -421,6 +444,13 @@
                             <span class="ops-card-value mono" id="ops-rf-samples">--</span>
                             <span class="ops-card-label">WP</span>
                             <span class="ops-card-value mono" id="ops-rf-wp">--</span>
+                        </div>
+                        <!-- Issue #297: an active hunt could only be aborted from
+                             the Config view. Abort now lives where the operator
+                             watches the hunt. Shown only while a hunt is running. -->
+                        <div class="ops-card-btns" id="ops-rf-abort-row" style="display:none;">
+                            <button class="btn btn-sm btn-danger" id="ops-btn-rf-abort"
+                                    title="Stop the active RF hunt and hold">Abort Hunt</button>
                         </div>
                     </div>
                 </div>
