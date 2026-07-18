@@ -113,6 +113,11 @@ window.HydraTakMap = (() => {
         let hasCentered = false;
         let timer = null;
         let stopped = false;
+        // Monotonic run token. Every stop()/start() bumps it so a tick from a
+        // superseded loop (e.g. a double-init or a stop/start race) sees its
+        // gen !== generation and bows out instead of rescheduling — otherwise
+        // two setTimeout chains poll the same map forever (Codex P2).
+        let generation = 0;
 
         function setSelfHeading(heading) {
             selfHeading = (typeof heading === 'number') ? heading : 0;
@@ -240,32 +245,37 @@ window.HydraTakMap = (() => {
             } catch (e) { return false; }
         }
 
-        async function tick() {
-            if (stopped) return;
+        async function tick(gen) {
+            if (stopped || gen !== generation) return;
             const results = await Promise.all([refreshSelf(), refreshPeers(), refreshTracks()]);
+            // Re-check after the await: a stop()/start() may have fired while
+            // the fetches were in flight, superseding this loop.
+            if (stopped || gen !== generation) return;
             if (typeof options.onHealth === 'function') {
                 const relevant = results.filter((v) => v === true || v === false);
                 try { options.onHealth(relevant.every(Boolean)); } catch (e) { /* listener */ }
             }
-            if (!stopped) timer = setTimeout(tick, pollMs);
+            timer = setTimeout(() => tick(gen), pollMs);
         }
 
         // Let Leaflet read the container's size after it has been laid out.
         requestAnimationFrame(() => {
             map.invalidateSize();
-            tick();
+            tick(generation);
         });
 
         const ctl = {
             map: map,
             stop() {
                 stopped = true;
-                if (timer) clearTimeout(timer);
+                generation += 1;
+                if (timer) { clearTimeout(timer); timer = null; }
             },
             start() {
                 if (!stopped) return;
                 stopped = false;
-                tick();
+                generation += 1;
+                tick(generation);
             },
             refresh() {
                 map.invalidateSize();

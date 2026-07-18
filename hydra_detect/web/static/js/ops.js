@@ -2616,7 +2616,7 @@ const HydraOps = (() => {
             var d = devices[k];
             var r2 = listEl.children[k];
             if (!r2) continue;
-            r2.classList.toggle('is-new', d.age < 3);
+            r2.classList.toggle('is-new', d.age != null && d.age < 3);
             r2.classList.toggle('is-alert', d.alert);
             r2.classList.toggle('is-you', d.you);
             _setText(r2.children[0], d.type ? String(d.type).split('-')[0].toUpperCase().slice(0, 4) : '—');
