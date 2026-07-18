@@ -123,20 +123,71 @@ const HydraSystems = (() => {
         }
     }
 
-    function pfLookup(rowKey) {
+    function pfLookup(rowKey, consumed) {
         if (!pfChecks) return null;
         // Endpoint check names → checklist row keys (defensive contains-match)
         const aliases = { camera: 'camera', model: 'model', mavlink: 'mavlink',
                           config: 'config', disk: 'disk' };
         const want = aliases[rowKey];
         if (!want) return null;
-        if (pfChecks[want]) return pfChecks[want];
-        for (const name of Object.keys(pfChecks)) {
-            if (name.indexOf(want) !== -1) return pfChecks[name];
+        let hit = null;
+        if (pfChecks[want]) {
+            hit = want;
+        } else {
+            for (const name of Object.keys(pfChecks)) {
+                if (name.indexOf(want) !== -1) { hit = name; break; }
+            }
+            // 'model' row ↔ endpoint 'models'
+            if (!hit && want === 'model' && pfChecks['models']) hit = 'models';
         }
-        // 'model' row ↔ endpoint 'models'
-        if (want === 'model' && pfChecks['models']) return pfChecks['models'];
-        return null;
+        if (!hit) return null;
+        if (consumed) consumed.add(hit);
+        return pfChecks[hit];
+    }
+
+    // Backend checks with no fixed row (callsign, auth, future additions)
+    // get a row created on the fly so the rollup counts every check the
+    // Start Sortie gate counts — no ALL-OK-while-gate-warns split-brain
+    // (Codex P2 on #300).
+    const DYN_CHECK_LABELS = { callsign: 'TAK callsign', auth: 'API auth' };
+    const dynCheckRows = new Set();
+
+    function ensureCheckRow(key) {
+        if (document.getElementById('systems-check-' + key + '-glyph')) return;
+        const anyRow = document.querySelector('.systems-check-row');
+        const host = anyRow ? anyRow.parentElement : null;
+        if (!host) return;
+        const row = document.createElement('div');
+        row.className = 'systems-check-row';
+        row.setAttribute('data-check', key);
+        const glyph = document.createElement('span');
+        glyph.className = 'systems-check-glyph';
+        glyph.id = 'systems-check-' + key + '-glyph';
+        glyph.textContent = '·';
+        const label = document.createElement('span');
+        label.className = 'systems-check-label';
+        label.textContent = DYN_CHECK_LABELS[key]
+            || (key.charAt(0).toUpperCase() + key.slice(1));
+        const sub = document.createElement('span');
+        sub.className = 'systems-check-sub';
+        sub.id = 'systems-check-' + key + '-sub';
+        sub.textContent = '--';
+        row.appendChild(glyph);
+        row.appendChild(label);
+        row.appendChild(sub);
+        host.appendChild(row);
+        dynCheckRows.add(key);
+    }
+
+    function pruneDynCheckRows(liveKeys) {
+        for (const key of Array.from(dynCheckRows)) {
+            if (liveKeys.has(key)) continue;
+            const glyph = document.getElementById('systems-check-' + key + '-glyph');
+            const row = glyph ? glyph.closest('.systems-check-row') : null;
+            if (row && row.parentElement) row.parentElement.removeChild(row);
+            delete lastCheck[key];
+            dynCheckRows.delete(key);
+        }
     }
 
     function schedule(nextMs) {
@@ -535,8 +586,9 @@ const HydraSystems = (() => {
 
         // Issue #295: overlay authoritative /api/preflight verdicts on the
         // stats-derived rows they cover, and fill the rows stats cannot see.
+        const consumed = new Set();
         for (const c of checks) {
-            const pf = pfLookup(c.key);
+            const pf = pfLookup(c.key, consumed);
             if (pf && pf.status) {
                 c.pass = pf.status === 'pass';
                 c.warn = pf.status === 'warn';
@@ -544,12 +596,29 @@ const HydraSystems = (() => {
             }
         }
         for (const extraKey of ['config', 'disk']) {
-            const pf = pfLookup(extraKey);
+            const pf = pfLookup(extraKey, consumed);
             checks.push(pf && pf.status
                 ? { key: extraKey, pass: pf.status === 'pass', warn: pf.status === 'warn',
                     sub: pf.message ? String(pf.message) : pf.status }
                 : { key: extraKey, pass: false, warn: true, sub: 'preflight endpoint unavailable' });
         }
+        // Surface every backend check the fixed rows didn't claim (callsign,
+        // auth, anything added later) so warn/fail counts match the backend
+        // `overall` that gates Start Sortie.
+        const dynLive = new Set();
+        if (pfChecks) {
+            for (const name of Object.keys(pfChecks)) {
+                if (consumed.has(name)) continue;
+                const pf = pfChecks[name];
+                if (!pf || !pf.status) continue;
+                ensureCheckRow(name);
+                dynLive.add(name);
+                checks.push({ key: name, pass: pf.status === 'pass',
+                              warn: pf.status === 'warn',
+                              sub: pf.message ? String(pf.message) : pf.status });
+            }
+        }
+        pruneDynCheckRows(dynLive);
 
         let warnCount = 0;
         let failCount = 0;

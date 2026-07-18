@@ -991,7 +991,9 @@ const HydraOps = (() => {
         // (no fresh lat/lon recently) or the video stream is lost.
         var streamLost = false;
         var lostEl = document.getElementById('ops-hud-stream-lost');
-        if (lostEl) streamLost = lostEl.style.display !== 'none' && lostEl.style.display !== '';
+        // The stream error handler SHOWS the badge by clearing the inline
+        // style (display: '') — so '' means visible here, not hidden (Codex P2).
+        if (lostEl) streamLost = lostEl.style.display !== 'none';
         var stale = (now - _lastFixAt) > LASTKNOWN_STALE_MS;
         var show = !!_lastKnown && (stale || streamLost) && lat == null;
 
