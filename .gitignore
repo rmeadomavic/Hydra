@@ -59,8 +59,11 @@ htmlcov/
 # never pushed to the public repo. If you add a new agent/skill/plan,
 # put it here so it stays out of the public surface.
 
-# Claude Code & sub-agent scaffolding (covers .claude/worktrees/ too)
-.claude/
+# Claude Code & sub-agent scaffolding (covers .claude/worktrees/ too).
+# Curated project skills are the one exception — .claude/skills/ is
+# checked in deliberately (design-system guard, issue #291).
+.claude/*
+!.claude/skills/
 .agents/
 
 # Repo-specific AI assistant guidelines (kept local)

@@ -1,0 +1,160 @@
+/* ════════════════════════════════════════════════════════════════════════
+ * gold.css — the polish layer (issue #291)
+ *
+ * Single-file visual upgrade, loaded LAST in base.html so it overrides by
+ * cascade order. Contains NO structural CSS — layout lives in the per-view
+ * stylesheets. Removing the one <link> in base.html reverts every change
+ * in this file. Zero JS, zero template restructuring.
+ *
+ * Rules for editing this file live in .claude/skills/hydra-ui/SKILL.md.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Easing tokens ────────────────────────────────────────────────────
+ * Replace keyword `ease-out` with custom curves. Every existing
+ * `var(--transition-*)` usage across the app upgrades automatically.
+ * Durations stay short — this is a console, not a landing page. */
+:root {
+    --ease-snap: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-glide: cubic-bezier(0.16, 1, 0.3, 1);
+    --transition-fast: 120ms var(--ease-snap);
+    --transition-normal: 220ms var(--ease-snap);
+    --transition-slow: 340ms var(--ease-glide);
+}
+
+/* ── 2. Edge-light on raised surfaces ────────────────────────────────────
+ * A 1px inset top highlight sells layered depth without adding chrome.
+ * Uses a token so themes can retune it later if needed. */
+:root {
+    --edge-light: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+.topbar {
+    box-shadow: var(--edge-light), 0 1px 12px rgba(0, 0, 0, 0.5);
+}
+.ops-sidebar-section,
+.cockpit-cell,
+.flight-hud {
+    box-shadow: var(--edge-light);
+}
+
+/* ── 3. Stencil tick on section headers ──────────────────────────────────
+ * Small glowing accent bar left of each .ops-sidebar-header title.
+ * Absolutely positioned so it works regardless of the header's flex
+ * layout; padding-left makes room for it. */
+.ops-sidebar-header {
+    position: relative;
+    padding-left: 18px;
+}
+.ops-sidebar-header::before {
+    content: '';
+    position: absolute;
+    left: 7px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 10px;
+    background: var(--olive-muted);
+    box-shadow: var(--glow-subtle);
+}
+
+/* ── 4. Animated underline on active tabs ────────────────────────────────
+ * The static 2px border-bottom becomes a bar that slides in from the left
+ * on activation. Border is blanked (not removed) so tab height is stable. */
+.topbar-tab,
+.ops-tab {
+    position: relative;
+}
+.topbar-tab.active,
+.topbar-tab.active:hover,
+.ops-tab.active {
+    border-bottom-color: transparent;
+}
+.topbar-tab::after,
+.ops-tab::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: var(--olive-muted);
+    box-shadow: var(--glow-subtle);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform var(--transition-normal);
+}
+.topbar-tab.active::after,
+.ops-tab.active::after {
+    transform: scaleX(1);
+}
+.topbar-tab::after {
+    left: 8px;
+    right: 8px;
+}
+
+/* ── 5. Pulse on healthy status dots ─────────────────────────────────────
+ * Live systems breathe. 3s cycle, glow only — size never changes, so
+ * nothing reflows. Applied to healthy/live states only; warning and
+ * danger dots stay steady (a blinking warning reads as a new event). */
+/* Glow comes from theme tokens so NVG/lattice re-tint automatically. */
+@keyframes gold-dot-pulse {
+    0%, 100% { box-shadow: var(--glow-green); }
+    50%      { box-shadow: var(--glow-subtle); }
+}
+.topbar[data-mock="1"] .tb-dot.green,
+.cockpit-cell-dot,
+.flight-hud-status-dot {
+    animation: gold-dot-pulse 3s var(--ease-glide) infinite;
+}
+
+/* ── 6. Tabular figures on data readouts ─────────────────────────────────
+ * Fixed-width digits stop numeric readouts from jittering as values
+ * change. Applied to every mono data surface. */
+.mono,
+.data-value,
+.stat-value,
+.ops-card-value,
+.ops-info-value,
+.ops-telem-value,
+.ops-mavlink-value,
+.ops-tab-count,
+.flight-hud-card-big,
+.flight-hud-card-sub,
+.flight-hud-hdg-readout,
+.flight-hud-gimbal-val,
+.cockpit-servo-cell-value,
+.cockpit-sdr-stats b,
+.tb-fps-value,
+.tb-lat-value,
+.tb-battery-pct {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── 7. Tab panel fade-in ────────────────────────────────────────────────
+ * Sidebar tab switches get a 240ms fade-up. Scoped to .ops-tab-panel only:
+ * view containers are left alone (the persistent MJPEG stream and
+ * stream-controller.js must not be affected). */
+@keyframes gold-panel-in {
+    from { opacity: 0; transform: translateY(5px); }
+    to   { opacity: 1; transform: none; }
+}
+.ops-tab-panel:not([hidden]) {
+    animation: gold-panel-in 240ms var(--ease-glide);
+}
+
+/* ── 8. Reduced motion ───────────────────────────────────────────────────
+ * Everything this layer animates shuts off. The scanline in ops.css
+ * already handles itself. */
+@media (prefers-reduced-motion: reduce) {
+    .topbar[data-mock="1"] .tb-dot.green,
+    .cockpit-cell-dot,
+    .flight-hud-status-dot {
+        animation: none;
+    }
+    .ops-tab-panel:not([hidden]) {
+        animation: none;
+    }
+    .topbar-tab::after,
+    .ops-tab::after {
+        transition: none;
+    }
+}
