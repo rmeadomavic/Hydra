@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, Header, Request, Response
+from fastapi import FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.datastructures import MutableHeaders
 from fastapi.staticfiles import StaticFiles
@@ -569,10 +569,55 @@ app.add_middleware(_SessionAuthMiddleware)
 audit_log = logging.getLogger("hydra.audit")
 
 
+@app.exception_handler(HTTPException)
+async def _http_exception_handler(request: Request, exc: HTTPException):
+    """Render fastapi.HTTPException with this app's ``{"error": ...}`` body
+    convention (the 413s raised by ``_read_body_capped``). Starlette's own
+    routing exceptions (404/405) are a different class and keep the default
+    handler."""
+    return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
+
+
+async def _read_body_capped(request: Request, cap: int = MAX_BODY_SIZE) -> bytes:
+    """Read the request body, never letting more than ``cap`` bytes become
+    resident (issue #289 — a single multi-GB POST could OOM the 8 GB Orin
+    and take the pipeline down for the whole class).
+
+    Rejects on the declared Content-Length first (cheap), then enforces the
+    same cap on the actual stream — chunked transfer encoding carries no
+    length declaration, and a declared length can simply lie.
+
+    Raises ``HTTPException(413)`` on an oversized body. On success the
+    assembled body is cached on the request so any later ``request.body()``
+    / ``request.json()`` call in the same handler still works.
+    """
+    declared = request.headers.get("content-length")
+    if declared is not None:
+        try:
+            if int(declared) > cap:
+                raise HTTPException(status_code=413, detail="Request body too large")
+        except ValueError:
+            pass  # malformed header — the streamed cap below still holds
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > cap:
+            raise HTTPException(status_code=413, detail="Request body too large")
+        chunks.append(chunk)
+    body = b"".join(chunks)
+    request._body = body  # keep Starlette's body cache coherent
+    return body
+
+
 async def _parse_json(request: Request) -> dict | None:
-    """Safely parse JSON body, returning None on malformed input."""
+    """Safely parse JSON body, returning None on malformed input.
+
+    Body size is capped via :func:`_read_body_capped` — an oversized body
+    raises ``HTTPException(413)`` before it is ever fully buffered.
+    """
     try:
-        return await request.json()
+        return json.loads(await _read_body_capped(request))
     except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
         return None
 
@@ -1519,14 +1564,17 @@ async def api_client_error(request: Request):
 
     Auth-free, same-origin only. Rate-limited to 50 reports / 60 s / IP.
     """
-    body = await _parse_json(request)
-    if body is None or not isinstance(body, dict):
-        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
-
+    # Rate-limit BEFORE touching the body (issue #289): this endpoint is
+    # unauthenticated, so the body read must sit behind the per-IP limiter,
+    # not in front of it.
     client_ip = request.client.host if request.client else "unknown"
     now = time.monotonic()
     if _client_error_rate_limited(client_ip, now):
         return JSONResponse({"error": "rate limited"}, status_code=429)
+
+    body = await _parse_json(request)
+    if body is None or not isinstance(body, dict):
+        return JSONResponse({"error": "Invalid or missing JSON body"}, status_code=400)
 
     user_agent = request.headers.get("user-agent", "")[:512]
     _client_error_sink.push(
@@ -3913,9 +3961,7 @@ async def api_set_full_config(request: Request, authorization: str | None = Head
     if auth_err:
         return auth_err
     import json as _json
-    body_bytes = await request.body()
-    if len(body_bytes) > MAX_BODY_SIZE:
-        return JSONResponse({"error": "Request body too large"}, status_code=413)
+    body_bytes = await _read_body_capped(request)
     try:
         body = _json.loads(body_bytes)
     except (ValueError, _json.JSONDecodeError):
@@ -4103,10 +4149,8 @@ async def api_factory_reset(request: Request, authorization: str | None = Header
         return JSONResponse({"error": "No factory defaults available"}, status_code=404)
     # Body is optional for backward-compat: existing callers send no body.
     body: dict | None = None
-    body_bytes = await request.body()
+    body_bytes = await _read_body_capped(request)
     if body_bytes:
-        if len(body_bytes) > MAX_BODY_SIZE:
-            return JSONResponse({"error": "Request body too large"}, status_code=413)
         import json as _json
         try:
             body = _json.loads(body_bytes)
@@ -4234,9 +4278,7 @@ async def api_config_import(request: Request, authorization: str | None = Header
     if auth_err:
         return auth_err
     import json as _json
-    body_bytes = await request.body()
-    if len(body_bytes) > MAX_BODY_SIZE:
-        return JSONResponse({"error": "Request body too large"}, status_code=413)
+    body_bytes = await _read_body_capped(request)
     try:
         body = _json.loads(body_bytes)
     except (ValueError, _json.JSONDecodeError):
@@ -4389,9 +4431,7 @@ async def api_setup_save(request: Request, authorization: Optional[str] = Header
         return auth_err
 
     import json as _json
-    body_bytes = await request.body()
-    if len(body_bytes) > MAX_BODY_SIZE:
-        return JSONResponse({"error": "Request body too large"}, status_code=413)
+    body_bytes = await _read_body_capped(request)
     try:
         body = _json.loads(body_bytes)
     except (ValueError, _json.JSONDecodeError):

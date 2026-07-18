@@ -73,9 +73,12 @@ jobs:
 
       - name: Test (with coverage)
         run: |
+          # Full suite minus slow-marked tests. The old
+          # --ignore=test_integration_wiring + -k "not integration" pair
+          # silently excluded 49 wiring/nav/template tests from every PR;
+          # the whole set runs in ~3 s (PR #274 item 3, re-landed).
           python -m pytest tests/ -q --tb=short \
-            --ignore=tests/test_integration_wiring.py \
-            -k "not integration and not slow" \
+            -k "not slow" \
             --cov=hydra_detect --cov-report=term --cov-report=xml
 
       - name: Upload coverage XML

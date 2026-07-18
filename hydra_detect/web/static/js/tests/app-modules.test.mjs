@@ -55,6 +55,45 @@ test('poller starts/stops detail pollers per active view', async () => {
   manager.stopPoller('stats');
 });
 
+test('backoff state is per poller — one failing endpoint does not slow the rest', async (t) => {
+  setupGlobals();
+  loadScript('hydra_detect/web/static/js/state/store.js');
+  loadScript('hydra_detect/web/static/js/polling/poller-manager.js');
+
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+
+  const calls = { good: 0, bad: 0 };
+  const fetchImpl = async (url) => {
+    if (url === '/good') { calls.good += 1; return { ok: true, json: async () => ({}) }; }
+    calls.bad += 1;
+    return { ok: false };
+  };
+  const store = window.HydraModules.createStore();
+  const manager = window.HydraModules.createPollerManager({ store, fetchImpl });
+
+  manager.startPoller('good', '/good', 1000, () => {});
+  manager.startPoller('bad', '/bad', 1000, () => {});
+  // Flush the immediate first polls.
+  await new Promise(r => { r(); });
+  await new Promise(r => { r(); });
+
+  // Advance 4 base intervals. The healthy poller must fire ~once per
+  // interval; the failing one backs off exponentially (2s, 4s, ...).
+  for (let i = 0; i < 4; i++) {
+    t.mock.timers.tick(1000);
+    // Let the async poll bodies settle between ticks.
+    await new Promise(r => { r(); });
+    await new Promise(r => { r(); });
+  }
+
+  assert.ok(calls.good >= 4, `healthy poller throttled: ${calls.good} calls in 4 intervals`);
+  assert.ok(calls.bad <= 3, `failing poller not backing off: ${calls.bad} calls in 4 intervals`);
+
+  manager.stopPoller('good');
+  manager.stopPoller('bad');
+  t.mock.timers.reset();
+});
+
 test('modal controller handles escape close and tab focus trap', () => {
   setupGlobals();
   loadScript('hydra_detect/web/static/js/ui/modal.js');
