@@ -22,6 +22,7 @@ from urllib.parse import urlsplit
 import cv2
 import numpy as np
 from fastapi import FastAPI, Header, HTTPException, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.datastructures import MutableHeaders
 from fastapi.staticfiles import StaticFiles
@@ -1056,6 +1057,22 @@ async def api_health():
 _PIXHAWK_CONNECT_TIMEOUT_SEC = 10.0
 _PIXHAWK_PARAM_COLLECT_TIMEOUT_SEC = 10.0
 
+# Issue #288: the wizard's pymavlink I/O is blocking (wait_heartbeat /
+# recv_match loops up to 10 s). The four wizard handlers run that work in
+# the threadpool via run_in_threadpool so the event loop — which also
+# serves MJPEG and every poller for the whole class — never parks. The
+# single-flight lock keeps concurrent wizard calls from stacking threads
+# (and from fighting over the same serial device); a busy wizard answers
+# 423 immediately.
+_pixhawk_wizard_lock = threading.Lock()
+
+
+def _pixhawk_wizard_busy_response() -> JSONResponse:
+    return JSONResponse(
+        {"error": "another Pixhawk wizard operation is in progress — retry when it completes"},
+        status_code=423,
+    )
+
 
 def _pixhawk_open_connection(conn_str: str, baud: int = 115200):
     """Open a mavutil connection and wait for a heartbeat.
@@ -1228,32 +1245,46 @@ async def api_pixhawk_detect(
     auth_err = _check_auth(authorization, request)
     if auth_err:
         return auth_err
+
+    def _work():
+        # Blocking pymavlink span — runs in the threadpool (issue #288).
+        try:
+            link = _pixhawk_open_connection(conn, baud=baud)
+        except Exception as exc:
+            return ("connect_failed", str(exc))
+        try:
+            # Request AUTOPILOT_VERSION via MAV_CMD_REQUEST_AUTOPILOT_CAPABILITIES.
+            try:
+                from pymavlink.dialects.v20 import common as mavlink2
+                link.mav.command_long_send(
+                    link.target_system, link.target_component,
+                    mavlink2.MAV_CMD_REQUEST_AUTOPILOT_CAPABILITIES,
+                    0, 1, 0, 0, 0, 0, 0, 0,
+                )
+            except Exception:
+                # Some autopilots emit AUTOPILOT_VERSION on connect — best-effort only.
+                pass
+            info = _pixhawk_wizard.detect_fc(link, timeout=_PIXHAWK_CONNECT_TIMEOUT_SEC)
+        finally:
+            try:
+                link.close()
+            except Exception:
+                pass
+        return ("ok", info)
+
+    if not _pixhawk_wizard_lock.acquire(blocking=False):
+        return _pixhawk_wizard_busy_response()
     try:
-        link = _pixhawk_open_connection(conn, baud=baud)
-    except Exception as exc:
+        tag, payload = await run_in_threadpool(_work)
+    finally:
+        _pixhawk_wizard_lock.release()
+    if tag == "connect_failed":
         _audit(request, "pixhawk_detect", target=conn, outcome="connect_failed")
         return JSONResponse(
-            {"error": f"connect failed: {exc}"},
+            {"error": f"connect failed: {payload}"},
             status_code=408,
         )
-    try:
-        # Request AUTOPILOT_VERSION via MAV_CMD_REQUEST_AUTOPILOT_CAPABILITIES.
-        try:
-            from pymavlink.dialects.v20 import common as mavlink2
-            link.mav.command_long_send(
-                link.target_system, link.target_component,
-                mavlink2.MAV_CMD_REQUEST_AUTOPILOT_CAPABILITIES,
-                0, 1, 0, 0, 0, 0, 0, 0,
-            )
-        except Exception:
-            # Some autopilots emit AUTOPILOT_VERSION on connect — best-effort only.
-            pass
-        info = _pixhawk_wizard.detect_fc(link, timeout=_PIXHAWK_CONNECT_TIMEOUT_SEC)
-    finally:
-        try:
-            link.close()
-        except Exception:
-            pass
+    info = payload
     _audit(request, "pixhawk_detect", target=info.get("firmware", "unknown"))
     return info
 
@@ -1280,21 +1311,34 @@ async def api_pixhawk_diff(
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
+    def _work():
+        # Blocking pymavlink span — runs in the threadpool (issue #288).
+        try:
+            link = _pixhawk_open_connection(conn, baud=baud)
+        except Exception as exc:
+            return ("connect_failed", str(exc))
+        try:
+            live = _pixhawk_collect_live_params(link)
+        finally:
+            try:
+                link.close()
+            except Exception:
+                pass
+        return ("ok", live)
+
+    if not _pixhawk_wizard_lock.acquire(blocking=False):
+        return _pixhawk_wizard_busy_response()
     try:
-        link = _pixhawk_open_connection(conn, baud=baud)
-    except Exception as exc:
+        tag, payload = await run_in_threadpool(_work)
+    finally:
+        _pixhawk_wizard_lock.release()
+    if tag == "connect_failed":
         _audit(request, "pixhawk_diff", target=profile, outcome="connect_failed")
         return JSONResponse(
-            {"error": f"connect failed: {exc}"},
+            {"error": f"connect failed: {payload}"},
             status_code=408,
         )
-    try:
-        live = _pixhawk_collect_live_params(link)
-    finally:
-        try:
-            link.close()
-        except Exception:
-            pass
+    live = payload
 
     rows = _pixhawk_wizard.compute_diff(live, pack)
     _audit(request, "pixhawk_diff", target=f"{profile}:{len(rows)}rows")
@@ -1346,87 +1390,110 @@ async def api_pixhawk_apply(
             status_code=404,
         )
 
-    try:
-        link = _pixhawk_open_connection(conn_str, baud=baud)
-    except Exception as exc:
-        _audit(request, "pixhawk_apply", target=profile, outcome="connect_failed")
-        return JSONResponse(
-            {"error": f"connect failed: {exc}"},
-            status_code=408,
-        )
+    def _work():
+        # Blocking pymavlink span — runs in the threadpool (issue #288).
+        try:
+            link = _pixhawk_open_connection(conn_str, baud=baud)
+        except Exception as exc:
+            return ("connect_failed", str(exc))
 
-    try:
-        # 1. Recompute live → fresh diff → freshness check. Capture per-name
-        #    MAV_PARAM_TYPE in the same pass so apply_pack can send each
-        #    PARAM_SET with the FC-reported type instead of always REAL32.
-        live, live_types = _pixhawk_collect_live_params_with_types(link)
-        fresh_diff = _pixhawk_wizard.compute_diff(live, pack)
-        fresh_hash = _pixhawk_diff_hash(fresh_diff)
-        if not hmac.compare_digest(fresh_hash, confirmed_hash):
-            _audit(request, "pixhawk_apply", target=profile, outcome="hash_mismatch")
-            return JSONResponse(
-                {
-                    "error": "diff changed since confirmation — re-run /diff and re-confirm",
+        try:
+            # 1. Recompute live → fresh diff → freshness check. Capture per-name
+            #    MAV_PARAM_TYPE in the same pass so apply_pack can send each
+            #    PARAM_SET with the FC-reported type instead of always REAL32.
+            live, live_types = _pixhawk_collect_live_params_with_types(link)
+            fresh_diff = _pixhawk_wizard.compute_diff(live, pack)
+            fresh_hash = _pixhawk_diff_hash(fresh_diff)
+            if not hmac.compare_digest(fresh_hash, confirmed_hash):
+                return ("hash_mismatch", {
                     "fresh_diff": fresh_diff,
                     "fresh_diff_hash": fresh_hash,
-                },
-                status_code=409,
+                })
+
+            # 2. Capture pre-change backup of every name we're about to touch.
+            names_to_touch = [
+                row["name"] for row in fresh_diff
+                if row.get("action") in ("change", "add")
+            ]
+            backup = _pixhawk_wizard.capture_backup(link, names_to_touch)
+            backup_path = _pixhawk_backup_path(_pixhawk_callsign_from_runtime())
+            backup_payload = {
+                "profile": profile,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%S.%fZ"
+                ),
+                "conn": conn_str,
+                "backup": backup,
+            }
+            backup_path.write_text(
+                json.dumps(backup_payload, indent=2, sort_keys=True),
+                encoding="utf-8",
             )
 
-        # 2. Capture pre-change backup of every name we're about to touch.
-        names_to_touch = [
-            row["name"] for row in fresh_diff
-            if row.get("action") in ("change", "add")
-        ]
-        backup = _pixhawk_wizard.capture_backup(link, names_to_touch)
-        backup_path = _pixhawk_backup_path(_pixhawk_callsign_from_runtime())
-        backup_payload = {
-            "profile": profile,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).strftime(
+            # 3. Apply.
+            results = _pixhawk_wizard.apply_pack(
+                link, fresh_diff, live_param_types=live_types,
+            )
+
+            # 4. Authoritative post-apply re-read. PARAM_VALUE arriving during the
+            #    apply loop can be a third-party PARAM_SET broadcast (Mission
+            #    Planner on telemetry radio); the value we observed as the ack is
+            #    not necessarily the value we wrote. Re-read every touched param
+            #    after the apply loop completes and overwrite ``post_value`` with
+            #    the FC's actual current value, so the operator surface reflects
+            #    real state instead of an interloper's value. (R3-1)
+            re_read_at = datetime.datetime.now(datetime.timezone.utc).strftime(
                 "%Y-%m-%dT%H:%M:%S.%fZ"
-            ),
-            "conn": conn_str,
-            "backup": backup,
-        }
-        backup_path.write_text(
-            json.dumps(backup_payload, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+            )
+            if names_to_touch:
+                authoritative = _pixhawk_wizard.reread_params(link, names_to_touch)
+                for row in results:
+                    rname = row.get("name")
+                    if rname in authoritative:
+                        row["post_value"] = authoritative[rname]
+        finally:
+            try:
+                link.close()
+            except Exception:
+                pass
+        return ("ok", {
+            "backup_path": backup_path,
+            "results": results,
+            "re_read_at": re_read_at,
+        })
 
-        # 3. Apply.
-        results = _pixhawk_wizard.apply_pack(
-            link, fresh_diff, live_param_types=live_types,
-        )
-
-        # 4. Authoritative post-apply re-read. PARAM_VALUE arriving during the
-        #    apply loop can be a third-party PARAM_SET broadcast (Mission
-        #    Planner on telemetry radio); the value we observed as the ack is
-        #    not necessarily the value we wrote. Re-read every touched param
-        #    after the apply loop completes and overwrite ``post_value`` with
-        #    the FC's actual current value, so the operator surface reflects
-        #    real state instead of an interloper's value. (R3-1)
-        re_read_at = datetime.datetime.now(datetime.timezone.utc).strftime(
-            "%Y-%m-%dT%H:%M:%S.%fZ"
-        )
-        if names_to_touch:
-            authoritative = _pixhawk_wizard.reread_params(link, names_to_touch)
-            for row in results:
-                rname = row.get("name")
-                if rname in authoritative:
-                    row["post_value"] = authoritative[rname]
+    if not _pixhawk_wizard_lock.acquire(blocking=False):
+        return _pixhawk_wizard_busy_response()
+    try:
+        tag, payload = await run_in_threadpool(_work)
     finally:
-        try:
-            link.close()
-        except Exception:
-            pass
+        _pixhawk_wizard_lock.release()
 
+    if tag == "connect_failed":
+        _audit(request, "pixhawk_apply", target=profile, outcome="connect_failed")
+        return JSONResponse(
+            {"error": f"connect failed: {payload}"},
+            status_code=408,
+        )
+    if tag == "hash_mismatch":
+        _audit(request, "pixhawk_apply", target=profile, outcome="hash_mismatch")
+        return JSONResponse(
+            {
+                "error": "diff changed since confirmation — re-run /diff and re-confirm",
+                "fresh_diff": payload["fresh_diff"],
+                "fresh_diff_hash": payload["fresh_diff_hash"],
+            },
+            status_code=409,
+        )
+
+    results = payload["results"]
     _audit(request, "pixhawk_apply", target=f"{profile}:{len(results)}rows")
     return {
-        "backup_path": str(backup_path),
+        "backup_path": str(payload["backup_path"]),
         "results": results,
         "applied": sum(1 for r in results if r.get("applied")),
         "failed": sum(1 for r in results if not r.get("applied")),
-        "re_read_at": re_read_at,
+        "re_read_at": payload["re_read_at"],
     }
 
 
@@ -1489,21 +1556,34 @@ async def api_pixhawk_restore(
             status_code=400,
         )
 
+    def _work():
+        # Blocking pymavlink span — runs in the threadpool (issue #288).
+        try:
+            link = _pixhawk_open_connection(conn_str, baud=baud)
+        except Exception as exc:
+            return ("connect_failed", str(exc))
+        try:
+            results = _pixhawk_wizard.restore_backup(link, backup)
+        finally:
+            try:
+                link.close()
+            except Exception:
+                pass
+        return ("ok", results)
+
+    if not _pixhawk_wizard_lock.acquire(blocking=False):
+        return _pixhawk_wizard_busy_response()
     try:
-        link = _pixhawk_open_connection(conn_str, baud=baud)
-    except Exception as exc:
+        tag, payload = await run_in_threadpool(_work)
+    finally:
+        _pixhawk_wizard_lock.release()
+    if tag == "connect_failed":
         _audit(request, "pixhawk_restore", target=str(resolved), outcome="connect_failed")
         return JSONResponse(
-            {"error": f"connect failed: {exc}"},
+            {"error": f"connect failed: {payload}"},
             status_code=408,
         )
-    try:
-        results = _pixhawk_wizard.restore_backup(link, backup)
-    finally:
-        try:
-            link.close()
-        except Exception:
-            pass
+    results = payload
 
     _audit(request, "pixhawk_restore", target=f"{resolved.name}:{len(results)}rows")
     return {
