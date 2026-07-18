@@ -39,7 +39,11 @@ window.HydraModules.createPollerManager = function createPollerManager({ store, 
                 entry.failCount++;
                 if (onConnection) onConnection(false);
             }
-            if (pollers[name]) schedule();
+            // Identity check, not just presence: if this name was re-started
+            // while our fetch was in flight, pollers[name] is a NEW entry and
+            // rescheduling from this stale closure would run two chains
+            // forever (2026-07-18 Codex re-review).
+            if (pollers[name] === entry) schedule();
         };
 
         poll();

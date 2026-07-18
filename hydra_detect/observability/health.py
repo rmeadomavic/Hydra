@@ -104,14 +104,18 @@ def _probe_gps(mavlink_ref: Any, stats: Dict[str, Any]) -> Dict[str, str]:
         # returned, so this probe always degraded to "no gps data" whenever
         # the stats cache was empty. StreamState also DEFAULTS gps_fix to 0
         # before the pipeline publishes, so a 0 must consult the live
-        # MAVLink cache too — get_gps() feeds the published stats and is
-        # never staler than them; prefer its value when it has one.
+        # MAVLink cache too. The cache value is trusted only while FRESH
+        # (GPS_RAW_INT seen within the last 10 s): a cache that latched
+        # fix=3 and then stopped hearing GPS must not override an explicit
+        # no-fix with a stale OK (2026-07-18 Codex re-review).
         getter = getattr(mavlink_ref, "get_gps", None)
         if callable(getter):
             data = getter()
             if isinstance(data, dict):
+                raw_ts = data.get("raw_last_update") or 0.0
+                fresh = raw_ts > 0.0 and (time.monotonic() - raw_ts) <= 10.0
                 live = data.get("fix")
-                if live is not None:
+                if fresh and live is not None:
                     fix = live
     if fix is None:
         return _warn("no gps data")

@@ -97,20 +97,31 @@ class TestSystemsJs:
         assert "window.HydraSystems = HydraSystems" in body
 
     def test_systems_js_polls_only_known_endpoints(self, client):
+        import re
+
         body = client.get("/static/js/systems.js").text
         # systems.js polls /api/stats (live environment metrics) and, since
         # issue #295, /api/preflight (authoritative camera/mavlink/config/
-        # disk verdicts for the checklist). Both are pre-existing endpoints —
-        # no new backend was invented. Any OTHER /api/... call would mean an
-        # unflagged endpoint; fail so it gets reviewed.
+        # disk verdicts for the checklist). Any OTHER /api/... reference
+        # means an unflagged endpoint; fail so it gets reviewed.
+        #
+        # Scan EVERY /api/... string literal in any quote style with
+        # exact-segment prefix matching — the old scan matched only lines
+        # containing the exact text fetch('/api/ and used substring
+        # matching, so a double-quoted, template-string, or wrapper-based
+        # call (and /api/stats-anything) slipped through (2026-07-18 Codex
+        # re-review).
         allowed = ("/api/stats", "/api/preflight")
-        api_calls = [line.strip() for line in body.splitlines() if "fetch('/api/" in line]
-        assert api_calls, "systems.js should at least poll /api/stats"
-        assert any("/api/stats" in c for c in api_calls), "systems.js must still poll /api/stats"
-        for call in api_calls:
-            assert any(a in call for a in allowed), (
-                f"systems.js fetches an unexpected endpoint: {call!r} — "
-                "if a new backend endpoint is needed, flag it for review"
+        literals = re.findall(r"""["'`](/api/[^"'`\s]*)["'`]""", body)
+        assert literals, "systems.js should reference at least /api/stats"
+        paths = [u.split("?")[0] for u in literals]
+        assert "/api/stats" in paths, "systems.js must still poll /api/stats"
+        for path in paths:
+            assert any(
+                path == ep or path.startswith(ep + "/") for ep in allowed
+            ), (
+                f"systems.js references unallowed endpoint {path!r} — "
+                "add it to the allowlist deliberately or remove the call"
             )
 
 

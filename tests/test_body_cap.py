@@ -44,20 +44,49 @@ class TestDeclaredLengthCap:
         assert r.status_code == 413
         assert r.json() == {"error": "Request body too large"}
 
-    def test_lying_content_length_still_rejected(self, client):
-        # Declared length under the cap; actual body over it. The streamed
-        # cap must catch what the header check waves through.
-        r = client.post(
-            "/api/client_error",
-            content=_oversized_payload(),
-            headers={
-                "Content-Type": "application/json",
-                "Content-Length": "10",
-            },
-        )
-        # Either the transport rejects the mismatch or the app returns 413 —
-        # both acceptable; what is NOT acceptable is a 2xx.
-        assert r.status_code >= 400
+    def test_lying_content_length_still_rejected(self):
+        # Declared length under the cap; actual streamed body over it. The
+        # streamed cap must catch what the header check waves through, and
+        # must answer EXACTLY 413. Raw ASGI invocation — an HTTP client or
+        # its transport would normalize/refuse the mismatched header, and an
+        # earlier version of this test accepted any >= 400, which a 400/429
+        # from unrelated causes could satisfy (2026-07-18 Codex re-review).
+        import asyncio
+
+        async def _run():
+            sent = []
+            body = _oversized_payload()
+            chunks = [body[i:i + 8192] for i in range(0, len(body), 8192)]
+            idx = {"i": 0}
+
+            async def receive():
+                if idx["i"] < len(chunks):
+                    c = chunks[idx["i"]]
+                    idx["i"] += 1
+                    return {"type": "http.request", "body": c,
+                            "more_body": idx["i"] < len(chunks)}
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+            async def send(message):
+                sent.append(message)
+
+            scope = {
+                "type": "http", "asgi": {"version": "3.0"},
+                "http_version": "1.1", "method": "POST", "scheme": "http",
+                "path": "/api/client_error", "raw_path": b"/api/client_error",
+                "query_string": b"", "root_path": "",
+                "headers": [
+                    (b"host", b"testserver"),
+                    (b"content-type", b"application/json"),
+                    (b"content-length", b"10"),  # the lie
+                ],
+                "client": ("127.0.0.1", 50000), "server": ("testserver", 80),
+            }
+            await web_server.app(scope, receive, send)
+            start = next(m for m in sent if m["type"] == "http.response.start")
+            return start["status"]
+
+        assert asyncio.run(_run()) == 413
 
 
 class TestStreamedCap:

@@ -83,6 +83,11 @@ class MAVLinkIO:
             "lat": None, "lon": None, "alt": None, "fix": 0, "hdg": None,
             "cog": None, "ground_speed": None,
             "last_update": 0.0,
+            # Freshness of the GPS_RAW_INT-sourced fields (fix/cog/
+            # ground_speed). 0.0 = never received. Separate from last_update:
+            # that key's 0.0 means "skip freshness check" to the autonomy
+            # gates, a semantic this stamp must not inherit.
+            "raw_last_update": 0.0,
         }
         self._gps_lock = threading.Lock()
         self._stop_evt = threading.Event()
@@ -277,15 +282,7 @@ class MAVLinkIO:
                         self._gps["hdg"] = msg.hdg  # centidegrees
                         self._gps["last_update"] = time.monotonic()
                 elif msg_type == "GPS_RAW_INT":
-                    with self._gps_lock:
-                        self._gps["fix"] = msg.fix_type
-                        # cog: course over ground, centidegrees (65535 = unknown).
-                        # vel: ground speed, cm/s (65535 = unknown). Used by the
-                        # compass-health check (issue #298).
-                        cog = getattr(msg, "cog", 65535)
-                        self._gps["cog"] = None if cog == 65535 else (cog / 100.0) % 360.0
-                        vel = getattr(msg, "vel", 65535)
-                        self._gps["ground_speed"] = None if vel == 65535 else vel / 100.0
+                    self._handle_gps_raw_int(msg)
                 elif msg_type == "SYS_STATUS":
                     self._handle_sys_status(msg)
                 elif msg_type == "VFR_HUD":
@@ -362,6 +359,23 @@ class MAVLinkIO:
     def get_battery_monitor(self):
         """Return the attached BatteryMonitor, or ``None``."""
         return self._battery_monitor
+
+    def _handle_gps_raw_int(self, msg) -> None:
+        """Cache fix type, course-over-ground, and ground speed from GPS_RAW_INT.
+
+        cog: centidegrees, 65535 = unknown. vel: cm/s, 65535 = unknown. Used
+        by the compass-health check (issue #298). ``raw_last_update`` stamps
+        the freshness of these fields specifically — deliberately a separate
+        key from ``last_update`` (GLOBAL_POSITION_INT), whose 0.0 sentinel
+        carries skip-the-check semantics in the autonomy gates.
+        """
+        with self._gps_lock:
+            self._gps["fix"] = msg.fix_type
+            cog = getattr(msg, "cog", 65535)
+            self._gps["cog"] = None if cog == 65535 else (cog / 100.0) % 360.0
+            vel = getattr(msg, "vel", 65535)
+            self._gps["ground_speed"] = None if vel == 65535 else vel / 100.0
+            self._gps["raw_last_update"] = time.monotonic()
 
     def _handle_vfr_hud(self, msg) -> None:
         """Cache airspeed, groundspeed, altitude, heading, climb from VFR_HUD."""
