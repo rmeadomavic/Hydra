@@ -389,3 +389,118 @@ def test_apply_re_read_timeout_marks_post_value_null(tmp_path, monkeypatch, clie
     assert body["results"][0]["post_value"] is None
     assert body["results"][0]["applied"] is True
     assert "re_read_at" in body
+
+
+# ---------------------------------------------------------------------------
+# Issue #288 — wizard I/O must not block the event loop; single-flight lock
+# ---------------------------------------------------------------------------
+
+def test_stats_stays_responsive_while_wizard_connects(monkeypatch):
+    """The regression #288 describes: with the old async-def handlers, a
+    slow wizard connect parked the event loop and every other endpoint
+    stalled behind it. Both requests here share ONE event loop (TestClient
+    gives every request its own loop, which cannot reproduce the bug), so
+    pre-fix the wall-clock includes the full simulated connect park and the
+    elapsed assertion fails; post-fix the connect runs in the threadpool
+    and /api/stats answers while the wizard call is still in flight."""
+    import asyncio
+    import threading
+    import time
+
+    import httpx
+
+    release = threading.Event()
+
+    def _slow_open(conn_str, baud=115200):
+        # Simulated wait_heartbeat park on a dead conn string. Bounded so a
+        # pre-fix run fails the elapsed assertion instead of hanging.
+        release.wait(timeout=8.0)
+        raise RuntimeError("no heartbeat")
+
+    monkeypatch.setattr(srv_mod, "_pixhawk_open_connection", _slow_open)
+
+    async def _scenario():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as ac:
+            t0 = time.monotonic()
+            wizard_task = asyncio.create_task(
+                ac.get(
+                    "/api/platform/setup/pixhawk/detect",
+                    params={"conn": "udp:127.0.0.1:1"},
+                )
+            )
+            # Let the wizard handler start. Pre-fix this sleep cannot return
+            # until the blocking connect finishes, because the loop is parked.
+            await asyncio.sleep(0.05)
+            stats = await ac.get("/api/stats")
+            elapsed = time.monotonic() - t0
+            release.set()
+            wizard = await wizard_task
+            return stats, wizard, elapsed
+
+    stats, wizard, elapsed = asyncio.run(_scenario())
+    assert stats.status_code == 200
+    assert wizard.status_code == 408  # connect failed → mapped error
+    assert elapsed < 2.0, (
+        f"/api/stats not served until {elapsed:.1f}s after the wizard call "
+        "started — the event loop is still being blocked"
+    )
+
+
+def test_concurrent_wizard_calls_get_423(monkeypatch, client):
+    """Single-flight: a second wizard call while one is in progress answers
+    423 immediately instead of stacking another 10s threadpool block."""
+    import threading
+
+    release = threading.Event()
+    entered = threading.Event()
+
+    def _slow_open(conn_str, baud=115200):
+        entered.set()
+        release.wait(timeout=10.0)
+        raise RuntimeError("no heartbeat")
+
+    monkeypatch.setattr(srv_mod, "_pixhawk_open_connection", _slow_open)
+
+    first = {}
+
+    def _call_first():
+        first["resp"] = client.get(
+            "/api/platform/setup/pixhawk/detect",
+            params={"conn": "udp:127.0.0.1:1"},
+        )
+
+    t = threading.Thread(target=_call_first)
+    t.start()
+    try:
+        assert entered.wait(timeout=5.0)
+        second = client.get(
+            "/api/platform/setup/pixhawk/detect",
+            params={"conn": "udp:127.0.0.1:2"},
+        )
+        assert second.status_code == 423
+        assert "in progress" in second.json()["error"]
+    finally:
+        release.set()
+        t.join(timeout=10.0)
+    assert first["resp"].status_code == 408
+
+
+def test_wizard_lock_releases_after_completion(monkeypatch, client):
+    """The lock must not stick: after a wizard call finishes (even by
+    failing), the next call proceeds instead of 423ing forever."""
+    def _fail_open(conn_str, baud=115200):
+        raise RuntimeError("no heartbeat")
+
+    monkeypatch.setattr(srv_mod, "_pixhawk_open_connection", _fail_open)
+
+    r1 = client.get(
+        "/api/platform/setup/pixhawk/detect", params={"conn": "udp:127.0.0.1:1"},
+    )
+    r2 = client.get(
+        "/api/platform/setup/pixhawk/detect", params={"conn": "udp:127.0.0.1:1"},
+    )
+    assert r1.status_code == 408
+    assert r2.status_code == 408  # not 423 — lock released
