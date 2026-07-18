@@ -22,8 +22,11 @@ const HydraOps = (() => {
     // failure in one zone never starves the rest. SVG repaints DOM-diff via
     // a tiny `_lastSig` cache on each rendered element.
     let auxTimer = null;
-    let sdrTickTimer = null;
-    let sdrTickValue = 0;
+    // The fake SDR spectrum animator and its 700ms ticker were removed here
+    // (issue #294): the spectrum SVG was a sine+random animation presented
+    // as live RF data. The spectrum is now owned exclusively by
+    // rtl-spectrum-overlay.js — real /api/rf/spectrum data or an honest
+    // "no spectrum source" empty state.
     let hudLayoutLoaded = false;
     let zonePending = { hud: false, cockpit: false };
 
@@ -57,8 +60,6 @@ const HydraOps = (() => {
         // Slower 1Hz tick for FlightHUD + Cockpit polls — keeps FPS overhead
         // negligible while still feeling alive in the demo.
         auxTimer = setInterval(refreshAuxZones, 1000);
-        // SDR spectrum animates every 700ms (mirrors mock setInterval).
-        sdrTickTimer = setInterval(animateSdrSpectrum, 700);
         // TAK tab poller — 2s cadence, only fetches when TAK tab is active.
         takTimer = setInterval(refreshTakTab, 2000);
         loadHudLayoutFromConfig();
@@ -67,7 +68,6 @@ const HydraOps = (() => {
         wireOpsTabs();
         updateHUD();
         refreshAuxZones();
-        animateSdrSpectrum();
         refreshTakTab();
     }
 
@@ -79,10 +79,6 @@ const HydraOps = (() => {
         if (auxTimer) {
             clearInterval(auxTimer);
             auxTimer = null;
-        }
-        if (sdrTickTimer) {
-            clearInterval(sdrTickTimer);
-            sdrTickTimer = null;
         }
         if (takTimer) {
             clearInterval(takTimer);
@@ -1061,19 +1057,22 @@ const HydraOps = (() => {
         var mode = s.mode || s.vehicle_mode || null;
         var lock = target.locked ? target.track_id : null;
 
+        // Issue #294: these are DERIVED state-change events, not captured
+        // MAVLink frames. They were previously formatted as fake SET_MODE /
+        // STATUSTEXT TX traffic; now labeled as what they are.
         if (mode && mode !== mavLogLastMode) {
             mavLogLastMode = mode;
             mavLog.push({
-                t: nowHHMMSS(), dir: 'TX', msg: 'SET_MODE',
-                detail: 'mode=' + mode,
+                t: nowHHMMSS(), dir: 'EVT', msg: 'MODE',
+                detail: 'vehicle mode → ' + mode,
             });
         }
         if (lock !== mavLogLastLock) {
             mavLogLastLock = lock;
             if (lock != null) {
                 mavLog.push({
-                    t: nowHHMMSS(), dir: 'TX', msg: 'STATUSTEXT',
-                    detail: 'HYDRA: LOCK track #' + lock,
+                    t: nowHHMMSS(), dir: 'EVT', msg: 'LOCK',
+                    detail: 'target lock → track #' + lock,
                 });
             }
         }
@@ -1113,7 +1112,7 @@ const HydraOps = (() => {
                 while (log.firstChild) log.removeChild(log.firstChild);
                 var empty = document.createElement('div');
                 empty.className = 'ops-tab-empty';
-                empty.textContent = 'No MAVLink traffic';
+                empty.textContent = 'No link events';
                 log.appendChild(empty);
             }
             return;
@@ -1148,8 +1147,8 @@ const HydraOps = (() => {
             var r = log.children[i];
             if (!r) continue;
             var isTx = m.dir === 'TX';
-            var isCmd = /SET_MODE|SERVO|POSITION_TARGET|YAW/.test(m.msg || '');
-            var isStatus = m.msg === 'STATUSTEXT';
+            var isCmd = /MODE|SERVO|POSITION_TARGET|YAW/.test(m.msg || '');
+            var isStatus = m.msg === 'LOCK';
             r.classList.toggle('is-cmd', isCmd);
             r.classList.toggle('is-status', !isCmd && isStatus);
             var head2 = r.children[0];
@@ -2511,10 +2510,13 @@ const HydraOps = (() => {
 
         if (panEl) panEl.textContent = enabled ? (pan >= 0 ? '+' : '') + pan.toFixed(0) + '\u00B0' : '--';
         if (tiltEl) tiltEl.textContent = enabled ? (tilt >= 0 ? '+' : '') + tilt.toFixed(0) + '\u00B0' : '--';
+        // Issue #294: third cell shows the servo's locked track id \u2014 a real
+        // /api/servo/status field. Was a synthetic PWM (1500 + pan*5.5).
         if (rateEl) {
-            rateEl.textContent = enabled ? Math.round(1500 + pan * 5.5) : '--';
+            rateEl.textContent = (enabled && data.locked_track_id != null)
+                ? '#' + data.locked_track_id : '--';
         }
-        if (rateLabel) rateLabel.textContent = 'PWM';
+        if (rateLabel) rateLabel.textContent = 'TRK';
     }
 
     // Cockpit TAK map is now a small Leaflet instance managed by tak-map.js.
@@ -2552,25 +2554,34 @@ const HydraOps = (() => {
         if (!listEl) return;
 
         var samples = (data && Array.isArray(data.samples)) ? data.samples : [];
-        // Synthesize devices from samples — not all backends populate names;
-        // we map sample.callsign/mac/vendor/rssi when present.
-        var devices = samples.slice(0, 12).map(function (s, i) {
+        // Issue #294: render ONLY fields the backend actually supplied. The
+        // previous version fabricated MAC addresses, vendor names, and device
+        // types for every sample — operators troubleshooting Kismet/SDR
+        // binding saw invented devices and concluded RF was healthy.
+        var devices = samples.slice(0, 12).map(function (s) {
             return {
-                type: s.type || (i === 0 ? 'wifi' : 'ble'),
-                name: s.callsign || s.name || s.ssid || ('DEV-' + (s.mac || i)),
-                mac: s.mac || ('00:00:00:00:00:' + String(i).padStart(2, '0')),
-                vendor: s.vendor || '--',
-                rssi: (typeof s.rssi === 'number') ? s.rssi : -100,
-                age: (typeof s.age === 'number') ? s.age : 999,
+                type: s.type || null,
+                name: s.callsign || s.name || s.ssid ||
+                    ((typeof s.freq_mhz === 'number') ? s.freq_mhz.toFixed(1) + ' MHz' : null),
+                mac: s.mac || null,
+                vendor: s.vendor || null,
+                rssi: (typeof s.rssi === 'number') ? s.rssi
+                    : (typeof s.rssi_dbm === 'number') ? s.rssi_dbm : null,
+                age: (typeof s.age === 'number') ? s.age : null,
                 alert: !!s.alert,
                 you: !!s.you,
             };
-        }).sort(function (a, b) { return b.rssi - a.rssi; });
+        }).sort(function (a, b) { return (b.rssi != null ? b.rssi : -999) - (a.rssi != null ? a.rssi : -999); });
 
         if (devEl) devEl.textContent = devices.length || '--';
-        if (newEl) newEl.textContent = devices.filter(function (d) { return d.age < 5; }).length || '--';
+        // "new" requires a real age field; show -- rather than inventing one.
+        if (newEl) {
+            var aged = devices.filter(function (d) { return d.age != null; });
+            newEl.textContent = aged.length
+                ? String(aged.filter(function (d) { return d.age < 5; }).length) : '--';
+        }
         if (droneEl) droneEl.textContent = devices.filter(function (d) {
-            return /drone|rid|dji/i.test(d.type) || /dji|drone/i.test(d.name);
+            return /drone|rid|dji/i.test(d.type || '') || /dji|drone/i.test(d.name || '');
         }).length || '--';
 
         // DOM-diff list
@@ -2579,7 +2590,9 @@ const HydraOps = (() => {
                 while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
                 var empty = document.createElement('div');
                 empty.className = 'cockpit-sdr-empty';
-                empty.textContent = 'scanning…';
+                // Honest empty state pointing at the most common cause
+                // (SORCC known issue: Kismet not bound to the SDR serial).
+                empty.textContent = 'no RF data — check Kismet / SDR source binding';
                 listEl.appendChild(empty);
             }
             return;
@@ -2606,31 +2619,11 @@ const HydraOps = (() => {
             r2.classList.toggle('is-new', d.age < 3);
             r2.classList.toggle('is-alert', d.alert);
             r2.classList.toggle('is-you', d.you);
-            _setText(r2.children[0], String(d.type).split('-')[0].toUpperCase().slice(0, 4));
-            _setText(r2.children[1], d.name);
-            _setText(r2.children[2], d.mac);
-            _setText(r2.children[3], d.vendor);
-            _setText(r2.children[4], String(d.rssi));
-        }
-    }
-
-    function animateSdrSpectrum() {
-        var svg = document.getElementById('ops-cockpit-sdr-spectrum');
-        if (!svg) return;
-        sdrTickValue++;
-        // Mock-style: 70 bars, width 2, x stride 2.9, sin(i*0.4 + tick*0.3)
-        while (svg.firstChild) svg.removeChild(svg.firstChild);
-        for (var i = 0; i < 70; i++) {
-            var h = 4 + Math.abs(Math.sin(i * 0.4 + sdrTickValue * 0.3)) * 16
-                + ((i % 11 === 0) ? 12 : 0) + Math.random() * 4;
-            var bar = document.createElementNS(SVG_NS, 'rect');
-            bar.setAttribute('x', (i * 2.9).toFixed(1));
-            bar.setAttribute('y', (34 - h).toFixed(1));
-            bar.setAttribute('width', '2');
-            bar.setAttribute('height', h.toFixed(1));
-            bar.setAttribute('fill', 'var(--olive-primary)');
-            bar.setAttribute('opacity', (0.5 + (h / 34) * 0.5).toFixed(2));
-            svg.appendChild(bar);
+            _setText(r2.children[0], d.type ? String(d.type).split('-')[0].toUpperCase().slice(0, 4) : '—');
+            _setText(r2.children[1], d.name || '—');
+            _setText(r2.children[2], d.mac || '—');
+            _setText(r2.children[3], d.vendor || '—');
+            _setText(r2.children[4], d.rssi != null ? String(d.rssi) : '—');
         }
     }
 
@@ -2676,7 +2669,25 @@ const HydraOps = (() => {
         HydraApp.apiGet('/api/config/full').then(function (cfg) {
             var layout = (cfg && cfg.web && cfg.web.hud_layout) ? cfg.web.hud_layout : 'classic';
             applyHudLayout(layout);
+            applyConfigLabels(cfg);
         }).catch(function () { applyHudLayout('classic'); });
+    }
+
+    // Issue #294: the MAVLink port and TAK multicast labels were hardcoded
+    // HTML styled identically to live data. Populate them from the actual
+    // running config; leave '--' when the config doesn't say.
+    function applyConfigLabels(cfg) {
+        if (!cfg) return;
+        var portEl = document.getElementById('ops-tab-mav-port');
+        if (portEl && cfg.mavlink && cfg.mavlink.connection_string) {
+            portEl.textContent = cfg.mavlink.connection_string
+                + (cfg.mavlink.baud ? ' · ' + cfg.mavlink.baud : '');
+        }
+        var mcastEl = document.getElementById('ops-tab-tak-multicast');
+        if (mcastEl && cfg.tak && cfg.tak.multicast_group) {
+            mcastEl.textContent = cfg.tak.multicast_group
+                + (cfg.tak.multicast_port ? ':' + cfg.tak.multicast_port : '');
+        }
     }
 
     function onHudLayoutPickerChange(e) {

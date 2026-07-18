@@ -78,10 +78,16 @@ window.HydraTakMap = (() => {
         const pollMs = options.pollMs || 2000;
         const showTracks = options.showTracks !== false;
 
-        // Guard against double-init (router may re-enter views)
+        // Guard against double-init (router may re-enter views).
+        // Found during #294 QA: the reused controller came back with its
+        // poll loop permanently stopped (onLeave calls stop(); nothing
+        // restarted it), so the map silently froze after one view switch.
+        // Restart the loop on re-entry.
         if (container._hydraMap) {
             container._hydraMap.invalidateSize();
-            return container._hydraMap._hydraCtl;
+            const prevCtl = container._hydraMap._hydraCtl;
+            if (prevCtl && typeof prevCtl.start === 'function') prevCtl.start();
+            return prevCtl;
         }
 
         const map = L.map(container, {
@@ -117,10 +123,13 @@ window.HydraTakMap = (() => {
             }
         }
 
+        // Each refresher returns true on a successful round-trip, false on
+        // failure (null = skipped) so tick() can report aggregate health to
+        // the optional onHealth callback (issue #294 — truthful LIVE chips).
         async function refreshSelf() {
             try {
                 const r = await fetch('/api/stats', { credentials: 'same-origin' });
-                if (!r.ok) return;
+                if (!r.ok) return false;
                 const s = await r.json();
                 const lat = (typeof s.lat === 'number') ? s.lat : null;
                 const lon = (typeof s.lon === 'number') ? s.lon : null;
@@ -153,13 +162,14 @@ window.HydraTakMap = (() => {
                         hasCentered = true;
                     }
                 }
-            } catch (e) { /* transient */ }
+                return true;
+            } catch (e) { return false; }
         }
 
         async function refreshPeers() {
             try {
                 const r = await fetch('/api/tak/peers', { credentials: 'same-origin' });
-                if (!r.ok) return;
+                if (!r.ok) return false;
                 const data = await r.json();
                 const peers = Array.isArray(data.peers) ? data.peers : [];
                 const seen = new Set();
@@ -189,14 +199,15 @@ window.HydraTakMap = (() => {
                         peerMarkers.delete(cs);
                     }
                 }
-            } catch (e) { /* transient */ }
+                return true;
+            } catch (e) { return false; }
         }
 
         async function refreshTracks() {
-            if (!showTracks) return;
+            if (!showTracks) return null;
             try {
                 const r = await fetch('/api/active_tracks', { credentials: 'same-origin' });
-                if (!r.ok) return;
+                if (!r.ok) return false;
                 const tracks = await r.json();
                 const list = Array.isArray(tracks) ? tracks : [];
                 const seen = new Set();
@@ -225,12 +236,17 @@ window.HydraTakMap = (() => {
                         trackMarkers.delete(id);
                     }
                 }
-            } catch (e) { /* transient */ }
+                return true;
+            } catch (e) { return false; }
         }
 
         async function tick() {
             if (stopped) return;
-            await Promise.all([refreshSelf(), refreshPeers(), refreshTracks()]);
+            const results = await Promise.all([refreshSelf(), refreshPeers(), refreshTracks()]);
+            if (typeof options.onHealth === 'function') {
+                const relevant = results.filter((v) => v === true || v === false);
+                try { options.onHealth(relevant.every(Boolean)); } catch (e) { /* listener */ }
+            }
             if (!stopped) timer = setTimeout(tick, pollMs);
         }
 
@@ -245,6 +261,11 @@ window.HydraTakMap = (() => {
             stop() {
                 stopped = true;
                 if (timer) clearTimeout(timer);
+            },
+            start() {
+                if (!stopped) return;
+                stopped = false;
+                tick();
             },
             refresh() {
                 map.invalidateSize();

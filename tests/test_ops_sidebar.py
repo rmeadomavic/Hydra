@@ -73,12 +73,14 @@ class TestSidebarCardIds:
         assert 'id="ops-detlog-section"' in html
         assert 'id="ops-detlog"' in html
 
-    def test_vehicle_and_map_preserved(self):
+    def test_vehicle_preserved_minimap_removed(self):
         html = OPS_HTML.read_text()
-        # Existing must-preserve IDs — map canvas + vehicle info block
-        assert 'id="ops-minimap-canvas"' in html
+        # Vehicle info block must survive
         assert 'id="ops-vehicle-info"' in html
         assert 'id="ops-info-position"' in html  # SIM GPS sink
+        # Issue #294: the minimap canvas was never drawn into by any JS — a
+        # permanently blank surface presented as a map. Removed.
+        assert 'id="ops-minimap-canvas"' not in html
 
 
 # ── (b) ops.js exposes expected sidebar-update functions ──

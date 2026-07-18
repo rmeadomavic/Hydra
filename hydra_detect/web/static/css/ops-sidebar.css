@@ -290,11 +290,6 @@
     color: var(--text-primary);
 }
 
-/* Mission rail: condense minimap so it doesn't dominate the column */
-.ops-mission-rail-minimap .ops-minimap {
-    max-height: 140px;
-}
-
 .ops-card-badge {
     font-family: var(--font-mono);
     font-size: var(--font-xs);
