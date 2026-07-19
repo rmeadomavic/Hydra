@@ -185,8 +185,6 @@ frontend has no branches.
   auth, and response shape.
 - [dashboard-user-guide.md](dashboard-user-guide.md) — operator's
   walkthrough of each tab.
-- [preservation-rules.md](preservation-rules.md) — things that look
-  unused but are not. Read before deleting anything unfamiliar.
 - [configuration.md](configuration.md) — every `config.ini` key.
 - [vehicle-control.md](vehicle-control.md) — follow / drop / strike
   mode mechanics.

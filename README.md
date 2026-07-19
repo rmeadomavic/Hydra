@@ -13,13 +13,20 @@ MAVLink, emits CoT to TAK, and serves an operator dashboard on port
 
 ## What ships
 
-- Detect → track → alert pipeline (≥5 FPS on Orin Nano, GPU-accelerated).
+- Detect → track → alert pipeline (GPU-accelerated). Informal bench runs on
+  Jetson Orin Nano have measured ≥5 FPS; results depend on the model, input,
+  and active capabilities.
 - Four-tab operator dashboard: `#ops`, `#tak`, `#config`, `#settings`.
   Autonomy controls live inside Config; system diagnostics inside Settings.
-- Vehicle control modes: Follow, Drop, Cue, Pixel-Lock, plus an
-  always-available safety override abort.
-- Five-gate autonomy stack (geofence / vehicle_mode / operator_lock /
-  gps_fresh / cooldown) with dry-run, shadow, and live modes.
+- Shipped vehicle control modes: Follow, Cue, and Pixel-Lock, plus an
+  always-available safety override abort. Drop is in development and blocked
+  until the ARMED gate is implemented.
+- Five-gate autonomy evaluation stack (geofence / vehicle_mode /
+  operator_lock / gps_fresh / cooldown) with shipped dry-run and shadow
+  modes. Live command execution is gated and remains in development pending
+  completion of ARMED gating.
+- RF collection and status integration are available; autonomous RF Hunt and
+  live RF homing navigation remain blocked pending the ARMED gate.
 - TAK/CoT output + HMAC-verified GeoChat input + peer roster +
   audit roll-up.
 - Full post-mission review: hash-chained JSONL detection logs, event
@@ -28,16 +35,15 @@ MAVLink, emits CoT to TAK, and serves an operator dashboard on port
 ## Quick start
 
 ```bash
-# 1. Clone and build
+# 1. Clone
 git clone https://github.com/rmeadomavic/Hydra.git
 cd Hydra
-docker build --network=host -t hydra-detect .
 
-# 2. Run under systemd (golden-image Jetsons)
-sudo systemctl enable --now hydra-detect
-sudo systemctl status hydra-detect
+# 2. Run the Jetson setup (checks prerequisites, builds, configures, and
+#    offers to launch the container)
+bash scripts/hydra-setup.sh
 
-# 3. Or run directly
+# 3. To launch directly after setup, if you declined its launch prompt
 docker run --rm --privileged --runtime nvidia --network host \
   -v $(pwd)/config.ini:/app/config.ini \
   -v $(pwd)/models:/models \
@@ -56,7 +62,9 @@ the `/setup` wizard instead of editing the file by hand.
 
 Hydra's RTSP stream (`rtsp://<jetson-ip>:8554/hydra`) is republished
 as low-latency WebRTC by an optional `mediamtx` sidecar in
-`docker-compose.yml` — sub-200ms in any browser, no client install.
+`docker-compose.yml`. Informal Jetson Orin Nano bench runs measured
+sub-200 ms browser latency; browser, network, camera, and encoding settings
+affect the result, and no client install is required.
 Bring it up with `docker compose up`, then open
 `http://<jetson-ip>:8889/cam/whep` in Chrome/Edge. Disable with
 `HYDRA_STREAMING_MTX=off` (the sidecar is profile-gated).
@@ -78,7 +86,7 @@ make dev-down      # tear it down when finished
 The prod systemd container keeps running on :8080 the whole time. Dev
 mode runs the FastAPI shell only — no camera, no YOLO, no MAVLink — so
 use :8080 for end-to-end testing and :8081 for fast iteration on the
-dashboard. Full workflow + caveats: [docs/dev-loop.md](docs/dev-loop.md).
+dashboard.
 
 ## Docs
 
@@ -95,9 +103,6 @@ dashboard. Full workflow + caveats: [docs/dev-loop.md](docs/dev-loop.md).
 | [FPV OSD](docs/fpv-osd.md) | Three OSD modes, wiring, FC setup |
 | [Post-mission review](docs/post-mission-review.md) | Logs, verification, map replay, export |
 | [Deployment](docs/deployment.md) | systemd, Docker, TLS, multi-Jetson fleet |
-| [Development](docs/development.md) | Project layout, testing, extending |
-| [Dev loop (no rebuild)](docs/dev-loop.md) | `compose.dev.yml` workflow for fast UI iteration on :8081 |
-| [Preservation rules](docs/preservation-rules.md) | Hidden features + brand invariants — read before deleting anything unfamiliar |
 | [Over-the-air updates](docs/ota.md) | `/etc/hydra/channel`, systemd timer, version surface on `/api/health` (#152) |
 
 ## Vehicle compatibility
@@ -106,12 +111,13 @@ dashboard. Full workflow + caveats: [docs/dev-loop.md](docs/dev-loop.md).
 |---------|:-----:|:---:|:---:|:----------:|
 | Detection + TAK | ✓ | ✓ | ✓ | ✓ |
 | Follow | ✓ | ✓ | ✓ | — |
-| Drop | ✓ | ✓ | ✓ | — |
+| Drop (in development; ARMED-gated) | ~ | ~ | ~ | — |
 | Strike | ✓ | ✓ | ✓ | — |
-| Autonomy | ✓ | ✓ | ✓ | — |
+| Dry-run / shadow autonomy | ✓ | ✓ | ✓ | — |
+| Live autonomy (ARMED-gated) | ~ | ~ | ~ | — |
 | Yaw control | CONDITION_YAW | Rudder | Steering | — |
 | Hold mode | LOITER | HOLD | HOLD | LOITER |
-| RF homing | ✓ | ✓ | ✓ | ✓ |
+| Autonomous RF Hunt / homing navigation (ARMED-gated) | ~ | ~ | ~ | ~ |
 
 `✓` supported · `~` limited · `—` not supported. Fixed-wing is detection + TAK marking only (15-25 m/s flight speed) — see [`vehicle.fw`](docs/configuration.md#fixed-wing-profile-is-detection--tak-only).
 
