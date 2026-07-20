@@ -1,6 +1,6 @@
 pytest>=9.0.3,<10.0
 pytest-cov>=7.1.0,<8.0
-hypothesis>=6.156.6,<7.0
+hypothesis>=6.157.0,<7.0
 flake8>=6.0,<8.0
 httpx>=0.28.1,<1.0
 pyyaml>=6.0,<7.0
