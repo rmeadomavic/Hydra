@@ -1753,7 +1753,8 @@ class Pipeline:
             if self._autonomous is not None and self._mavlink is not None:
                 self._autonomous.evaluate(
                     track_result, self._mavlink,
-                    self._handle_target_lock, self._handle_strike_command,
+                    self._handle_target_lock,
+                    self._autonomous_strike_handler(),
                 )
 
             # Update approach controller with locked track
@@ -2139,6 +2140,12 @@ class Pipeline:
             self._servo_tracker.fire_strike()
         return success
 
+    def _autonomous_strike_handler(self):
+        """Select the profile-specific autonomous strike implementation."""
+        if self._vehicle == "ugv_strike":
+            return self._handle_approach_strike_command
+        return self._handle_strike_command
+
     def _get_preflight(self) -> dict:
         """Run pre-flight checks and return structured results."""
         import os
@@ -2437,9 +2444,15 @@ class Pipeline:
         if self._approach is None:
             logger.warning("Approach strike failed: approach controller not available")
             return False
-        if self._approach.mode != ApproachMode.IDLE:
+        approach_mode = self._approach.mode
+        if (
+            approach_mode == ApproachMode.STRIKE
+            and self._approach.target_track_id == track_id
+        ):
+            return True
+        if approach_mode != ApproachMode.IDLE:
             logger.warning("Approach strike failed: approach already active in %s mode",
-                           self._approach.mode.value)
+                           approach_mode.value)
             return False
 
         with self._state_lock:

@@ -13,6 +13,8 @@ from hydra_detect.autonomous import (
     parse_polygon,
     point_in_polygon,
 )
+from hydra_detect.approach import ApproachMode
+from hydra_detect.pipeline.facade import Pipeline
 from hydra_detect.tracker import TrackedObject, TrackingResult
 
 
@@ -281,6 +283,32 @@ class TestEvaluate:
                 ctrl.evaluate(tracks2, mav, MagicMock(return_value=True), strike_cb)
 
             assert strike_cb.call_count == 1  # Still just the first
+
+    def test_same_active_strike_after_cooldown_is_not_callback_failure(self):
+        ctrl = _make_controller(min_track_frames=1, strike_cooldown_sec=30.0)
+        tracks = _make_tracks((7, "mine", 0.92))
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline._vehicle = "ugv_strike"
+        pipeline._mavlink = MagicMock()
+        pipeline._approach = MagicMock()
+        pipeline._approach.mode = ApproachMode.STRIKE
+        pipeline._approach.target_track_id = 7
+
+        fake_time = [1000.0]
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(time, "monotonic", lambda: fake_time[0])
+            mav = _make_mavlink()
+            strike_cb = pipeline._handle_approach_strike_command
+
+            ctrl.evaluate(tracks, mav, MagicMock(return_value=True), strike_cb)
+            fake_time[0] = 1031.0
+            ctrl.evaluate(tracks, mav, MagicMock(return_value=True), strike_cb)
+
+        decisions = ctrl.get_dashboard_snapshot()["log"]
+        assert not any(
+            item["reason"] == "strike callback failed" for item in decisions
+        )
+        pipeline._approach.start_strike.assert_not_called()
 
     def test_no_gps_fix(self):
         ctrl = _make_controller()
