@@ -213,7 +213,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now hydra-detect
 ```
 
-This ensures the detection pipeline starts on every boot without manual intervention. Useful for field-deployed vehicles.
+The detection pipeline then starts on every boot without manual intervention.
 
 ## Next steps
 

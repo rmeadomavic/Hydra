@@ -153,7 +153,7 @@ speculative "what if" ideas.
   Better than fixed camera for follow mode. Could use SG90 servos + 3D
   printed frame. ~$10 in parts.
 - **LED indicator strip** — NeoPixel strip on vehicle shows status:
-  green=ready, blue=detecting, red=armed the alert light bar feature
+  green=ready, blue=detecting, red=armed. The alert light bar feature
   in config.ini already supports a single-channel light. Extend to
   addressable LEDs for richer status.
 - **Trigger circuit PCB** — Custom PCB for the two-stage arm circuit
