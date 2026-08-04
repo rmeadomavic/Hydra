@@ -51,8 +51,8 @@ def test_ugv_strike_profile_resolves_dotted_overrides(monkeypatch):
     ctx = PipelineBootstrap().load_config(str(CONFIG_PATH), vehicle=selected)
 
     assert ctx.cfg.getboolean("autonomous", "enabled") is True
-    assert ctx.cfg.getfloat("autonomous", "geofence_lat") == 35.15
-    assert ctx.cfg.getfloat("autonomous", "geofence_lon") == -79.52
+    assert ctx.cfg.getfloat("autonomous", "geofence_lat") == 35.03671
+    assert ctx.cfg.getfloat("autonomous", "geofence_lon") == -79.52414
     assert ctx.cfg.getfloat("autonomous", "geofence_radius_m") == 25000
     assert ctx.cfg.get("autonomous", "allowed_classes") == "truck, car"
     assert ctx.cfg.get("autonomous", "allowed_vehicle_modes") == "GUIDED"
@@ -66,6 +66,40 @@ def test_ugv_strike_profile_resolves_dotted_overrides(monkeypatch):
     assert ctx.cfg.getfloat("approach", "strike_approach_m") == 0.5
     assert ctx.cfg.get("approach", "abort_mode") == "HOLD"
     assert ctx.cfg.getfloat("approach", "waypoint_interval") == 0.1
+
+
+def test_geofence_covers_the_sorcc_training_sites(monkeypatch):
+    """A mis-centred geofence rejects every detection silently.
+
+    There is no loud failure for operating outside the fence — the evaluator
+    just never qualifies anything, which reads as "the AI is broken" on the
+    range. Pin the actual sites so a future edit to the centre or radius has
+    to consciously break them.
+    """
+    from hydra_detect.autonomous import haversine_m
+
+    monkeypatch.setenv("HYDRA_VEHICLE", "ugv_strike")
+    ctx = PipelineBootstrap().load_config(str(CONFIG_PATH), vehicle="ugv_strike")
+    lat = ctx.cfg.getfloat("autonomous", "geofence_lat")
+    lon = ctx.cfg.getfloat("autonomous", "geofence_lon")
+    radius = ctx.cfg.getfloat("autonomous", "geofence_radius_m")
+
+    sites = {
+        # OGT Test & Training Center, 158 Rushing Rd, Hoffman NC.
+        # Campus grid 17SPU 3462 7811 from the STX2 OPORD.
+        "T&TC": (35.03671, -79.52414),
+        # Steve Mashburn's field, Foxfire Rd, Jackson Springs NC — the
+        # farthest regularly used site.
+        "Foxfire Rd": (35.1625, -79.6226),
+    }
+    for name, (slat, slon) in sites.items():
+        assert haversine_m(lat, lon, slat, slon) < radius, (
+            f"{name} falls outside the configured geofence"
+        )
+
+    # Sanity: the fence is bounded, not effectively global. Charlotte is
+    # ~150 km away and must be outside.
+    assert haversine_m(lat, lon, 35.2271, -80.8431) > radius
 
 
 def test_ugv_strike_reserves_the_same_channels_as_ugv():

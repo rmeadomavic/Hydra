@@ -16,9 +16,26 @@ sudo systemctl restart hydra-detect
 
 The profile enables autonomous evaluation, servo tracking, truck/car target
 selection, GUIDED operation, operator-selected target locking, a 25 km circular
-geofence centered at 35.15, -79.52, and continuous strike approach updates at
-0.1-second intervals to a 0.5 m close-approach estimate. Arm channels remain
-disabled. Post-strike, abort, and autonomous fallback modes are HOLD.
+geofence, and continuous strike approach updates at 0.1-second intervals to a
+0.5 m close-approach estimate. Arm channels remain disabled. Post-strike,
+abort, and autonomous fallback modes are HOLD.
+
+## Geofence
+
+Centered on the OGT Test & Training Center, 158 Rushing Rd, Hoffman NC
+(35.03671, -79.52414), derived from campus grid `17SPU 3462 7811`. The 25 km
+radius is deliberately non-binding and covers T&TC, the Villages cultural site,
+Broadacres Lake, and the Foxfire Rd field roughly 17 km out.
+
+The fence cannot be disabled: `_has_valid_geofence()` requires a polygon or a
+nonzero lat/lon, and both `_eval_autonomy_live` and `_eval_autonomy_dryrun`
+reject every detection without one. A wide fence is the supported way to keep
+it out of the way.
+
+Operating outside the radius does not raise an error — the evaluator simply
+never qualifies a target, which presents as the autonomy silently doing
+nothing. To run at another site, re-center rather than widening.
+`tests/test_ugv_strike_profile.py` pins the covered sites.
 
 ## Profiles do not inherit
 
