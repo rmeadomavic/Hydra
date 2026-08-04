@@ -128,6 +128,42 @@ def test_ugv_strike_autonomy_uses_continuous_approach_handler():
     assert selected is pipeline._handle_approach_strike_command
 
 
+def test_strike_handler_survives_pipeline_without_vehicle_attr():
+    """_autonomous_strike_handler runs in the detection loop every frame.
+
+    Pre-existing fixtures (tests/test_pipeline_callbacks.py) build Pipeline by
+    patching __init__ and never set _vehicle. A bare attribute access would
+    raise AttributeError inside the loop and kill detection. Mirrors the
+    defensive getattr in _refuse_approach_for_fw.
+    """
+    from hydra_detect.pipeline.facade import Pipeline
+
+    pipeline = Pipeline.__new__(Pipeline)
+    pipeline._handle_approach_strike_command = MagicMock()
+    pipeline._handle_strike_command = MagicMock()
+
+    selected = pipeline._autonomous_strike_handler()
+    assert selected is pipeline._handle_strike_command
+
+
+def test_strike_handler_profile_match_is_case_insensitive():
+    """HYDRA_VEHICLE casing must not silently downgrade the strike path.
+
+    _is_fw_profile normalizes case; this selector must match that contract or
+    'UGV_STRIKE' quietly falls back to the one-shot handler.
+    """
+    from hydra_detect.pipeline.facade import Pipeline
+
+    for name in ("UGV_STRIKE", " ugv_strike ", "Ugv_Strike"):
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline._vehicle = name
+        pipeline._handle_approach_strike_command = MagicMock()
+        pipeline._handle_strike_command = MagicMock()
+
+        selected = pipeline._autonomous_strike_handler()
+        assert selected is pipeline._handle_approach_strike_command, name
+
+
 @_skip_no_fcntl
 class TestUGVStrikePipeline:
     @staticmethod
