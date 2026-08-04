@@ -8,7 +8,7 @@ description: "Auto-engage targets meeting all qualification criteria with geofen
 The autonomous strike controller can auto-engage targets without operator input. It evaluates every tracked object against a set of qualification criteria and only initiates a strike when **all five conditions are met simultaneously**.
 
 <Danger>
-  **Autonomous strike is off by default.** This feature requires explicit configuration and should only be enabled in controlled environments with appropriate safety measures. The operator is responsible for setting correct geofence boundaries and class whitelists before enabling.
+  **Autonomous strike is off by default.** It requires explicit configuration: `enabled = true`, a geofence, and a class whitelist. With no whitelist set, every detected class qualifies.
 </Danger>
 
 ## Qualification criteria
@@ -98,4 +98,4 @@ The geofence constrains where autonomous strikes can occur.
 
 All autonomous strike actions are logged to the `hydra.audit` logger. Every log entry includes: timestamp, target track ID, class, and confidence, vehicle position at the time of strike, geofence evaluation result, and cooldown state.
 
-This provides a complete accountability trail for post-mission review. Audit logs are written regardless of whether the strike was executed or rejected due to a failed criterion.
+Audit logs are written regardless of whether the strike was executed or rejected on a failed criterion.

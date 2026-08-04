@@ -64,7 +64,7 @@ Hydra's RTSP stream (`rtsp://<jetson-ip>:8554/hydra`) is republished
 as low-latency WebRTC by an optional `mediamtx` sidecar in
 `docker-compose.yml`. Informal Jetson Orin Nano bench runs measured
 sub-200 ms browser latency; browser, network, camera, and encoding settings
-affect the result, and no client install is required.
+affect the result. No client install is required.
 Bring it up with `docker compose up`, then open
 `http://<jetson-ip>:8889/cam/whep` in Chrome/Edge. Disable with
 `HYDRA_STREAMING_MTX=off` (the sidecar is profile-gated).

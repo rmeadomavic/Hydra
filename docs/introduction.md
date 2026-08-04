@@ -99,7 +99,7 @@ Camera frames flow through YOLO for detection, ByteTrack for persistent multi-ob
 
 ## What Hydra is NOT
 
-Hydra is a detection and tracking payload. It augments your existing GCS (Mission Planner, QGroundControl) — it does not replace it. It is not a standalone ground control station. It is not a weapons system; it provides targeting data, not fire control. It is not a substitute for operator training — the operator is always in the loop, and the GCS flight mode switch always overrides Hydra. It runs entirely on local hardware with no cloud dependency.
+Hydra is a detection and tracking payload. It augments your existing GCS (Mission Planner, QGroundControl) — it does not replace it. It is not a standalone ground control station. It is not a weapons system; it provides targeting data, not fire control. The operator stays in the loop, and the GCS flight mode switch always overrides Hydra. It runs entirely on local hardware with no cloud dependency.
 
 ## Supported vehicles
 
