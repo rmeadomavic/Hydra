@@ -128,6 +128,11 @@ def _is_fw_profile(vehicle_type: str | None) -> bool:
     return (vehicle_type or "").strip().lower() == "fw"
 
 
+def _is_ugv_strike_profile(vehicle_type: str | None) -> bool:
+    """Return True if the active vehicle profile is the UGV strike profile."""
+    return (vehicle_type or "").strip().lower() == "ugv_strike"
+
+
 class Pipeline:
     """Top-level orchestrator that ties all modules together."""
 
@@ -1753,7 +1758,8 @@ class Pipeline:
             if self._autonomous is not None and self._mavlink is not None:
                 self._autonomous.evaluate(
                     track_result, self._mavlink,
-                    self._handle_target_lock, self._handle_strike_command,
+                    self._handle_target_lock,
+                    self._autonomous_strike_handler(),
                 )
 
             # Update approach controller with locked track
@@ -2139,6 +2145,20 @@ class Pipeline:
             self._servo_tracker.fire_strike()
         return success
 
+    def _autonomous_strike_handler(self):
+        """Select the profile-specific autonomous strike implementation.
+
+        Uses ``getattr`` for the same reason as ``_refuse_approach_for_fw``:
+        pre-existing test fixtures construct Pipeline by patching __init__
+        and never set ``_vehicle``. This runs inside the detection loop, so a
+        bare attribute access would turn that into a loop-killing
+        AttributeError. Missing profile falls back to the one-shot handler,
+        which is the pre-existing behavior for every other profile.
+        """
+        if _is_ugv_strike_profile(getattr(self, "_vehicle", None)):
+            return self._handle_approach_strike_command
+        return self._handle_strike_command
+
     def _get_preflight(self) -> dict:
         """Run pre-flight checks and return structured results."""
         import os
@@ -2437,9 +2457,15 @@ class Pipeline:
         if self._approach is None:
             logger.warning("Approach strike failed: approach controller not available")
             return False
-        if self._approach.mode != ApproachMode.IDLE:
+        approach_mode = self._approach.mode
+        if (
+            approach_mode == ApproachMode.STRIKE
+            and self._approach.target_track_id == track_id
+        ):
+            return True
+        if approach_mode != ApproachMode.IDLE:
             logger.warning("Approach strike failed: approach already active in %s mode",
-                           self._approach.mode.value)
+                           approach_mode.value)
             return False
 
         with self._state_lock:
